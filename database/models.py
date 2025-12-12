@@ -12,7 +12,9 @@ class Tenant(Base):
   id = Column(Integer, primary_key=True)
   name = Column(String, nullable=False)
   subscription_status = Column(String, default="active")
-  created_at = Column(DateTime, default=datetime)
+  created_at = Column(DateTime, default=datetime.utcnow)
+  users = relationship("User", back_populates="tenant")
+  products = relationship("Product", back_populates="tenant")
 
 # --- Modelo Usuario ---
 class User(Base): 
