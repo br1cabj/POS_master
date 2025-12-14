@@ -1,0 +1,15 @@
+[tool.ruff]
+# Configuración global
+line-length = 88  # Longitud de línea estándar (puedes cambiarlo a 79 o 120)
+
+[tool.ruff.format]
+# 1. Usar comillas simples en lugar de dobles
+quote-style = "single"
+
+# 2. Configuración de indentación (Tabs)
+# Esto le dice a Ruff que use el carácter de tabulación (\t) en lugar de espacios.
+indent-style = "tab"
+
+# Opcional: Si quisieras usar espacios pero cambiar el ancho, usarías:
+# indent-style = "space"
+# indent-width = 2
