@@ -1,4 +1,3 @@
-# controllers/sales_controller.py
 from datetime import datetime
 
 from sqlalchemy.orm import sessionmaker
@@ -13,21 +12,31 @@ class SalesController:
 	def process_sale(self, tenant_id, user_id, cart_items):
 		session = self.Session()
 		try:
-			new_sale = Sale(tenant_id=tenant_id, user_id=user_id, total_amount=0)
+			new_sale = Sale(
+				tenant_id=tenant_id,
+				user_id=user_id,
+				total_amount=0,
+				date=datetime.utcnow(),
+			)
 
 			total_sale = 0
 
 			for item in cart_items:
 				product_db = (
-					session.query(Product).filter_by(id=item['product_id']).first()
+					session.query(Product)
+					.filter_by(id=item['product_id'], tenant_id=tenant_id)
+					.with_for_update()
+					.first()
 				)
 
 				if not product_db:
-					raise Exception(f'Producto {item["name"]} no encontrado.')
+					raise Exception(
+						f'Producto "{item["name"]}" no encontrado o no disponible.'
+					)
 
 				if product_db.stock < item['qty']:
 					raise Exception(
-						f'Stock insuficiente para {item["name"]}. Quedan {product_db.stock}.'
+						f'Stock insuficiente para "{item["name"]}". Disponibles: {product_db.stock}.'
 					)
 
 				product_db.stock -= item['qty']
@@ -36,6 +45,7 @@ class SalesController:
 				total_sale += subtotal
 
 				detail = SaleDetail(
+					tenant_id=tenant_id,
 					product_name=item['name'],
 					quantity=item['qty'],
 					unit_price=item['price'],
@@ -45,12 +55,11 @@ class SalesController:
 				new_sale.items.append(detail)
 
 			new_sale.total_amount = total_sale
-			new_sale.date = datetime.utcnow()
 
 			session.add(new_sale)
 			session.commit()
 
-			return True, f'Venta registrada. Total: ${total_sale}'
+			return True, f'Venta registrada exitosamente. Total: ${total_sale:.2f}'
 
 		except Exception as e:
 			session.rollback()

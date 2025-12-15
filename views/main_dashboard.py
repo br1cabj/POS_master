@@ -5,14 +5,13 @@ from views.sales_view import SalesView
 
 
 class MainDashboard(ctk.CTkFrame):
-	def __init__(self, master, current_user, logout_command):
+	def __init__(self, master, current_user, logout_command, db_engine):
 		super().__init__(master)
 
 		# Referencias
-		self.master_app = master
 		self.current_user = current_user
-
-		self.db_engine = getattr(master, 'db_engine', None)
+		self.master_app = master
+		self.db_engine = db_engine
 		if not self.db_engine:
 			print('ADVERTENCIA: No se encontró db_engine en la App principal.')
 
@@ -46,8 +45,9 @@ class MainDashboard(ctk.CTkFrame):
 			fg_color='transparent',
 			border_width=2,
 			text_color=('gray10', '#DCE4EE'),
+			command=self.show_sales,
 		)
-		self.btn_sales.pack(pady=10, padx=20)
+		self.btn_sales.pack(pady=10, padx=20, fill='x')
 
 		# Botón Salir
 		self.spacer = ctk.CTkFrame(self.sidebar, fg_color='transparent')
@@ -66,7 +66,6 @@ class MainDashboard(ctk.CTkFrame):
 		self.main_area = ctk.CTkFrame(self, fg_color='transparent')
 		self.main_area.pack(side='right', fill='both', expand=True, padx=10, pady=10)
 
-		# Variable para rastrear la vista actual
 		self.current_view = None
 
 		# Cargar vista inicial
@@ -96,10 +95,10 @@ class MainDashboard(ctk.CTkFrame):
 		self.current_view.pack(fill='both', expand=True)
 
 	def show_sales(self):
+		self.highlight_btn(self.btn_sales)
+
 		if self.current_view:
 			self.current_view.destroy()
 
-		self.current_view = SalesView(
-			self.main_area, self.current_user, self.master_app.db_engine
-		)
+		self.current_view = SalesView(self.main_area, self.current_user, self.db_engine)
 		self.current_view.pack(fill='both', expand=True)

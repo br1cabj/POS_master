@@ -1,4 +1,4 @@
-from tkinter import ttk
+from tkinter import messagebox, ttk  # <--- IMPORTANTE: Importar messagebox
 
 import customtkinter as ctk
 
@@ -8,7 +8,6 @@ class SalesView(ctk.CTkFrame):
 		super().__init__(master)
 		self.current_user = current_user
 
-		# Controladores
 		from controllers.product_controller import ProductController
 		from controllers.sales_controller import SalesController
 
@@ -22,7 +21,7 @@ class SalesView(ctk.CTkFrame):
 		self.grid_columnconfigure(1, weight=2)
 		self.grid_rowconfigure(0, weight=1)
 
-		# === PANEL IZQUIERDO: SELECCIÓN DE PRODUCTOS ===
+		# === PANEL IZQUIERDO ===
 		self.left_panel = ctk.CTkFrame(self)
 		self.left_panel.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
 
@@ -30,26 +29,22 @@ class SalesView(ctk.CTkFrame):
 			self.left_panel, text='Agregar Producto', font=('Arial', 18, 'bold')
 		).pack(pady=10)
 
-		# ComboBox para seleccionar productos (Simple para empezar)
 		self.products_combo = ctk.CTkComboBox(self.left_panel, width=200)
 		self.products_combo.set('Seleccionar...')
 		self.products_combo.pack(pady=10)
 
-		# Cantidad
 		self.qty_entry = ctk.CTkEntry(self.left_panel, placeholder_text='Cantidad')
 		self.qty_entry.pack(pady=10)
 		self.qty_entry.insert(0, '1')
 
-		# Botón Agregar
 		self.btn_add = ctk.CTkButton(
 			self.left_panel, text='Agregar al Carrito ->', command=self.add_to_cart
 		)
 		self.btn_add.pack(pady=20)
 
-		# Cargar productos disponibles en el Combo
 		self.load_products_combo()
 
-		# === PANEL DERECHO: CARRITO ===
+		# === PANEL DERECHO ===
 		self.right_panel = ctk.CTkFrame(self)
 		self.right_panel.grid(row=0, column=1, sticky='nsew', padx=5, pady=5)
 
@@ -57,7 +52,6 @@ class SalesView(ctk.CTkFrame):
 			self.right_panel, text='Ticket de Venta', font=('Arial', 18, 'bold')
 		).pack(pady=10)
 
-		# Tabla
 		style = ttk.Style()
 		style.configure('Treeview', font=('Arial', 12), rowheight=25)
 
@@ -87,42 +81,71 @@ class SalesView(ctk.CTkFrame):
 		self.btn_pay.pack(pady=10, fill='x', padx=20)
 
 	def load_products_combo(self):
-		# Buscamos productos de la DB
-		self.db_products = self.product_ctrl.get_products(self.current_user.tenant_id)
-		self.product_map = {p.name: p for p in self.db_products}
-		self.products_combo.configure(values=list(self.product_map.keys()))
+		try:
+			self.db_products = self.product_ctrl.get_products(
+				self.current_user.tenant_id
+			)
+			self.product_map = {p.name: p for p in self.db_products}
+
+			if not self.product_map:
+				self.products_combo.set('Sin productos disponibles')
+				self.products_combo.configure(state='disabled')
+			else:
+				self.products_combo.configure(values=list(self.product_map.keys()))
+		except Exception as e:
+			messagebox.showerror('Error DB', f'No se pudieron cargar productos: {e}')
+			self.product_map = {}
 
 	def add_to_cart(self):
 		name = self.products_combo.get()
 		qty_str = self.qty_entry.get()
 
-		if name in self.product_map and qty_str.isdigit():
-			qty = int(qty_str)
-			product = self.product_map[name]
-
-			# Verificar si hay stock (simple check visual)
-			if qty > product.stock:
-				print('No hay suficiente stock')
-				return
-
-			subtotal = product.price * qty
-
-			# Agregar a lista interna
-			self.cart.append(
-				{
-					'product_id': product.id,
-					'name': product.name,
-					'price': product.price,
-					'qty': qty,
-					'subtotal': subtotal,
-				}
+		if name == 'Seleccionar...' or name == 'Sin productos disponibles':
+			messagebox.showwarning(
+				'Atención', 'Por favor selecciona un producto válido.'
 			)
+			return
 
-			# Agregar a la tabla visual
-			self.tree.insert(
-				'', 'end', values=(name, qty, f'${product.price}', f'${subtotal}')
+		if name not in self.product_map:
+			messagebox.showerror(
+				'Error',
+				'El producto seleccionado no parece existir en la base de datos cargada.',
 			)
-			self.update_total()
+			return
+
+		if not qty_str.isdigit():
+			messagebox.showwarning('Atención', 'La cantidad debe ser un número entero.')
+			return
+
+		qty = int(qty_str)
+		if qty <= 0:
+			messagebox.showwarning('Atención', 'La cantidad debe ser mayor a 0.')
+			return
+
+		product = self.product_map[name]
+
+		if qty > product.stock:
+			messagebox.showwarning(
+				'Stock Insuficiente', f'Solo quedan {product.stock} unidades.'
+			)
+			return
+
+		subtotal = product.price * qty
+
+		self.cart.append(
+			{
+				'product_id': product.id,
+				'name': product.name,
+				'price': product.price,
+				'qty': qty,
+				'subtotal': subtotal,
+			}
+		)
+
+		self.tree.insert(
+			'', 'end', values=(name, qty, f'${product.price}', f'${subtotal}')
+		)
+		self.update_total()
 
 	def update_total(self):
 		total = sum(item['subtotal'] for item in self.cart)
@@ -130,18 +153,26 @@ class SalesView(ctk.CTkFrame):
 
 	def process_sale(self):
 		if not self.cart:
+			messagebox.showinfo('Carrito Vacío', 'No hay productos para vender.')
 			return
 
-		success, msg = self.sales_ctrl.process_sale(
-			self.current_user.tenant_id, self.current_user.id, self.cart
-		)
+		try:
+			success, msg = self.sales_ctrl.process_sale(
+				self.current_user.tenant_id, self.current_user.id, self.cart
+			)
 
-		if success:
-			print(msg)
-			self.cart = []
-			for item in self.tree.get_children():
-				self.tree.delete(item)
-			self.update_total()
-			self.load_products_combo()
-		else:
-			print(f'Error: {msg}')
+			if success:
+				messagebox.showinfo('Éxito', f'Venta realizada: {msg}')
+				self.cart = []
+				for item in self.tree.get_children():
+					self.tree.delete(item)
+				self.update_total()
+				self.load_products_combo()
+			else:
+				messagebox.showerror('Error en Venta', f'No se pudo procesar: {msg}')
+
+		except Exception as e:
+			print(f'Error crítico al procesar venta: {e}')
+			messagebox.showerror(
+				'Error Crítico', 'Ocurrió un error al intentar guardar la venta.'
+			)

@@ -74,15 +74,14 @@ class Sale(Base):
 	)
 
 
-# --- Modelo DETALLE VENTAS
+# --- Modelo DETALLE VENTAS ---
 class SaleDetail(Base):
 	__tablename__ = 'sale_details'
 
 	id = Column(Integer, primary_key=True)
+	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
 	sale_id = Column(Integer, ForeignKey('sales.id'), nullable=False)
-	product_name = Column(
-		String
-	)  # Guardamos el nombre por si borran el producto original
+	product_name = Column(String)
 	quantity = Column(Integer, nullable=False)
 	unit_price = Column(Float, nullable=False)
 	subtotal = Column(Float, nullable=False)
