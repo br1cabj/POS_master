@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import joinedload, sessionmaker
 
 from database.models import Product, Sale, SaleDetail
 
@@ -64,5 +64,30 @@ class SalesController:
 		except Exception as e:
 			session.rollback()
 			return False, str(e)
+		finally:
+			session.close()
+
+	def get_history(self, tenant_id):
+		session = self.Session()
+		try:
+			sales = (
+				session.query(Sale)
+				.options(joinedload(Sale.user), joinedload(Sale.items))
+				.filter_by(tenant_id=tenant_id)
+				.order_by(Sale.date.desc())
+				.all()
+			)
+			return sales
+		except Exception as e:
+			print(f'Error al obtener historial de ventas: {e}')
+			return []
+		finally:
+			session.close()
+
+	def get_sale_details(self, sale_id):
+		session = self.Session()
+		try:
+			details = session.query(SaleDetail).filter_by(sale_id=sale_id).all()
+			return details
 		finally:
 			session.close()

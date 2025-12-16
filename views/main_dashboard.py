@@ -1,5 +1,6 @@
 import customtkinter as ctk
 
+from views.history_view import HistoryView
 from views.products_view import ProductsView
 from views.sales_view import SalesView
 
@@ -48,6 +49,11 @@ class MainDashboard(ctk.CTkFrame):
 			command=self.show_sales,
 		)
 		self.btn_sales.pack(pady=10, padx=20, fill='x')
+
+		self.btn_history = ctk.CTkButton(
+			self.sidebar, text='📜 Historial', command=self.show_history
+		)
+		self.btn_history.pack(pady=10, padx=20, fill='x')
 
 		# Botón Salir
 		self.spacer = ctk.CTkFrame(self.sidebar, fg_color='transparent')
@@ -101,4 +107,13 @@ class MainDashboard(ctk.CTkFrame):
 			self.current_view.destroy()
 
 		self.current_view = SalesView(self.main_area, self.current_user, self.db_engine)
+		self.current_view.pack(fill='both', expand=True)
+
+	def show_history(self):
+		if self.current_view:
+			self.current_view.destroy()
+
+		self.current_view = HistoryView(
+			self.main_area, self.current_user, self.master_app.db_engine
+		)
 		self.current_view.pack(fill='both', expand=True)
