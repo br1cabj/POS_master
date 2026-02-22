@@ -1,126 +1,72 @@
 import customtkinter as ctk
 
-from views.history_view import HistoryView
-from views.products_view import ProductsView
+from views.articles_view import ArticlesView
 from views.sales_view import SalesView
 from views.users_view import UsersView
 
 
 class MainDashboard(ctk.CTkFrame):
-	def __init__(self, master, current_user, logout_command, db_engine):
+	def __init__(self, master, current_user, logout_command, db_engine=None, **kwargs):
 		super().__init__(master)
-
-		# Referencias
-		self.current_user = current_user
 		self.master_app = master
-		self.db_engine = db_engine
-		if not self.db_engine:
-			print('ADVERTENCIA: No se encontró db_engine en la App principal.')
+		self.current_user = current_user
 
-		# Configuración del Frame principal
+		if db_engine:
+			self.db_engine = db_engine
+
 		self.pack(fill='both', expand=True)
 
-		# --- 1. SIDEBAR (Menú Lateral) ---
+		# --- Sidebar (Menú Lateral) ---
 		self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
 		self.sidebar.pack(side='left', fill='y')
 
 		# Título Sidebar
-		self.lbl_title = ctk.CTkLabel(
-			self.sidebar, text='MENÚ POS', font=('Arial', 20, 'bold')
+		ctk.CTkLabel(self.sidebar, text='MENÚ POS', font=('Arial', 20, 'bold')).pack(
+			pady=30
 		)
-		self.lbl_title.pack(pady=30)
 
-		# Botones del Menú
-		self.btn_products = ctk.CTkButton(
-			self.sidebar,
-			text='📦 Productos',
-			command=self.show_products,
-			fg_color='transparent',
-			border_width=2,
-			text_color=('gray10', '#DCE4EE'),
+		# Botón de Artículos (Reemplaza al viejo Productos)
+		self.btn_articles = ctk.CTkButton(
+			self.sidebar, text='📦 Artículos', command=self.show_articles
 		)
-		self.btn_products.pack(pady=10, padx=20, fill='x')
+		self.btn_articles.pack(pady=10, padx=20)
 
+		# Botones temporales desactivados
 		self.btn_sales = ctk.CTkButton(
-			self.sidebar,
-			text='💰 Ventas',
-			fg_color='transparent',
-			border_width=2,
-			text_color=('gray10', '#DCE4EE'),
-			command=self.show_sales,
+			self.sidebar, text='💰 Ventas', command=self.show_sales
 		)
-		self.btn_sales.pack(pady=10, padx=20, fill='x')
+		self.btn_sales.pack(pady=10, padx=20)
 
 		self.btn_history = ctk.CTkButton(
-			self.sidebar, text='📜 Historial', command=self.show_history
+			self.sidebar, text='📜 Historial', state='disabled'
 		)
-		self.btn_history.pack(pady=10, padx=20, fill='x')
+		self.btn_history.pack(pady=10, padx=20)
 
+		# Solo dibujamos este botón si el rol es "admin"
 		if self.current_user.role == 'admin':
 			self.btn_users = ctk.CTkButton(
 				self.sidebar, text='👥 Empleados', command=self.show_users
 			)
-			self.btn_users.pack(pady=10, padx=20, fill='x')
+			self.btn_users.pack(pady=10, padx=20)
 
 		# Botón Salir
-		self.spacer = ctk.CTkFrame(self.sidebar, fg_color='transparent')
-		self.spacer.pack(side='top', fill='both', expand=True)
+		ctk.CTkButton(
+			self.sidebar, text='Cerrar Sesión', fg_color='red', command=logout_command
+		).pack(side='bottom', pady=20)
 
-		self.btn_logout = ctk.CTkButton(
-			self.sidebar,
-			text='Cerrar Sesión',
-			fg_color='firebrick',
-			hover_color='darkred',
-			command=logout_command,
-		)
-		self.btn_logout.pack(side='bottom', pady=20, padx=20, fill='x')
-
-		# --- 2. ÁREA PRINCIPAL ---
-		self.main_area = ctk.CTkFrame(self, fg_color='transparent')
+		# --- Área Principal ---
+		self.main_area = ctk.CTkFrame(self)
 		self.main_area.pack(side='right', fill='both', expand=True, padx=10, pady=10)
 
 		self.current_view = None
 
-		# Cargar vista inicial
-		self.show_products()
+		# Iniciamos mostrando la pantalla de artículos por defecto
+		self.show_articles()
 
-	def highlight_btn(self, active_btn: ctk.CTkButton):
-		"""Pequeña función visual para resaltar el botón activo"""
-
-		self.btn_products.configure(fg_color='transparent')
-
-		# Pintamos el activo con el color del tema
-		active_btn.configure(fg_color=['#3B8ED0', '#1F6AA5'])
-
-	def show_products(self):
-		"""Cambia la vista principal a Productos"""
-
-		# 1. Efecto visual en el botón
-		self.highlight_btn(self.btn_products)
-
-		# 2. Limpiar vista anterior
+	def show_articles(self):
 		if self.current_view:
 			self.current_view.destroy()
-
-		self.current_view = ProductsView(
-			self.main_area, self.current_user, self.db_engine
-		)
-		self.current_view.pack(fill='both', expand=True)
-
-	def show_sales(self):
-		self.highlight_btn(self.btn_sales)
-
-		if self.current_view:
-			self.current_view.destroy()
-
-		self.current_view = SalesView(self.main_area, self.current_user, self.db_engine)
-		self.current_view.pack(fill='both', expand=True)
-
-	def show_history(self):
-		if self.current_view:
-			self.current_view.destroy()
-
-		self.current_view = HistoryView(
+		self.current_view = ArticlesView(
 			self.main_area, self.current_user, self.master_app.db_engine
 		)
 		self.current_view.pack(fill='both', expand=True)
@@ -128,8 +74,15 @@ class MainDashboard(ctk.CTkFrame):
 	def show_users(self):
 		if self.current_view:
 			self.current_view.destroy()
-
 		self.current_view = UsersView(
+			self.main_area, self.current_user, self.master_app.db_engine
+		)
+		self.current_view.pack(fill='both', expand=True)
+
+	def show_sales(self):
+		if self.current_view:
+			self.current_view.destroy()
+		self.current_view = SalesView(
 			self.main_area, self.current_user, self.master_app.db_engine
 		)
 		self.current_view.pack(fill='both', expand=True)

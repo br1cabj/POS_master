@@ -1,77 +1,82 @@
 from datetime import datetime
 
-from sqlalchemy.orm import joinedload, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
-from database.models import Product, Sale, SaleDetail, Tenant, User
-from services.print_service import PrintService
+from database.models import Article, Customer, Sale, SaleDetail
 
 
 class SalesController:
 	def __init__(self, db_engine):
 		self.Session = sessionmaker(bind=db_engine)
-		self.printer = PrintService()
 
 	def process_sale(self, tenant_id, user_id, cart_items):
+		"""
+		Procesa la venta, descuenta stock y calcula la GANANCIA (Profit)
+		cart_items formato: [{'article_id': 1, 'desc': 'Coca', 'price': 150, 'qty': 2}, ...]
+		"""
 		session = self.Session()
 		try:
+			# 1. Buscar al cliente por defecto "Consumidor Final"
+			default_customer = (
+				session.query(Customer)
+				.filter_by(name='Consumidor Final', tenant_id=tenant_id)
+				.first()
+			)
+			customer_id = default_customer.id if default_customer else None
+
+			# 2. Crear cabecera de venta
 			new_sale = Sale(
-				tenant_id=tenant_id,
-				user_id=user_id,
-				total_amount=0,
-				date=datetime.utcnow(),
+				tenant_id=tenant_id, user_id=user_id, customer_id=customer_id
 			)
 
-			total_sale = 0
-			details_list = []
+			total_sale = 0.0
+			total_cost = 0.0
 
+			# 3. Procesar el carrito
 			for item in cart_items:
-				product_db = (
-					session.query(Product)
-					.filter_by(id=item['product_id'], tenant_id=tenant_id)
-					.with_for_update()
-					.first()
+				article = (
+					session.query(Article).filter_by(id=item['article_id']).first()
 				)
+				if not article:
+					raise Exception(f'Artículo no encontrado: {item["desc"]}')
 
-				if not product_db:
+				if article.stock < item['qty']:
 					raise Exception(
-						f'Producto "{item["name"]}" no encontrado o no disponible.'
+						f'Stock insuficiente para {article.description}. Quedan {article.stock}.'
 					)
 
-				if product_db.stock < item['qty']:
-					raise Exception(
-						f'Stock insuficiente para "{item["name"]}". Disponibles: {product_db.stock}.'
-					)
+				# Restar stock
+				article.stock -= item['qty']
 
-				product_db.stock -= item['qty']
-
+				# Cálculos de dinero
 				subtotal = item['price'] * item['qty']
-				total_sale += subtotal
+				cost_subtotal = article.cost_price * item['qty']
 
+				total_sale += subtotal
+				total_cost += cost_subtotal
+
+				# Crear detalle
 				detail = SaleDetail(
-					tenant_id=tenant_id,
-					product_name=item['name'],
+					article_id=article.id,
+					description=article.description,
 					quantity=item['qty'],
+					unit_cost=article.cost_price,
 					unit_price=item['price'],
 					subtotal=subtotal,
 				)
-
 				new_sale.items.append(detail)
-				details_list.append(detail)
 
+			# 4. Guardar totales y ganancia (Total Venta - Total Costo)
 			new_sale.total_amount = total_sale
+			new_sale.profit = total_sale - total_cost
 			new_sale.date = datetime.utcnow()
 
 			session.add(new_sale)
 			session.commit()
 
-			tenant = session.query(Tenant).get(tenant_id)
-			user = session.query(User).get(user_id)
+			# (Nota: Omitimos temporalmente el servicio de impresión para probar la lógica primero)
 
-			self.printer.generate_ticket(
-				new_sale, details_list, tenant.name, user.username
-			)
-
-			return True, f'Venta registrada exitosamente. Total: ${total_sale:.2f}'
+			return True, f'Venta registrada. Total: ${total_sale:.2f}'
 
 		except Exception as e:
 			session.rollback()
@@ -79,27 +84,10 @@ class SalesController:
 		finally:
 			session.close()
 
-	def get_history(self, tenant_id):
+	def get_articles_for_sale(self, tenant_id):
+		"""Obtiene artículos para llenar el buscador del POS"""
 		session = self.Session()
 		try:
-			sales = (
-				session.query(Sale)
-				.options(joinedload(Sale.user), joinedload(Sale.items))
-				.filter_by(tenant_id=tenant_id)
-				.order_by(Sale.date.desc())
-				.all()
-			)
-			return sales
-		except Exception as e:
-			print(f'Error al obtener historial de ventas: {e}')
-			return []
-		finally:
-			session.close()
-
-	def get_sale_details(self, sale_id):
-		session = self.Session()
-		try:
-			details = session.query(SaleDetail).filter_by(sale_id=sale_id).all()
-			return details
+			return session.query(Article).filter_by(tenant_id=tenant_id).all()
 		finally:
 			session.close()

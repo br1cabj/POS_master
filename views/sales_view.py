@@ -1,4 +1,4 @@
-from tkinter import messagebox, ttk  # <--- IMPORTANTE: Importar messagebox
+from tkinter import ttk
 
 import customtkinter as ctk
 
@@ -8,25 +8,22 @@ class SalesView(ctk.CTkFrame):
 		super().__init__(master)
 		self.current_user = current_user
 
-		from controllers.product_controller import ProductController
 		from controllers.sales_controller import SalesController
 
-		self.product_ctrl = ProductController(db_engine)
 		self.sales_ctrl = SalesController(db_engine)
 
 		self.cart = []
 
-		# --- LAYOUT ---
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=2)
 		self.grid_rowconfigure(0, weight=1)
 
-		# === PANEL IZQUIERDO ===
+		# === PANEL IZQUIERDO: BUSCADOR ===
 		self.left_panel = ctk.CTkFrame(self)
 		self.left_panel.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
 
 		ctk.CTkLabel(
-			self.left_panel, text='Agregar Producto', font=('Arial', 18, 'bold')
+			self.left_panel, text='Punto de Venta', font=('Arial', 18, 'bold')
 		).pack(pady=10)
 
 		self.products_combo = ctk.CTkComboBox(self.left_panel, width=200)
@@ -42,14 +39,17 @@ class SalesView(ctk.CTkFrame):
 		)
 		self.btn_add.pack(pady=20)
 
-		self.load_products_combo()
+		self.lbl_msg = ctk.CTkLabel(self.left_panel, text='', text_color='red')
+		self.lbl_msg.pack(pady=5)
 
-		# === PANEL DERECHO ===
+		self.load_articles_combo()
+
+		# === PANEL DERECHO: CARRITO ===
 		self.right_panel = ctk.CTkFrame(self)
 		self.right_panel.grid(row=0, column=1, sticky='nsew', padx=5, pady=5)
 
 		ctk.CTkLabel(
-			self.right_panel, text='Ticket de Venta', font=('Arial', 18, 'bold')
+			self.right_panel, text='Ticket Actual', font=('Arial', 18, 'bold')
 		).pack(pady=10)
 
 		style = ttk.Style()
@@ -57,10 +57,10 @@ class SalesView(ctk.CTkFrame):
 
 		self.tree = ttk.Treeview(
 			self.right_panel,
-			columns=('Producto', 'Cant', 'Precio', 'Subtotal'),
+			columns=('Artículo', 'Cant', 'Precio', 'Subtotal'),
 			show='headings',
 		)
-		self.tree.heading('Producto', text='Producto')
+		self.tree.heading('Artículo', text='Artículo')
 		self.tree.heading('Cant', text='Cant')
 		self.tree.heading('Precio', text='Precio')
 		self.tree.heading('Subtotal', text='Subtotal')
@@ -73,79 +73,52 @@ class SalesView(ctk.CTkFrame):
 
 		self.btn_pay = ctk.CTkButton(
 			self.right_panel,
-			text='CONFIRMAR VENTA',
+			text='💰 CONFIRMAR VENTA',
 			fg_color='green',
 			height=50,
 			command=self.process_sale,
 		)
 		self.btn_pay.pack(pady=10, fill='x', padx=20)
 
-	def load_products_combo(self):
-		try:
-			self.db_products = self.product_ctrl.get_products(
-				self.current_user.tenant_id
-			)
-			self.product_map = {p.name: p for p in self.db_products}
-
-			if not self.product_map:
-				self.products_combo.set('Sin productos disponibles')
-				self.products_combo.configure(state='disabled')
-			else:
-				self.products_combo.configure(values=list(self.product_map.keys()))
-		except Exception as e:
-			messagebox.showerror('Error DB', f'No se pudieron cargar productos: {e}')
-			self.product_map = {}
+	def load_articles_combo(self):
+		self.db_articles = self.sales_ctrl.get_articles_for_sale(
+			self.current_user.tenant_id
+		)
+		self.article_map = {a.description: a for a in self.db_articles}
+		if self.article_map:
+			self.products_combo.configure(values=list(self.article_map.keys()))
 
 	def add_to_cart(self):
-		name = self.products_combo.get()
+		self.lbl_msg.configure(text='')  # Limpiar errores
+		desc = self.products_combo.get()
 		qty_str = self.qty_entry.get()
 
-		if name == 'Seleccionar...' or name == 'Sin productos disponibles':
-			messagebox.showwarning(
-				'Atención', 'Por favor selecciona un producto válido.'
+		if desc in self.article_map and qty_str.isdigit():
+			qty = int(qty_str)
+			article = self.article_map[desc]
+
+			if qty > article.stock:
+				self.lbl_msg.configure(text=f'Solo quedan {article.stock} en stock')
+				return
+
+			subtotal = article.price_1 * qty
+
+			self.cart.append(
+				{
+					'article_id': article.id,
+					'desc': article.description,
+					'price': article.price_1,
+					'qty': qty,
+					'subtotal': subtotal,
+				}
 			)
-			return
 
-		if name not in self.product_map:
-			messagebox.showerror(
-				'Error',
-				'El producto seleccionado no parece existir en la base de datos cargada.',
+			self.tree.insert(
+				'',
+				'end',
+				values=(desc, qty, f'${article.price_1:.2f}', f'${subtotal:.2f}'),
 			)
-			return
-
-		if not qty_str.isdigit():
-			messagebox.showwarning('Atención', 'La cantidad debe ser un número entero.')
-			return
-
-		qty = int(qty_str)
-		if qty <= 0:
-			messagebox.showwarning('Atención', 'La cantidad debe ser mayor a 0.')
-			return
-
-		product = self.product_map[name]
-
-		if qty > product.stock:
-			messagebox.showwarning(
-				'Stock Insuficiente', f'Solo quedan {product.stock} unidades.'
-			)
-			return
-
-		subtotal = product.price * qty
-
-		self.cart.append(
-			{
-				'product_id': product.id,
-				'name': product.name,
-				'price': product.price,
-				'qty': qty,
-				'subtotal': subtotal,
-			}
-		)
-
-		self.tree.insert(
-			'', 'end', values=(name, qty, f'${product.price}', f'${subtotal}')
-		)
-		self.update_total()
+			self.update_total()
 
 	def update_total(self):
 		total = sum(item['subtotal'] for item in self.cart)
@@ -153,26 +126,18 @@ class SalesView(ctk.CTkFrame):
 
 	def process_sale(self):
 		if not self.cart:
-			messagebox.showinfo('Carrito Vacío', 'No hay productos para vender.')
 			return
 
-		try:
-			success, msg = self.sales_ctrl.process_sale(
-				self.current_user.tenant_id, self.current_user.id, self.cart
-			)
+		success, msg = self.sales_ctrl.process_sale(
+			self.current_user.tenant_id, self.current_user.id, self.cart
+		)
 
-			if success:
-				messagebox.showinfo('Éxito', f'Venta realizada: {msg}')
-				self.cart = []
-				for item in self.tree.get_children():
-					self.tree.delete(item)
-				self.update_total()
-				self.load_products_combo()
-			else:
-				messagebox.showerror('Error en Venta', f'No se pudo procesar: {msg}')
-
-		except Exception as e:
-			print(f'Error crítico al procesar venta: {e}')
-			messagebox.showerror(
-				'Error Crítico', 'Ocurrió un error al intentar guardar la venta.'
-			)
+		if success:
+			self.lbl_msg.configure(text=msg, text_color='green')
+			self.cart = []
+			for item in self.tree.get_children():
+				self.tree.delete(item)
+			self.update_total()
+			self.load_articles_combo()
+		else:
+			self.lbl_msg.configure(text=msg, text_color='red')
