@@ -2,12 +2,14 @@ from datetime import datetime
 
 from sqlalchemy.orm import joinedload, sessionmaker
 
-from database.models import Product, Sale, SaleDetail
+from database.models import Product, Sale, SaleDetail, Tenant, User
+from services.print_service import PrintService
 
 
 class SalesController:
 	def __init__(self, db_engine):
 		self.Session = sessionmaker(bind=db_engine)
+		self.printer = PrintService()
 
 	def process_sale(self, tenant_id, user_id, cart_items):
 		session = self.Session()
@@ -20,6 +22,7 @@ class SalesController:
 			)
 
 			total_sale = 0
+			details_list = []
 
 			for item in cart_items:
 				product_db = (
@@ -53,11 +56,20 @@ class SalesController:
 				)
 
 				new_sale.items.append(detail)
+				details_list.append(detail)
 
 			new_sale.total_amount = total_sale
+			new_sale.date = datetime.utcnow()
 
 			session.add(new_sale)
 			session.commit()
+
+			tenant = session.query(Tenant).get(tenant_id)
+			user = session.query(User).get(user_id)
+
+			self.printer.generate_ticket(
+				new_sale, details_list, tenant.name, user.username
+			)
 
 			return True, f'Venta registrada exitosamente. Total: ${total_sale:.2f}'
 
