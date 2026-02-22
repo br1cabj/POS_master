@@ -3,6 +3,7 @@ import customtkinter as ctk
 from views.history_view import HistoryView
 from views.products_view import ProductsView
 from views.sales_view import SalesView
+from views.users_view import UsersView
 
 
 class MainDashboard(ctk.CTkFrame):
@@ -54,6 +55,12 @@ class MainDashboard(ctk.CTkFrame):
 			self.sidebar, text='📜 Historial', command=self.show_history
 		)
 		self.btn_history.pack(pady=10, padx=20, fill='x')
+
+		if self.current_user.role == 'admin':
+			self.btn_users = ctk.CTkButton(
+				self.sidebar, text='👥 Empleados', command=self.show_users
+			)
+			self.btn_users.pack(pady=10, padx=20, fill='x')
 
 		# Botón Salir
 		self.spacer = ctk.CTkFrame(self.sidebar, fg_color='transparent')
@@ -114,6 +121,15 @@ class MainDashboard(ctk.CTkFrame):
 			self.current_view.destroy()
 
 		self.current_view = HistoryView(
+			self.main_area, self.current_user, self.master_app.db_engine
+		)
+		self.current_view.pack(fill='both', expand=True)
+
+	def show_users(self):
+		if self.current_view:
+			self.current_view.destroy()
+
+		self.current_view = UsersView(
 			self.main_area, self.current_user, self.master_app.db_engine
 		)
 		self.current_view.pack(fill='both', expand=True)
