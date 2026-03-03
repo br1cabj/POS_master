@@ -1,6 +1,7 @@
 import customtkinter as ctk
 
 from views.articles_view import ArticlesView
+from views.history_view import HistoryView
 from views.sales_view import SalesView
 from views.users_view import UsersView
 
@@ -25,20 +26,19 @@ class MainDashboard(ctk.CTkFrame):
 			pady=30
 		)
 
-		# Botón de Artículos (Reemplaza al viejo Productos)
+		# Botón de Artículos
 		self.btn_articles = ctk.CTkButton(
 			self.sidebar, text='📦 Artículos', command=self.show_articles
 		)
 		self.btn_articles.pack(pady=10, padx=20)
 
-		# Botones temporales desactivados
 		self.btn_sales = ctk.CTkButton(
 			self.sidebar, text='💰 Ventas', command=self.show_sales
 		)
 		self.btn_sales.pack(pady=10, padx=20)
 
 		self.btn_history = ctk.CTkButton(
-			self.sidebar, text='📜 Historial', state='disabled'
+			self.sidebar, text='📜 Historial', command=self.show_history
 		)
 		self.btn_history.pack(pady=10, padx=20)
 
@@ -83,6 +83,14 @@ class MainDashboard(ctk.CTkFrame):
 		if self.current_view:
 			self.current_view.destroy()
 		self.current_view = SalesView(
+			self.main_area, self.current_user, self.master_app.db_engine
+		)
+		self.current_view.pack(fill='both', expand=True)
+
+	def show_history(self):
+		if self.current_view:
+			self.current_view.destroy()
+		self.current_view = HistoryView(
 			self.main_area, self.current_user, self.master_app.db_engine
 		)
 		self.current_view.pack(fill='both', expand=True)

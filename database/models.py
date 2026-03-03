@@ -135,7 +135,7 @@ class SaleDetail(Base):
 	id = Column(Integer, primary_key=True)
 	sale_id = Column(Integer, ForeignKey('sales.id'), nullable=False)
 
-	article_id = Column(Integer, ForeignKey('articles.id'), nullable=False)
+	article_id = Column(Integer, ForeignKey('articles.id'), nullable=True)
 	description = Column(String)
 
 	quantity = Column(Integer, nullable=False)

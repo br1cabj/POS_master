@@ -11,7 +11,6 @@ class SalesView(ctk.CTkFrame):
 		from controllers.sales_controller import SalesController
 
 		self.sales_ctrl = SalesController(db_engine)
-
 		self.cart = []
 
 		self.grid_columnconfigure(0, weight=1)
@@ -37,7 +36,38 @@ class SalesView(ctk.CTkFrame):
 		self.btn_add = ctk.CTkButton(
 			self.left_panel, text='Agregar al Carrito ->', command=self.add_to_cart
 		)
-		self.btn_add.pack(pady=20)
+		self.btn_add.pack(pady=10)
+
+		ctk.CTkLabel(self.left_panel, text='------------------------').pack(pady=5)
+		ctk.CTkLabel(
+			self.left_panel,
+			text='Venta Rápida (Sin Stock)',
+			font=('Arial', 14, 'bold'),
+			text_color='orange',
+		).pack(pady=5)
+
+		self.entry_fast_desc = ctk.CTkEntry(
+			self.left_panel, placeholder_text='Descripción manual (Ej. Envío)'
+		)
+		self.entry_fast_desc.pack(pady=5, padx=20, fill='x')
+
+		self.entry_fast_price = ctk.CTkEntry(
+			self.left_panel, placeholder_text='Precio ($)'
+		)
+		self.entry_fast_price.pack(pady=5, padx=20, fill='x')
+
+		self.entry_fast_qty = ctk.CTkEntry(self.left_panel, placeholder_text='Cantidad')
+		self.entry_fast_qty.pack(pady=5, padx=20, fill='x')
+		self.entry_fast_qty.insert(0, '1')
+
+		self.btn_add_fast = ctk.CTkButton(
+			self.left_panel,
+			text='⚡ Agregar Venta Rápida',
+			fg_color='orange',
+			hover_color='#cc7000',
+			command=self.add_fast_to_cart,
+		)
+		self.btn_add_fast.pack(pady=10)
 
 		self.lbl_msg = ctk.CTkLabel(self.left_panel, text='', text_color='red')
 		self.lbl_msg.pack(pady=5)
@@ -119,6 +149,49 @@ class SalesView(ctk.CTkFrame):
 				values=(desc, qty, f'${article.price_1:.2f}', f'${subtotal:.2f}'),
 			)
 			self.update_total()
+
+	def add_fast_to_cart(self):
+		self.lbl_msg.configure(text='')
+		desc = self.entry_fast_desc.get().strip()
+		price_str = self.entry_fast_price.get().strip()
+		qty_str = self.entry_fast_qty.get().strip()
+
+		if not desc or not price_str or not qty_str:
+			self.lbl_msg.configure(text='Completa los campos de venta rápida')
+			return
+
+		try:
+			price = float(price_str)
+			qty = int(qty_str)
+		except ValueError:
+			self.lbl_msg.configure(text='Precio o cantidad inválidos')
+			return
+
+		subtotal = price * qty
+
+		# Le ponemos un asterisco visual para saber que es una venta libre
+		visual_desc = f'*(Libre)* {desc}'
+
+		# Guardamos en el carrito con article_id = None
+		self.cart.append(
+			{
+				'article_id': None,
+				'desc': visual_desc,
+				'price': price,
+				'qty': qty,
+				'subtotal': subtotal,
+			}
+		)
+		self.tree.insert(
+			'', 'end', values=(visual_desc, qty, f'${price:.2f}', f'${subtotal:.2f}')
+		)
+		self.update_total()
+
+		# Limpiar las cajitas para la siguiente venta rápida
+		self.entry_fast_desc.delete(0, 'end')
+		self.entry_fast_price.delete(0, 'end')
+		self.entry_fast_qty.delete(0, 'end')
+		self.entry_fast_qty.insert(0, '1')
 
 	def update_total(self):
 		total = sum(item['subtotal'] for item in self.cart)

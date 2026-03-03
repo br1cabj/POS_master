@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import joinedload, sessionmaker
 
 from database.models import Article, Customer, Sale, SaleDetail
 
@@ -10,13 +10,9 @@ class SalesController:
 		self.Session = sessionmaker(bind=db_engine)
 
 	def process_sale(self, tenant_id, user_id, cart_items):
-		"""
-		Procesa la venta, descuenta stock y calcula la GANANCIA (Profit)
-		cart_items formato: [{'article_id': 1, 'desc': 'Coca', 'price': 150, 'qty': 2}, ...]
-		"""
+		"""Procesa la venta, descuenta stock (solo si aplica) y calcula la GANANCIA"""
 		session = self.Session()
 		try:
-			# 1. Buscar al cliente por defecto "Consumidor Final"
 			default_customer = (
 				session.query(Customer)
 				.filter_by(name='Consumidor Final', tenant_id=tenant_id)
@@ -24,57 +20,52 @@ class SalesController:
 			)
 			customer_id = default_customer.id if default_customer else None
 
-			# 2. Crear cabecera de venta
 			new_sale = Sale(
 				tenant_id=tenant_id, user_id=user_id, customer_id=customer_id
 			)
-
 			total_sale = 0.0
 			total_cost = 0.0
 
-			# 3. Procesar el carrito
 			for item in cart_items:
-				article = (
-					session.query(Article).filter_by(id=item['article_id']).first()
-				)
-				if not article:
-					raise Exception(f'Artículo no encontrado: {item["desc"]}')
-
-				if article.stock < item['qty']:
-					raise Exception(
-						f'Stock insuficiente para {article.description}. Quedan {article.stock}.'
+				if item.get('article_id') is not None:
+					article = (
+						session.query(Article).filter_by(id=item['article_id']).first()
 					)
+					if not article:
+						raise Exception(f'Artículo no encontrado: {item["desc"]}')
+					if article.stock < item['qty']:
+						raise Exception(
+							f'Stock insuficiente para {article.description}'
+						)
 
-				# Restar stock
-				article.stock -= item['qty']
+					article.stock -= item['qty']
+					cost_price = article.cost_price
+				else:
+					cost_price = 0.0
+				# -----------------------------------------------------------------
 
-				# Cálculos de dinero
 				subtotal = item['price'] * item['qty']
-				cost_subtotal = article.cost_price * item['qty']
+				cost_subtotal = cost_price * item['qty']
 
 				total_sale += subtotal
 				total_cost += cost_subtotal
 
-				# Crear detalle
 				detail = SaleDetail(
-					article_id=article.id,
-					description=article.description,
+					article_id=item.get('article_id'),
+					description=item['desc'],
 					quantity=item['qty'],
-					unit_cost=article.cost_price,
+					unit_cost=cost_price,
 					unit_price=item['price'],
 					subtotal=subtotal,
 				)
 				new_sale.items.append(detail)
 
-			# 4. Guardar totales y ganancia (Total Venta - Total Costo)
 			new_sale.total_amount = total_sale
 			new_sale.profit = total_sale - total_cost
 			new_sale.date = datetime.utcnow()
 
 			session.add(new_sale)
 			session.commit()
-
-			# (Nota: Omitimos temporalmente el servicio de impresión para probar la lógica primero)
 
 			return True, f'Venta registrada. Total: ${total_sale:.2f}'
 
@@ -89,5 +80,28 @@ class SalesController:
 		session = self.Session()
 		try:
 			return session.query(Article).filter_by(tenant_id=tenant_id).all()
+		finally:
+			session.close()
+
+	def get_history(self, tenant_id):
+		session = self.Session()
+		try:
+			return (
+				session.query(Sale)
+				.options(joinedload(Sale.customer), joinedload(Sale.user))
+				.filter_by(tenant_id=tenant_id)
+				.order_by(Sale.date.desc())
+				.all()
+			)
+		except Exception as e:
+			print(f'Error al leer historial: {e}')
+			return []
+		finally:
+			session.close()
+
+	def get_sale_details(self, sale_id):
+		session = self.Session()
+		try:
+			return session.query(SaleDetail).filter_by(sale_id=sale_id).all()
 		finally:
 			session.close()
