@@ -16,11 +16,56 @@ class SalesController:
 	def __init__(self, db_engine):
 		self.Session = sessionmaker(bind=db_engine)
 
-	def process_sale(self, tenant_id, user_id, cart_items):
-		"""Procesa la venta, descuenta stock, calcula GANANCIA y suma a la CAJA"""
+	def get_articles_for_sale(self, tenant_id):
 		session = self.Session()
 		try:
-			# --- 1. VERIFICAR CAJA ABIERTA ---
+			return session.query(Article).filter_by(tenant_id=tenant_id).all()
+		finally:
+			session.close()
+
+	# --- NUEVA FUNCIÓN: Obtener clientes para el selector ---
+	def get_customers(self, tenant_id):
+		session = self.Session()
+		try:
+			return (
+				session.query(Customer)
+				.filter_by(tenant_id=tenant_id)
+				.order_by(Customer.name)
+				.all()
+			)
+		finally:
+			session.close()
+
+	def get_history(self, tenant_id):
+		session = self.Session()
+		try:
+			return (
+				session.query(Sale)
+				.options(joinedload(Sale.customer), joinedload(Sale.user))
+				.filter_by(tenant_id=tenant_id)
+				.order_by(Sale.date.desc())
+				.all()
+			)
+		except Exception as e:
+			print(f'Error al leer historial: {e}')
+			return []
+		finally:
+			session.close()
+
+	def get_sale_details(self, sale_id):
+		session = self.Session()
+		try:
+			return session.query(SaleDetail).filter_by(sale_id=sale_id).all()
+		finally:
+			session.close()
+
+	# --- FUNCIÓN ACTUALIZADA CON LÓGICA DE FIADO ---
+	def process_sale(
+		self, tenant_id, user_id, cart_items, customer_id=None, is_fiado=False
+	):
+		"""Procesa la venta. Si es_fiado=True, crea deuda y no afecta la caja."""
+		session = self.Session()
+		try:
 			active_cash = (
 				session.query(CashSession)
 				.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
@@ -28,14 +73,14 @@ class SalesController:
 			)
 			if not active_cash:
 				return False, '⚠️ ¡Debes ABRIR LA CAJA en el menú antes de vender!'
-			# ---------------------------------
 
-			default_customer = (
-				session.query(Customer)
-				.filter_by(name='Consumidor Final', tenant_id=tenant_id)
-				.first()
-			)
-			customer_id = default_customer.id if default_customer else None
+			if not customer_id:
+				default_customer = (
+					session.query(Customer)
+					.filter_by(name='Consumidor Final', tenant_id=tenant_id)
+					.first()
+				)
+				customer_id = default_customer.id if default_customer else None
 
 			new_sale = Sale(
 				tenant_id=tenant_id, user_id=user_id, customer_id=customer_id
@@ -81,56 +126,32 @@ class SalesController:
 			new_sale.date = datetime.utcnow()
 
 			session.add(new_sale)
-
 			session.flush()
 
-			# --- 2. REGISTRAR EL INGRESO DE DINERO EN LA CAJA ---
-			movement = CashMovement(
-				session_id=active_cash.id,
-				movement_type='venta',
-				amount=total_sale,
-				description=f'Ingreso por Venta #{new_sale.id}',
-			)
-			session.add(movement)
-			# ----------------------------------------------------
+			# --- LA MAGIA DEL FIADO ---
+			if is_fiado:
+				# 1. Buscamos al cliente y le restamos el total a su saldo (Deuda)
+				customer = session.query(Customer).filter_by(id=customer_id).first()
+				if customer:
+					customer.current_balance -= total_sale
+				# Nota: NO creamos CashMovement, porque no entró dinero físico a la caja
+			else:
+				# VENTA NORMAL: Registramos el dinero en la caja
+				movement = CashMovement(
+					session_id=active_cash.id,
+					movement_type='venta',
+					amount=total_sale,
+					description=f'Ingreso por Venta #{new_sale.id}',
+				)
+				session.add(movement)
 
 			session.commit()
 
-			return True, f'Venta registrada. Total: ${total_sale:.2f}'
+			tipo = 'FIADO' if is_fiado else 'EFECTIVO'
+			return True, f'Venta registrada ({tipo}). Total: ${total_sale:.2f}'
 
 		except Exception as e:
 			session.rollback()
 			return False, str(e)
-		finally:
-			session.close()
-
-	def get_articles_for_sale(self, tenant_id):
-		"""Obtiene artículos para llenar el buscador del POS"""
-		session = self.Session()
-		try:
-			return session.query(Article).filter_by(tenant_id=tenant_id).all()
-		finally:
-			session.close()
-
-	def get_history(self, tenant_id):
-		session = self.Session()
-		try:
-			return (
-				session.query(Sale)
-				.options(joinedload(Sale.customer), joinedload(Sale.user))
-				.filter_by(tenant_id=tenant_id)
-				.order_by(Sale.date.desc())
-				.all()
-			)
-		except Exception as e:
-			print(f'Error al leer historial: {e}')
-			return []
-		finally:
-			session.close()
-
-	def get_sale_details(self, sale_id):
-		session = self.Session()
-		try:
-			return session.query(SaleDetail).filter_by(sale_id=sale_id).all()
 		finally:
 			session.close()

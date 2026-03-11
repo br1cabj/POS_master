@@ -1,8 +1,11 @@
 import customtkinter as ctk
 
+from views.alerts_view import AlertsView
 from views.articles_view import ArticlesView
 from views.cash_view import CashView
+from views.customers_view import CustomersView
 from views.history_view import HistoryView
+from views.purchases_view import PurchasesView
 from views.sales_view import SalesView
 from views.users_view import UsersView
 
@@ -33,6 +36,14 @@ class MainDashboard(ctk.CTkFrame):
 		)
 		self.btn_articles.pack(pady=10, padx=20)
 
+		self.btn_alerts = ctk.CTkButton(
+			self.sidebar,
+			text='⚠️ Alertas',
+			text_color='orange',
+			command=self.show_alerts,
+		)
+		self.btn_alerts.pack(pady=10, padx=20)
+
 		self.btn_cash = ctk.CTkButton(
 			self.sidebar, text='💰 Caja', command=self.show_cash
 		)
@@ -43,10 +54,20 @@ class MainDashboard(ctk.CTkFrame):
 		)
 		self.btn_sales.pack(pady=10, padx=20)
 
+		self.btn_purchases = ctk.CTkButton(
+			self.sidebar, text='📥 Compras', command=self.show_purchases
+		)
+		self.btn_purchases.pack(pady=10, padx=20)
+
 		self.btn_history = ctk.CTkButton(
 			self.sidebar, text='📜 Historial', command=self.show_history
 		)
 		self.btn_history.pack(pady=10, padx=20)
+
+		self.btn_customers = ctk.CTkButton(
+			self.sidebar, text='👥 Clientes / Fiado', command=self.show_customers
+		)
+		self.btn_customers.pack(pady=10, padx=20)
 
 		# Solo dibujamos este botón si el rol es "admin"
 		if self.current_user.role == 'admin':
@@ -66,7 +87,6 @@ class MainDashboard(ctk.CTkFrame):
 
 		self.current_view = None
 
-		# Iniciamos mostrando la pantalla de artículos por defecto
 		self.show_articles()
 
 	def show_articles(self):
@@ -108,3 +128,27 @@ class MainDashboard(ctk.CTkFrame):
 				self.main_area, self.current_user, self.master_app.db_engine
 			)
 			self.current_view.pack(fill='both', expand=True)
+
+	def show_alerts(self):
+		if self.current_view:
+			self.current_view.destroy()
+		self.current_view = AlertsView(
+			self.main_area, self.current_user, self.master_app.db_engine
+		)
+		self.current_view.pack(fill='both', expand=True)
+
+	def show_purchases(self):
+		if self.current_view:
+			self.current_view.destroy()
+		self.current_view = PurchasesView(
+			self.main_area, self.current_user, self.master_app.db_engine
+		)
+		self.current_view.pack(fill='both', expand=True)
+
+	def show_customers(self):
+		if self.current_view:
+			self.current_view.destroy()
+		self.current_view = CustomersView(
+			self.main_area, self.current_user, self.master_app.db_engine
+		)
+		self.current_view.pack(fill='both', expand=True)

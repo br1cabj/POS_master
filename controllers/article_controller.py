@@ -60,3 +60,23 @@ class ArticleController:
 			return session.query(Article).filter_by(tenant_id=tenant_id).all()
 		finally:
 			session.close()
+
+	def get_low_stock_articles(self, tenant_id):
+		"""
+		Consulta a la base de datos los artículos en estado crítico.
+		Compara la columna 'stock' con 'min_stock'.
+		"""
+		session = self.Session()
+		try:
+			return (
+				session.query(Article)
+				.filter(
+					Article.tenant_id == tenant_id, Article.stock <= Article.min_stock
+				)
+				.all()
+			)
+		except Exception as e:
+			print(f'Error al obtener alertas de stock: {e}')
+			return []
+		finally:
+			session.close()
