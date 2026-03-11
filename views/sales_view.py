@@ -1,6 +1,7 @@
 from tkinter import ttk
 
 import customtkinter as ctk
+from CTkMessagebox import CTkMessagebox
 
 
 class SalesView(ctk.CTkFrame):
@@ -17,13 +18,30 @@ class SalesView(ctk.CTkFrame):
 		self.grid_columnconfigure(1, weight=2)
 		self.grid_rowconfigure(0, weight=1)
 
-		# === PANEL IZQUIERDO: BUSCADOR Y VENTA RÁPIDA ===
+		# === PANEL IZQUIERDO ===
 		self.left_panel = ctk.CTkFrame(self)
 		self.left_panel.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
 
 		ctk.CTkLabel(
 			self.left_panel, text='Punto de Venta', font=('Arial', 18, 'bold')
 		).pack(pady=10)
+
+		ctk.CTkLabel(
+			self.left_panel,
+			text='Lector de Código de Barras:',
+			font=('Arial', 12, 'bold'),
+			text_color='#00aaff',
+		).pack(pady=(10, 0))
+		self.entry_barcode = ctk.CTkEntry(
+			self.left_panel, placeholder_text='Escanea o escribe + Enter', width=200
+		)
+		self.entry_barcode.pack(pady=5)
+		self.entry_barcode.bind('<Return>', self.add_by_barcode)
+
+		ctk.CTkLabel(self.left_panel, text='--- O búsqueda manual ---').pack(
+			pady=(10, 5)
+		)
+
 		self.products_combo = ctk.CTkComboBox(self.left_panel, width=200)
 		self.products_combo.set('Seleccionar...')
 		self.products_combo.pack(pady=5)
@@ -70,14 +88,14 @@ class SalesView(ctk.CTkFrame):
 		)
 		self.btn_add_fast.pack(pady=10)
 
-		self.lbl_msg = ctk.CTkLabel(self.left_panel, text='', text_color='red')
+		# (Ya no necesitamos el lbl_msg rojo para los errores principales)
+		self.lbl_msg = ctk.CTkLabel(self.left_panel, text='')
 		self.lbl_msg.pack(pady=5)
 
-		# === PANEL DERECHO: CARRITO ===
+		# === PANEL DERECHO ===
 		self.right_panel = ctk.CTkFrame(self)
 		self.right_panel.grid(row=0, column=1, sticky='nsew', padx=5, pady=5)
 
-		# --- NUEVO: SELECTOR DE CLIENTE ---
 		client_frame = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		client_frame.pack(pady=5, fill='x', padx=10)
 		ctk.CTkLabel(client_frame, text='Cliente:', font=('Arial', 14, 'bold')).pack(
@@ -86,7 +104,6 @@ class SalesView(ctk.CTkFrame):
 
 		self.customers_combo = ctk.CTkComboBox(client_frame, width=250)
 		self.customers_combo.pack(side='left', padx=5)
-		# ----------------------------------
 
 		style = ttk.Style()
 		style.configure('Treeview', font=('Arial', 12), rowheight=25)
@@ -101,6 +118,15 @@ class SalesView(ctk.CTkFrame):
 		self.tree.heading('Precio', text='Precio')
 		self.tree.heading('Subtotal', text='Subtotal')
 		self.tree.pack(fill='both', expand=True, padx=10, pady=5)
+
+		self.btn_remove = ctk.CTkButton(
+			self.right_panel,
+			text='🗑️ Quitar Artículo Seleccionado',
+			fg_color='#d9534f',
+			hover_color='#c9302c',
+			command=self.remove_from_cart,
+		)
+		self.btn_remove.pack(pady=5)
 
 		self.lbl_total = ctk.CTkLabel(
 			self.right_panel, text='TOTAL: $0.00', font=('Arial', 24, 'bold')
@@ -119,7 +145,6 @@ class SalesView(ctk.CTkFrame):
 		self.load_data()
 
 	def load_data(self):
-		# Cargar artículos
 		self.db_articles = self.sales_ctrl.get_articles_for_sale(
 			self.current_user.tenant_id
 		)
@@ -127,12 +152,67 @@ class SalesView(ctk.CTkFrame):
 		if self.article_map:
 			self.products_combo.configure(values=list(self.article_map.keys()))
 
-		# Cargar clientes
 		customers = self.sales_ctrl.get_customers(self.current_user.tenant_id)
 		self.customer_map = {c.name: c for c in customers}
 		if self.customer_map:
 			self.customers_combo.configure(values=list(self.customer_map.keys()))
 			self.customers_combo.set('Consumidor Final')
+
+	def add_by_barcode(self, event=None):
+		self.lbl_msg.configure(text='')
+		code = self.entry_barcode.get().strip()
+		if not code:
+			return
+
+		found_article = next((a for a in self.db_articles if a.barcode == code), None)
+
+		if not found_article:
+			# USO DE MESSAGEBOX PARA ERROR
+			CTkMessagebox(
+				title='Error de Búsqueda',
+				message=f'No se encontró ningún artículo con el código:\n{code}',
+				icon='cancel',
+			)
+			self.entry_barcode.delete(0, 'end')
+			return
+
+		qty = 1
+		if qty > found_article.stock:
+			# USO DE MESSAGEBOX PARA ADVERTENCIA
+			CTkMessagebox(
+				title='Stock Insuficiente',
+				message=f'No puedes agregar {found_article.description}.\nSolo quedan {found_article.stock} unidades disponibles.',
+				icon='warning',
+			)
+			self.entry_barcode.delete(0, 'end')
+			return
+
+		subtotal = found_article.price_1 * qty
+		self.cart.append(
+			{
+				'article_id': found_article.id,
+				'desc': found_article.description,
+				'price': found_article.price_1,
+				'qty': qty,
+				'subtotal': subtotal,
+			}
+		)
+		self.tree.insert(
+			'',
+			'end',
+			values=(
+				found_article.description,
+				qty,
+				f'${found_article.price_1:.2f}',
+				f'${subtotal:.2f}',
+			),
+		)
+
+		self.update_total()
+		self.entry_barcode.delete(0, 'end')
+		self.lbl_msg.configure(
+			text=f'Agregado: {found_article.description}', text_color='green'
+		)
 
 	def add_to_cart(self):
 		self.lbl_msg.configure(text='')
@@ -143,7 +223,12 @@ class SalesView(ctk.CTkFrame):
 			qty = int(qty_str)
 			article = self.article_map[desc]
 			if qty > article.stock:
-				self.lbl_msg.configure(text=f'Solo quedan {article.stock} en stock')
+				# USO DE MESSAGEBOX PARA ADVERTENCIA
+				CTkMessagebox(
+					title='Stock Insuficiente',
+					message=f'Solo quedan {article.stock} unidades de {article.description}.',
+					icon='warning',
+				)
 				return
 			subtotal = article.price_1 * qty
 			self.cart.append(
@@ -174,6 +259,11 @@ class SalesView(ctk.CTkFrame):
 			price = float(price_str)
 			qty = int(qty_str)
 		except ValueError:
+			CTkMessagebox(
+				title='Datos Inválidos',
+				message='Asegúrate de ingresar números válidos en Precio y Cantidad.',
+				icon='cancel',
+			)
 			return
 
 		subtotal = price * qty
@@ -196,14 +286,53 @@ class SalesView(ctk.CTkFrame):
 		self.entry_fast_qty.delete(0, 'end')
 		self.entry_fast_qty.insert(0, '1')
 
+	def remove_from_cart(self):
+		self.lbl_msg.configure(text='')
+		selected_item = self.tree.selection()
+
+		if not selected_item:
+			CTkMessagebox(
+				title='Atención',
+				message='Primero selecciona un artículo de la tabla para quitarlo.',
+				icon='info',
+			)
+			return
+
+		# USO DE MESSAGEBOX DE CONFIRMACIÓN (PREGUNTA)
+		msg = CTkMessagebox(
+			title='Confirmar',
+			message='¿Estás seguro de quitar este artículo del carrito?',
+			icon='question',
+			option_1='No',
+			option_2='Sí',
+		)
+		response = msg.get()
+
+		if response == 'Sí':
+			for item_id in selected_item:
+				values = self.tree.item(item_id, 'values')
+				desc_to_remove = values[0]
+
+				for i, item in enumerate(self.cart):
+					if item['desc'] == desc_to_remove:
+						self.cart.pop(i)
+						break
+
+				self.tree.delete(item_id)
+
+			self.update_total()
+
 	def update_total(self):
 		total = sum(item['subtotal'] for item in self.cart)
 		self.lbl_total.configure(text=f'TOTAL: ${total:.2f}')
 
+	# ... (El resto de las funciones de process_sale y finalize_sale se mantienen exactamente igual)
 	def process_sale(self):
 		if not self.cart:
-			self.lbl_msg.configure(
-				text='Agrega productos al carrito primero.', text_color='red'
+			CTkMessagebox(
+				title='Carrito Vacío',
+				message='Debes agregar productos antes de cobrar.',
+				icon='warning',
 			)
 			return
 
@@ -267,14 +396,12 @@ class SalesView(ctk.CTkFrame):
 
 			popup.destroy()
 
-			# Buscamos el ID del cliente
 			customer_id = None
 			if customer_name in self.customer_map:
 				customer_id = self.customer_map[customer_name].id
 
 			self.finalize_sale(customer_id, is_fiado)
 
-		# Botón normal de Efectivo
 		ctk.CTkButton(
 			popup,
 			text='💵 Pagar en Efectivo',
@@ -284,7 +411,6 @@ class SalesView(ctk.CTkFrame):
 			command=lambda: confirm_and_save(False),
 		).pack(pady=10)
 
-		# Si el cliente NO es Consumidor Final, mostramos el botón de Fiado
 		if customer_name != 'Consumidor Final':
 			ctk.CTkLabel(popup, text='--- O ---').pack()
 			ctk.CTkButton(
@@ -307,11 +433,11 @@ class SalesView(ctk.CTkFrame):
 		)
 
 		if success:
-			self.lbl_msg.configure(text=msg, text_color='green')
+			CTkMessagebox(title='¡Éxito!', message=msg, icon='check')
 			self.cart = []
 			for item in self.tree.get_children():
 				self.tree.delete(item)
 			self.update_total()
-			self.load_data()  # Recarga por si cambió el stock
+			self.load_data()
 		else:
-			self.lbl_msg.configure(text=msg, text_color='red')
+			CTkMessagebox(title='Error al guardar', message=msg, icon='cancel')

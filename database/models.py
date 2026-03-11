@@ -1,3 +1,4 @@
+# database/models.py
 from datetime import datetime
 
 from sqlalchemy import (
@@ -14,116 +15,173 @@ from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
-# ==============================================================
-# MULTITENANT(tenants, users)
 
-
-# --- Modelo TENANT ---
+# ==========================================
+# TABLAS DE CONFIGURACIÓN Y USUARIOS
+# ==========================================
 class Tenant(Base):
-	__tablename__ = 'tenants'
+	"""Representa el negocio o tienda principal"""
 
+	__tablename__ = 'tenants'
 	id = Column(Integer, primary_key=True)
 	name = Column(String, nullable=False)
-	subscription_status = Column(String, default='active')
-	created_at = Column(DateTime, default=datetime.utcnow)
 
-	users = relationship('User', back_populates='tenant')
-	articles = relationship('Article', back_populates='tenant')
-	customers = relationship('Customer', back_populates='tenant')
-	suppliers = relationship('Supplier', back_populates='tenant')
-	sales = relationship('Sale', back_populates='tenant')
-	purchases = relationship('Purchase', back_populates='tenant')
-	cash_sessions = relationship('CashSession', back_populates='tenant')
+	users = relationship('User', back_populates='tenant', cascade='all, delete-orphan')
+	articles = relationship(
+		'Article', back_populates='tenant', cascade='all, delete-orphan'
+	)
+	categories = relationship(
+		'Category', back_populates='tenant', cascade='all, delete-orphan'
+	)
+	sales = relationship('Sale', back_populates='tenant', cascade='all, delete-orphan')
+	customers = relationship(
+		'Customer', back_populates='tenant', cascade='all, delete-orphan'
+	)
+	suppliers = relationship(
+		'Supplier', back_populates='tenant', cascade='all, delete-orphan'
+	)
+	cash_sessions = relationship(
+		'CashSession', back_populates='tenant', cascade='all, delete-orphan'
+	)
+	purchases = relationship(
+		'Purchase', back_populates='tenant', cascade='all, delete-orphan'
+	)
 
 
-# --- Modelo USER ---
 class User(Base):
-	__tablename__ = 'users'
+	"""Usuarios que usan el sistema (Administradores o Cajeros)"""
 
+	__tablename__ = 'users'
 	id = Column(Integer, primary_key=True)
 	username = Column(String, unique=True, nullable=False)
 	password_hash = Column(String, nullable=False)
-	role = Column(String, default='cajero')
+
+	# --- FUTURO: Módulo de Permisos ---
+	role = Column(String, default='cajero')  # Puede ser 'admin' o 'cajero'
+	is_active = Column(Boolean, default=True)  # Borrado lógico de usuarios
 
 	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
 	tenant = relationship('Tenant', back_populates='users')
 
 	sales = relationship('Sale', back_populates='user')
-	purchases = relationship('Purchase', back_populates='user')
 	cash_sessions = relationship('CashSession', back_populates='user')
+	purchases = relationship('Purchase', back_populates='user')
 
 
-# ==============================================================
-# CATALOG(article, customers,supplier)
+# ==========================================
+# TABLAS DE INVENTARIO Y CATÁLOGO
+# ==========================================
+class Category(Base):
+	"""NUEVO: Para clasificar los productos y hacer reportes estadísticos"""
+
+	__tablename__ = 'categories'
+	id = Column(Integer, primary_key=True)
+	name = Column(String, nullable=False)
+	is_active = Column(Boolean, default=True)
+
+	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+	tenant = relationship('Tenant', back_populates='categories')
+
+	articles = relationship('Article', back_populates='category')
 
 
-# --- Modelo ARTICLE ---
 class Article(Base):
+	"""Catálogo de productos"""
+
 	__tablename__ = 'articles'
 	id = Column(Integer, primary_key=True)
-	barcode = Column(String, unique=True, nullable=False)
+	barcode = Column(String, unique=True, nullable=True)
 	description = Column(String, nullable=False)
-
-	cost_price = Column(Float, default=0.0)
+	cost_price = Column(Float, nullable=False)
 	price_1 = Column(Float, nullable=False)
-	price_2 = Column(Float, default=0.0)
-	price_3 = Column(Float, default=0.0)
-
+	price_2 = Column(Float, nullable=True)
+	price_3 = Column(Float, nullable=True)
 	stock = Column(Integer, default=0)
-	min_stock = Column(Integer, default=5)
+	min_stock = Column(Integer, default=0)
 
-	image_path = Column(String, nullable=True)
+	# --- FUTURO: Categorías e Impuestos ---
+	category_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
+	category = relationship('Category', back_populates='articles')
+	tax_rate = Column(
+		Float, default=0.0
+	)  # Por si en el futuro necesitas calcular IVA/Impuestos
+
+	is_active = Column(Boolean, default=True)
 
 	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
 	tenant = relationship('Tenant', back_populates='articles')
 
+	sale_details = relationship('SaleDetail', back_populates='article')
 
-# --- Modelo CUSTOMER ---
+
+# ==========================================
+# TABLAS DE TERCEROS (CLIENTES Y PROVEEDORES)
+# ==========================================
 class Customer(Base):
+	"""Directorio de clientes y cuentas corrientes"""
+
 	__tablename__ = 'customers'
 	id = Column(Integer, primary_key=True)
 	name = Column(String, nullable=False)
 	phone = Column(String, nullable=True)
-
 	current_balance = Column(Float, default=0.0)
+
+	# --- FUTURO: Datos extendidos de clientes ---
+	email = Column(String, nullable=True)
+	address = Column(String, nullable=True)
+	is_active = Column(Boolean, default=True)  # Borrado lógico
 
 	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
 	tenant = relationship('Tenant', back_populates='customers')
+
 	sales = relationship('Sale', back_populates='customer')
 
 
-# --- Modelo Supplier
 class Supplier(Base):
+	"""Directorio de proveedores"""
+
 	__tablename__ = 'suppliers'
 	id = Column(Integer, primary_key=True)
 	name = Column(String, nullable=False)
+
+	# --- FUTURO: Datos de contacto del proveedor ---
 	phone = Column(String, nullable=True)
+	email = Column(String, nullable=True)
+	address = Column(String, nullable=True)
+	is_active = Column(Boolean, default=True)  # Borrado lógico
 
 	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
 	tenant = relationship('Tenant', back_populates='suppliers')
+
 	purchases = relationship('Purchase', back_populates='supplier')
 
 
-# ==============================================================
-# TRANSACTIONS(sale, purchase)
-
-
-# --- Modelo Sale
+# ==========================================
+# TABLAS DE VENTAS Y COMPRAS
+# ==========================================
 class Sale(Base):
+	"""Cabecera de la venta (El ticket general)"""
+
 	__tablename__ = 'sales'
 	id = Column(Integer, primary_key=True)
 	date = Column(DateTime, default=datetime.utcnow)
-	total_amount = Column(Float, default=0.0)
-	profit = Column(Float, default=0.0)
+	total_amount = Column(Float, nullable=False)
+	profit = Column(Float, nullable=False)
 
-	customer_id = Column(Integer, ForeignKey('customers.id'), nullable=True)
-	customer = relationship('Customer', back_populates='sales')
+	# --- FUTURO: Control financiero detallado ---
+	payment_method = Column(
+		String, default='efectivo'
+	)  # efectivo, tarjeta, transferencia, fiado
+	status = Column(String, default='completada')  # completada, cancelada, pendiente
+
+	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+	tenant = relationship('Tenant', back_populates='sales')
 
 	user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
 	user = relationship('User', back_populates='sales')
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
-	tenant = relationship('Tenant', back_populates='sales')
+	customer_id = Column(Integer, ForeignKey('customers.id'), nullable=True)
+	customer = relationship('Customer', back_populates='sales')
 
 	items = relationship(
 		'SaleDetail', back_populates='sale', cascade='all, delete-orphan'
@@ -131,50 +189,55 @@ class Sale(Base):
 
 
 class SaleDetail(Base):
+	"""Detalle de cada artículo vendido en un ticket"""
+
 	__tablename__ = 'sale_details'
 	id = Column(Integer, primary_key=True)
-	sale_id = Column(Integer, ForeignKey('sales.id'), nullable=False)
-
-	article_id = Column(Integer, ForeignKey('articles.id'), nullable=True)
-	description = Column(String)
-
 	quantity = Column(Integer, nullable=False)
 	unit_cost = Column(Float, nullable=False)
 	unit_price = Column(Float, nullable=False)
 	subtotal = Column(Float, nullable=False)
+	description = Column(String, nullable=False)
 
+	sale_id = Column(Integer, ForeignKey('sales.id'), nullable=False)
 	sale = relationship('Sale', back_populates='items')
 
+	article_id = Column(Integer, ForeignKey('articles.id'), nullable=True)
+	article = relationship('Article', back_populates='sale_details')
 
-# --- Modelo Purchase ---
+
 class Purchase(Base):
+	"""Registro de ingreso de mercadería a proveedores"""
+
 	__tablename__ = 'purchases'
 	id = Column(Integer, primary_key=True)
 	date = Column(DateTime, default=datetime.utcnow)
-	total_amount = Column(Float, default=0.0)
+	total_amount = Column(Float, nullable=False)
 
-	supplier_id = Column(Integer, ForeignKey('suppliers.id'), nullable=False)
-	supplier = relationship('Supplier', back_populates='purchases')
-
-	user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-	user = relationship('User', back_populates='purchases')
+	# --- FUTURO: Control de facturas de proveedores ---
+	invoice_number = Column(String, nullable=True)  # Número de factura del proveedor
+	status = Column(String, default='pagada')
 
 	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
 	tenant = relationship('Tenant', back_populates='purchases')
 
+	user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+	user = relationship('User', back_populates='purchases')
 
-# ==============================================================
-#  FINANCES (Session, Movements)
+	supplier_id = Column(Integer, ForeignKey('suppliers.id'), nullable=True)
+	supplier = relationship('Supplier', back_populates='purchases')
 
 
-# --- Modelo CashSession ---
+# ==========================================
+# TABLAS DE CONTROL DE CAJA
+# ==========================================
 class CashSession(Base):
+	"""Turnos de caja (Apertura y Cierre)"""
+
 	__tablename__ = 'cash_sessions'
 	id = Column(Integer, primary_key=True)
-
 	opening_time = Column(DateTime, default=datetime.utcnow)
 	closing_time = Column(DateTime, nullable=True)
-
 	opening_balance = Column(Float, default=0.0)
 	closing_balance = Column(Float, default=0.0)
 	is_open = Column(Boolean, default=True)
@@ -190,22 +253,29 @@ class CashSession(Base):
 	)
 
 
-# --- Modelo CashMovement
 class CashMovement(Base):
+	"""Movimientos individuales de dinero (Ventas, Gastos, Ingresos)"""
+
 	__tablename__ = 'cash_movements'
 	id = Column(Integer, primary_key=True)
-	session_id = Column(Integer, ForeignKey('cash_sessions.id'), nullable=False)
-
-	movement_type = Column(String, nullable=False)
+	movement_type = Column(String, nullable=False)  # 'ingreso', 'gasto', 'venta'
 	amount = Column(Float, nullable=False)
 	description = Column(String, nullable=True)
-	date = Column(DateTime, default=datetime.utcnow)
+	time = Column(DateTime, default=datetime.utcnow)
 
+	session_id = Column(Integer, ForeignKey('cash_sessions.id'), nullable=False)
 	session = relationship('CashSession', back_populates='movements')
 
 
-# --- INIT ---
-def init_db(db_name='pos_system.db'):
-	engine = create_engine(f'sqlite:///{db_name}')
-	Base.metadata.create_all(engine)
+def init_db(database_url='sqlite:///pos_system.db'):
+	"""
+	Crea el motor de la base de datos y construye todas las tablas
+	basadas en los modelos definidos arriba.
+	"""
+	# connect_args={'check_same_thread': False} es importante para SQLite en aplicaciones gráficas
+	engine = create_engine(database_url, connect_args={'check_same_thread': False})
+
+	# Esta línea lee todas las clases que heredan de "Base" y crea las tablas físicas
+	Base.metadata.create_all(bind=engine)
+
 	return engine
