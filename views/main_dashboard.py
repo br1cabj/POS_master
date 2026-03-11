@@ -1,6 +1,7 @@
 import customtkinter as ctk
 
 from views.articles_view import ArticlesView
+from views.cash_view import CashView
 from views.history_view import HistoryView
 from views.sales_view import SalesView
 from views.users_view import UsersView
@@ -31,6 +32,11 @@ class MainDashboard(ctk.CTkFrame):
 			self.sidebar, text='📦 Artículos', command=self.show_articles
 		)
 		self.btn_articles.pack(pady=10, padx=20)
+
+		self.btn_cash = ctk.CTkButton(
+			self.sidebar, text='💰 Caja', command=self.show_cash
+		)
+		self.btn_cash.pack(pady=10, padx=20)
 
 		self.btn_sales = ctk.CTkButton(
 			self.sidebar, text='💰 Ventas', command=self.show_sales
@@ -94,3 +100,11 @@ class MainDashboard(ctk.CTkFrame):
 			self.main_area, self.current_user, self.master_app.db_engine
 		)
 		self.current_view.pack(fill='both', expand=True)
+
+	def show_cash(self):
+		if self.current_view:
+			self.current_view.destroy()
+			self.current_view = CashView(
+				self.main_area, self.current_user, self.master_app.db_engine
+			)
+			self.current_view.pack(fill='both', expand=True)

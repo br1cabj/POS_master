@@ -2,7 +2,14 @@ from datetime import datetime
 
 from sqlalchemy.orm import joinedload, sessionmaker
 
-from database.models import Article, Customer, Sale, SaleDetail
+from database.models import (
+	Article,
+	CashMovement,
+	CashSession,
+	Customer,
+	Sale,
+	SaleDetail,
+)
 
 
 class SalesController:
@@ -10,9 +17,19 @@ class SalesController:
 		self.Session = sessionmaker(bind=db_engine)
 
 	def process_sale(self, tenant_id, user_id, cart_items):
-		"""Procesa la venta, descuenta stock (solo si aplica) y calcula la GANANCIA"""
+		"""Procesa la venta, descuenta stock, calcula GANANCIA y suma a la CAJA"""
 		session = self.Session()
 		try:
+			# --- 1. VERIFICAR CAJA ABIERTA ---
+			active_cash = (
+				session.query(CashSession)
+				.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
+				.first()
+			)
+			if not active_cash:
+				return False, '⚠️ ¡Debes ABRIR LA CAJA en el menú antes de vender!'
+			# ---------------------------------
+
 			default_customer = (
 				session.query(Customer)
 				.filter_by(name='Consumidor Final', tenant_id=tenant_id)
@@ -42,7 +59,6 @@ class SalesController:
 					cost_price = article.cost_price
 				else:
 					cost_price = 0.0
-				# -----------------------------------------------------------------
 
 				subtotal = item['price'] * item['qty']
 				cost_subtotal = cost_price * item['qty']
@@ -65,6 +81,19 @@ class SalesController:
 			new_sale.date = datetime.utcnow()
 
 			session.add(new_sale)
+
+			session.flush()
+
+			# --- 2. REGISTRAR EL INGRESO DE DINERO EN LA CAJA ---
+			movement = CashMovement(
+				session_id=active_cash.id,
+				movement_type='venta',
+				amount=total_sale,
+				description=f'Ingreso por Venta #{new_sale.id}',
+			)
+			session.add(movement)
+			# ----------------------------------------------------
+
 			session.commit()
 
 			return True, f'Venta registrada. Total: ${total_sale:.2f}'

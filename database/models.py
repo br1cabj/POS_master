@@ -171,6 +171,10 @@ class Purchase(Base):
 class CashSession(Base):
 	__tablename__ = 'cash_sessions'
 	id = Column(Integer, primary_key=True)
+
+	opening_time = Column(DateTime, default=datetime.utcnow)
+	closing_time = Column(DateTime, nullable=True)
+
 	opening_balance = Column(Float, default=0.0)
 	closing_balance = Column(Float, default=0.0)
 	is_open = Column(Boolean, default=True)
