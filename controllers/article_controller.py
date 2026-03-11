@@ -23,7 +23,6 @@ class ArticleController:
 		"""Crea un artículo con toda la información comercial"""
 		session = self.Session()
 		try:
-			# Validar si el código de barras ya existe
 			if barcode:
 				existing = (
 					session.query(Article)
@@ -57,7 +56,11 @@ class ArticleController:
 		"""Obtiene el catálogo completo de la empresa"""
 		session = self.Session()
 		try:
-			return session.query(Article).filter_by(tenant_id=tenant_id).all()
+			return (
+				session.query(Article)
+				.filter_by(tenant_id=tenant_id, is_active=True)
+				.all()
+			)
 		finally:
 			session.close()
 
@@ -78,5 +81,22 @@ class ArticleController:
 		except Exception as e:
 			print(f'Error al obtener alertas de stock: {e}')
 			return []
+		finally:
+			session.close()
+
+	def delete_article(self, article_id):
+		session = self.Session()
+		try:
+			article = session.query(Article).filter_by(id=article_id).first()
+			if not article:
+				return False, 'Artículo no encontrado'
+
+			article.is_active = False
+
+			session.commit()
+			return True, 'Artículo eliminado correctamente.'
+		except Exception as e:
+			session.rollback()
+			return False, str(e)
 		finally:
 			session.close()

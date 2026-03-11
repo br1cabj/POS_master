@@ -21,17 +21,24 @@ class CustomerController:
 			session.close()
 
 	def add_customer(self, tenant_id, name, phone):
-		"""Da de alta a un nuevo cliente con saldo 0"""
+		"""Da de alta a un nuevo cliente o reactiva a uno borrado"""
 		session = self.Session()
 		try:
-			# Evitar nombres duplicados
 			exist = (
 				session.query(Customer)
 				.filter_by(name=name, tenant_id=tenant_id)
 				.first()
 			)
+
 			if exist:
-				return False, 'Ese cliente ya existe.'
+				if exist.is_active:
+					return False, 'Ese cliente ya existe.'
+				else:
+					# Reactivamos al cliente borrado
+					exist.is_active = True
+					exist.phone = phone
+					session.commit()
+					return True, 'Cliente reactivado con éxito.'
 
 			new_customer = Customer(
 				tenant_id=tenant_id,
