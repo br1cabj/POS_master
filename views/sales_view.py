@@ -17,24 +17,25 @@ class SalesView(ctk.CTkFrame):
 		self.grid_columnconfigure(1, weight=2)
 		self.grid_rowconfigure(0, weight=1)
 
-		# === PANEL IZQUIERDO: BUSCADOR ===
+		# === PANEL IZQUIERDO: BUSCADOR Y VENTA RÁPIDA ===
 		self.left_panel = ctk.CTkFrame(self)
 		self.left_panel.grid(row=0, column=0, sticky='nsew', padx=5, pady=5)
 
 		ctk.CTkLabel(
 			self.left_panel, text='Punto de Venta', font=('Arial', 18, 'bold')
 		).pack(pady=10)
-
 		self.products_combo = ctk.CTkComboBox(self.left_panel, width=200)
 		self.products_combo.set('Seleccionar...')
-		self.products_combo.pack(pady=10)
+		self.products_combo.pack(pady=5)
 
-		self.qty_entry = ctk.CTkEntry(self.left_panel, placeholder_text='Cantidad')
-		self.qty_entry.pack(pady=10)
+		self.qty_entry = ctk.CTkEntry(
+			self.left_panel, placeholder_text='Cantidad', width=100
+		)
+		self.qty_entry.pack(pady=5)
 		self.qty_entry.insert(0, '1')
 
 		self.btn_add = ctk.CTkButton(
-			self.left_panel, text='Agregar al Carrito ->', command=self.add_to_cart
+			self.left_panel, text='Agregar del Catálogo', command=self.add_to_cart
 		)
 		self.btn_add.pack(pady=10)
 
@@ -47,7 +48,7 @@ class SalesView(ctk.CTkFrame):
 		).pack(pady=5)
 
 		self.entry_fast_desc = ctk.CTkEntry(
-			self.left_panel, placeholder_text='Descripción manual (Ej. Envío)'
+			self.left_panel, placeholder_text='Descripción manual'
 		)
 		self.entry_fast_desc.pack(pady=5, padx=20, fill='x')
 
@@ -119,7 +120,7 @@ class SalesView(ctk.CTkFrame):
 			self.products_combo.configure(values=list(self.article_map.keys()))
 
 	def add_to_cart(self):
-		self.lbl_msg.configure(text='')  # Limpiar errores
+		self.lbl_msg.configure(text='')
 		desc = self.products_combo.get()
 		qty_str = self.qty_entry.get()
 
@@ -132,7 +133,6 @@ class SalesView(ctk.CTkFrame):
 				return
 
 			subtotal = article.price_1 * qty
-
 			self.cart.append(
 				{
 					'article_id': article.id,
@@ -142,7 +142,6 @@ class SalesView(ctk.CTkFrame):
 					'subtotal': subtotal,
 				}
 			)
-
 			self.tree.insert(
 				'',
 				'end',
@@ -168,11 +167,8 @@ class SalesView(ctk.CTkFrame):
 			return
 
 		subtotal = price * qty
-
-		# Le ponemos un asterisco visual para saber que es una venta libre
 		visual_desc = f'*(Libre)* {desc}'
 
-		# Guardamos en el carrito con article_id = None
 		self.cart.append(
 			{
 				'article_id': None,
@@ -187,7 +183,6 @@ class SalesView(ctk.CTkFrame):
 		)
 		self.update_total()
 
-		# Limpiar las cajitas para la siguiente venta rápida
 		self.entry_fast_desc.delete(0, 'end')
 		self.entry_fast_price.delete(0, 'end')
 		self.entry_fast_qty.delete(0, 'end')
@@ -197,10 +192,97 @@ class SalesView(ctk.CTkFrame):
 		total = sum(item['subtotal'] for item in self.cart)
 		self.lbl_total.configure(text=f'TOTAL: ${total:.2f}')
 
+	# =========================================================
+	# LOGICA DE COBRO Y VUELTOS
+	# =========================================================
 	def process_sale(self):
+		"""Abre la ventana emergente para calcular el vuelto antes de guardar"""
 		if not self.cart:
+			self.lbl_msg.configure(
+				text='Agrega productos al carrito primero.', text_color='red'
+			)
 			return
 
+		total = sum(item['subtotal'] for item in self.cart)
+
+		# Crear ventana emergente (Popup)
+		popup = ctk.CTkToplevel(self)
+		popup.title('Cobrar Venta')
+		popup.geometry('350x400')
+		popup.attributes('-topmost', True)
+		popup.grab_set()  # Bloquea la ventana principal
+
+		ctk.CTkLabel(popup, text='Total a Pagar:', font=('Arial', 18)).pack(pady=10)
+		ctk.CTkLabel(
+			popup, text=f'${total:.2f}', font=('Arial', 30, 'bold'), text_color='green'
+		).pack(pady=5)
+
+		ctk.CTkLabel(popup, text='El cliente abona con:', font=('Arial', 14)).pack(
+			pady=10
+		)
+
+		entry_paid = ctk.CTkEntry(
+			popup, font=('Arial', 20), justify='center', width=200
+		)
+		entry_paid.pack(pady=5)
+		entry_paid.focus()  # Pone el cursor en la caja de texto automáticamente
+
+		lbl_change = ctk.CTkLabel(
+			popup, text='Vuelto: $0.00', font=('Arial', 24, 'bold'), text_color='blue'
+		)
+		lbl_change.pack(pady=20)
+
+		lbl_error = ctk.CTkLabel(popup, text='', text_color='red')
+		lbl_error.pack()
+
+		# Esta función hace la matemática cada vez que se presiona un número
+		def calculate_change(event):
+			paid_str = entry_paid.get().strip()
+			if not paid_str:
+				lbl_change.configure(text='Vuelto: $0.00', text_color='blue')
+				return
+			try:
+				paid = float(paid_str)
+				change = paid - total
+				if change < 0:
+					lbl_change.configure(text='Falta dinero', text_color='red')
+				else:
+					lbl_change.configure(
+						text=f'Vuelto: ${change:.2f}', text_color='blue'
+					)
+			except ValueError:
+				lbl_change.configure(text='Monto inválido', text_color='red')
+
+		# Vincular la caja de texto para que reaccione al teclear
+		entry_paid.bind('<KeyRelease>', calculate_change)
+
+		def confirm_and_save():
+			try:
+				# Si lo dejan vacío, asumimos que pagó con cambio exacto
+				paid_str = entry_paid.get().strip()
+				paid = float(paid_str) if paid_str else total
+
+				if paid < total:
+					lbl_error.configure(text='El pago es menor al total')
+					return
+			except ValueError:
+				lbl_error.configure(text='Monto inválido')
+				return
+
+			popup.destroy()
+			self.finalize_sale()
+
+		ctk.CTkButton(
+			popup,
+			text='Confirmar y Guardar',
+			fg_color='green',
+			height=40,
+			font=('Arial', 16, 'bold'),
+			command=confirm_and_save,
+		).pack(pady=20)
+
+	def finalize_sale(self):
+		"""Guarda la venta en la base de datos después de cobrar"""
 		success, msg = self.sales_ctrl.process_sale(
 			self.current_user.tenant_id, self.current_user.id, self.cart
 		)

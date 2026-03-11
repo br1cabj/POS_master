@@ -2,7 +2,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import sessionmaker
 
-from database.models import CashSession
+from database.models import CashMovement, CashSession
 
 
 class CashController:
@@ -10,7 +10,6 @@ class CashController:
 		self.Session = sessionmaker(bind=db_engine)
 
 	def get_active_session(self, tenant_id, user_id):
-		"""Busca si el usuario ya tiene un turno de caja abierto"""
 		session = self.Session()
 		try:
 			return (
@@ -22,10 +21,8 @@ class CashController:
 			session.close()
 
 	def open_session(self, tenant_id, user_id, opening_balance):
-		"""Abre un nuevo turno de caja"""
 		session = self.Session()
 		try:
-			# Doble verificación por si acaso
 			active = (
 				session.query(CashSession)
 				.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
@@ -43,7 +40,7 @@ class CashController:
 			)
 			session.add(new_session)
 			session.commit()
-			return True, 'Caja abierta exitosamente. ¡Buen turno!'
+			return True, 'Caja abierta exitosamente.'
 		except Exception as e:
 			session.rollback()
 			return False, f'Error: {str(e)}'
@@ -51,21 +48,60 @@ class CashController:
 			session.close()
 
 	def close_session(self, session_id, closing_balance):
-		"""Cierra el turno de caja actual"""
 		session = self.Session()
 		try:
 			cash_session = session.query(CashSession).filter_by(id=session_id).first()
 			if not cash_session:
-				return False, 'Turno de caja no encontrado.'
+				return False, 'Turno no encontrado.'
 
 			cash_session.closing_balance = float(closing_balance)
 			cash_session.closing_time = datetime.utcnow()
 			cash_session.is_open = False
-
 			session.commit()
-			return True, 'Caja cerrada correctamente. ¡Buen descanso!'
+			return True, 'Caja cerrada correctamente.'
 		except Exception as e:
 			session.rollback()
-			return False, f'Error al cerrar: {str(e)}'
+			return False, str(e)
+		finally:
+			session.close()
+
+	def get_session_summary(self, session_id):
+		"""Calcula los totales de la caja en tiempo real"""
+		session = self.Session()
+		try:
+			movements = (
+				session.query(CashMovement).filter_by(session_id=session_id).all()
+			)
+
+			total_ventas = sum(
+				m.amount for m in movements if m.movement_type == 'venta'
+			)
+			total_ingresos = sum(
+				m.amount for m in movements if m.movement_type == 'ingreso'
+			)
+			total_gastos = sum(
+				m.amount for m in movements if m.movement_type == 'gasto'
+			)
+
+			return total_ventas, total_ingresos, total_gastos
+		finally:
+			session.close()
+
+	def add_manual_movement(self, session_id, mov_type, amount, description):
+		"""Registra un ingreso o retiro de dinero manual"""
+		session = self.Session()
+		try:
+			new_mov = CashMovement(
+				session_id=session_id,
+				movement_type=mov_type,
+				amount=float(amount),
+				description=description,
+			)
+			session.add(new_mov)
+			session.commit()
+			return True, 'Movimiento registrado con éxito.'
+		except Exception as e:
+			session.rollback()
+			return False, str(e)
 		finally:
 			session.close()
