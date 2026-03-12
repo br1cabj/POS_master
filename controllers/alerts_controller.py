@@ -1,6 +1,11 @@
-from sqlalchemy.orm import joinedload, sessionmaker
+import logging
 
-from database.models import Article, ArticleVariant
+from sqlalchemy import func
+from sqlalchemy.orm import sessionmaker
+
+from database.models import Article, ArticleVariant, Stock
+
+logger = logging.getLogger(__name__)
 
 
 class AlertsController:
@@ -8,49 +13,39 @@ class AlertsController:
 		self.Session = sessionmaker(bind=db_engine)
 
 	def get_low_stock_variants(self, tenant_id, threshold=5):
-		"""
-		Calcula el stock total de cada producto y devuelve una lista
-		con aquellos que están por debajo o igual al umbral especificado.
-		"""
-		session = self.Session()
-		try:
-			# Traemos todas las variantes activas con sus stocks y su artículo padre
-			variants = (
-				session.query(ArticleVariant)
-				.options(
-					joinedload(ArticleVariant.article),
-					joinedload(ArticleVariant.stocks),
-				)
-				.join(Article)
-				.filter(Article.tenant_id == tenant_id, ArticleVariant.is_active)
-				.all()
-			)
-
-			low_stock_items = []
-
-			for variant in variants:
-				# Sumamos el stock físico en todos los almacenes
-				total_stock = sum(s.quantity for s in variant.stocks)
-
-				# Comparamos con el nivel crítico
-				if total_stock <= threshold:
-					low_stock_items.append(
-						{
-							'variant_id': variant.id,
-							'barcode': variant.barcode,
-							'name': variant.article.name,
-							'stock': total_stock,
-							'threshold': threshold,
-						}
+		with self.Session() as session:
+			try:
+				query = (
+					session.query(
+						ArticleVariant.id.label('variant_id'),
+						ArticleVariant.barcode,
+						Article.name,
+						func.coalesce(func.sum(Stock.quantity), 0).label('total_stock'),
 					)
+					.join(Article, ArticleVariant.article_id == Article.id)
+					.outerjoin(Stock, ArticleVariant.id == Stock.variant_id)
+					.filter(Article.tenant_id == tenant_id, ArticleVariant.is_active)
+					.group_by(ArticleVariant.id, ArticleVariant.barcode, Article.name)
+					.having(func.coalesce(func.sum(Stock.quantity), 0) <= threshold)
+					.order_by(func.coalesce(func.sum(Stock.quantity), 0).asc())
+				)
 
-			# Ordenamos la lista para que los que tienen menos stock (o stock negativo) salgan primero
-			low_stock_items.sort(key=lambda x: x['stock'])
+				results = query.all()
 
-			return low_stock_items
+				return [
+					{
+						'variant_id': row.variant_id,
+						'barcode': row.barcode,
+						'name': row.name,
+						'stock': row.total_stock,
+						'threshold': threshold,
+					}
+					for row in results
+				]
 
-		except Exception as e:
-			print(f'Error al obtener alertas de stock: {e}')
-			return []
-		finally:
-			session.close()
+			except Exception as e:
+				# Guardamos el error en un archivo de log para revisarlo después
+				logger.error(f'Error de BD en alertas de stock: {e}', exc_info=True)
+
+				# Devolvemos una lista vacía para no romper la interfaz gráfica
+				return []
