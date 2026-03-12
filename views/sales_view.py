@@ -144,12 +144,15 @@ class SalesView(ctk.CTkFrame):
 		self.load_data()
 
 	def load_data(self):
-		self.db_articles = self.sales_ctrl.get_articles_for_sale(
+		# 1. Traemos las Variantes en lugar de los artículos simples
+		self.db_variants = self.sales_ctrl.get_articles_for_sale(
 			self.current_user.tenant_id
 		)
-		self.article_map = {a.description: a for a in self.db_articles}
-		if self.article_map:
-			self.products_combo.configure(values=list(self.article_map.keys()))
+
+		# Mapeamos por el nombre del artículo padre para que el cajero lo vea fácil
+		self.variant_map = {v.article.name: v for v in self.db_variants if v.article}
+		if self.variant_map:
+			self.products_combo.configure(values=list(self.variant_map.keys()))
 
 		customers = self.sales_ctrl.get_customers(self.current_user.tenant_id)
 		self.customer_map = {c.name: c for c in customers}
@@ -163,9 +166,10 @@ class SalesView(ctk.CTkFrame):
 		if not code:
 			return
 
-		found_article = next((a for a in self.db_articles if a.barcode == code), None)
+		# Buscamos la variante por su código de barras
+		found_variant = next((v for v in self.db_variants if v.barcode == code), None)
 
-		if not found_article:
+		if not found_variant:
 			CTkMessagebox(
 				title='Error de Búsqueda',
 				message=f'No se encontró ningún artículo con el código:\n{code}',
@@ -175,21 +179,25 @@ class SalesView(ctk.CTkFrame):
 			return
 
 		qty = 1
-		if qty > found_article.stock:
+		# Sumamos el stock de todos los almacenes para esta variante
+		total_stock = sum(s.quantity for s in found_variant.stocks)
+
+		if qty > total_stock:
 			CTkMessagebox(
 				title='Stock Insuficiente',
-				message=f'No puedes agregar {found_article.description}.\nSolo quedan {found_article.stock} disponibles.',
+				message=f'No puedes agregar {found_variant.article.name}.\nSolo quedan {total_stock} disponibles.',
 				icon='warning',
 			)
 			self.entry_barcode.delete(0, 'end')
 			return
 
-		subtotal = found_article.price_1 * qty
+		# Usamos selling_price y guardamos el variant_id
+		subtotal = found_variant.selling_price * qty
 		self.cart.append(
 			{
-				'article_id': found_article.id,
-				'desc': found_article.description,
-				'price': found_article.price_1,
+				'variant_id': found_variant.id,
+				'desc': found_variant.article.name,
+				'price': found_variant.selling_price,
 				'qty': qty,
 				'subtotal': subtotal,
 			}
@@ -198,9 +206,9 @@ class SalesView(ctk.CTkFrame):
 			'',
 			'end',
 			values=(
-				found_article.description,
+				found_variant.article.name,
 				qty,
-				f'${found_article.price_1:.2f}',
+				f'${found_variant.selling_price:.2f}',
 				f'${subtotal:.2f}',
 			),
 		)
@@ -208,7 +216,7 @@ class SalesView(ctk.CTkFrame):
 		self.update_total()
 		self.entry_barcode.delete(0, 'end')
 		self.lbl_msg.configure(
-			text=f'Agregado: {found_article.description}', text_color='green'
+			text=f'Agregado: {found_variant.article.name}', text_color='green'
 		)
 
 	def add_to_cart(self):
@@ -216,22 +224,26 @@ class SalesView(ctk.CTkFrame):
 		desc = self.products_combo.get()
 		qty_str = self.qty_entry.get()
 
-		if desc in self.article_map and qty_str.isdigit():
+		if desc in self.variant_map and qty_str.isdigit():
 			qty = int(qty_str)
-			article = self.article_map[desc]
-			if qty > article.stock:
+			variant = self.variant_map[desc]
+
+			total_stock = sum(s.quantity for s in variant.stocks)
+
+			if qty > total_stock:
 				CTkMessagebox(
 					title='Stock Insuficiente',
-					message=f'Solo quedan {article.stock} unidades de {article.description}.',
+					message=f'Solo quedan {total_stock} unidades de {variant.article.name}.',
 					icon='warning',
 				)
 				return
-			subtotal = article.price_1 * qty
+
+			subtotal = variant.selling_price * qty
 			self.cart.append(
 				{
-					'article_id': article.id,
-					'desc': article.description,
-					'price': article.price_1,
+					'variant_id': variant.id,
+					'desc': variant.article.name,
+					'price': variant.selling_price,
 					'qty': qty,
 					'subtotal': subtotal,
 				}
@@ -239,7 +251,7 @@ class SalesView(ctk.CTkFrame):
 			self.tree.insert(
 				'',
 				'end',
-				values=(desc, qty, f'${article.price_1:.2f}', f'${subtotal:.2f}'),
+				values=(desc, qty, f'${variant.selling_price:.2f}', f'${subtotal:.2f}'),
 			)
 			self.update_total()
 
@@ -264,9 +276,10 @@ class SalesView(ctk.CTkFrame):
 
 		subtotal = price * qty
 		visual_desc = f'*(Libre)* {desc}'
+		# La venta rápida no tiene variant_id porque no existe en la base de datos
 		self.cart.append(
 			{
-				'article_id': None,
+				'variant_id': None,
 				'desc': visual_desc,
 				'price': price,
 				'qty': qty,
@@ -319,7 +332,6 @@ class SalesView(ctk.CTkFrame):
 		total = sum(item['subtotal'] for item in self.cart)
 		self.lbl_total.configure(text=f'TOTAL: ${total:.2f}')
 
-	# --- POP-UP OPTIMIZADO CON MÉTODOS DE PAGO ---
 	def process_sale(self):
 		if not self.cart:
 			CTkMessagebox(
@@ -348,7 +360,6 @@ class SalesView(ctk.CTkFrame):
 			text_color='#2A8C55',
 		).pack(pady=5)
 
-		# Selector de Método de Pago
 		ctk.CTkLabel(popup, text='Método de Pago:', font=('Arial', 14, 'bold')).pack(
 			pady=(15, 5)
 		)

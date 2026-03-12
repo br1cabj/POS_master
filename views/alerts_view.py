@@ -8,60 +8,81 @@ class AlertsView(ctk.CTkFrame):
 		super().__init__(master)
 		self.current_user = current_user
 
-		from controllers.article_controller import ArticleController
+		# Conectamos con el controlador de alertas
+		from controllers.alerts_controller import AlertsController
 
-		self.controller = ArticleController(db_engine)
+		self.controller = AlertsController(db_engine)
 
-		# --- TÍTULO Y BOTÓN DE ACTUALIZAR ---
+		self.grid_columnconfigure(0, weight=1)
+		self.grid_rowconfigure(1, weight=1)
+
+		# --- ENCABEZADO ---
+		header_frame = ctk.CTkFrame(self, fg_color='transparent')
+		header_frame.grid(row=0, column=0, pady=(20, 10), padx=20, sticky='ew')
+
 		ctk.CTkLabel(
-			self,
-			text='⚠️ Alertas de Stock Mínimo',
+			header_frame,
+			text='⚠️ Productos con Stock Crítico',
 			font=('Arial', 24, 'bold'),
-			text_color='orange',
-		).pack(pady=20)
+			text_color='#ff8800',  # Naranja para indicar alerta
+		).pack(side='left')
 
-		self.btn_refresh = ctk.CTkButton(
-			self, text='🔄 Refrescar Lista', command=self.load_alerts
+		self.lbl_count = ctk.CTkLabel(
+			header_frame, text='Buscando...', font=('Arial', 14, 'italic')
 		)
-		self.btn_refresh.pack(pady=10)
+		self.lbl_count.pack(side='right', padx=10)
 
-		# --- TABLA DE ARTÍCULOS CRÍTICOS ---
-		columns = ('Código', 'Descripción', 'Stock Actual', 'Stock Mínimo')
-		self.tree = ttk.Treeview(self, columns=columns, show='headings', height=15)
+		# --- CONTENEDOR DE LA TABLA ---
+		self.table_frame = ctk.CTkFrame(self)
+		self.table_frame.grid(row=1, column=0, sticky='nsew', padx=20, pady=(0, 20))
 
-		# Configuramos los encabezados de la tabla
+		columns = ('Código', 'Producto', 'Stock Actual', 'Nivel de Alerta')
+		self.tree = ttk.Treeview(
+			self.table_frame, columns=columns, show='headings', height=20
+		)
+
 		for col in columns:
 			self.tree.heading(col, text=col)
-			self.tree.column(col, anchor='center')
+			width = 250 if col == 'Producto' else 120
+			self.tree.column(col, anchor='center', width=width)
 
-		# Le damos más espacio a la descripción
-		self.tree.column('Descripción', width=300, anchor='w')
+		self.tree.pack(fill='both', expand=True, padx=10, pady=10)
 
-		self.tree.pack(fill='both', expand=True, padx=20, pady=20)
+		# Cargamos los datos al iniciar la pantalla
+		self.load_data()
 
-		# Cargamos los datos apenas se abre la pantalla
-		self.load_alerts()
-
-	def load_alerts(self):
-		"""Limpia la tabla y la llena con los artículos que necesitan reabastecimiento"""
-		# 1. Limpiar datos viejos
+	def load_data(self):
+		"""Busca los productos críticos y los muestra en la tabla"""
+		# Limpiamos la tabla
 		for item in self.tree.get_children():
 			self.tree.delete(item)
 
-		# 2. Pedir datos nuevos al controlador
-		low_stock_articles = self.controller.get_low_stock_articles(
-			self.current_user.tenant_id
+		# Llamamos al controlador (usamos 5 como cantidad mínima por defecto)
+		low_stock_items = self.controller.get_low_stock_variants(
+			self.current_user.tenant_id, threshold=5
 		)
 
-		# 3. Insertar los datos en la tabla
-		for a in low_stock_articles:
+		for item in low_stock_items:
+			# Insertamos la fila
 			self.tree.insert(
 				'',
 				'end',
 				values=(
-					a.barcode if a.barcode else 'N/A',
-					a.description,
-					a.stock,
-					a.min_stock,
+					item['barcode'] or 'Sin código',
+					item['name'],
+					item['stock'],
+					f'Menor o igual a {item["threshold"]}',
 				),
+			)
+
+		# Actualizamos el contador visual
+		cantidad = len(low_stock_items)
+		if cantidad == 0:
+			self.lbl_count.configure(
+				text='¡Todo excelente! No hay alertas.', text_color='green'
+			)
+		else:
+			self.lbl_count.configure(
+				text=f'Se encontraron {cantidad} artículos para reponer.',
+				text_color='red',
 			)

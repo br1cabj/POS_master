@@ -1,7 +1,7 @@
-# views/articles_view.py
 from tkinter import ttk
 
 import customtkinter as ctk
+from CTkMessagebox import CTkMessagebox
 
 
 class ArticlesView(ctk.CTkFrame):
@@ -9,139 +9,193 @@ class ArticlesView(ctk.CTkFrame):
 		super().__init__(master)
 		self.current_user = current_user
 
+		# Conectamos con el nuevo controlador
 		from controllers.article_controller import ArticleController
 
 		self.controller = ArticleController(db_engine)
 
-		self.grid_columnconfigure(1, weight=1)
+		self.grid_columnconfigure(0, weight=1)
+		self.grid_columnconfigure(1, weight=2)
 		self.grid_rowconfigure(0, weight=1)
 
-		# === PANEL IZQUIERDO: FORMULARIO ===
-		self.left_panel = ctk.CTkScrollableFrame(self, width=280)
-		self.left_panel.grid(row=0, column=0, sticky='ns', padx=10, pady=10)
+		# === PANEL IZQUIERDO: NUEVO PRODUCTO ===
+		self.left_panel = ctk.CTkFrame(self)
+		self.left_panel.grid(row=0, column=0, sticky='nsew', padx=10, pady=10)
 
 		ctk.CTkLabel(
-			self.left_panel, text='Nuevo Artículo', font=('Arial', 20, 'bold')
-		).pack(pady=10)
+			self.left_panel, text='📦 Nuevo Producto', font=('Arial', 18, 'bold')
+		).pack(pady=20)
 
-		# Campos del formulario
+		self.entry_name = ctk.CTkEntry(
+			self.left_panel, placeholder_text='Nombre (Ej: Coca-Cola 2L)'
+		)
+		self.entry_name.pack(pady=10, padx=20, fill='x')
+
 		self.entry_barcode = ctk.CTkEntry(
 			self.left_panel, placeholder_text='Código de Barras'
 		)
-		self.entry_barcode.pack(pady=5, padx=10, fill='x')
-
-		self.entry_desc = ctk.CTkEntry(
-			self.left_panel, placeholder_text='Descripción *'
-		)
-		self.entry_desc.pack(pady=5, padx=10, fill='x')
+		self.entry_barcode.pack(pady=10, padx=20, fill='x')
 
 		self.entry_cost = ctk.CTkEntry(
 			self.left_panel, placeholder_text='Precio de Costo ($)'
 		)
-		self.entry_cost.pack(pady=5, padx=10, fill='x')
+		self.entry_cost.pack(pady=10, padx=20, fill='x')
 
-		self.entry_price1 = ctk.CTkEntry(
-			self.left_panel, placeholder_text='Precio Venta 1 ($) *'
+		self.entry_price = ctk.CTkEntry(
+			self.left_panel, placeholder_text='Precio de Venta ($)'
 		)
-		self.entry_price1.pack(pady=5, padx=10, fill='x')
+		self.entry_price.pack(pady=10, padx=20, fill='x')
 
-		# Precios opcionales (Lista 2 y 3)
-		self.entry_price2 = ctk.CTkEntry(
-			self.left_panel, placeholder_text='Precio Venta 2 (Opcional)'
-		)
-		self.entry_price2.pack(pady=5, padx=10, fill='x')
-
-		self.entry_price3 = ctk.CTkEntry(
-			self.left_panel, placeholder_text='Precio Venta 3 (Opcional)'
-		)
-		self.entry_price3.pack(pady=5, padx=10, fill='x')
-
+		# NUEVO: Campo para el stock inicial
 		self.entry_stock = ctk.CTkEntry(
-			self.left_panel, placeholder_text='Stock Actual'
+			self.left_panel, placeholder_text='Stock Inicial (Cantidad)'
 		)
-		self.entry_stock.pack(pady=5, padx=10, fill='x')
+		self.entry_stock.pack(pady=10, padx=20, fill='x')
 
-		self.entry_min_stock = ctk.CTkEntry(
-			self.left_panel, placeholder_text='Stock Mínimo (Alerta)'
+		self.btn_add = ctk.CTkButton(
+			self.left_panel, text='➕ Agregar al Inventario', command=self.add_article
 		)
-		self.entry_min_stock.pack(pady=5, padx=10, fill='x')
+		self.btn_add.pack(pady=20)
 
-		self.btn_save = ctk.CTkButton(
-			self.left_panel, text='Guardar Artículo', command=self.save_article
-		)
-		self.btn_save.pack(pady=20, padx=10, fill='x')
-
-		self.lbl_msg = ctk.CTkLabel(self.left_panel, text='', text_color='green')
-		self.lbl_msg.pack()
-
-		# === PANEL DERECHO: LISTA ===
+		# === PANEL DERECHO: CATÁLOGO ===
 		self.right_panel = ctk.CTkFrame(self)
 		self.right_panel.grid(row=0, column=1, sticky='nsew', padx=10, pady=10)
 
 		ctk.CTkLabel(
-			self.right_panel, text='Catálogo de Artículos', font=('Arial', 20, 'bold')
+			self.right_panel, text='Catálogo de Productos', font=('Arial', 18, 'bold')
 		).pack(pady=10)
 
-		columns = ('Cod', 'Descripción', 'Costo', 'P1', 'P2', 'P3', 'Stock', 'Min')
-		self.tree = ttk.Treeview(self.right_panel, columns=columns, show='headings')
+		# Tabla (Treeview)
+		columns = ('ID Variante', 'Código', 'Nombre', 'Costo', 'Venta', 'Stock Total')
+		self.tree = ttk.Treeview(
+			self.right_panel, columns=columns, show='headings', height=15
+		)
 
 		for col in columns:
 			self.tree.heading(col, text=col)
-			self.tree.column(col, width=80, anchor='center')
-		self.tree.column('Descripción', width=200, anchor='w')
+			# Ajustamos el ancho de las columnas
+			width = 150 if col == 'Nombre' else 80
+			self.tree.column(col, anchor='center', width=width)
 
-		self.tree.pack(fill='both', expand=True, padx=10, pady=10)
-		self.refresh_list()
+		self.tree.pack(fill='both', expand=True, padx=20, pady=10)
 
-	def save_article(self):
-		desc = self.entry_desc.get().strip()
-		p1 = self.entry_price1.get().strip()
-
-		if not desc or not p1:
-			self.lbl_msg.configure(
-				text='Descripción y Precio 1 son obligatorios', text_color='red'
-			)
-			return
-
-		success, msg = self.controller.add_article(
-			barcode=self.entry_barcode.get(),
-			description=desc,
-			cost_price=self.entry_cost.get(),
-			price_1=p1,
-			price_2=self.entry_price2.get(),
-			price_3=self.entry_price3.get(),
-			stock=self.entry_stock.get(),
-			min_stock=self.entry_min_stock.get(),
-			tenant_id=self.current_user.tenant_id,
+		self.btn_delete = ctk.CTkButton(
+			self.right_panel,
+			text='🗑️ Eliminar Seleccionado',
+			fg_color='#d9534f',
+			hover_color='#c9302c',
+			command=self.delete_article,
 		)
+		self.btn_delete.pack(pady=10)
 
-		if success:
-			self.lbl_msg.configure(text=msg, text_color='green')
-			self.refresh_list()
-			# Limpiar entradas (simplificado)
-			for widget in self.left_panel.winfo_children():
-				if isinstance(widget, ctk.CTkEntry):
-					widget.delete(0, 'end')
-		else:
-			self.lbl_msg.configure(text=msg, text_color='red')
+		# Cargamos los datos al iniciar la pantalla
+		self.load_data()
 
-	def refresh_list(self):
+	def load_data(self):
+		"""Lee las variantes de la base de datos y las dibuja en la tabla"""
+		# Limpiamos la tabla primero
 		for item in self.tree.get_children():
 			self.tree.delete(item)
 
-		articles = self.controller.get_articles(self.current_user.tenant_id)
-		for a in articles:
+		# Traemos todas las variantes activas
+		variants = self.controller.get_all_variants(self.current_user.tenant_id)
+
+		for variant in variants:
+			total_stock = sum(stock.quantity for stock in variant.stocks)
+
 			self.tree.insert(
 				'',
 				'end',
 				values=(
-					a.barcode,
-					a.description,
-					f'${a.cost_price}',
-					f'${a.price_1}',
-					f'${a.price_2}',
-					f'${a.price_3}',
-					a.stock,
-					a.min_stock,
+					variant.id,
+					variant.barcode or 'N/A',
+					variant.article.name,  # Sacamos el nombre del artículo padre
+					f'${variant.cost_price:.2f}',
+					f'${variant.selling_price:.2f}',
+					total_stock,  # Mostramos el stock unificado
 				),
 			)
+
+	def add_article(self):
+		"""Toma los datos del formulario y los envía al controlador"""
+		name = self.entry_name.get().strip()
+		barcode = self.entry_barcode.get().strip()
+		cost_str = self.entry_cost.get().strip()
+		price_str = self.entry_price.get().strip()
+		stock_str = self.entry_stock.get().strip()
+
+		# Validación básica
+		if not name or not cost_str or not price_str or not stock_str:
+			CTkMessagebox(
+				title='Faltan Datos',
+				message='El nombre, costos, precio y stock son obligatorios.',
+				icon='warning',
+			)
+			return
+
+		try:
+			cost = float(cost_str)
+			price = float(price_str)
+			initial_stock = float(
+				stock_str
+			)  # Usamos float por si venden a granel (ej: 1.5 kg)
+		except ValueError:
+			CTkMessagebox(
+				title='Error de Formato',
+				message='El costo, precio y stock deben ser números.',
+				icon='cancel',
+			)
+			return
+
+		# Llamamos a nuestra nueva súper función
+		success, msg = self.controller.add_simple_article(
+			tenant_id=self.current_user.tenant_id,
+			user_id=self.current_user.id,
+			name=name,
+			barcode=barcode,
+			cost_price=cost,
+			selling_price=price,
+			initial_stock=initial_stock,
+		)
+
+		if success:
+			CTkMessagebox(title='¡Éxito!', message=msg, icon='check')
+			# Limpiamos el formulario
+			self.entry_name.delete(0, 'end')
+			self.entry_barcode.delete(0, 'end')
+			self.entry_cost.delete(0, 'end')
+			self.entry_price.delete(0, 'end')
+			self.entry_stock.delete(0, 'end')
+			# Recargamos la tabla
+			self.load_data()
+		else:
+			CTkMessagebox(title='Error al guardar', message=msg, icon='cancel')
+
+	def delete_article(self):
+		"""Elimina (borrado lógico) la variante seleccionada"""
+		selected = self.tree.selection()
+		if not selected:
+			CTkMessagebox(
+				title='Atención',
+				message='Selecciona un producto de la tabla.',
+				icon='info',
+			)
+			return
+
+		confirm = CTkMessagebox(
+			title='Confirmar',
+			message='¿Seguro que deseas eliminar este producto?',
+			icon='question',
+			option_1='No',
+			option_2='Sí',
+		).get()
+		if confirm == 'Sí':
+			values = self.tree.item(selected[0], 'values')
+			variant_id = values[0]  # El ID de la Variante está en la primera columna
+
+			success, msg = self.controller.delete_variant(variant_id)
+			if success:
+				self.load_data()
+				CTkMessagebox(title='Eliminado', message=msg, icon='check')
+			else:
+				CTkMessagebox(title='Error', message=msg, icon='cancel')

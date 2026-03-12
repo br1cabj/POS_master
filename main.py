@@ -1,3 +1,6 @@
+import sys
+from tkinter import messagebox
+
 import customtkinter as ctk
 
 from controllers.auth_controller import AuthController
@@ -14,13 +17,32 @@ class App(ctk.CTk):
 	def __init__(self):
 		super().__init__()
 
-		# 1. Configuración básica de la ventana
-		self.title('Sistema POS')
-		self.geometry('900x600')
+		# 1. Configuración básica y profesional de la ventana
+		self.title('Punto de Venta')
 
-		# 2. Inicializar BD y Controladores logicamente
-		self.db_engine = init_db()
-		self.auth_controller = AuthController(self.db_engine)
+		# Calculamos el centro de la pantalla
+		window_width = 1000
+		window_height = 650
+		screen_width = self.winfo_screenwidth()
+		screen_height = self.winfo_screenheight()
+		x_cordinate = int((screen_width / 2) - (window_width / 2))
+		y_cordinate = int((screen_height / 2) - (window_height / 2))
+
+		# Aplicamos geometría y tamaño mínimo
+		self.geometry(f'{window_width}x{window_height}+{x_cordinate}+{y_cordinate}')
+		self.minsize(
+			900, 600
+		)  # Evita que la interfaz se rompa si se achica mucho la ventana
+
+		try:
+			self.db_engine = init_db()
+			self.auth_controller = AuthController(self.db_engine)
+		except Exception as e:
+			# Si la base de datos falla, mostramos una alerta y cerramos el programa limpiamente
+			messagebox.showerror(
+				'Error Crítico', f'No se pudo conectar a la base de datos:\n{str(e)}'
+			)
+			sys.exit(1)
 
 		# Variable para guardar quién está logueado actualmente
 		self.current_user = None
@@ -55,12 +77,12 @@ class App(ctk.CTk):
 			self.view.show_error('Usuario o contraseña incorrectos')
 
 	def logout(self):
-		"""Cierra sesión y vuelve al login"""
+		"""Cierra sesión y vuelve al login de forma segura"""
 		self.current_user = None
 		self.show_login()
 
 	def clear_window(self):
-		"""Elimina cualquier vista que esté actualmente en pantalla"""
+		"""Elimina cualquier vista que esté actualmente en pantalla para evitar superposiciones"""
 		if hasattr(self, 'view') and self.view is not None:
 			self.view.destroy()
 

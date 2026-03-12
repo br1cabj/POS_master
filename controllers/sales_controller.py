@@ -4,11 +4,14 @@ from sqlalchemy.orm import joinedload, sessionmaker
 
 from database.models import (
 	Article,
+	ArticleVariant,
 	CashMovement,
 	CashSession,
 	Customer,
 	Sale,
 	SaleDetail,
+	Stock,
+	StockMovement,
 )
 
 
@@ -17,12 +20,17 @@ class SalesController:
 		self.Session = sessionmaker(bind=db_engine)
 
 	def get_articles_for_sale(self, tenant_id):
-		"""Obtiene el catálogo de productos disponibles para vender."""
+		"""Obtiene el catálogo de variantes disponibles para vender."""
 		session = self.Session()
 		try:
 			return (
-				session.query(Article)
-				.filter_by(tenant_id=tenant_id, is_active=True)
+				session.query(ArticleVariant)
+				.options(
+					joinedload(ArticleVariant.article),
+					joinedload(ArticleVariant.stocks),
+				)
+				.join(Article)
+				.filter(Article.tenant_id == tenant_id, ArticleVariant.is_active)
 				.all()
 			)
 		finally:
@@ -66,7 +74,7 @@ class SalesController:
 		finally:
 			session.close()
 
-	# --- FUNCIÓN PRINCIPAL DE VENTAS ---
+	# --- FUNCIÓN PRINCIPAL DE VENTAS REFACTORIZADA ---
 	def process_sale(
 		self,
 		tenant_id,
@@ -78,7 +86,7 @@ class SalesController:
 	):
 		"""
 		Procesa la venta completa. Calcula totales, resta stock,
-		actualiza la caja o la cuenta corriente y genera el PDF.
+		crea el historial de movimientos, actualiza la caja y genera el PDF.
 		"""
 		session = self.Session()
 		try:
@@ -111,30 +119,54 @@ class SalesController:
 				payment_method=metodo_final,
 				status=estado_final,
 				date=datetime.utcnow(),
+				total_amount=0.0,
+				profit=0.0,
 			)
+
+			session.add(new_sale)
+			session.flush()
 
 			total_sale = 0.0
 			total_cost = 0.0
 
-			# 4. Procesamiento del Carrito (Detalles y Stock)
+			# 4. Procesamiento del Carrito (Detalles, Stock e Historial)
 			for item in cart_items:
-				if item.get('article_id') is not None:
-					article = (
-						session.query(Article).filter_by(id=item['article_id']).first()
+				if item.get('variant_id') is not None:
+					variant = (
+						session.query(ArticleVariant)
+						.options(joinedload(ArticleVariant.article))
+						.filter_by(id=item['variant_id'])
+						.first()
 					)
 
-					if not article:
-						raise Exception(f'Artículo no encontrado: {item["desc"]}')
-					if article.stock < item['qty']:
-						raise Exception(
-							f'Stock insuficiente para {article.description}'
-						)
+					if not variant:
+						raise Exception(f'Producto no encontrado: {item["desc"]}')
 
-					# Descontamos el stock
-					article.stock -= item['qty']
-					cost_price = article.cost_price
+					# Buscamos el stock físico de esta variante
+					stock_record = (
+						session.query(Stock).filter_by(variant_id=variant.id).first()
+					)
+
+					if not stock_record or stock_record.quantity < item['qty']:
+						nombre_prod = variant.article.name
+						raise Exception(f'Stock insuficiente para {nombre_prod}')
+
+					# Descontamos el stock de la ubicación física
+					stock_record.quantity -= item['qty']
+					cost_price = variant.cost_price
+
+					# --- REGISTRO HISTÓRICO DE SALIDA (KARDEX) ---
+					movimiento_salida = StockMovement(
+						movement_type='out',
+						quantity=item['qty'],
+						reference=f'Venta Ticket #{new_sale.id}',  # Ahora sí existe el ID
+						source_warehouse_id=stock_record.warehouse_id,
+						variant_id=variant.id,
+						user_id=user_id,
+					)
+					session.add(movimiento_salida)
+					# ----------------------------------------------------
 				else:
-					# Venta rápida sin artículo en base de datos
 					cost_price = 0.0
 
 				subtotal = item['price'] * item['qty']
@@ -144,7 +176,7 @@ class SalesController:
 				total_cost += cost_subtotal
 
 				detail = SaleDetail(
-					article_id=item.get('article_id'),
+					variant_id=item.get('variant_id'),
 					description=item['desc'],
 					quantity=item['qty'],
 					unit_cost=cost_price,
@@ -156,9 +188,6 @@ class SalesController:
 			# 5. Calculamos y asignamos totales financieros
 			new_sale.total_amount = total_sale
 			new_sale.profit = total_sale - total_cost
-
-			session.add(new_sale)
-			session.flush()  # Obtenemos el ID de la venta temporalmente
 
 			# 6. Movimiento Financiero
 			if is_fiado:

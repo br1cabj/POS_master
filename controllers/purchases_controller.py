@@ -1,8 +1,19 @@
 from datetime import datetime
 
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import joinedload, sessionmaker
 
-from database.models import Article, CashMovement, CashSession, Purchase, Supplier
+from database.models import (
+	Article,
+	ArticleVariant,
+	Branch,
+	CashMovement,
+	CashSession,
+	Purchase,
+	Stock,
+	StockMovement,
+	Supplier,
+	Warehouse,
+)
 
 
 class PurchasesController:
@@ -10,25 +21,38 @@ class PurchasesController:
 		self.Session = sessionmaker(bind=db_engine)
 
 	def get_suppliers(self, tenant_id):
-		"""Obtiene la lista de proveedores de la base de datos."""
+		"""Obtiene la lista de proveedores activos de la base de datos."""
 		session = self.Session()
 		try:
-			return session.query(Supplier).filter_by(tenant_id=tenant_id).all()
+			return (
+				session.query(Supplier)
+				.filter_by(tenant_id=tenant_id, is_active=True)
+				.all()
+			)
 		finally:
 			session.close()
 
-	def get_articles(self, tenant_id):
-		"""Obtiene el catálogo de artículos."""
+	def get_variants(self, tenant_id):
+		"""
+		NUEVO: Obtiene el catálogo de variantes en lugar de los artículos genéricos,
+		para saber exactamente qué producto físico estamos comprando.
+		"""
 		session = self.Session()
 		try:
-			return session.query(Article).filter_by(tenant_id=tenant_id).all()
+			return (
+				session.query(ArticleVariant)
+				.options(joinedload(ArticleVariant.article))
+				.join(Article)
+				.filter(Article.tenant_id == tenant_id, ArticleVariant.is_active)
+				.all()
+			)
 		finally:
 			session.close()
 
 	def process_purchase(self, tenant_id, user_id, supplier_id, cart_items):
 		"""
-		Registra la compra, aumenta el stock de los artículos
-		y registra el gasto en la caja actual.
+		Registra la compra, aumenta el stock físico en el almacén,
+		crea el registro de auditoría (Kardex) y descuenta el dinero de la caja.
 		"""
 		session = self.Session()
 		try:
@@ -55,17 +79,73 @@ class PurchasesController:
 				date=datetime.utcnow(),
 			)
 			session.add(new_purchase)
-			session.flush()  # Obtenemos el ID de la compra sin guardar permanentemente aún
+			session.flush()  # Obtenemos el ID de la compra (new_purchase.id)
 
-			# 3. Sumar el stock a los artículos
+			# Buscamos el almacén por defecto por si tenemos que crear un stock desde cero
+			branch = (
+				session.query(Branch)
+				.filter_by(tenant_id=tenant_id, name='Sede Principal')
+				.first()
+			)
+			default_warehouse = (
+				session.query(Warehouse)
+				.filter_by(branch_id=branch.id, name='Depósito General')
+				.first()
+				if branch
+				else None
+			)
+
+			# 3. Sumar el stock a los artículos e historial (Kardex)
 			for item in cart_items:
-				article = (
-					session.query(Article).filter_by(id=item['article_id']).first()
+				variant_id = item[
+					'variant_id'
+				]  # Ahora recibimos variant_id desde la vista
+				qty = item['qty']
+				new_cost = item['cost']
+
+				variant = session.query(ArticleVariant).filter_by(id=variant_id).first()
+				if not variant:
+					raise Exception(
+						'Una de las variantes compradas ya no existe en la base de datos.'
+					)
+
+				# Actualizamos el costo de la variante si el proveedor nos cobró distinto
+				variant.cost_price = new_cost
+
+				# Buscamos dónde está guardado este producto
+				stock_record = (
+					session.query(Stock).filter_by(variant_id=variant_id).first()
 				)
-				if article:
-					article.stock += item['qty']
-					# Actualizamos el costo del artículo si el proveedor lo cambió
-					article.cost_price = item['cost']
+
+				if stock_record:
+					# Si ya existía, simplemente le sumamos la cantidad comprada
+					stock_record.quantity += qty
+					warehouse_id = stock_record.warehouse_id
+				else:
+					# Si nunca habíamos tenido stock de esto, lo creamos en el depósito general
+					if not default_warehouse:
+						raise Exception(
+							"No se encontró el 'Depósito General' para ingresar la mercadería."
+						)
+					stock_record = Stock(
+						quantity=qty,
+						warehouse_id=default_warehouse.id,
+						variant_id=variant_id,
+					)
+					session.add(stock_record)
+					warehouse_id = default_warehouse.id
+
+				# --- NUEVO: REGISTRO HISTÓRICO DE ENTRADA (KARDEX) ---
+				movimiento_entrada = StockMovement(
+					movement_type='in',  # 'in' = Entrada
+					quantity=qty,
+					reference=f'Compra Proveedor #{new_purchase.id}',
+					dest_warehouse_id=warehouse_id,
+					variant_id=variant_id,
+					user_id=user_id,
+				)
+				session.add(movimiento_entrada)
+				# ----------------------------------------------------
 
 			# 4. Descontar el dinero de la caja (Movimiento de Gasto)
 			movement = CashMovement(
@@ -76,6 +156,7 @@ class PurchasesController:
 			)
 			session.add(movement)
 
+			# Confirmar todo
 			session.commit()
 			return (
 				True,
@@ -84,6 +165,6 @@ class PurchasesController:
 
 		except Exception as e:
 			session.rollback()
-			return False, str(e)
+			return False, f'Error al registrar la compra: {str(e)}'
 		finally:
 			session.close()

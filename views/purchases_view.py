@@ -1,6 +1,7 @@
 from tkinter import ttk
 
 import customtkinter as ctk
+from CTkMessagebox import CTkMessagebox  # NUEVO: Para mensajes profesionales
 
 
 class PurchasesView(ctk.CTkFrame):
@@ -30,16 +31,20 @@ class PurchasesView(ctk.CTkFrame):
 		self.supplier_combo = ctk.CTkComboBox(self.left_panel, width=200)
 		self.supplier_combo.pack(pady=5)
 
-		# Selector de Artículo
+		# Selector de Artículo (Variante)
 		ctk.CTkLabel(self.left_panel, text='Artículo a reabastecer:').pack(pady=5)
-		self.articles_combo = ctk.CTkComboBox(self.left_panel, width=200)
+		self.articles_combo = ctk.CTkComboBox(
+			self.left_panel, width=200, command=self.on_article_select
+		)
 		self.articles_combo.pack(pady=5)
 
+		# Campo de Costo
 		self.cost_entry = ctk.CTkEntry(
 			self.left_panel, placeholder_text='Costo Unitario ($)', width=150
 		)
 		self.cost_entry.pack(pady=5)
 
+		# Campo de Cantidad
 		self.qty_entry = ctk.CTkEntry(
 			self.left_panel, placeholder_text='Cantidad Recibida', width=150
 		)
@@ -49,9 +54,6 @@ class PurchasesView(ctk.CTkFrame):
 			self.left_panel, text='Agregar a la Factura ->', command=self.add_to_cart
 		)
 		self.btn_add.pack(pady=20)
-
-		self.lbl_msg = ctk.CTkLabel(self.left_panel, text='', text_color='red')
-		self.lbl_msg.pack(pady=5)
 
 		self.load_combos()
 
@@ -79,6 +81,16 @@ class PurchasesView(ctk.CTkFrame):
 		self.tree.heading('Subtotal', text='Subtotal')
 		self.tree.pack(fill='both', expand=True, padx=10)
 
+		# Botón para quitar items de la compra si me equivoco
+		self.btn_remove = ctk.CTkButton(
+			self.right_panel,
+			text='🗑️ Quitar Artículo',
+			fg_color='#d9534f',
+			hover_color='#c9302c',
+			command=self.remove_from_cart,
+		)
+		self.btn_remove.pack(pady=5)
+
 		self.lbl_total = ctk.CTkLabel(
 			self.right_panel,
 			text='TOTAL A PAGAR: $0.00',
@@ -97,56 +109,105 @@ class PurchasesView(ctk.CTkFrame):
 		self.btn_pay.pack(pady=10, fill='x', padx=20)
 
 	def load_combos(self):
-		"""Carga los proveedores y artículos en las listas desplegables"""
+		"""Carga los proveedores y artículos (variantes) en las listas desplegables"""
 		# Proveedores
 		suppliers = self.controller.get_suppliers(self.current_user.tenant_id)
 		self.supplier_map = {s.name: s for s in suppliers}
 		if self.supplier_map:
 			self.supplier_combo.configure(values=list(self.supplier_map.keys()))
 			self.supplier_combo.set(list(self.supplier_map.keys())[0])
+		else:
+			self.supplier_combo.set('No hay proveedores activos')
 
-		# Artículos
-		articles = self.controller.get_articles(self.current_user.tenant_id)
-		self.article_map = {a.description: a for a in articles}
-		if self.article_map:
-			self.articles_combo.configure(values=list(self.article_map.keys()))
+		# Artículos (Ahora usamos get_variants y mapeamos por el nombre del artículo padre)
+		variants = self.controller.get_variants(self.current_user.tenant_id)
+		self.variant_map = {v.article.name: v for v in variants if v.article}
+		if self.variant_map:
+			self.articles_combo.configure(values=list(self.variant_map.keys()))
 			self.articles_combo.set('Seleccionar...')
 
-	def add_to_cart(self):
-		self.lbl_msg.configure(text='')
-		desc = self.articles_combo.get()
-		cost_str = self.cost_entry.get()
-		qty_str = self.qty_entry.get()
-
-		if desc in self.article_map and cost_str and qty_str.isdigit():
-			try:
-				qty = int(qty_str)
-				cost = float(cost_str)
-			except ValueError:
-				self.lbl_msg.configure(text='Costo o cantidad inválidos')
-				return
-
-			article = self.article_map[desc]
-			subtotal = cost * qty
-
-			self.cart.append(
-				{
-					'article_id': article.id,
-					'desc': article.description,
-					'cost': cost,
-					'qty': qty,
-					'subtotal': subtotal,
-				}
-			)
-
-			self.tree.insert(
-				'', 'end', values=(desc, qty, f'${cost:.2f}', f'${subtotal:.2f}')
-			)
-			self.update_total()
-
-			# Limpiar campos
+	def on_article_select(self, selected_name):
+		"""Autocompleta el costo cuando el usuario selecciona un producto"""
+		if selected_name in self.variant_map:
+			variant = self.variant_map[selected_name]
 			self.cost_entry.delete(0, 'end')
-			self.qty_entry.delete(0, 'end')
+			self.cost_entry.insert(
+				0, str(variant.cost_price)
+			)  # Sugiere el último costo conocido
+			self.qty_entry.focus()  # Mueve el cursor a cantidad para mayor agilidad
+
+	def add_to_cart(self):
+		desc = self.articles_combo.get()
+		cost_str = self.cost_entry.get().strip()
+		qty_str = self.qty_entry.get().strip()
+
+		if desc not in self.variant_map or not cost_str or not qty_str:
+			CTkMessagebox(
+				title='Faltan datos',
+				message='Selecciona un producto, costo y cantidad.',
+				icon='warning',
+			)
+			return
+
+		try:
+			qty = int(qty_str)
+			cost = float(cost_str)
+		except ValueError:
+			CTkMessagebox(
+				title='Error de formato',
+				message='Costo o cantidad inválidos. Usa números.',
+				icon='cancel',
+			)
+			return
+
+		variant = self.variant_map[desc]
+		subtotal = cost * qty
+
+		# NUEVO: Usamos variant_id
+		self.cart.append(
+			{
+				'variant_id': variant.id,
+				'desc': variant.article.name,
+				'cost': cost,
+				'qty': qty,
+				'subtotal': subtotal,
+			}
+		)
+
+		self.tree.insert(
+			'',
+			'end',
+			values=(variant.article.name, qty, f'${cost:.2f}', f'${subtotal:.2f}'),
+		)
+		self.update_total()
+
+		# Limpiar campos y volver al selector inicial
+		self.cost_entry.delete(0, 'end')
+		self.qty_entry.delete(0, 'end')
+		self.articles_combo.set('Seleccionar...')
+
+	def remove_from_cart(self):
+		"""Permite borrar un item si el usuario se equivocó"""
+		selected_item = self.tree.selection()
+		if not selected_item:
+			CTkMessagebox(
+				title='Atención',
+				message='Selecciona un artículo de la tabla para quitarlo.',
+				icon='info',
+			)
+			return
+
+		for item_id in selected_item:
+			values = self.tree.item(item_id, 'values')
+			desc_to_remove = values[0]
+
+			for i, item in enumerate(self.cart):
+				if item['desc'] == desc_to_remove:
+					self.cart.pop(i)
+					break
+
+			self.tree.delete(item_id)
+		self.update_total()
 
 	def update_total(self):
 		total = sum(item['subtotal'] for item in self.cart)
@@ -154,25 +215,45 @@ class PurchasesView(ctk.CTkFrame):
 
 	def process_purchase(self):
 		if not self.cart:
+			CTkMessagebox(
+				title='Carrito vacío',
+				message='Agrega productos antes de confirmar el ingreso.',
+				icon='warning',
+			)
 			return
 
 		supplier_name = self.supplier_combo.get()
 		if supplier_name not in self.supplier_map:
-			self.lbl_msg.configure(text='Selecciona un proveedor válido.')
+			CTkMessagebox(
+				title='Proveedor inválido',
+				message='Selecciona un proveedor válido de la lista.',
+				icon='cancel',
+			)
 			return
 
 		supplier_id = self.supplier_map[supplier_name].id
+
+		# Pedimos confirmación antes de guardar
+		confirm = CTkMessagebox(
+			title='Confirmar',
+			message='¿Deseas confirmar este ingreso de mercadería?',
+			icon='question',
+			option_1='No',
+			option_2='Sí',
+		).get()
+		if confirm != 'Sí':
+			return
 
 		success, msg = self.controller.process_purchase(
 			self.current_user.tenant_id, self.current_user.id, supplier_id, self.cart
 		)
 
 		if success:
-			self.lbl_msg.configure(text=msg, text_color='green')
+			CTkMessagebox(title='¡Éxito!', message=msg, icon='check')
 			self.cart = []
 			for item in self.tree.get_children():
 				self.tree.delete(item)
 			self.update_total()
 			self.load_combos()
 		else:
-			self.lbl_msg.configure(text=msg, text_color='red')
+			CTkMessagebox(title='Error', message=msg, icon='cancel')

@@ -54,8 +54,7 @@ class ReceiptController:
 			filename = f'recibos/ticket_{sale_id}.pdf'
 			pdf.output(filename)
 
-			# --- MAGIA: DISPARADOR AUTOMÁTICO ---
-			# Llamamos a nuestra nueva función justo después de guardar el PDF
+			# --- DISPARADOR AUTOMÁTICO ---
 			self.print_receipt(filename)
 
 			return True, filename
