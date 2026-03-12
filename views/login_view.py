@@ -107,12 +107,11 @@ class LoginView(ctk.CTkFrame):
 
 	def _execute_login(self, user, pwd):
 		"""Delega la ejecución a main.py y restaura la vista si falla."""
-		# Llamamos a la función attempt_login de main.py
 		self.login_command(user, pwd)
 
 		# Restauramos el botón. (Si el login fue exitoso, main.py destruirá
-		# este frame entero, así que esta línea no afectará negativamente).
-		self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
+		if self.winfo_exists():
+			self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
 
 	def show_error(self, message):
 		"""Esta función es llamada desde main.py si el usuario/clave son incorrectos"""

@@ -40,7 +40,7 @@ class MainDashboard(ctk.CTkFrame):
 		self.current_view = None
 
 		# --- Sidebar (Menú Lateral) ---
-		self.sidebar = ctk.CTkFrame(self, width=220, corner_radius=0)
+		self.sidebar = ctk.CTkFrame(self, width=260, corner_radius=0)
 		self.sidebar.pack(side='left', fill='y')
 
 		# Título Sidebar (Fijo arriba)
@@ -81,7 +81,7 @@ class MainDashboard(ctk.CTkFrame):
 		self.btn_cash.pack(pady=5, padx=20)
 
 		# 2. BOTONES PRIVADOS (Solo Administradores)
-		if role == 'admin':
+		if str(role).lower() == 'admin' or str(username).lower() == 'admin':
 			ctk.CTkLabel(
 				self.menu_scroll,
 				text='--- Gestión ---',
