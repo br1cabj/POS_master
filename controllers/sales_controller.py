@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 from sqlalchemy.orm import joinedload, sessionmaker
@@ -14,67 +15,121 @@ from database.models import (
 	StockMovement,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class SalesController:
 	def __init__(self, db_engine):
 		self.Session = sessionmaker(bind=db_engine)
 
-	def get_articles_for_sale(self, tenant_id):
-		"""Obtiene el catálogo de variantes disponibles para vender."""
-		session = self.Session()
+	def _parse_float(self, value):
+		"""Convierte valores de la UI a float de forma segura."""
 		try:
-			return (
-				session.query(ArticleVariant)
-				.options(
-					joinedload(ArticleVariant.article),
-					joinedload(ArticleVariant.stocks),
+			if isinstance(value, str):
+				value = value.replace(',', '.')
+			return float(value)
+		except (ValueError, TypeError):
+			return 0.0
+
+	def get_articles_for_sale(self, tenant_id):
+		"""Obtiene el catálogo de variantes. Devuelve diccionarios para la UI."""
+		with self.Session() as session:
+			try:
+				variants = (
+					session.query(ArticleVariant)
+					.options(
+						joinedload(ArticleVariant.article),
+						joinedload(ArticleVariant.stocks),
+					)
+					.join(Article)
+					.filter(Article.tenant_id == tenant_id, ArticleVariant.is_active)
+					.all()
 				)
-				.join(Article)
-				.filter(Article.tenant_id == tenant_id, ArticleVariant.is_active)
-				.all()
-			)
-		finally:
-			session.close()
+
+				return [
+					{
+						'variant_id': v.id,
+						'name': v.article.name,
+						'barcode': v.barcode,
+						'selling_price': v.selling_price,
+						'total_stock': sum(s.quantity for s in v.stocks)
+						if v.stocks
+						else 0,
+					}
+					for v in variants
+				]
+			except Exception as e:
+				logger.error(
+					f'Error al obtener artículos para venta: {e}', exc_info=True
+				)
+				return []
 
 	def get_customers(self, tenant_id):
-		"""Obtiene la lista de clientes para el selector de la interfaz."""
-		session = self.Session()
-		try:
-			return (
-				session.query(Customer)
-				.filter_by(tenant_id=tenant_id, is_active=True)
-				.order_by(Customer.name)
-				.all()
-			)
-		finally:
-			session.close()
+		with self.Session() as session:
+			try:
+				customers = (
+					session.query(Customer)
+					.filter_by(tenant_id=tenant_id, is_active=True)
+					.order_by(Customer.name)
+					.all()
+				)
+				return [
+					{'id': c.id, 'name': c.name, 'current_balance': c.current_balance}
+					for c in customers
+				]
+			except Exception as e:
+				logger.error(f'Error al obtener clientes: {e}', exc_info=True)
+				return []
 
-	def get_history(self, tenant_id):
-		"""Obtiene el historial completo de ventas con sus relaciones."""
-		session = self.Session()
-		try:
-			return (
-				session.query(Sale)
-				.options(joinedload(Sale.customer), joinedload(Sale.user))
-				.filter_by(tenant_id=tenant_id)
-				.order_by(Sale.date.desc())
-				.all()
-			)
-		except Exception as e:
-			print(f'Error al leer historial: {e}')
-			return []
-		finally:
-			session.close()
+	def get_history(self, tenant_id, limit=500):
+		"""Obtiene el historial blindado contra desbordamiento de memoria."""
+		with self.Session() as session:
+			try:
+				sales = (
+					session.query(Sale)
+					.options(joinedload(Sale.customer), joinedload(Sale.user))
+					.filter_by(tenant_id=tenant_id)
+					.order_by(Sale.date.desc())
+					.limit(limit)  # Salvavidas de memoria
+					.all()
+				)
+				return [
+					{
+						'id': s.id,
+						'date': s.date,
+						'total_amount': s.total_amount,
+						'payment_method': s.payment_method,
+						'status': s.status,
+						'customer_name': s.customer.name
+						if s.customer
+						else 'Consumidor Final',
+						'user_name': s.user.username if s.user else 'Desconocido',
+					}
+					for s in sales
+				]
+			except Exception as e:
+				logger.error(f'Error al leer historial: {e}', exc_info=True)
+				return []
 
 	def get_sale_details(self, sale_id):
-		"""Obtiene el detalle (los items) de un ticket específico."""
-		session = self.Session()
-		try:
-			return session.query(SaleDetail).filter_by(sale_id=sale_id).all()
-		finally:
-			session.close()
+		with self.Session() as session:
+			try:
+				details = session.query(SaleDetail).filter_by(sale_id=sale_id).all()
+				return [
+					{
+						'description': d.description,
+						'quantity': d.quantity,
+						'unit_price': d.unit_price,
+						'subtotal': d.subtotal,
+					}
+					for d in details
+				]
+			except Exception as e:
+				logger.error(
+					f'Error al leer detalle de venta {sale_id}: {e}', exc_info=True
+				)
+				return []
 
-	# --- FUNCIÓN PRINCIPAL DE VENTAS REFACTORIZADA ---
 	def process_sale(
 		self,
 		tenant_id,
@@ -84,158 +139,182 @@ class SalesController:
 		is_fiado=False,
 		payment_method='efectivo',
 	):
-		"""
-		Procesa la venta completa. Calcula totales, resta stock,
-		crea el historial de movimientos, actualiza la caja y genera el PDF.
-		"""
-		session = self.Session()
-		try:
-			# 1. Verificación de Caja Abierta
-			active_cash = (
-				session.query(CashSession)
-				.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
-				.first()
-			)
-			if not active_cash:
-				return False, '⚠️ ¡Debes ABRIR LA CAJA en el menú antes de vender!'
+		if not cart_items:
+			return False, 'El carrito está vacío.'
 
-			# 2. Asignación de Cliente por Defecto
-			if not customer_id:
-				default_customer = (
-					session.query(Customer)
-					.filter_by(name='Consumidor Final', tenant_id=tenant_id)
+		with self.Session() as session:
+			try:
+				# 1. Verificación de Caja
+				active_cash = (
+					session.query(CashSession)
+					.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
 					.first()
 				)
-				customer_id = default_customer.id if default_customer else None
+				if not active_cash:
+					return False, '⚠️ ¡Debes ABRIR LA CAJA en el menú antes de vender!'
 
-			# 3. Preparación de la Venta Maestra
-			metodo_final = 'fiado' if is_fiado else payment_method.lower()
-			estado_final = 'pendiente' if is_fiado else 'completada'
+				# 2. Gestión de Cliente Optimizada (Una sola consulta)
+				customer_str = 'Consumidor Final'
+				customer_obj = None
 
-			new_sale = Sale(
-				tenant_id=tenant_id,
-				user_id=user_id,
-				customer_id=customer_id,
-				payment_method=metodo_final,
-				status=estado_final,
-				date=datetime.utcnow(),
-				total_amount=0.0,
-				profit=0.0,
-			)
-
-			session.add(new_sale)
-			session.flush()
-
-			total_sale = 0.0
-			total_cost = 0.0
-
-			# 4. Procesamiento del Carrito (Detalles, Stock e Historial)
-			for item in cart_items:
-				if item.get('variant_id') is not None:
-					variant = (
-						session.query(ArticleVariant)
-						.options(joinedload(ArticleVariant.article))
-						.filter_by(id=item['variant_id'])
+				if customer_id:
+					customer_obj = (
+						session.query(Customer).filter_by(id=customer_id).first()
+					)
+					if customer_obj:
+						customer_str = customer_obj.name
+				else:
+					customer_obj = (
+						session.query(Customer)
+						.filter_by(name='Consumidor Final', tenant_id=tenant_id)
 						.first()
 					)
+					customer_id = customer_obj.id if customer_obj else None
 
-					if not variant:
-						raise Exception(f'Producto no encontrado: {item["desc"]}')
+				if is_fiado and not customer_id:
+					return False, 'Debes seleccionar un cliente válido para fiar.'
 
-					# Buscamos el stock físico de esta variante
-					stock_record = (
-						session.query(Stock).filter_by(variant_id=variant.id).first()
+				# 3. Preparación de la Venta Maestra
+				metodo_final = 'fiado' if is_fiado else payment_method.lower()
+				estado_final = 'pendiente' if is_fiado else 'completada'
+
+				new_sale = Sale(
+					tenant_id=tenant_id,
+					user_id=user_id,
+					customer_id=customer_id,
+					payment_method=metodo_final,
+					status=estado_final,
+					date=datetime.utcnow(),
+					total_amount=0.0,
+					profit=0.0,
+				)
+				session.add(new_sale)
+				session.flush()
+
+				# --- OPTIMIZACIÓN N+1 ---
+				variant_ids = [
+					item['variant_id']
+					for item in cart_items
+					if item.get('variant_id') is not None
+				]
+
+				variants_db = {}
+				stocks_db = {}
+				if variant_ids:
+					variants_db = {
+						v.id: v
+						for v in session.query(ArticleVariant)
+						.options(joinedload(ArticleVariant.article))
+						.filter(ArticleVariant.id.in_(variant_ids))
+						.all()
+					}
+					stocks_db = {
+						s.variant_id: s
+						for s in session.query(Stock)
+						.filter(Stock.variant_id.in_(variant_ids))
+						.all()
+					}
+				# ------------------------
+
+				total_sale = 0.0
+				total_cost = 0.0
+
+				# 4. Procesamiento del Carrito
+				for item in cart_items:
+					qty = self._parse_float(item.get('qty', 1))
+					price = self._parse_float(item.get('price', 0))
+					v_id = item.get('variant_id')
+
+					if qty <= 0:
+						continue
+
+					if v_id is not None:
+						variant = variants_db.get(v_id)
+						if not variant:
+							raise Exception(f'Producto no encontrado: {item["desc"]}')
+
+						stock_record = stocks_db.get(v_id)
+						if not stock_record or stock_record.quantity < qty:
+							raise Exception(
+								f'Stock insuficiente para {variant.article.name}'
+							)
+
+						stock_record.quantity -= qty
+						cost_price = variant.cost_price
+
+						movimiento_salida = StockMovement(
+							movement_type='out',
+							quantity=qty,
+							reference=f'Venta Ticket #{new_sale.id}',
+							source_warehouse_id=stock_record.warehouse_id,
+							variant_id=variant.id,
+							user_id=user_id,
+						)
+						session.add(movimiento_salida)
+					else:
+						cost_price = 0.0
+
+					subtotal = price * qty
+					cost_subtotal = cost_price * qty
+
+					total_sale += subtotal
+					total_cost += cost_subtotal
+
+					detail = SaleDetail(
+						variant_id=v_id,
+						description=item['desc'],
+						quantity=qty,
+						unit_cost=cost_price,
+						unit_price=price,
+						subtotal=subtotal,
 					)
+					new_sale.items.append(detail)
 
-					if not stock_record or stock_record.quantity < item['qty']:
-						nombre_prod = variant.article.name
-						raise Exception(f'Stock insuficiente para {nombre_prod}')
+				# 5. Totales
+				new_sale.total_amount = total_sale
+				new_sale.profit = total_sale - total_cost
 
-					# Descontamos el stock de la ubicación física
-					stock_record.quantity -= item['qty']
-					cost_price = variant.cost_price
-
-					# --- REGISTRO HISTÓRICO DE SALIDA (KARDEX) ---
-					movimiento_salida = StockMovement(
-						movement_type='out',
-						quantity=item['qty'],
-						reference=f'Venta Ticket #{new_sale.id}',  # Ahora sí existe el ID
-						source_warehouse_id=stock_record.warehouse_id,
-						variant_id=variant.id,
-						user_id=user_id,
-					)
-					session.add(movimiento_salida)
-					# ----------------------------------------------------
+				# 6. Movimiento Financiero
+				if is_fiado and customer_obj:
+					customer_obj.current_balance += total_sale
 				else:
-					cost_price = 0.0
+					movement = CashMovement(
+						session_id=active_cash.id,
+						movement_type='venta',
+						amount=total_sale,
+						description=f'Ticket #{new_sale.id} - Pago: {payment_method.capitalize()}',
+					)
+					session.add(movement)
 
-				subtotal = item['price'] * item['qty']
-				cost_subtotal = cost_price * item['qty']
+				session.commit()
 
-				total_sale += subtotal
-				total_cost += cost_subtotal
+				# 7. Generación del Ticket (PDF)
+				try:
+					from controllers.receipt_controller import ReceiptController
 
-				detail = SaleDetail(
-					variant_id=item.get('variant_id'),
-					description=item['desc'],
-					quantity=item['qty'],
-					unit_cost=cost_price,
-					unit_price=item['price'],
-					subtotal=subtotal,
+					pdf_maker = ReceiptController()
+					date_str = new_sale.date.strftime('%Y-%m-%d %H:%M')
+					pdf_maker.generate_pdf(
+						sale_id=new_sale.id,
+						date_str=date_str,
+						items_list=cart_items,
+						total=total_sale,
+						customer_name=customer_str,  # Usamos la variable que ya teníamos
+					)
+				except Exception as pdf_err:
+					logger.warning(
+						f'La venta se guardó, pero falló el ticket: {pdf_err}'
+					)
+
+				return (
+					True,
+					f'Venta registrada ({metodo_final.capitalize()}). Total: ${total_sale:.2f}',
 				)
-				new_sale.items.append(detail)
 
-			# 5. Calculamos y asignamos totales financieros
-			new_sale.total_amount = total_sale
-			new_sale.profit = total_sale - total_cost
-
-			# 6. Movimiento Financiero
-			if is_fiado:
-				if not customer_id:
-					return False, 'Debes seleccionar un cliente para fiar.'
-				customer = session.query(Customer).filter_by(id=customer_id).first()
-				if customer:
-					customer.current_balance += total_sale
-			else:
-				movement = CashMovement(
-					session_id=active_cash.id,
-					movement_type='venta',
-					amount=total_sale,
-					description=f'Ticket #{new_sale.id} - Pago: {payment_method.capitalize()}',
-				)
-				session.add(movement)
-
-			# Confirmamos todos los cambios en la base de datos
-			session.commit()
-
-			# 7. Generación del Ticket (PDF)
-			from controllers.receipt_controller import ReceiptController
-
-			customer_str = 'Consumidor Final'
-			if customer_id:
-				c = session.query(Customer).filter_by(id=customer_id).first()
-				if c:
-					customer_str = c.name
-
-			date_str = new_sale.date.strftime('%Y-%m-%d %H:%M')
-
-			pdf_maker = ReceiptController()
-			pdf_maker.generate_pdf(
-				sale_id=new_sale.id,
-				date_str=date_str,
-				items_list=cart_items,
-				total=total_sale,
-				customer_name=customer_str,
-			)
-
-			# Retornamos el éxito
-			return (
-				True,
-				f'Venta registrada ({metodo_final.capitalize()}). Total: ${total_sale:.2f}',
-			)
-
-		except Exception as e:
-			session.rollback()
-			return False, f'Error al procesar venta: {str(e)}'
-		finally:
-			session.close()
+			except Exception as e:
+				session.rollback()
+				logger.error(f'Error al procesar venta: {e}', exc_info=True)
+				return (
+					False,
+					str(e),
+				)  # Devolvemos el string del error para que la UI diga "Stock insuficiente..."
