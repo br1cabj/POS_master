@@ -1,4 +1,3 @@
-# database/models.py
 from datetime import datetime
 
 from sqlalchemy import (
@@ -6,9 +5,9 @@ from sqlalchemy import (
 	Column,
 	Date,
 	DateTime,
-	Float,
 	ForeignKey,
 	Integer,
+	Numeric,
 	String,
 	create_engine,
 )
@@ -39,7 +38,8 @@ class User(Base):
 	role = Column(String, default='cajero')
 	is_active = Column(Boolean, default=True)
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+	# NUEVO: index=True para acelerar búsquedas
+	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
 	tenant = relationship('Tenant', back_populates='users')
 
 	sales = relationship('Sale', back_populates='user')
@@ -50,29 +50,25 @@ class User(Base):
 # 2. LOGÍSTICA: SUCURSALES Y ALMACENES
 # ==========================================
 class Branch(Base):
-	"""Sucursales del negocio (Ej: Sucursal Centro, Sucursal Norte)"""
-
 	__tablename__ = 'branches'
 	id = Column(Integer, primary_key=True)
 	name = Column(String, nullable=False)
 	address = Column(String, nullable=True)
 	is_active = Column(Boolean, default=True)
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
 	tenant = relationship('Tenant', back_populates='branches')
 
 	warehouses = relationship('Warehouse', back_populates='branch')
 
 
 class Warehouse(Base):
-	"""Almacenes dentro de una sucursal (Ej: Salón Principal, Depósito, Mostrador)"""
-
 	__tablename__ = 'warehouses'
 	id = Column(Integer, primary_key=True)
 	name = Column(String, nullable=False)
 	is_active = Column(Boolean, default=True)
 
-	branch_id = Column(Integer, ForeignKey('branches.id'), nullable=False)
+	branch_id = Column(Integer, ForeignKey('branches.id'), nullable=False, index=True)
 	branch = relationship('Branch', back_populates='warehouses')
 
 	stocks = relationship('Stock', back_populates='warehouse')
@@ -88,25 +84,18 @@ class Category(Base):
 
 
 class Article(Base):
-	"""Plantilla general del producto (Ej: Camiseta de Algodón)"""
-
 	__tablename__ = 'articles'
 	id = Column(Integer, primary_key=True)
 	name = Column(String, nullable=False)
 	description = Column(String, nullable=True)
 
-	# --- CONFIGURACIONES AVANZADAS DE INVENTARIO ---
-	min_stock = Column(Integer, default=0)  # Alerta de stock mínimo
-	requires_batch = Column(
-		Boolean, default=False
-	)  # Para Farmacias/Alimentos (Lote y Vencimiento)
-	requires_serial = Column(
-		Boolean, default=False
-	)  # Para Electrónica (Números de serie únicos)
-	has_variants = Column(Boolean, default=False)  # Para Ropa (Tallas/Colores)
-
+	min_stock = Column(Integer, default=0)
+	requires_batch = Column(Boolean, default=False)
+	requires_serial = Column(Boolean, default=False)
+	has_variants = Column(Boolean, default=False)
 	is_active = Column(Boolean, default=True)
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+
+	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
 	tenant = relationship('Tenant', back_populates='articles')
 
 	category_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
@@ -117,21 +106,22 @@ class Article(Base):
 
 
 class ArticleVariant(Base):
-	"""El producto real vendible (Ej: Camiseta - Roja - Talla M)"""
-
 	__tablename__ = 'article_variants'
 	id = Column(Integer, primary_key=True)
-	barcode = Column(String, unique=True, nullable=True)
 
-	# Atributos (Si es kiosco, estos quedan vacíos. Si es ropa, aquí va "Rojo" y "M")
-	attribute_1 = Column(String, nullable=True)  # Ej: Talla
-	attribute_2 = Column(String, nullable=True)  # Ej: Color
+	# CORRECCIÓN: Quitamos unique=True y ponemos index=True para que distintas
+	# empresas puedan vender el mismo producto con el mismo código de barras.
+	barcode = Column(String, nullable=True, index=True)
 
-	cost_price = Column(Float, nullable=False)
-	selling_price = Column(Float, nullable=False)
+	attribute_1 = Column(String, nullable=True)
+	attribute_2 = Column(String, nullable=True)
+
+	# CORRECCIÓN: Numeric(10, 2) significa "10 dígitos en total, 2 decimales"
+	cost_price = Column(Numeric(10, 2), nullable=False)
+	selling_price = Column(Numeric(10, 2), nullable=False)
 	is_active = Column(Boolean, default=True)
 
-	article_id = Column(Integer, ForeignKey('articles.id'), nullable=False)
+	article_id = Column(Integer, ForeignKey('articles.id'), nullable=False, index=True)
 	article = relationship('Article', back_populates='variants')
 
 	stocks = relationship('Stock', back_populates='variant')
@@ -139,49 +129,48 @@ class ArticleVariant(Base):
 
 
 # ==========================================
-# 4. CONTROL DE STOCK E HISTORIAL (KARDEX)
+# 4. CONTROL DE STOCK E HISTORIAL
 # ==========================================
 class Stock(Base):
-	"""Donde vive la cantidad real de mercadería separada por ubicación y lote"""
-
 	__tablename__ = 'stocks'
 	id = Column(Integer, primary_key=True)
-	quantity = Column(
-		Float, default=0.0
-	)  # Float para permitir ventas a granel (Ej: 1.5 Kg)
 
-	# Datos de trazabilidad (Opcionales)
-	batch_number = Column(String, nullable=True)  # Número de Lote
-	expiration_date = Column(Date, nullable=True)  # Fecha de vencimiento
-	serial_number = Column(String, unique=True, nullable=True)  # Serial único
+	# Aquí sí podemos usar Numeric o Float, pero Numeric(12, 4) es mejor
+	# por si pesan cosas muy exactas (ej. oro, especias)
+	quantity = Column(Numeric(12, 4), default=0.0)
 
-	warehouse_id = Column(Integer, ForeignKey('warehouses.id'), nullable=False)
+	batch_number = Column(String, nullable=True, index=True)
+	expiration_date = Column(Date, nullable=True)
+	serial_number = Column(String, unique=True, nullable=True)
+
+	warehouse_id = Column(
+		Integer, ForeignKey('warehouses.id'), nullable=False, index=True
+	)
 	warehouse = relationship('Warehouse', back_populates='stocks')
 
-	variant_id = Column(Integer, ForeignKey('article_variants.id'), nullable=False)
+	variant_id = Column(
+		Integer, ForeignKey('article_variants.id'), nullable=False, index=True
+	)
 	variant = relationship('ArticleVariant', back_populates='stocks')
 
 
 class StockMovement(Base):
-	"""Historial inmutable de todo lo que pasa con el inventario"""
-
 	__tablename__ = 'stock_movements'
 	id = Column(Integer, primary_key=True)
-	date = Column(DateTime, default=datetime.utcnow)
+	date = Column(
+		DateTime, default=datetime.utcnow, index=True
+	)  # INDEX: Acelera el Dashboard
 
-	# Tipos: 'in' (compra), 'out' (venta), 'transfer' (traslado), 'adjustment' (ajuste manual/conteo)
 	movement_type = Column(String, nullable=False)
-	quantity = Column(Float, nullable=False)
-	reference = Column(
-		String, nullable=True
-	)  # Ej: "Venta Ticket #105" o "Merma por rotura"
+	quantity = Column(Numeric(12, 4), nullable=False)
+	reference = Column(String, nullable=True)
 
-	# Para transferencias, de dónde sale y a dónde va
 	source_warehouse_id = Column(Integer, ForeignKey('warehouses.id'), nullable=True)
 	dest_warehouse_id = Column(Integer, ForeignKey('warehouses.id'), nullable=True)
 
-	variant_id = Column(Integer, ForeignKey('article_variants.id'), nullable=False)
-
+	variant_id = Column(
+		Integer, ForeignKey('article_variants.id'), nullable=False, index=True
+	)
 	variant = relationship('ArticleVariant')
 
 	user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
@@ -189,32 +178,40 @@ class StockMovement(Base):
 
 
 # ==========================================
-# 5. VENTAS, CLIENTES Y CAJA (Adaptados a las Variantes)
+# 5. VENTAS, CLIENTES Y CAJA
 # ==========================================
 class Customer(Base):
 	__tablename__ = 'customers'
 	id = Column(Integer, primary_key=True)
 	name = Column(String, nullable=False)
 	phone = Column(String, nullable=True)
-	current_balance = Column(Float, default=0.0)
+	current_balance = Column(Numeric(10, 2), default=0.0)
 	is_active = Column(Boolean, default=True)
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+
+	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
 	tenant = relationship('Tenant', back_populates='customers')
+
+	sales = relationship('Sale', back_populates='customer')
 
 
 class Sale(Base):
 	__tablename__ = 'sales'
 	id = Column(Integer, primary_key=True)
-	date = Column(DateTime, default=datetime.utcnow)
-	total_amount = Column(Float, nullable=False)
-	profit = Column(Float, nullable=False)
+	date = Column(
+		DateTime, default=datetime.utcnow, index=True
+	)  # INDEX: Acelera búsquedas de fechas
+	total_amount = Column(Numeric(10, 2), nullable=False)
+	profit = Column(Numeric(10, 2), nullable=False)
 	payment_method = Column(String, default='efectivo')
 	status = Column(String, default='completada')
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
-	user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+
+	user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
 	user = relationship('User', back_populates='sales')
-	customer_id = Column(Integer, ForeignKey('customers.id'), nullable=True)
+
+	customer_id = Column(Integer, ForeignKey('customers.id'), nullable=True, index=True)
+	customer = relationship('Customer', back_populates='sales')
 
 	items = relationship(
 		'SaleDetail', back_populates='sale', cascade='all, delete-orphan'
@@ -224,16 +221,15 @@ class Sale(Base):
 class SaleDetail(Base):
 	__tablename__ = 'sale_details'
 	id = Column(Integer, primary_key=True)
-	quantity = Column(Float, nullable=False)
-	unit_cost = Column(Float, nullable=False)
-	unit_price = Column(Float, nullable=False)
-	subtotal = Column(Float, nullable=False)
+	quantity = Column(Numeric(12, 4), nullable=False)
+	unit_cost = Column(Numeric(10, 2), nullable=False)
+	unit_price = Column(Numeric(10, 2), nullable=False)
+	subtotal = Column(Numeric(10, 2), nullable=False)
 	description = Column(String, nullable=False)
 
-	sale_id = Column(Integer, ForeignKey('sales.id'), nullable=False)
+	sale_id = Column(Integer, ForeignKey('sales.id'), nullable=False, index=True)
 	sale = relationship('Sale', back_populates='items')
 
-	# Ahora la venta se enlaza a la Variante específica, no al artículo general
 	variant_id = Column(Integer, ForeignKey('article_variants.id'), nullable=True)
 	variant = relationship('ArticleVariant', back_populates='sale_details')
 
@@ -243,29 +239,37 @@ class CashSession(Base):
 	id = Column(Integer, primary_key=True)
 	opening_time = Column(DateTime, default=datetime.utcnow)
 	closing_time = Column(DateTime, nullable=True)
-	opening_balance = Column(Float, default=0.0)
-	closing_balance = Column(Float, default=0.0)
+	opening_balance = Column(Numeric(10, 2), default=0.0)
+	closing_balance = Column(Numeric(10, 2), default=0.0)
 	is_open = Column(Boolean, default=True)
-	user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
+
+	user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+
+	# NUEVO: Relación bidireccional limpia
+	movements = relationship(
+		'CashMovement', back_populates='session', cascade='all, delete-orphan'
+	)
 
 
 class CashMovement(Base):
 	__tablename__ = 'cash_movements'
 	id = Column(Integer, primary_key=True)
 	movement_type = Column(String, nullable=False)
-	amount = Column(Float, nullable=False)
+	amount = Column(Numeric(10, 2), nullable=False)
 	description = Column(String, nullable=True)
 	time = Column(DateTime, default=datetime.utcnow)
-	session_id = Column(Integer, ForeignKey('cash_sessions.id'), nullable=False)
+
+	session_id = Column(
+		Integer, ForeignKey('cash_sessions.id'), nullable=False, index=True
+	)
+	session = relationship('CashSession', back_populates='movements')
 
 
 # ==========================================
 # 6. COMPRAS Y PROVEEDORES
 # ==========================================
 class Supplier(Base):
-	"""Directorio de proveedores para reabastecer el inventario"""
-
 	__tablename__ = 'suppliers'
 	id = Column(Integer, primary_key=True)
 	name = Column(String, nullable=False)
@@ -274,33 +278,28 @@ class Supplier(Base):
 	address = Column(String, nullable=True)
 	is_active = Column(Boolean, default=True)
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
-
+	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
 	purchases = relationship('Purchase', back_populates='supplier')
 
 
 class Purchase(Base):
-	"""Registro de ingreso de mercadería comprada a proveedores"""
-
 	__tablename__ = 'purchases'
 	id = Column(Integer, primary_key=True)
-	date = Column(DateTime, default=datetime.utcnow)
-	total_amount = Column(Float, nullable=False)
+	date = Column(DateTime, default=datetime.utcnow, index=True)
+	total_amount = Column(Numeric(10, 2), nullable=False)
 	invoice_number = Column(String, nullable=True)
 	status = Column(String, default='pagada')
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False)
-	user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+	user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
 
-	supplier_id = Column(Integer, ForeignKey('suppliers.id'), nullable=True)
+	supplier_id = Column(Integer, ForeignKey('suppliers.id'), nullable=True, index=True)
 	supplier = relationship('Supplier', back_populates='purchases')
 
 
 # ==========================================
 # CONFIGURACIÓN DEL MOTOR
 # ==========================================
-
-
 def init_db(database_url='sqlite:///pos_system.db'):
 	engine = create_engine(database_url, connect_args={'check_same_thread': False})
 	Base.metadata.create_all(bind=engine)

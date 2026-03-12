@@ -22,6 +22,18 @@ class MainDashboard(ctk.CTkFrame):
 
 		self.pack(fill='both', expand=True)
 
+		# --- Manejo seguro del usuario (Diccionario u Objeto) ---
+		username = (
+			self.current_user.get('username', 'Usuario')
+			if isinstance(self.current_user, dict)
+			else self.current_user.username
+		)
+		role = (
+			self.current_user.get('role', 'user')
+			if isinstance(self.current_user, dict)
+			else getattr(self.current_user, 'role', 'user')
+		)
+
 		# --- Área Principal ---
 		self.main_area = ctk.CTkFrame(self)
 		self.main_area.pack(side='right', fill='both', expand=True, padx=10, pady=10)
@@ -39,12 +51,11 @@ class MainDashboard(ctk.CTkFrame):
 		# Etiqueta de usuario activo (Fijo arriba)
 		ctk.CTkLabel(
 			self.sidebar,
-			text=f'👤 {self.current_user.username.capitalize()}',
+			text=f'👤 {username.capitalize()}',
 			text_color='gray',
 		).pack(pady=(0, 20))
 
 		# --- CONTENEDOR DE BOTONES CON SCROLL ---
-		# Esto evita que los botones desaparezcan en pantallas pequeñas
 		self.menu_scroll = ctk.CTkScrollableFrame(self.sidebar, fg_color='transparent')
 		self.menu_scroll.pack(fill='both', expand=True, padx=0, pady=0)
 
@@ -70,7 +81,7 @@ class MainDashboard(ctk.CTkFrame):
 		self.btn_cash.pack(pady=5, padx=20)
 
 		# 2. BOTONES PRIVADOS (Solo Administradores)
-		if self.current_user.role == 'admin':
+		if role == 'admin':
 			ctk.CTkLabel(
 				self.menu_scroll,
 				text='--- Gestión ---',
@@ -94,7 +105,6 @@ class MainDashboard(ctk.CTkFrame):
 				command=lambda: self.switch_view(KardexView),
 			)
 			self.btn_kardex.pack(pady=5, padx=20)
-			# ---------------------------------------
 
 			self.btn_purchases = ctk.CTkButton(
 				self.menu_scroll,
@@ -143,8 +153,9 @@ class MainDashboard(ctk.CTkFrame):
 		).pack(side='bottom', pady=20, padx=20)
 
 		# --- INICIALIZACIÓN ---
-		# Abrimos el Dashboard visual por defecto al arrancar
-		self.switch_view(HomeView)
+		# Abrimos el Dashboard visual por defecto al arrancar, pero con un micro-retraso
+		# para que la ventana principal termine de dibujarse primero.
+		self.after(50, lambda: self.switch_view(HomeView))
 
 	# =========================================================
 	# FUNCIÓN MAESTRA DE NAVEGACIÓN
@@ -154,9 +165,11 @@ class MainDashboard(ctk.CTkFrame):
 		Destruye la vista actual y carga la nueva vista solicitada.
 		:param view_class: La clase de la vista que queremos instanciar.
 		"""
-		# 1. Si hay una pantalla abierta, la borramos
-		if self.current_view:
-			self.current_view.destroy()
+		# 1. Limpieza agresiva de memoria (Mejor práctica en Tkinter)
+		for widget in self.main_area.winfo_children():
+			widget.destroy()
+
+		self.current_view = None
 
 		# 2. Creamos la nueva pantalla pasando los 3 argumentos obligatorios
 		self.current_view = view_class(

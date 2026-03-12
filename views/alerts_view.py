@@ -2,6 +2,8 @@ from tkinter import ttk
 
 import customtkinter as ctk
 
+from controllers.alerts_controller import AlertsController
+
 
 class AlertsView(ctk.CTkFrame):
 	def __init__(self, master, current_user, db_engine):
@@ -9,12 +11,31 @@ class AlertsView(ctk.CTkFrame):
 		self.current_user = current_user
 
 		# Conectamos con el controlador de alertas
-		from controllers.alerts_controller import AlertsController
-
 		self.controller = AlertsController(db_engine)
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_rowconfigure(1, weight=1)
+
+		# --- ESTILO MODERNO PARA LA TABLA ---
+		style = ttk.Style()
+		style.theme_use('default')
+		style.configure(
+			'Treeview',
+			background='#2b2b2b',
+			foreground='white',
+			rowheight=30,
+			fieldbackground='#2b2b2b',
+			borderwidth=0,
+		)
+		style.map('Treeview', background=[('selected', '#1f538d')])
+		style.configure(
+			'Treeview.Heading',
+			background='#565b5e',
+			foreground='white',
+			relief='flat',
+			font=('Arial', 10, 'bold'),
+		)
+		style.map('Treeview.Heading', background=[('active', '#343638')])
 
 		# --- ENCABEZADO ---
 		header_frame = ctk.CTkFrame(self, fg_color='transparent')
@@ -24,7 +45,7 @@ class AlertsView(ctk.CTkFrame):
 			header_frame,
 			text='⚠️ Productos con Stock Crítico',
 			font=('Arial', 24, 'bold'),
-			text_color='#ff8800',  # Naranja para indicar alerta
+			text_color='#ff8800',
 		).pack(side='left')
 
 		self.lbl_count = ctk.CTkLabel(
@@ -57,21 +78,25 @@ class AlertsView(ctk.CTkFrame):
 		for item in self.tree.get_children():
 			self.tree.delete(item)
 
-		# Llamamos al controlador (usamos 5 como cantidad mínima por defecto)
-		low_stock_items = self.controller.get_low_stock_variants(
-			self.current_user.tenant_id, threshold=5
+		# 2. Manejo seguro del usuario
+		tenant_id = (
+			self.current_user.get('tenant_id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.tenant_id
 		)
 
+		low_stock_items = self.controller.get_low_stock_variants(tenant_id, threshold=5)
+
 		for item in low_stock_items:
-			# Insertamos la fila
 			self.tree.insert(
 				'',
 				'end',
 				values=(
-					item['barcode'] or 'Sin código',
-					item['name'],
-					item['stock'],
-					f'Menor o igual a {item["threshold"]}',
+					item.get('barcode', 'Sin código')
+					or 'Sin código',  # Manejo seguro de nulos
+					item.get('name', 'Desconocido'),
+					item.get('stock', 0),
+					f'Menor o igual a {item.get("threshold", 5)}',
 				),
 			)
 
@@ -79,10 +104,11 @@ class AlertsView(ctk.CTkFrame):
 		cantidad = len(low_stock_items)
 		if cantidad == 0:
 			self.lbl_count.configure(
-				text='¡Todo excelente! No hay alertas.', text_color='green'
+				text='¡Todo excelente! No hay alertas.',
+				text_color='#00cc66',
 			)
 		else:
 			self.lbl_count.configure(
 				text=f'Se encontraron {cantidad} artículos para reponer.',
-				text_color='red',
+				text_color='#ff3333',  # Rojo más brillante
 			)

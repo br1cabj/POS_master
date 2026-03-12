@@ -3,20 +3,40 @@ from tkinter import ttk
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
+from controllers.sales_controller import SalesController
+
 
 class SalesView(ctk.CTkFrame):
 	def __init__(self, master, current_user, db_engine):
 		super().__init__(master)
 		self.current_user = current_user
-
-		from controllers.sales_controller import SalesController
-
 		self.sales_ctrl = SalesController(db_engine)
 		self.cart = []
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=2)
 		self.grid_rowconfigure(0, weight=1)
+
+		# === ESTILO MODERNO PARA LA TABLA ===
+		style = ttk.Style()
+		style.theme_use('default')
+		style.configure(
+			'Treeview',
+			background='#2b2b2b',
+			foreground='white',
+			rowheight=30,
+			fieldbackground='#2b2b2b',
+			borderwidth=0,
+		)
+		style.map('Treeview', background=[('selected', '#1f538d')])
+		style.configure(
+			'Treeview.Heading',
+			background='#565b5e',
+			foreground='white',
+			relief='flat',
+			font=('Arial', 10, 'bold'),
+		)
+		style.map('Treeview.Heading', background=[('active', '#343638')])
 
 		# === PANEL IZQUIERDO ===
 		self.left_panel = ctk.CTkFrame(self)
@@ -43,7 +63,7 @@ class SalesView(ctk.CTkFrame):
 		)
 
 		self.products_combo = ctk.CTkComboBox(self.left_panel, width=200)
-		self.products_combo.set('Seleccionar...')
+		self.products_combo.set('Cargando...')
 		self.products_combo.pack(pady=5)
 
 		self.qty_entry = ctk.CTkEntry(
@@ -62,7 +82,7 @@ class SalesView(ctk.CTkFrame):
 			self.left_panel,
 			text='Venta Rápida (Sin Stock)',
 			font=('Arial', 14, 'bold'),
-			text_color='orange',
+			text_color='#ffaa00',
 		).pack(pady=5)
 
 		self.entry_fast_desc = ctk.CTkEntry(
@@ -82,8 +102,8 @@ class SalesView(ctk.CTkFrame):
 		self.btn_add_fast = ctk.CTkButton(
 			self.left_panel,
 			text='⚡ Agregar Venta Rápida',
-			fg_color='orange',
-			hover_color='#cc7000',
+			fg_color='#e68a00',
+			hover_color='#cc7a00',
 			command=self.add_fast_to_cart,
 		)
 		self.btn_add_fast.pack(pady=10)
@@ -102,10 +122,8 @@ class SalesView(ctk.CTkFrame):
 		)
 
 		self.customers_combo = ctk.CTkComboBox(client_frame, width=250)
+		self.customers_combo.set('Cargando...')
 		self.customers_combo.pack(side='left', padx=5)
-
-		style = ttk.Style()
-		style.configure('Treeview', font=('Arial', 12), rowheight=25)
 
 		self.tree = ttk.Treeview(
 			self.right_panel,
@@ -116,6 +134,12 @@ class SalesView(ctk.CTkFrame):
 		self.tree.heading('Cant', text='Cant')
 		self.tree.heading('Precio', text='Precio')
 		self.tree.heading('Subtotal', text='Subtotal')
+
+		self.tree.column('Artículo', width=200)
+		self.tree.column('Cant', width=60, anchor='center')
+		self.tree.column('Precio', width=100, anchor='e')
+		self.tree.column('Subtotal', width=100, anchor='e')
+
 		self.tree.pack(fill='both', expand=True, padx=10, pady=5)
 
 		self.btn_remove = ctk.CTkButton(
@@ -128,37 +152,62 @@ class SalesView(ctk.CTkFrame):
 		self.btn_remove.pack(pady=5)
 
 		self.lbl_total = ctk.CTkLabel(
-			self.right_panel, text='TOTAL: $0.00', font=('Arial', 24, 'bold')
+			self.right_panel,
+			text='TOTAL: $0.00',
+			font=('Arial', 30, 'bold'),
+			text_color='#00cc66',
 		)
 		self.lbl_total.pack(pady=10)
 
 		self.btn_pay = ctk.CTkButton(
 			self.right_panel,
 			text='💰 COBRAR VENTA',
-			fg_color='green',
-			height=50,
+			fg_color='#5cb85c',
+			hover_color='#4cae4c',
+			height=60,
+			font=('Arial', 20, 'bold'),
 			command=self.process_sale,
 		)
 		self.btn_pay.pack(pady=10, fill='x', padx=20)
 
-		self.load_data()
+		# Mapas de memoria
+		self.variant_map = {}
+		self.customer_map = {}
+		self.db_variants = []
+
+		# Carga fluida de datos
+		self.after(50, self.load_data)
 
 	def load_data(self):
-		# 1. Traemos las Variantes en lugar de los artículos simples
-		self.db_variants = self.sales_ctrl.get_articles_for_sale(
-			self.current_user.tenant_id
+		tenant_id = (
+			self.current_user.get('tenant_id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.tenant_id
 		)
 
-		# Mapeamos por el nombre del artículo padre para que el cajero lo vea fácil
-		self.variant_map = {v.article.name: v for v in self.db_variants if v.article}
+		# 1. Traemos diccionarios desde el backend
+		self.db_variants = self.sales_ctrl.get_articles_for_sale(tenant_id)
+
+		# Mapeamos por nombre para el combo
+		self.variant_map = {v.get('name'): v for v in self.db_variants if v.get('name')}
 		if self.variant_map:
 			self.products_combo.configure(values=list(self.variant_map.keys()))
+			self.products_combo.set('Seleccionar...')
+		else:
+			self.products_combo.configure(values=['Sin productos'])
+			self.products_combo.set('Sin productos')
 
-		customers = self.sales_ctrl.get_customers(self.current_user.tenant_id)
-		self.customer_map = {c.name: c for c in customers}
+		customers = self.sales_ctrl.get_customers(tenant_id)
+		self.customer_map = {c.get('name'): c for c in customers}
 		if self.customer_map:
 			self.customers_combo.configure(values=list(self.customer_map.keys()))
 			self.customers_combo.set('Consumidor Final')
+		else:
+			self.customers_combo.configure(values=['Consumidor Final'])
+			self.customers_combo.set('Consumidor Final')
+
+		# Ponemos el foco en el lector de códigos por defecto
+		self.entry_barcode.focus()
 
 	def add_by_barcode(self, event=None):
 		self.lbl_msg.configure(text='')
@@ -166,106 +215,111 @@ class SalesView(ctk.CTkFrame):
 		if not code:
 			return
 
-		# Buscamos la variante por su código de barras
-		found_variant = next((v for v in self.db_variants if v.barcode == code), None)
+		# Buscamos en la lista de diccionarios
+		found_variant = next(
+			(v for v in self.db_variants if str(v.get('barcode')) == code), None
+		)
 
 		if not found_variant:
 			CTkMessagebox(
-				title='Error de Búsqueda',
-				message=f'No se encontró ningún artículo con el código:\n{code}',
-				icon='cancel',
+				title='Error', message=f'Código no encontrado:\n{code}', icon='cancel'
 			)
 			self.entry_barcode.delete(0, 'end')
 			return
 
 		qty = 1
-		# Sumamos el stock de todos los almacenes para esta variante
-		total_stock = sum(s.quantity for s in found_variant.stocks)
+		total_stock = found_variant.get('total_stock', 0)
+		name = found_variant.get('name', 'Desconocido')
+		price = float(found_variant.get('selling_price', 0.0))
 
 		if qty > total_stock:
 			CTkMessagebox(
 				title='Stock Insuficiente',
-				message=f'No puedes agregar {found_variant.article.name}.\nSolo quedan {total_stock} disponibles.',
+				message=f'No puedes agregar {name}.\nSolo quedan {total_stock} disponibles.',
 				icon='warning',
 			)
 			self.entry_barcode.delete(0, 'end')
 			return
 
-		# Usamos selling_price y guardamos el variant_id
-		subtotal = found_variant.selling_price * qty
+		subtotal = price * qty
+
+		# Insertamos y guardamos el ID visual (tree_id)
+		item_id = self.tree.insert(
+			'', 'end', values=(name, qty, f'${price:.2f}', f'${subtotal:.2f}')
+		)
+
 		self.cart.append(
 			{
-				'variant_id': found_variant.id,
-				'desc': found_variant.article.name,
-				'price': found_variant.selling_price,
+				'tree_id': item_id,
+				'variant_id': found_variant.get('variant_id'),
+				'desc': name,
+				'price': price,
 				'qty': qty,
 				'subtotal': subtotal,
 			}
 		)
-		self.tree.insert(
-			'',
-			'end',
-			values=(
-				found_variant.article.name,
-				qty,
-				f'${found_variant.selling_price:.2f}',
-				f'${subtotal:.2f}',
-			),
-		)
 
 		self.update_total()
 		self.entry_barcode.delete(0, 'end')
-		self.lbl_msg.configure(
-			text=f'Agregado: {found_variant.article.name}', text_color='green'
-		)
+		self.lbl_msg.configure(text=f'Agregado: {name}', text_color='#00cc66')
 
 	def add_to_cart(self):
 		self.lbl_msg.configure(text='')
 		desc = self.products_combo.get()
-		qty_str = self.qty_entry.get()
+		qty_str = self.qty_entry.get().replace(',', '.')
 
-		if desc in self.variant_map and qty_str.isdigit():
-			qty = int(qty_str)
+		try:
+			qty = float(qty_str)  # Permitimos float por si es a granel
+			if qty <= 0:
+				raise ValueError
+		except ValueError:
+			CTkMessagebox(title='Error', message='Cantidad inválida.', icon='cancel')
+			return
+
+		if desc in self.variant_map:
 			variant = self.variant_map[desc]
-
-			total_stock = sum(s.quantity for s in variant.stocks)
+			total_stock = variant.get('total_stock', 0)
+			price = float(variant.get('selling_price', 0.0))
 
 			if qty > total_stock:
 				CTkMessagebox(
 					title='Stock Insuficiente',
-					message=f'Solo quedan {total_stock} unidades de {variant.article.name}.',
+					message=f'Solo quedan {total_stock} unidades de {desc}.',
 					icon='warning',
 				)
 				return
 
-			subtotal = variant.selling_price * qty
+			subtotal = price * qty
+			item_id = self.tree.insert(
+				'', 'end', values=(desc, qty, f'${price:.2f}', f'${subtotal:.2f}')
+			)
+
 			self.cart.append(
 				{
-					'variant_id': variant.id,
-					'desc': variant.article.name,
-					'price': variant.selling_price,
+					'tree_id': item_id,
+					'variant_id': variant.get('variant_id'),
+					'desc': desc,
+					'price': price,
 					'qty': qty,
 					'subtotal': subtotal,
 				}
 			)
-			self.tree.insert(
-				'',
-				'end',
-				values=(desc, qty, f'${variant.selling_price:.2f}', f'${subtotal:.2f}'),
-			)
 			self.update_total()
+			self.qty_entry.delete(0, 'end')
+			self.qty_entry.insert(0, '1')
 
 	def add_fast_to_cart(self):
 		self.lbl_msg.configure(text='')
 		desc = self.entry_fast_desc.get().strip()
-		price_str = self.entry_fast_price.get().strip()
-		qty_str = self.entry_fast_qty.get().strip()
+		price_str = self.entry_fast_price.get().strip().replace(',', '.')
+		qty_str = self.entry_fast_qty.get().strip().replace(',', '.')
 
 		if not desc or not price_str or not qty_str:
 			return
+
 		try:
 			price = float(price_str)
-			qty = int(qty_str)
+			qty = float(qty_str)
 		except ValueError:
 			CTkMessagebox(
 				title='Datos Inválidos',
@@ -276,18 +330,20 @@ class SalesView(ctk.CTkFrame):
 
 		subtotal = price * qty
 		visual_desc = f'*(Libre)* {desc}'
-		# La venta rápida no tiene variant_id porque no existe en la base de datos
+
+		item_id = self.tree.insert(
+			'', 'end', values=(visual_desc, qty, f'${price:.2f}', f'${subtotal:.2f}')
+		)
+
 		self.cart.append(
 			{
+				'tree_id': item_id,
 				'variant_id': None,
 				'desc': visual_desc,
 				'price': price,
 				'qty': qty,
 				'subtotal': subtotal,
 			}
-		)
-		self.tree.insert(
-			'', 'end', values=(visual_desc, qty, f'${price:.2f}', f'${subtotal:.2f}')
 		)
 		self.update_total()
 
@@ -303,7 +359,7 @@ class SalesView(ctk.CTkFrame):
 		if not selected_item:
 			CTkMessagebox(
 				title='Atención',
-				message='Primero selecciona un artículo de la tabla para quitarlo.',
+				message='Primero selecciona un artículo para quitarlo.',
 				icon='info',
 			)
 			return
@@ -315,13 +371,12 @@ class SalesView(ctk.CTkFrame):
 			option_1='No',
 			option_2='Sí',
 		).get()
+
 		if response == 'Sí':
 			for item_id in selected_item:
-				values = self.tree.item(item_id, 'values')
-				desc_to_remove = values[0]
-
+				# Borrar usando el tree_id
 				for i, item in enumerate(self.cart):
-					if item['desc'] == desc_to_remove:
+					if item.get('tree_id') == item_id:
 						self.cart.pop(i)
 						break
 
@@ -329,7 +384,7 @@ class SalesView(ctk.CTkFrame):
 			self.update_total()
 
 	def update_total(self):
-		total = sum(item['subtotal'] for item in self.cart)
+		total = sum(item.get('subtotal', 0) for item in self.cart)
 		self.lbl_total.configure(text=f'TOTAL: ${total:.2f}')
 
 	def process_sale(self):
@@ -341,7 +396,7 @@ class SalesView(ctk.CTkFrame):
 			)
 			return
 
-		total = sum(item['subtotal'] for item in self.cart)
+		total = sum(item.get('subtotal', 0) for item in self.cart)
 		customer_name = self.customers_combo.get()
 
 		popup = ctk.CTkToplevel(self)
@@ -357,7 +412,7 @@ class SalesView(ctk.CTkFrame):
 			popup,
 			text=f'${total:.2f}',
 			font=('Arial', 35, 'bold'),
-			text_color='#2A8C55',
+			text_color='#00cc66',
 		).pack(pady=5)
 
 		ctk.CTkLabel(popup, text='Método de Pago:', font=('Arial', 14, 'bold')).pack(
@@ -365,7 +420,7 @@ class SalesView(ctk.CTkFrame):
 		)
 		self.combo_payment = ctk.CTkComboBox(
 			popup,
-			values=['Efectivo', 'Tarjeta', 'Transferencia'],
+			values=['Efectivo', 'Tarjeta', 'Transferencia', 'QR Billetera'],
 			font=('Arial', 14),
 			width=200,
 		)
@@ -381,10 +436,13 @@ class SalesView(ctk.CTkFrame):
 		entry_paid.focus()
 
 		lbl_change = ctk.CTkLabel(
-			popup, text='Vuelto: $0.00', font=('Arial', 24, 'bold'), text_color='blue'
+			popup,
+			text='Vuelto: $0.00',
+			font=('Arial', 24, 'bold'),
+			text_color='#00aaff',
 		)
 		lbl_change.pack(pady=15)
-		lbl_error = ctk.CTkLabel(popup, text='', text_color='red')
+		lbl_error = ctk.CTkLabel(popup, text='', text_color='#ff3333')
 		lbl_error.pack()
 
 		def calculate_change(event):
@@ -392,27 +450,29 @@ class SalesView(ctk.CTkFrame):
 				lbl_change.configure(text='No aplica vuelto', text_color='gray')
 				return
 
-			paid_str = entry_paid.get().strip()
+			paid_str = entry_paid.get().strip().replace(',', '.')
 			if not paid_str:
-				lbl_change.configure(text='Vuelto: $0.00', text_color='blue')
+				lbl_change.configure(text='Vuelto: $0.00', text_color='#00aaff')
 				return
 			try:
 				change = float(paid_str) - total
 				lbl_change.configure(
 					text='Falta dinero' if change < 0 else f'Vuelto: ${change:.2f}',
-					text_color='red' if change < 0 else 'blue',
+					text_color='#ff3333' if change < 0 else '#00aaff',
 				)
 			except ValueError:
-				lbl_change.configure(text='Monto inválido', text_color='red')
+				lbl_change.configure(text='Monto inválido', text_color='#ff3333')
 
 		entry_paid.bind('<KeyRelease>', calculate_change)
+		# Cambio mágico de tipo de pago
+		self.combo_payment.configure(command=calculate_change)
 
 		def confirm_and_save(is_fiado=False):
 			payment_method = self.combo_payment.get()
 
 			if not is_fiado and payment_method == 'Efectivo':
 				try:
-					paid_str = entry_paid.get().strip()
+					paid_str = entry_paid.get().strip().replace(',', '.')
 					paid = float(paid_str) if paid_str else total
 					if paid < total:
 						lbl_error.configure(text='El pago es menor al total')
@@ -425,15 +485,15 @@ class SalesView(ctk.CTkFrame):
 
 			customer_id = None
 			if customer_name in self.customer_map:
-				customer_id = self.customer_map[customer_name].id
+				customer_id = self.customer_map[customer_name].get('id')
 
 			self.finalize_sale(customer_id, is_fiado, payment_method)
 
 		ctk.CTkButton(
 			popup,
 			text='✅ CONFIRMAR COBRO',
-			fg_color='green',
-			hover_color='#216e41',
+			fg_color='#5cb85c',
+			hover_color='#4cae4c',
 			height=45,
 			font=('Arial', 14, 'bold'),
 			command=lambda: confirm_and_save(False),
@@ -444,17 +504,28 @@ class SalesView(ctk.CTkFrame):
 			ctk.CTkButton(
 				popup,
 				text='📝 Anotar como Fiado',
-				fg_color='orange',
-				hover_color='#cc7000',
+				fg_color='#e68a00',
+				hover_color='#cc7a00',
 				height=40,
 				font=('Arial', 14, 'bold'),
 				command=lambda: confirm_and_save(True),
 			).pack(pady=5)
 
 	def finalize_sale(self, customer_id, is_fiado, payment_method):
+		tenant_id = (
+			self.current_user.get('tenant_id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.tenant_id
+		)
+		user_id = (
+			self.current_user.get('id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.id
+		)
+
 		success, msg = self.sales_ctrl.process_sale(
-			self.current_user.tenant_id,
-			self.current_user.id,
+			tenant_id,
+			user_id,
 			self.cart,
 			customer_id,
 			is_fiado,
@@ -467,6 +538,7 @@ class SalesView(ctk.CTkFrame):
 			for item in self.tree.get_children():
 				self.tree.delete(item)
 			self.update_total()
-			self.load_data()
+			self.load_data()  # Recarga el stock interno
+			self.entry_barcode.focus()  # Deja el lector listo para la próxima venta
 		else:
-			CTkMessagebox(title='Error al guardar', message=msg, icon='cancel')
+			CTkMessagebox(title='Error', message=msg, icon='cancel')

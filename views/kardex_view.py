@@ -2,19 +2,38 @@ from tkinter import ttk
 
 import customtkinter as ctk
 
+from controllers.inventory_controller import InventoryController
+
 
 class KardexView(ctk.CTkFrame):
 	def __init__(self, master, current_user, db_engine):
 		super().__init__(master)
 		self.current_user = current_user
-
-		# Conectamos con el nuevo controlador
-		from controllers.inventory_controller import InventoryController
-
 		self.controller = InventoryController(db_engine)
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_rowconfigure(1, weight=1)
+
+		# --- ESTILO MODERNO PARA LA TABLA ---
+		style = ttk.Style()
+		style.theme_use('default')
+		style.configure(
+			'Treeview',
+			background='#2b2b2b',
+			foreground='white',
+			rowheight=30,
+			fieldbackground='#2b2b2b',
+			borderwidth=0,
+		)
+		style.map('Treeview', background=[('selected', '#1f538d')])
+		style.configure(
+			'Treeview.Heading',
+			background='#565b5e',
+			foreground='white',
+			relief='flat',
+			font=('Arial', 10, 'bold'),
+		)
+		style.map('Treeview.Heading', background=[('active', '#343638')])
 
 		# --- ENCABEZADO ---
 		lbl_title = ctk.CTkLabel(
@@ -42,8 +61,8 @@ class KardexView(ctk.CTkFrame):
 
 		self.tree.pack(fill='both', expand=True, padx=10, pady=10)
 
-		# Cargamos los datos
-		self.load_data()
+		# Carga diferida para que la UI se dibuje instantáneamente
+		self.after(100, self.load_data)
 
 	def load_data(self):
 		"""Busca los movimientos y los inserta en la tabla"""
@@ -51,27 +70,36 @@ class KardexView(ctk.CTkFrame):
 		for item in self.tree.get_children():
 			self.tree.delete(item)
 
-		# Obtenemos los movimientos desde el controlador
-		movements = self.controller.get_kardex(self.current_user.tenant_id)
+		# Manejo seguro del usuario
+		tenant_id = (
+			self.current_user.get('tenant_id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.tenant_id
+		)
+
+		# Obtenemos los movimientos desde el controlador (ahora es una lista de diccionarios)
+		movements = self.controller.get_kardex(tenant_id)
 
 		for mov in movements:
-			# 1. Formateamos la fecha a algo legible
-			date_str = mov.date.strftime('%d/%m/%Y %H:%M')
-
-			# 2. Traducimos el tipo de movimiento con colores/emojis
-			tipo = '🟢 ENTRADA' if mov.movement_type == 'in' else '🔴 SALIDA'
-			if mov.movement_type == 'adjustment':
-				tipo = '🟡 AJUSTE'
-
-			# 3. Obtenemos el nombre del producto de forma segura
-			producto = (
-				mov.variant.article.name
-				if (mov.variant and mov.variant.article)
-				else 'Desconocido'
+			# 1. Formateamos la fecha de forma segura
+			raw_date = mov.get('date')
+			date_str = (
+				raw_date.strftime('%d/%m/%Y %H:%M')
+				if hasattr(raw_date, 'strftime')
+				else str(raw_date)
 			)
 
-			# 4. Obtenemos el usuario
-			usuario = mov.user.username.capitalize() if mov.user else 'Sistema'
+			# 2. Traducimos el tipo de movimiento usando la clave del diccionario
+			mov_type = mov.get('movement_type')
+			tipo = '🟢 ENTRADA' if mov_type == 'in' else '🔴 SALIDA'
+			if mov_type == 'adjustment':
+				tipo = '🟡 AJUSTE'
+
+			# 3. La vista queda súper limpia porque el controlador ya hizo el trabajo sucio
+			producto = mov.get('article_name', 'Desconocido')
+			usuario = mov.get('user_name', 'Sistema').capitalize()
+			cantidad = mov.get('quantity', 0)
+			referencia = mov.get('reference') or '-'
 
 			# Insertamos la fila en la tabla
 			self.tree.insert(
@@ -81,8 +109,8 @@ class KardexView(ctk.CTkFrame):
 					date_str,
 					tipo,
 					producto,
-					mov.quantity,
-					mov.reference or '-',
+					cantidad,
+					referencia,
 					usuario,
 				),
 			)

@@ -1,13 +1,12 @@
 import customtkinter as ctk
 
+from controllers.cash_controller import CashController
+
 
 class CashView(ctk.CTkFrame):
 	def __init__(self, master, current_user, db_engine):
 		super().__init__(master)
 		self.current_user = current_user
-
-		from controllers.cash_controller import CashController
-
 		self.controller = CashController(db_engine)
 
 		self.grid_columnconfigure(0, weight=1)
@@ -84,22 +83,33 @@ class CashView(ctk.CTkFrame):
 		self.lbl_mov_msg.pack(pady=5)
 
 		self.active_session = None
-		self.refresh_view()
+
+		# Cargamos los datos con un ligero retraso para una apertura fluida
+		self.after(100, self.refresh_view)
 
 	def refresh_view(self):
-		self.active_session = self.controller.get_active_session(
-			self.current_user.tenant_id, self.current_user.id
+		# 1. Manejo seguro del usuario (Diccionario u Objeto)
+		tenant_id = (
+			self.current_user.get('tenant_id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.tenant_id
+		)
+		user_id = (
+			self.current_user.get('id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.id
 		)
 
+		self.active_session = self.controller.get_active_session(tenant_id, user_id)
+
 		if self.active_session:
-			# Traer los totales calculados
-			ventas, ingresos, gastos = self.controller.get_session_summary(
-				self.active_session.id
-			)
-			fondo = self.active_session.opening_balance
+			# 2. Acceso a datos de la sesión como diccionario
+			session_id = self.active_session.get('id')
+			fondo = float(self.active_session.get('opening_balance', 0.0))
+
+			ventas, ingresos, gastos = self.controller.get_session_summary(session_id)
 			total_esperado = fondo + ventas + ingresos - gastos
 
-			# Mostrar resumen detallado
 			resumen_texto = (
 				f'Fondo Inicial : ${fondo:.2f}\n'
 				f'+ Ventas      : ${ventas:.2f}\n'
@@ -110,29 +120,30 @@ class CashView(ctk.CTkFrame):
 			)
 
 			self.lbl_status.configure(
-				text='🟢 CAJA ABIERTA', text_color='green', font=('Arial', 18, 'bold')
+				text='🟢 CAJA ABIERTA', text_color='#00cc66', font=('Arial', 18, 'bold')
 			)
 			self.lbl_summary.configure(text=resumen_texto)
 			self.entry_amount.configure(
 				placeholder_text='¿Cuánto dinero cuentas en físico?'
 			)
 			self.btn_action.configure(
-				text='CERRAR CAJA', fg_color='red', hover_color='#aa0000'
+				text='CERRAR CAJA', fg_color='#d9534f', hover_color='#c9302c'
 			)
 
-			# Habilitar panel derecho
+			# Habilitar panel derecho de forma segura
 			for widget in self.right_panel.winfo_children():
-				widget.configure(state='normal')
+				if isinstance(widget, (ctk.CTkEntry, ctk.CTkButton, ctk.CTkComboBox)):
+					widget.configure(state='normal')
 		else:
 			self.lbl_status.configure(
-				text='🔴 CAJA CERRADA', text_color='orange', font=('Arial', 18, 'bold')
+				text='🔴 CAJA CERRADA', text_color='#ffaa00', font=('Arial', 18, 'bold')
 			)
 			self.lbl_summary.configure(
-				text='Debes abrirla para poder vender\no registrar movimientos.'
+				text='\nDebes abrirla para poder vender\no registrar movimientos.\n'
 			)
 			self.entry_amount.configure(placeholder_text='Fondo inicial ($)')
 			self.btn_action.configure(
-				text='ABRIR CAJA', fg_color='green', hover_color='#00aa00'
+				text='ABRIR CAJA', fg_color='#5cb85c', hover_color='#4cae4c'
 			)
 
 			# Deshabilitar panel derecho
@@ -143,43 +154,69 @@ class CashView(ctk.CTkFrame):
 		self.entry_amount.delete(0, 'end')
 
 	def handle_action(self):
-		amount_str = self.entry_amount.get().strip()
-		if not amount_str.replace('.', '', 1).isdigit():
-			self.lbl_msg.configure(text='Ingresa un número válido.', text_color='red')
+		amount_str = self.entry_amount.get().strip().replace(',', '.')
+
+		try:
+			amount = float(amount_str)
+		except ValueError:
+			self.lbl_msg.configure(
+				text='Ingresa un monto numérico válido.', text_color='#ff3333'
+			)
 			return
 
-		amount = float(amount_str)
+		tenant_id = (
+			self.current_user.get('tenant_id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.tenant_id
+		)
+		user_id = (
+			self.current_user.get('id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.id
+		)
 
 		if self.active_session:
-			success, msg = self.controller.close_session(self.active_session.id, amount)
-		else:
-			success, msg = self.controller.open_session(
-				self.current_user.tenant_id, self.current_user.id, amount
+			success, msg = self.controller.close_session(
+				self.active_session.get('id'), amount
 			)
+		else:
+			success, msg = self.controller.open_session(tenant_id, user_id, amount)
 
 		if success:
-			self.lbl_msg.configure(text=msg, text_color='green')
+			self.lbl_msg.configure(text=msg, text_color='#00cc66')
 			self.refresh_view()
 		else:
-			self.lbl_msg.configure(text=msg, text_color='red')
+			self.lbl_msg.configure(text=msg, text_color='#ff3333')
 
 	def save_movement(self):
 		desc = self.entry_mov_desc.get().strip()
-		amount_str = self.entry_mov_amount.get().strip()
+		amount_str = self.entry_mov_amount.get().strip().replace(',', '.')
 		mov_type = self.combo_mov_type.get()
 
-		if not desc or not amount_str.replace('.', '', 1).isdigit():
-			self.lbl_mov_msg.configure(text='Campos inválidos.', text_color='red')
+		try:
+			amount = float(amount_str)
+			if amount <= 0:
+				raise ValueError
+		except ValueError:
+			self.lbl_mov_msg.configure(
+				text='Monto inválido. Debe ser mayor a 0.', text_color='#ff3333'
+			)
+			return
+
+		if not desc:
+			self.lbl_mov_msg.configure(
+				text='La descripción es obligatoria.', text_color='#ff3333'
+			)
 			return
 
 		success, msg = self.controller.add_manual_movement(
-			self.active_session.id, mov_type, amount_str, desc
+			self.active_session.get('id'), mov_type, amount_str, desc
 		)
 
 		if success:
-			self.lbl_mov_msg.configure(text=msg, text_color='green')
+			self.lbl_mov_msg.configure(text=msg, text_color='#00cc66')
 			self.entry_mov_desc.delete(0, 'end')
 			self.entry_mov_amount.delete(0, 'end')
 			self.refresh_view()
 		else:
-			self.lbl_mov_msg.configure(text=msg, text_color='red')
+			self.lbl_mov_msg.configure(text=msg, text_color='#ff3333')

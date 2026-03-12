@@ -35,6 +35,7 @@ class App(ctk.CTk):
 		)  # Evita que la interfaz se rompa si se achica mucho la ventana
 
 		try:
+			# Inicializamos BD y Controlador
 			self.db_engine = init_db()
 			self.auth_controller = AuthController(self.db_engine)
 		except Exception as e:
@@ -44,7 +45,7 @@ class App(ctk.CTk):
 			)
 			sys.exit(1)
 
-		# Variable para guardar quién está logueado actualmente
+		# Variable para guardar quién está logueado actualmente (será un diccionario)
 		self.current_user = None
 
 		# 3. Mostrar la primera pantalla
@@ -54,6 +55,8 @@ class App(ctk.CTk):
 		"""Limpia la ventana y muestra el Login"""
 		self.clear_window()
 		self.view = LoginView(self, login_command=self.attempt_login)
+		# EMPAQUETADO: Ahora el Main decide cómo mostrar la vista
+		self.view.pack(fill='both', expand=True)
 
 	def show_dashboard(self):
 		"""Limpia la ventana y muestra el Dashboard"""
@@ -64,13 +67,19 @@ class App(ctk.CTk):
 			db_engine=self.db_engine,
 			logout_command=self.logout,
 		)
+		# Nota: Si dejaste el self.pack() dentro de MainDashboard, esta línea no es estrictamente
+		# necesaria, pero es buena práctica hacerlo desde aquí para mantener coherencia.
+		# self.view.pack(fill='both', expand=True)
 
 	def attempt_login(self, username, password):
 		"""Esta función conecta la VISTA (LoginView) con el CONTROLADOR (AuthController)"""
 		user = self.auth_controller.login(username, password)
 
 		if user:
-			print(f'Acceso concedido a {user.username}')
+			# CORRECCIÓN: Accedemos al diccionario de forma segura
+			nombre_usuario = user.get('username', 'Usuario')
+			print(f'Acceso concedido a {nombre_usuario}')
+
 			self.current_user = user
 			self.show_dashboard()
 		else:
@@ -82,9 +91,10 @@ class App(ctk.CTk):
 		self.show_login()
 
 	def clear_window(self):
-		"""Elimina cualquier vista que esté actualmente en pantalla para evitar superposiciones"""
-		if hasattr(self, 'view') and self.view is not None:
-			self.view.destroy()
+		"""Elimina cualquier widget que esté en la ventana principal de forma agresiva y segura"""
+		for widget in self.winfo_children():
+			widget.destroy()
+		self.view = None
 
 
 if __name__ == '__main__':

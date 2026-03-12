@@ -3,19 +3,39 @@ from tkinter import ttk
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
+from controllers.customer_controller import CustomerController
+
 
 class CustomersView(ctk.CTkFrame):
 	def __init__(self, master, current_user, db_engine):
 		super().__init__(master)
 		self.current_user = current_user
-
-		from controllers.customer_controller import CustomerController
-
 		self.controller = CustomerController(db_engine)
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=2)
 		self.grid_rowconfigure(0, weight=1)
+
+		# === ESTILO MODERNO PARA LA TABLA ===
+		style = ttk.Style()
+		style.theme_use('default')
+		style.configure(
+			'Treeview',
+			background='#2b2b2b',
+			foreground='white',
+			rowheight=30,
+			fieldbackground='#2b2b2b',
+			borderwidth=0,
+		)
+		style.map('Treeview', background=[('selected', '#1f538d')])
+		style.configure(
+			'Treeview.Heading',
+			background='#565b5e',
+			foreground='white',
+			relief='flat',
+			font=('Arial', 10, 'bold'),
+		)
+		style.map('Treeview.Heading', background=[('active', '#343638')])
 
 		# === PANEL IZQUIERDO: ACCIONES ===
 		self.left_panel = ctk.CTkFrame(self)
@@ -48,10 +68,9 @@ class CustomersView(ctk.CTkFrame):
 			self.left_panel,
 			text='Cobrar Deuda (Fiado)',
 			font=('Arial', 18, 'bold'),
-			text_color='#ff8800',  # Naranja
+			text_color='#ff8800',
 		).pack(pady=10)
 
-		# NUEVO: Le agregamos el 'command' para que autocompleta el monto al seleccionar
 		self.combo_customers = ctk.CTkComboBox(
 			self.left_panel, values=['Seleccionar...'], command=self.on_customer_select
 		)
@@ -65,8 +84,8 @@ class CustomersView(ctk.CTkFrame):
 		self.btn_pay = ctk.CTkButton(
 			self.left_panel,
 			text='💰 Registrar Abono',
-			fg_color='green',
-			hover_color='#216e41',
+			fg_color='#5cb85c',
+			hover_color='#4cae4c',
 			command=self.pay_debt,
 		)
 		self.btn_pay.pack(pady=20)
@@ -90,8 +109,6 @@ class CustomersView(ctk.CTkFrame):
 
 		# Configuramos la tabla
 		columns = ('ID', 'Nombre', 'Teléfono', 'Deuda Acumulada')
-		style = ttk.Style()
-		style.configure('Treeview', font=('Arial', 12), rowheight=25)
 
 		self.tree = ttk.Treeview(self.right_panel, columns=columns, show='headings')
 
@@ -106,20 +123,31 @@ class CustomersView(ctk.CTkFrame):
 
 		self.tree.pack(fill='both', expand=True, padx=10, pady=10)
 
-		self.load_data()
+		# Color rojo para deudores (ajustado para modo oscuro)
+		self.tree.tag_configure('deudor', foreground='#ff6666')
+
+		self.customer_map = {}
+
+		# Cargamos los datos con un ligero retraso para una apertura fluida
+		self.after(100, self.load_data)
 
 	def load_data(self):
-		"""Carga la tabla y el combobox de clientes (omitiendo al Consumidor Final)"""
-		# Limpiamos la tabla
+		"""Carga la tabla y el combobox de clientes."""
 		for item in self.tree.get_children():
 			self.tree.delete(item)
 
-		# Traemos a los clientes activos desde la base de datos
-		customers = self.controller.get_customers(self.current_user.tenant_id)
+		tenant_id = (
+			self.current_user.get('tenant_id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.tenant_id
+		)
 
-		# Guardamos a los clientes reales en un diccionario para usarlos rápido
+		# Obtenemos lista de diccionarios desde el controlador
+		customers = self.controller.get_customers(tenant_id)
+
+		# Guardamos a los clientes reales en un diccionario (usando claves de diccionario)
 		self.customer_map = {
-			c.name: c for c in customers if c.name != 'Consumidor Final'
+			c['name']: c for c in customers if c['name'] != 'Consumidor Final'
 		}
 
 		# Actualizamos la lista desplegable
@@ -127,35 +155,35 @@ class CustomersView(ctk.CTkFrame):
 			self.combo_customers.configure(values=list(self.customer_map.keys()))
 			self.combo_customers.set('Seleccionar cliente...')
 		else:
+			self.combo_customers.configure(values=['Sin clientes'])
 			self.combo_customers.set('No hay clientes registrados')
 
 		# Llenamos la tabla visual
 		for c in customers:
-			# Solo pintamos de rojo si realmente debe dinero
-			saldo_str = f'${c.current_balance:.2f}'
+			balance = float(c.get('current_balance', 0.0))
+			saldo_str = f'${balance:.2f}'
+
 			item_id = self.tree.insert(
-				'', 'end', values=(c.id, c.name, c.phone or '-', saldo_str)
+				'', 'end', values=(c['id'], c['name'], c.get('phone') or '-', saldo_str)
 			)
 
-			# Opcional: Podríamos pintar la fila de rojo si la deuda es mayor a 0 usando tags
-			if c.current_balance > 0:
+			# Pintamos de rojo si debe dinero (balance > 0)
+			if balance > 0:
 				self.tree.item(item_id, tags=('deudor',))
 
-		self.tree.tag_configure('deudor', foreground='red')
-
 	def on_customer_select(self, selected_name):
-		"""NUEVO: Autocompleta el monto total de la deuda al seleccionar un cliente"""
+		"""Autocompleta el monto total de la deuda al seleccionar un cliente"""
 		if selected_name in self.customer_map:
 			cliente = self.customer_map[selected_name]
+			balance = float(cliente.get('current_balance', 0.0))
 
-			# Limpiamos la casilla
 			self.entry_payment.delete(0, 'end')
 
-			# Si debe dinero, sugerimos pagar el total
-			if cliente.current_balance > 0:
-				self.entry_payment.insert(0, str(cliente.current_balance))
+			if balance > 0:
+				# Formateamos a dos decimales para que se vea profesional
+				self.entry_payment.insert(0, f'{balance:.2f}')
 			else:
-				self.entry_payment.insert(0, '0.0')
+				self.entry_payment.insert(0, '0.00')
 
 	def add_customer(self):
 		"""Guarda un cliente nuevo"""
@@ -170,9 +198,13 @@ class CustomersView(ctk.CTkFrame):
 			)
 			return
 
-		success, msg = self.controller.add_customer(
-			self.current_user.tenant_id, name, phone
+		tenant_id = (
+			self.current_user.get('tenant_id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.tenant_id
 		)
+
+		success, msg = self.controller.add_customer(tenant_id, name, phone)
 
 		if success:
 			CTkMessagebox(title='¡Éxito!', message=msg, icon='check')
@@ -185,7 +217,9 @@ class CustomersView(ctk.CTkFrame):
 	def pay_debt(self):
 		"""Registra el pago de una deuda"""
 		name = self.combo_customers.get()
-		amount_str = self.entry_payment.get().strip()
+		amount_str = (
+			self.entry_payment.get().strip().replace(',', '.')
+		)  # Limpiamos comas
 
 		if name not in self.customer_map or not amount_str:
 			CTkMessagebox(
@@ -195,22 +229,33 @@ class CustomersView(ctk.CTkFrame):
 			)
 			return
 
-		# Pedimos confirmación antes de meter mano a la caja
-		confirm = CTkMessagebox(
+		# CTkMessagebox asíncrono-ish: guardamos el objeto, luego llamamos get()
+		msg_box = CTkMessagebox(
 			title='Confirmar Abono',
 			message=f'¿Confirmas que {name} te está entregando ${amount_str}?',
 			icon='question',
 			option_1='No',
 			option_2='Sí',
-		).get()
-		if confirm != 'Sí':
+		)
+
+		if msg_box.get() != 'Sí':
 			return
 
-		customer_id = self.customer_map[name].id
+		customer_id = self.customer_map[name]['id']  # Acceso mediante diccionario
 
-		# Llamamos al controlador para que haga la matemática
+		tenant_id = (
+			self.current_user.get('tenant_id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.tenant_id
+		)
+		user_id = (
+			self.current_user.get('id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.id
+		)
+
 		success, msg = self.controller.pay_debt(
-			self.current_user.tenant_id, self.current_user.id, customer_id, amount_str
+			tenant_id, user_id, customer_id, amount_str
 		)
 
 		if success:

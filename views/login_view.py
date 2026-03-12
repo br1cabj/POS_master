@@ -6,10 +6,6 @@ class LoginView(ctk.CTkFrame):
 		super().__init__(master)
 		self.login_command = login_command
 
-		# Hacemos que este marco ocupe toda la ventana
-		self.pack(fill='both', expand=True)
-
-		# Configuramos una cuadrícula para centrar la "tarjeta" de login
 		self.grid_rowconfigure(0, weight=1)
 		self.grid_rowconfigure(2, weight=1)
 		self.grid_columnconfigure(0, weight=1)
@@ -70,8 +66,8 @@ class LoginView(ctk.CTkFrame):
 		self.lbl_error.pack(pady=(0, 20))
 
 		# === EVENTOS DE TECLADO ===
-		# Si presionan Enter en cualquier campo, intentamos iniciar sesión
-		self.entry_username.bind('<Return>', lambda e: self.trigger_login())
+		# Conectamos funciones específicas para mejorar la experiencia con el teclado
+		self.entry_username.bind('<Return>', self.handle_username_return)
 		self.entry_password.bind('<Return>', lambda e: self.trigger_login())
 
 		# Ponemos el cursor automáticamente en el campo de usuario al abrir
@@ -79,14 +75,22 @@ class LoginView(ctk.CTkFrame):
 
 	def toggle_password(self):
 		"""Muestra u oculta los asteriscos de la contraseña según el checkbox"""
-		if self.check_show_pass.get() == 1:
+		# En CustomTkinter, .get() devuelve 1 o 0. Evaluamos directamente.
+		if self.check_show_pass.get():
 			self.entry_password.configure(show='')
 		else:
 			self.entry_password.configure(show='*')
 
+	def handle_username_return(self, event):
+		"""Si presiona Enter en el usuario, salta a la contraseña si está vacía."""
+		if not self.entry_password.get():
+			self.entry_password.focus()
+		else:
+			self.trigger_login()
+
 	def trigger_login(self):
-		"""Valida que los campos no estén vacíos antes de enviarlos a main.py"""
-		self.lbl_error.configure(text='')  # Limpiamos errores previos
+		"""Valida, cambia el estado de la UI y lanza el comando a main.py"""
+		self.lbl_error.configure(text='')
 		user = self.entry_username.get().strip()
 		pwd = self.entry_password.get().strip()
 
@@ -94,9 +98,23 @@ class LoginView(ctk.CTkFrame):
 			self.show_error('Por favor, ingresa tu usuario y contraseña.')
 			return
 
+		# Feedback visual para el usuario: Evitamos que haga doble clic
+		self.btn_login.configure(state='disabled', text='CONECTANDO...')
+
+		# Usamos self.after para que la UI se actualice visualmente antes
+		# de que el controlador empiece a buscar en la base de datos
+		self.after(50, lambda: self._execute_login(user, pwd))
+
+	def _execute_login(self, user, pwd):
+		"""Delega la ejecución a main.py y restaura la vista si falla."""
 		# Llamamos a la función attempt_login de main.py
 		self.login_command(user, pwd)
+
+		# Restauramos el botón. (Si el login fue exitoso, main.py destruirá
+		# este frame entero, así que esta línea no afectará negativamente).
+		self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
 
 	def show_error(self, message):
 		"""Esta función es llamada desde main.py si el usuario/clave son incorrectos"""
 		self.lbl_error.configure(text=message)
+		self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
