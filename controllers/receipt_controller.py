@@ -25,19 +25,21 @@ class ReceiptController:
 		"""Genera un archivo PDF con formato de ticketera térmica dinámico (80mm)"""
 		try:
 			# 1. Calculamos el alto dinámico del ticket
-			alto_encabezado = 45  # mm aprox para el logo, datos del cliente y cabeceras
-			alto_pie = 30  # mm aprox para el total y el saludo
-			alto_items = len(items_list) * 5  # 5mm por cada línea de producto
+			alto_encabezado = 45
+			alto_pie = 30
+			alto_items = len(items_list) * 5
 
-			alto_total = alto_encabezado + alto_items + alto_pie
+			alto_total = alto_encabezado + alto_items + alto_pie + 15
 
 			# Formato (ancho, alto)
 			pdf = FPDF(format=(80, alto_total))
+
+			pdf.set_auto_page_break(auto=False, margin=0)
+
 			pdf.add_page()
 
-			# --- Configuración de márgenes (10mm por defecto, lo ajustamos a 5mm para aprovechar papel) ---
+			# --- Configuración de márgenes ---
 			pdf.set_margins(left=5, top=5, right=5)
-			# Ancho usable = 80 - 5 (izq) - 5 (der) = 70mm
 			ancho_usable = 70
 
 			# --- ENCABEZADO ---
@@ -47,7 +49,9 @@ class ReceiptController:
 			pdf.set_font('Arial', '', 9)
 			pdf.cell(ancho_usable, 5, f'Ticket Nro: {sale_id}', ln=True, align='C')
 			pdf.cell(ancho_usable, 5, f'Fecha: {date_str}', ln=True, align='C')
-			pdf.cell(ancho_usable, 5, f'Cliente: {customer_name}', ln=True, align='C')
+			pdf.cell(
+				ancho_usable, 5, f'Cliente: {customer_name[:20]}', ln=True, align='C'
+			)  # Recortamos el nombre si es muy largo
 			pdf.cell(ancho_usable, 5, '-' * 40, ln=True, align='C')
 
 			# --- CABECERA DE LA TABLA ---
@@ -61,12 +65,13 @@ class ReceiptController:
 			for item in items_list:
 				desc_corta = str(item.get('desc', ''))[:18]
 
-				# Usamos fallback seguros en caso de datos faltantes (.get)
-				qty = str(item.get('qty', 1))
+				# Manejo seguro de las variables numéricas para el ticket
+				qty = float(item.get('qty', 1))
+				qty_str = f'{int(qty)}' if qty.is_integer() else f'{qty:.2f}'
 				subtotal = float(item.get('subtotal', 0.0))
 
 				pdf.cell(35, 5, desc_corta, align='L')
-				pdf.cell(10, 5, qty, align='C')
+				pdf.cell(10, 5, qty_str, align='C')
 				pdf.cell(25, 5, f'${subtotal:.2f}', ln=True, align='R')
 
 			# --- TOTAL ---

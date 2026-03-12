@@ -177,6 +177,7 @@ class SalesView(ctk.CTkFrame):
 
 		# Carga fluida de datos
 		self.after(50, self.load_data)
+		self.setup_shortcuts()
 
 	def load_data(self):
 		tenant_id = (
@@ -542,3 +543,57 @@ class SalesView(ctk.CTkFrame):
 			self.entry_barcode.focus()  # Deja el lector listo para la próxima venta
 		else:
 			CTkMessagebox(title='Error', message=msg, icon='cancel')
+
+	def setup_shortcuts(self):
+		"""Conecta las teclas específicas para la pantalla de Ventas"""
+		top = self.winfo_toplevel()
+
+		# Foco e Interacción
+		top.bind('<F5>', lambda e: self.process_sale())
+		top.bind('<F6>', lambda e: self.entry_barcode.focus())
+		top.bind('<F7>', lambda e: self.entry_fast_desc.focus())
+
+		# Borrar item seleccionado con la tecla Suprimir (Delete)
+		top.bind('<Delete>', lambda e: self.remove_from_cart())
+
+		# Vaciar carrito completo con Ctrl + Suprimir (Control-Delete)
+		top.bind('<Control-Delete>', lambda e: self.clear_entire_cart())
+
+		# Cartelito de ayuda visual para el cajero
+		help_text = '⌨️ Atajos: [F5] Cobrar | [F6] Escanear | [F7] Venta Libre | [Supr] Quitar Item'
+		ctk.CTkLabel(
+			self.left_panel,
+			text=help_text,
+			text_color='gray',
+			font=('Arial', 11, 'italic'),
+		).pack(side='bottom', pady=5)
+
+	def clear_entire_cart(self):
+		"""Función nueva para el atajo Ctrl+Suprimir"""
+		if not self.cart:
+			return
+
+		response = CTkMessagebox(
+			title='Anular Venta',
+			message='¿Estás seguro de vaciar todo el carrito?',
+			icon='warning',
+			option_1='No',
+			option_2='Sí',
+		).get()
+
+		if response == 'Sí':
+			self.cart.clear()
+			for item in self.tree.get_children():
+				self.tree.delete(item)
+			self.update_total()
+			self.lbl_msg.configure(text='Venta anulada.', text_color='#ff3333')
+
+	def destroy(self):
+		"""Borramos los atajos al salir para que no hagan conflicto con otras pantallas"""
+		top = self.winfo_toplevel()
+		top.unbind('<F5>')
+		top.unbind('<F6>')
+		top.unbind('<F7>')
+		top.unbind('<Delete>')
+		top.unbind('<Control-Delete>')
+		super().destroy()

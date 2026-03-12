@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy.orm import joinedload, sessionmaker
 
@@ -27,9 +28,9 @@ class SalesController:
 		try:
 			if isinstance(value, str):
 				value = value.replace(',', '.')
-			return float(value)
-		except (ValueError, TypeError):
-			return 0.0
+			return Decimal(str(value))
+		except (ValueError, TypeError, InvalidOperation):
+			return Decimal('0.0')
 
 	def get_articles_for_sale(self, tenant_id):
 		"""Obtiene el catálogo de variantes. Devuelve diccionarios para la UI."""
@@ -216,8 +217,8 @@ class SalesController:
 					}
 				# ------------------------
 
-				total_sale = 0.0
-				total_cost = 0.0
+				total_sale = Decimal(0.0)
+				total_cost = Decimal(0.0)
 
 				# 4. Procesamiento del Carrito
 				for item in cart_items:

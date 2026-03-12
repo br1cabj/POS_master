@@ -157,6 +157,13 @@ class MainDashboard(ctk.CTkFrame):
 		# para que la ventana principal termine de dibujarse primero.
 		self.after(50, lambda: self.switch_view(HomeView))
 
+		# --- ATAJOS GLOBALES DE NAVEGACION ---
+		self.master_app.bind('<F1>', lambda e: self.switch_view(SalesView))
+		self.master_app.bind('<F2>', lambda e: self.switch_view(CashView))
+		self.master_app.bind('<F3>', lambda e: self.switch_view(ArticlesView))
+		self.master_app.bind('<F4>', lambda e: self.switch_view(CustomersView))
+		self.master_app.bind('<Escape>', lambda e: self.switch_view(HomeView))
+
 	# =========================================================
 	# FUNCIÓN MAESTRA DE NAVEGACIÓN
 	# =========================================================
