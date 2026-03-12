@@ -168,7 +168,7 @@ class Sale(Base):
 	total_amount = Column(Float, nullable=False)
 	profit = Column(Float, nullable=False)
 
-	# --- FUTURO: Control financiero detallado ---
+	# --- Control financiero detallado ---
 	payment_method = Column(
 		String, default='efectivo'
 	)  # efectivo, tarjeta, transferencia, fiado

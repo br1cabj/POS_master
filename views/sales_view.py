@@ -88,7 +88,6 @@ class SalesView(ctk.CTkFrame):
 		)
 		self.btn_add_fast.pack(pady=10)
 
-		# (Ya no necesitamos el lbl_msg rojo para los errores principales)
 		self.lbl_msg = ctk.CTkLabel(self.left_panel, text='')
 		self.lbl_msg.pack(pady=5)
 
@@ -167,7 +166,6 @@ class SalesView(ctk.CTkFrame):
 		found_article = next((a for a in self.db_articles if a.barcode == code), None)
 
 		if not found_article:
-			# USO DE MESSAGEBOX PARA ERROR
 			CTkMessagebox(
 				title='Error de Búsqueda',
 				message=f'No se encontró ningún artículo con el código:\n{code}',
@@ -178,10 +176,9 @@ class SalesView(ctk.CTkFrame):
 
 		qty = 1
 		if qty > found_article.stock:
-			# USO DE MESSAGEBOX PARA ADVERTENCIA
 			CTkMessagebox(
 				title='Stock Insuficiente',
-				message=f'No puedes agregar {found_article.description}.\nSolo quedan {found_article.stock} unidades disponibles.',
+				message=f'No puedes agregar {found_article.description}.\nSolo quedan {found_article.stock} disponibles.',
 				icon='warning',
 			)
 			self.entry_barcode.delete(0, 'end')
@@ -223,7 +220,6 @@ class SalesView(ctk.CTkFrame):
 			qty = int(qty_str)
 			article = self.article_map[desc]
 			if qty > article.stock:
-				# USO DE MESSAGEBOX PARA ADVERTENCIA
 				CTkMessagebox(
 					title='Stock Insuficiente',
 					message=f'Solo quedan {article.stock} unidades de {article.description}.',
@@ -281,6 +277,7 @@ class SalesView(ctk.CTkFrame):
 			'', 'end', values=(visual_desc, qty, f'${price:.2f}', f'${subtotal:.2f}')
 		)
 		self.update_total()
+
 		self.entry_fast_desc.delete(0, 'end')
 		self.entry_fast_price.delete(0, 'end')
 		self.entry_fast_qty.delete(0, 'end')
@@ -298,16 +295,13 @@ class SalesView(ctk.CTkFrame):
 			)
 			return
 
-		# USO DE MESSAGEBOX DE CONFIRMACIÓN (PREGUNTA)
-		msg = CTkMessagebox(
+		response = CTkMessagebox(
 			title='Confirmar',
 			message='¿Estás seguro de quitar este artículo del carrito?',
 			icon='question',
 			option_1='No',
 			option_2='Sí',
-		)
-		response = msg.get()
-
+		).get()
 		if response == 'Sí':
 			for item_id in selected_item:
 				values = self.tree.item(item_id, 'values')
@@ -319,14 +313,13 @@ class SalesView(ctk.CTkFrame):
 						break
 
 				self.tree.delete(item_id)
-
 			self.update_total()
 
 	def update_total(self):
 		total = sum(item['subtotal'] for item in self.cart)
 		self.lbl_total.configure(text=f'TOTAL: ${total:.2f}')
 
-	# ... (El resto de las funciones de process_sale y finalize_sale se mantienen exactamente igual)
+	# --- POP-UP OPTIMIZADO CON MÉTODOS DE PAGO ---
 	def process_sale(self):
 		if not self.cart:
 			CTkMessagebox(
@@ -341,18 +334,35 @@ class SalesView(ctk.CTkFrame):
 
 		popup = ctk.CTkToplevel(self)
 		popup.title('Cobrar Venta')
-		popup.geometry('350x450')
+		popup.geometry('380x500')
 		popup.attributes('-topmost', True)
 		popup.grab_set()
 
-		ctk.CTkLabel(popup, text='Total a Pagar:', font=('Arial', 18)).pack(pady=10)
-		ctk.CTkLabel(
-			popup, text=f'${total:.2f}', font=('Arial', 30, 'bold'), text_color='green'
-		).pack(pady=5)
-		ctk.CTkLabel(popup, text='El cliente abona con:', font=('Arial', 14)).pack(
-			pady=10
+		ctk.CTkLabel(popup, text='Total a Pagar:', font=('Arial', 18)).pack(
+			pady=(20, 5)
 		)
+		ctk.CTkLabel(
+			popup,
+			text=f'${total:.2f}',
+			font=('Arial', 35, 'bold'),
+			text_color='#2A8C55',
+		).pack(pady=5)
 
+		# Selector de Método de Pago
+		ctk.CTkLabel(popup, text='Método de Pago:', font=('Arial', 14, 'bold')).pack(
+			pady=(15, 5)
+		)
+		self.combo_payment = ctk.CTkComboBox(
+			popup,
+			values=['Efectivo', 'Tarjeta', 'Transferencia'],
+			font=('Arial', 14),
+			width=200,
+		)
+		self.combo_payment.pack(pady=5)
+
+		ctk.CTkLabel(
+			popup, text='El cliente abona con (Solo Efectivo):', font=('Arial', 12)
+		).pack(pady=(15, 5))
 		entry_paid = ctk.CTkEntry(
 			popup, font=('Arial', 20), justify='center', width=200
 		)
@@ -362,11 +372,15 @@ class SalesView(ctk.CTkFrame):
 		lbl_change = ctk.CTkLabel(
 			popup, text='Vuelto: $0.00', font=('Arial', 24, 'bold'), text_color='blue'
 		)
-		lbl_change.pack(pady=20)
+		lbl_change.pack(pady=15)
 		lbl_error = ctk.CTkLabel(popup, text='', text_color='red')
 		lbl_error.pack()
 
 		def calculate_change(event):
+			if self.combo_payment.get() != 'Efectivo':
+				lbl_change.configure(text='No aplica vuelto', text_color='gray')
+				return
+
 			paid_str = entry_paid.get().strip()
 			if not paid_str:
 				lbl_change.configure(text='Vuelto: $0.00', text_color='blue')
@@ -383,7 +397,9 @@ class SalesView(ctk.CTkFrame):
 		entry_paid.bind('<KeyRelease>', calculate_change)
 
 		def confirm_and_save(is_fiado=False):
-			if not is_fiado:
+			payment_method = self.combo_payment.get()
+
+			if not is_fiado and payment_method == 'Efectivo':
 				try:
 					paid_str = entry_paid.get().strip()
 					paid = float(paid_str) if paid_str else total
@@ -400,13 +416,14 @@ class SalesView(ctk.CTkFrame):
 			if customer_name in self.customer_map:
 				customer_id = self.customer_map[customer_name].id
 
-			self.finalize_sale(customer_id, is_fiado)
+			self.finalize_sale(customer_id, is_fiado, payment_method)
 
 		ctk.CTkButton(
 			popup,
-			text='💵 Pagar en Efectivo',
+			text='✅ CONFIRMAR COBRO',
 			fg_color='green',
-			height=40,
+			hover_color='#216e41',
+			height=45,
 			font=('Arial', 14, 'bold'),
 			command=lambda: confirm_and_save(False),
 		).pack(pady=10)
@@ -421,20 +438,21 @@ class SalesView(ctk.CTkFrame):
 				height=40,
 				font=('Arial', 14, 'bold'),
 				command=lambda: confirm_and_save(True),
-			).pack(pady=10)
+			).pack(pady=5)
 
-	def finalize_sale(self, customer_id, is_fiado):
+	def finalize_sale(self, customer_id, is_fiado, payment_method):
 		success, msg = self.sales_ctrl.process_sale(
 			self.current_user.tenant_id,
 			self.current_user.id,
 			self.cart,
 			customer_id,
 			is_fiado,
+			payment_method,
 		)
 
 		if success:
 			CTkMessagebox(title='¡Éxito!', message=msg, icon='check')
-			self.cart = []
+			self.cart.clear()
 			for item in self.tree.get_children():
 				self.tree.delete(item)
 			self.update_total()

@@ -17,19 +17,24 @@ class SalesController:
 		self.Session = sessionmaker(bind=db_engine)
 
 	def get_articles_for_sale(self, tenant_id):
+		"""Obtiene el catálogo de productos disponibles para vender."""
 		session = self.Session()
 		try:
-			return session.query(Article).filter_by(tenant_id=tenant_id).all()
+			return (
+				session.query(Article)
+				.filter_by(tenant_id=tenant_id, is_active=True)
+				.all()
+			)
 		finally:
 			session.close()
 
-	# --- NUEVA FUNCIÓN: Obtener clientes para el selector ---
 	def get_customers(self, tenant_id):
+		"""Obtiene la lista de clientes para el selector de la interfaz."""
 		session = self.Session()
 		try:
 			return (
 				session.query(Customer)
-				.filter_by(tenant_id=tenant_id)
+				.filter_by(tenant_id=tenant_id, is_active=True)
 				.order_by(Customer.name)
 				.all()
 			)
@@ -37,6 +42,7 @@ class SalesController:
 			session.close()
 
 	def get_history(self, tenant_id):
+		"""Obtiene el historial completo de ventas con sus relaciones."""
 		session = self.Session()
 		try:
 			return (
@@ -53,19 +59,30 @@ class SalesController:
 			session.close()
 
 	def get_sale_details(self, sale_id):
+		"""Obtiene el detalle (los items) de un ticket específico."""
 		session = self.Session()
 		try:
 			return session.query(SaleDetail).filter_by(sale_id=sale_id).all()
 		finally:
 			session.close()
 
-	# --- FUNCIÓN ACTUALIZADA CON LÓGICA DE FIADO ---
+	# --- FUNCIÓN PRINCIPAL DE VENTAS ---
 	def process_sale(
-		self, tenant_id, user_id, cart_items, customer_id=None, is_fiado=False
+		self,
+		tenant_id,
+		user_id,
+		cart_items,
+		customer_id=None,
+		is_fiado=False,
+		payment_method='efectivo',
 	):
-		"""Procesa la venta. Si es_fiado=True, crea deuda y no afecta la caja."""
+		"""
+		Procesa la venta completa. Calcula totales, resta stock,
+		actualiza la caja o la cuenta corriente y genera el PDF.
+		"""
 		session = self.Session()
 		try:
+			# 1. Verificación de Caja Abierta
 			active_cash = (
 				session.query(CashSession)
 				.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
@@ -74,6 +91,7 @@ class SalesController:
 			if not active_cash:
 				return False, '⚠️ ¡Debes ABRIR LA CAJA en el menú antes de vender!'
 
+			# 2. Asignación de Cliente por Defecto
 			if not customer_id:
 				default_customer = (
 					session.query(Customer)
@@ -82,17 +100,29 @@ class SalesController:
 				)
 				customer_id = default_customer.id if default_customer else None
 
+			# 3. Preparación de la Venta Maestra
+			metodo_final = 'fiado' if is_fiado else payment_method.lower()
+			estado_final = 'pendiente' if is_fiado else 'completada'
+
 			new_sale = Sale(
-				tenant_id=tenant_id, user_id=user_id, customer_id=customer_id
+				tenant_id=tenant_id,
+				user_id=user_id,
+				customer_id=customer_id,
+				payment_method=metodo_final,
+				status=estado_final,
+				date=datetime.utcnow(),
 			)
+
 			total_sale = 0.0
 			total_cost = 0.0
 
+			# 4. Procesamiento del Carrito (Detalles y Stock)
 			for item in cart_items:
 				if item.get('article_id') is not None:
 					article = (
 						session.query(Article).filter_by(id=item['article_id']).first()
 					)
+
 					if not article:
 						raise Exception(f'Artículo no encontrado: {item["desc"]}')
 					if article.stock < item['qty']:
@@ -100,9 +130,11 @@ class SalesController:
 							f'Stock insuficiente para {article.description}'
 						)
 
+					# Descontamos el stock
 					article.stock -= item['qty']
 					cost_price = article.cost_price
 				else:
+					# Venta rápida sin artículo en base de datos
 					cost_price = 0.0
 
 				subtotal = item['price'] * item['qty']
@@ -121,30 +153,33 @@ class SalesController:
 				)
 				new_sale.items.append(detail)
 
+			# 5. Calculamos y asignamos totales financieros
 			new_sale.total_amount = total_sale
 			new_sale.profit = total_sale - total_cost
-			new_sale.date = datetime.utcnow()
 
 			session.add(new_sale)
-			session.flush()
+			session.flush()  # Obtenemos el ID de la venta temporalmente
 
+			# 6. Movimiento Financiero
 			if is_fiado:
-				# 1. Buscamos al cliente y le restamos el total a su saldo
+				if not customer_id:
+					return False, 'Debes seleccionar un cliente para fiar.'
 				customer = session.query(Customer).filter_by(id=customer_id).first()
 				if customer:
-					customer.current_balance -= total_sale
+					customer.current_balance += total_sale
 			else:
-				# VENTA NORMAL
 				movement = CashMovement(
 					session_id=active_cash.id,
 					movement_type='venta',
 					amount=total_sale,
-					description=f'Ingreso por Venta #{new_sale.id}',
+					description=f'Ticket #{new_sale.id} - Pago: {payment_method.capitalize()}',
 				)
 				session.add(movement)
 
+			# Confirmamos todos los cambios en la base de datos
 			session.commit()
 
+			# 7. Generación del Ticket (PDF)
 			from controllers.receipt_controller import ReceiptController
 
 			customer_str = 'Consumidor Final'
@@ -153,7 +188,6 @@ class SalesController:
 				if c:
 					customer_str = c.name
 
-			# Formateamos la fecha
 			date_str = new_sale.date.strftime('%Y-%m-%d %H:%M')
 
 			pdf_maker = ReceiptController()
@@ -165,11 +199,14 @@ class SalesController:
 				customer_name=customer_str,
 			)
 
-			tipo = 'FIADO' if is_fiado else 'EFECTIVO'
-			return True, f'Venta registrada ({tipo}). Total: ${total_sale:.2f}'
+			# Retornamos el éxito
+			return (
+				True,
+				f'Venta registrada ({metodo_final.capitalize()}). Total: ${total_sale:.2f}',
+			)
 
 		except Exception as e:
 			session.rollback()
-			return False, str(e)
+			return False, f'Error al procesar venta: {str(e)}'
 		finally:
 			session.close()
