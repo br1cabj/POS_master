@@ -128,15 +128,13 @@ class SalesController:
 			session.add(new_sale)
 			session.flush()
 
-			# --- LA MAGIA DEL FIADO ---
 			if is_fiado:
-				# 1. Buscamos al cliente y le restamos el total a su saldo (Deuda)
+				# 1. Buscamos al cliente y le restamos el total a su saldo
 				customer = session.query(Customer).filter_by(id=customer_id).first()
 				if customer:
 					customer.current_balance -= total_sale
-				# Nota: NO creamos CashMovement, porque no entró dinero físico a la caja
 			else:
-				# VENTA NORMAL: Registramos el dinero en la caja
+				# VENTA NORMAL
 				movement = CashMovement(
 					session_id=active_cash.id,
 					movement_type='venta',
@@ -146,6 +144,26 @@ class SalesController:
 				session.add(movement)
 
 			session.commit()
+
+			from controllers.receipt_controller import ReceiptController
+
+			customer_str = 'Consumidor Final'
+			if customer_id:
+				c = session.query(Customer).filter_by(id=customer_id).first()
+				if c:
+					customer_str = c.name
+
+			# Formateamos la fecha
+			date_str = new_sale.date.strftime('%Y-%m-%d %H:%M')
+
+			pdf_maker = ReceiptController()
+			pdf_maker.generate_pdf(
+				sale_id=new_sale.id,
+				date_str=date_str,
+				items_list=cart_items,
+				total=total_sale,
+				customer_name=customer_str,
+			)
 
 			tipo = 'FIADO' if is_fiado else 'EFECTIVO'
 			return True, f'Venta registrada ({tipo}). Total: ${total_sale:.2f}'
