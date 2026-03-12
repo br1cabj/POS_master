@@ -2,6 +2,7 @@ from datetime import datetime
 
 from sqlalchemy import (
 	Boolean,
+	CheckConstraint,
 	Column,
 	Date,
 	DateTime,
@@ -9,6 +10,7 @@ from sqlalchemy import (
 	Integer,
 	Numeric,
 	String,
+	UniqueConstraint,
 	create_engine,
 )
 from sqlalchemy.orm import declarative_base, relationship
@@ -33,17 +35,21 @@ class Tenant(Base):
 class User(Base):
 	__tablename__ = 'users'
 	id = Column(Integer, primary_key=True)
-	username = Column(String, unique=True, nullable=False)
+
+	username = Column(String, nullable=False)
 	password_hash = Column(String, nullable=False)
 	role = Column(String, default='cajero')
 	is_active = Column(Boolean, default=True)
 
-	# NUEVO: index=True para acelerar búsquedas
 	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
 	tenant = relationship('Tenant', back_populates='users')
 
 	sales = relationship('Sale', back_populates='user')
 	stock_movements = relationship('StockMovement', back_populates='user')
+
+	__table_args__ = (
+		UniqueConstraint('tenant_id', 'username', name='uix_tenant_username'),
+	)
 
 
 # ==========================================
@@ -100,6 +106,8 @@ class Article(Base):
 
 	category_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
 
+	# El borrado en cascada aquí está bien porque borrar un artículo padre lógicamente
+	# debería destruir las variantes huérfanas si hacemos hard-delete.
 	variants = relationship(
 		'ArticleVariant', back_populates='article', cascade='all, delete-orphan'
 	)
@@ -109,14 +117,11 @@ class ArticleVariant(Base):
 	__tablename__ = 'article_variants'
 	id = Column(Integer, primary_key=True)
 
-	# CORRECCIÓN: Quitamos unique=True y ponemos index=True para que distintas
-	# empresas puedan vender el mismo producto con el mismo código de barras.
 	barcode = Column(String, nullable=True, index=True)
 
 	attribute_1 = Column(String, nullable=True)
 	attribute_2 = Column(String, nullable=True)
 
-	# CORRECCIÓN: Numeric(10, 2) significa "10 dígitos en total, 2 decimales"
 	cost_price = Column(Numeric(10, 2), nullable=False)
 	selling_price = Column(Numeric(10, 2), nullable=False)
 	is_active = Column(Boolean, default=True)
@@ -127,6 +132,11 @@ class ArticleVariant(Base):
 	stocks = relationship('Stock', back_populates='variant')
 	sale_details = relationship('SaleDetail', back_populates='variant')
 
+	__table_args__ = (
+		CheckConstraint('cost_price >= 0', name='chk_cost_price_positive'),
+		CheckConstraint('selling_price >= 0', name='chk_selling_price_positive'),
+	)
+
 
 # ==========================================
 # 4. CONTROL DE STOCK E HISTORIAL
@@ -135,8 +145,6 @@ class Stock(Base):
 	__tablename__ = 'stocks'
 	id = Column(Integer, primary_key=True)
 
-	# Aquí sí podemos usar Numeric o Float, pero Numeric(12, 4) es mejor
-	# por si pesan cosas muy exactas (ej. oro, especias)
 	quantity = Column(Numeric(12, 4), default=0.0)
 
 	batch_number = Column(String, nullable=True, index=True)
@@ -153,13 +161,15 @@ class Stock(Base):
 	)
 	variant = relationship('ArticleVariant', back_populates='stocks')
 
+	__table_args__ = (
+		CheckConstraint('quantity >= 0', name='chk_stock_quantity_positive'),
+	)
+
 
 class StockMovement(Base):
 	__tablename__ = 'stock_movements'
 	id = Column(Integer, primary_key=True)
-	date = Column(
-		DateTime, default=datetime.utcnow, index=True
-	)  # INDEX: Acelera el Dashboard
+	date = Column(DateTime, default=datetime.utcnow, index=True)
 
 	movement_type = Column(String, nullable=False)
 	quantity = Column(Numeric(12, 4), nullable=False)
@@ -176,6 +186,10 @@ class StockMovement(Base):
 	user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
 	user = relationship('User', back_populates='stock_movements')
 
+	__table_args__ = (
+		CheckConstraint('quantity > 0', name='chk_movement_qty_positive'),
+	)
+
 
 # ==========================================
 # 5. VENTAS, CLIENTES Y CAJA
@@ -185,7 +199,9 @@ class Customer(Base):
 	id = Column(Integer, primary_key=True)
 	name = Column(String, nullable=False)
 	phone = Column(String, nullable=True)
-	current_balance = Column(Numeric(10, 2), default=0.0)
+	current_balance = Column(
+		Numeric(10, 2), default=0.0
+	)  # Aquí sí permitimos negativos por si hay saldo a favor
 	is_active = Column(Boolean, default=True)
 
 	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
@@ -197,9 +213,7 @@ class Customer(Base):
 class Sale(Base):
 	__tablename__ = 'sales'
 	id = Column(Integer, primary_key=True)
-	date = Column(
-		DateTime, default=datetime.utcnow, index=True
-	)  # INDEX: Acelera búsquedas de fechas
+	date = Column(DateTime, default=datetime.utcnow, index=True)
 	total_amount = Column(Numeric(10, 2), nullable=False)
 	profit = Column(Numeric(10, 2), nullable=False)
 	payment_method = Column(String, default='efectivo')
@@ -246,10 +260,7 @@ class CashSession(Base):
 	user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
 	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
 
-	# NUEVO: Relación bidireccional limpia
-	movements = relationship(
-		'CashMovement', back_populates='session', cascade='all, delete-orphan'
-	)
+	movements = relationship('CashMovement', back_populates='session')
 
 
 class CashMovement(Base):
@@ -264,6 +275,8 @@ class CashMovement(Base):
 		Integer, ForeignKey('cash_sessions.id'), nullable=False, index=True
 	)
 	session = relationship('CashSession', back_populates='movements')
+
+	__table_args__ = (CheckConstraint('amount > 0', name='chk_cash_amount_positive'),)
 
 
 # ==========================================

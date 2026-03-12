@@ -11,13 +11,35 @@ class InventoryController:
 	def __init__(self, db_engine):
 		self.Session = sessionmaker(bind=db_engine)
 
-	def get_kardex(self, tenant_id, limit=1000):
+	def get_kardex(self, tenant_id, page=1, limit=100):
 		"""
 		Obtiene el historial de movimientos de inventario (Kardex).
 		"""
+
+		try:
+			page = int(page)
+			limit = int(limit)
+
+			# Evitamos números negativos o ceros
+			if page < 1:
+				page = 1
+			if limit < 1:
+				limit = 100
+
+			# Tope máximo inquebrantable (Hard Limit)
+			if limit > 1000:
+				limit = 1000
+
+		except (ValueError, TypeError):
+			# Si nos envían basura (strings, booleanos), usamos valores por defecto
+			page = 1
+			limit = 100
+
+		# Calculamos el desplazamiento (offset)
+		offset = (page - 1) * limit
+
 		with self.Session() as session:
 			try:
-				# Traemos los movimientos con un límite de seguridad
 				movements = (
 					session.query(StockMovement)
 					.options(
@@ -26,29 +48,25 @@ class InventoryController:
 						),
 						joinedload(StockMovement.user),
 					)
-					# Hacemos JOIN con Article para asegurar que filtramos por el tenant correcto
-					# independientemente de si el movimiento tiene o no un usuario asignado
 					.join(ArticleVariant, StockMovement.variant_id == ArticleVariant.id)
 					.join(Article, ArticleVariant.article_id == Article.id)
 					.filter(Article.tenant_id == tenant_id)
 					.order_by(StockMovement.date.desc())
-					.limit(limit)  # <-- La protección contra la "Bomba de Tiempo"
+					.limit(limit)
+					.offset(offset)
 					.all()
 				)
 
-				# Mapeamos a una lista de diccionarios para la interfaz gráfica
-				# Así evitamos el DetachedInstanceError
 				return [
 					{
 						'id': mov.id,
 						'date': mov.date,
-						'movement_type': mov.movement_type,  # Ej: 'in', 'out'
+						'movement_type': mov.movement_type,
 						'quantity': mov.quantity,
 						'reference': mov.reference,
-						# Manejo seguro por si algún dato fue borrado de la BD
 						'article_name': mov.variant.article.name
 						if mov.variant and mov.variant.article
-						else 'Desconocido',
+						else 'Producto Eliminado',
 						'barcode': mov.variant.barcode if mov.variant else 'N/A',
 						'user_name': mov.user.username if mov.user else 'Sistema',
 					}

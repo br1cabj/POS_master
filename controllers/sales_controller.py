@@ -33,7 +33,6 @@ class SalesController:
 			return Decimal('0.0')
 
 	def get_articles_for_sale(self, tenant_id):
-		"""Obtiene el catálogo de variantes. Devuelve diccionarios para la UI."""
 		with self.Session() as session:
 			try:
 				variants = (
@@ -46,7 +45,6 @@ class SalesController:
 					.filter(Article.tenant_id == tenant_id, ArticleVariant.is_active)
 					.all()
 				)
-
 				return [
 					{
 						'variant_id': v.id,
@@ -83,7 +81,6 @@ class SalesController:
 				return []
 
 	def get_history(self, tenant_id, limit=500):
-		"""Obtiene el historial blindado contra desbordamiento de memoria."""
 		with self.Session() as session:
 			try:
 				sales = (
@@ -91,7 +88,7 @@ class SalesController:
 					.options(joinedload(Sale.customer), joinedload(Sale.user))
 					.filter_by(tenant_id=tenant_id)
 					.order_by(Sale.date.desc())
-					.limit(limit)  # Salvavidas de memoria
+					.limit(limit)
 					.all()
 				)
 				return [
@@ -112,10 +109,16 @@ class SalesController:
 				logger.error(f'Error al leer historial: {e}', exc_info=True)
 				return []
 
-	def get_sale_details(self, sale_id):
+	def get_sale_details(self, tenant_id, sale_id):
+		"""🛡️ ESCUDO: Se agregó tenant_id para evitar IDOR"""
 		with self.Session() as session:
 			try:
-				details = session.query(SaleDetail).filter_by(sale_id=sale_id).all()
+				details = (
+					session.query(SaleDetail)
+					.join(Sale)
+					.filter(SaleDetail.sale_id == sale_id, Sale.tenant_id == tenant_id)
+					.all()
+				)
 				return [
 					{
 						'description': d.description,
@@ -154,16 +157,19 @@ class SalesController:
 				if not active_cash:
 					return False, '⚠️ ¡Debes ABRIR LA CAJA en el menú antes de vender!'
 
-				# 2. Gestión de Cliente Optimizada (Una sola consulta)
+				# 2. Gestión de Cliente (🛡️ ESCUDO: Verificamos que el cliente pertenezca al tenant)
 				customer_str = 'Consumidor Final'
 				customer_obj = None
 
 				if customer_id:
 					customer_obj = (
-						session.query(Customer).filter_by(id=customer_id).first()
+						session.query(Customer)
+						.filter_by(id=customer_id, tenant_id=tenant_id)
+						.first()
 					)
-					if customer_obj:
-						customer_str = customer_obj.name
+					if not customer_obj:
+						return False, 'Cliente inválido o no autorizado.'
+					customer_str = customer_obj.name
 				else:
 					customer_obj = (
 						session.query(Customer)
@@ -192,7 +198,6 @@ class SalesController:
 				session.add(new_sale)
 				session.flush()
 
-				# --- OPTIMIZACIÓN N+1 ---
 				variant_ids = [
 					item['variant_id']
 					for item in cart_items
@@ -202,41 +207,54 @@ class SalesController:
 				variants_db = {}
 				stocks_db = {}
 				if variant_ids:
-					variants_db = {
-						v.id: v
-						for v in session.query(ArticleVariant)
+					variants_list = (
+						session.query(ArticleVariant)
 						.options(joinedload(ArticleVariant.article))
-						.filter(ArticleVariant.id.in_(variant_ids))
+						.join(Article)
+						.filter(
+							ArticleVariant.id.in_(variant_ids),
+							Article.tenant_id == tenant_id,
+						)
 						.all()
-					}
-					stocks_db = {
-						s.variant_id: s
-						for s in session.query(Stock)
-						.filter(Stock.variant_id.in_(variant_ids))
-						.all()
-					}
-				# ------------------------
+					)
+					variants_db = {v.id: v for v in variants_list}
 
-				total_sale = Decimal(0.0)
-				total_cost = Decimal(0.0)
+					stocks_list = (
+						session.query(Stock)
+						.filter(Stock.variant_id.in_(variant_ids))
+						.with_for_update()
+						.all()
+					)
+					stocks_db = {s.variant_id: s for s in stocks_list}
+
+				total_sale = Decimal('0.0')
+				total_cost = Decimal('0.0')
 
 				# 4. Procesamiento del Carrito
 				for item in cart_items:
 					qty = self._parse_float(item.get('qty', 1))
-					price = self._parse_float(item.get('price', 0))
-					v_id = item.get('variant_id')
 
 					if qty <= 0:
-						continue
+						raise ValueError(
+							f'Cantidad inválida para el producto: {item.get("desc", "Desconocido")}'
+						)
+
+					v_id = item.get('variant_id')
 
 					if v_id is not None:
 						variant = variants_db.get(v_id)
 						if not variant:
-							raise Exception(f'Producto no encontrado: {item["desc"]}')
+							raise ValueError(
+								f'Producto no encontrado o no autorizado: {item.get("desc")}'
+							)
+
+						# 🛡️ ESCUDO: Forzamos el precio de la base de datos (descomenta si permites a cajeros cambiar precios)
+						# price = self._parse_float(item.get('price', variant.selling_price))
+						price = variant.selling_price
 
 						stock_record = stocks_db.get(v_id)
 						if not stock_record or stock_record.quantity < qty:
-							raise Exception(
+							raise ValueError(
 								f'Stock insuficiente para {variant.article.name}'
 							)
 
@@ -253,7 +271,14 @@ class SalesController:
 						)
 						session.add(movimiento_salida)
 					else:
-						cost_price = 0.0
+						# Si es un item sin ID (ej. servicio manual), leemos el precio del carrito pero validamos
+						price = self._parse_float(item.get('price', 0))
+						cost_price = Decimal('0.0')
+
+					if price < 0:
+						raise ValueError(
+							f'El precio no puede ser negativo: {item.get("desc", "Desconocido")}'
+						)
 
 					subtotal = price * qty
 					cost_subtotal = cost_price * qty
@@ -263,7 +288,7 @@ class SalesController:
 
 					detail = SaleDetail(
 						variant_id=v_id,
-						description=item['desc'],
+						description=item.get('desc', 'Artículo'),
 						quantity=qty,
 						unit_cost=cost_price,
 						unit_price=price,
@@ -289,7 +314,7 @@ class SalesController:
 
 				session.commit()
 
-				# 7. Generación del Ticket (PDF)
+				# 7. Generación del Ticket (Fuera del commit principal por si falla el PDF)
 				try:
 					from controllers.receipt_controller import ReceiptController
 
@@ -300,7 +325,7 @@ class SalesController:
 						date_str=date_str,
 						items_list=cart_items,
 						total=total_sale,
-						customer_name=customer_str,  # Usamos la variable que ya teníamos
+						customer_name=customer_str,
 					)
 				except Exception as pdf_err:
 					logger.warning(
@@ -312,10 +337,13 @@ class SalesController:
 					f'Venta registrada ({metodo_final.capitalize()}). Total: ${total_sale:.2f}',
 				)
 
+			except ValueError as ve:
+				session.rollback()
+				return False, str(ve)
 			except Exception as e:
 				session.rollback()
-				logger.error(f'Error al procesar venta: {e}', exc_info=True)
+				logger.error(f'Error grave al procesar venta: {e}', exc_info=True)
 				return (
 					False,
-					str(e),
-				)  # Devolvemos el string del error para que la UI diga "Stock insuficiente..."
+					'Ocurrió un error interno al procesar la venta. Intente de nuevo.',
+				)

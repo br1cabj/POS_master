@@ -1,5 +1,7 @@
 import logging
+from decimal import Decimal
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, sessionmaker
 
 from database.models import (
@@ -20,12 +22,9 @@ class ArticleController:
 
 	def _get_or_create_default_warehouse(self, session, tenant_id):
 		"""
-		Función auxiliar: Si el usuario aún no ha configurado sucursales,
-		le creamos una por defecto para no bloquear la creación de artículos.
-		NOTA: Idealmente, esto debería ocurrir al crear el Tenant, no aquí.
+		Función auxiliar: Busca o crea almacén por defecto.
 		"""
 		try:
-			# 1. Buscamos o creamos la Sucursal
 			branch = (
 				session.query(Branch)
 				.filter_by(tenant_id=tenant_id, name='Sede Principal')
@@ -36,7 +35,6 @@ class ArticleController:
 				session.add(branch)
 				session.flush()
 
-			# 2. Buscamos o creamos el Almacén dentro de esa sucursal
 			warehouse = (
 				session.query(Warehouse)
 				.filter_by(branch_id=branch.id, name='Depósito General')
@@ -52,13 +50,9 @@ class ArticleController:
 			logger.error(
 				f'Error al obtener/crear almacén por defecto: {e}', exc_info=True
 			)
-			raise  # Relanzamos porque si esto falla, no podemos crear el artículo
+			raise
 
 	def get_all_variants(self, tenant_id):
-		"""
-		Trae todas las variantes activas unidas a su artículo padre.
-		Devuelve una lista de diccionarios para evitar DetachedInstanceError en la UI.
-		"""
 		with self.Session() as session:
 			try:
 				variants = (
@@ -72,12 +66,9 @@ class ArticleController:
 					.all()
 				)
 
-				# Convertimos a diccionarios planos para la interfaz gráfica
 				result = []
 				for v in variants:
-					# Calculamos el stock total aquí mismo para facilidad de la UI
 					total_stock = sum(s.quantity for s in v.stocks) if v.stocks else 0
-
 					result.append(
 						{
 							'variant_id': v.id,
@@ -108,21 +99,47 @@ class ArticleController:
 		selling_price,
 		initial_stock,
 	):
-		"""
-		Crea un artículo simple y registra automáticamente su entrada en el Kardex.
-		"""
-		# Validaciones básicas antes de tocar la base de datos
-		if not name or not barcode:
-			return False, 'El nombre y el código de barras son obligatorios.'
+		"""Crea un artículo simple y registra automáticamente su entrada."""
+		# 1. 🛡️ ESCUDO: Validaciones estrictas de entrada
+		if not name or not str(name).strip():
+			return False, 'El nombre es obligatorio.'
+		if not barcode or not str(barcode).strip():
+			return False, 'El código de barras es obligatorio.'
+
+		try:
+			cost_price = Decimal(str(cost_price))
+			selling_price = Decimal(str(selling_price))
+			initial_stock = Decimal(str(initial_stock))
+		except Exception:
+			return False, 'Valores numéricos inválidos.'
+
 		if initial_stock < 0:
 			return False, 'El stock inicial no puede ser negativo.'
+		if cost_price < 0 or selling_price < 0:
+			return False, 'Los precios no pueden ser negativos.'
 
 		with self.Session() as session:
 			try:
+				existing_variant = (
+					session.query(ArticleVariant)
+					.join(Article)
+					.filter(
+						Article.tenant_id == tenant_id,
+						ArticleVariant.barcode == str(barcode).strip(),
+						ArticleVariant.is_active,
+					)
+					.first()
+				)
+				if existing_variant:
+					return (
+						False,
+						f'El código de barras "{barcode}" ya está en uso por otro artículo.',
+					)
+
 				warehouse_id = self._get_or_create_default_warehouse(session, tenant_id)
 
 				new_article = Article(
-					name=name,
+					name=str(name).strip(),
 					tenant_id=tenant_id,
 					has_variants=False,
 				)
@@ -130,7 +147,7 @@ class ArticleController:
 				session.flush()
 
 				new_variant = ArticleVariant(
-					barcode=barcode,
+					barcode=str(barcode).strip(),
 					cost_price=cost_price,
 					selling_price=selling_price,
 					article_id=new_article.id,
@@ -138,8 +155,6 @@ class ArticleController:
 				session.add(new_variant)
 				session.flush()
 
-				# Solo creamos el registro en Stock si hay cantidad,
-				# o lo creamos en 0 para tener la referencia (depende de tu lógica de negocio)
 				new_stock = Stock(
 					quantity=initial_stock,
 					warehouse_id=warehouse_id,
@@ -161,26 +176,47 @@ class ArticleController:
 				session.commit()
 				return True, f"Artículo '{name}' creado correctamente."
 
+			except IntegrityError:
+				session.rollback()
+				logger.error(
+					'Error de integridad de BD al crear artículo.', exc_info=True
+				)
+				return (
+					False,
+					'Error: Ya existe un registro conflictivo en la base de datos.',
+				)
 			except Exception as e:
 				session.rollback()
 				logger.error(f"Error al crear artículo '{name}': {e}", exc_info=True)
-				return False, 'Error interno al crear el artículo. Revise los logs.'
+				return False, 'Error interno al crear el artículo. Intente de nuevo.'
 
-	def delete_variant(self, variant_id):
+	def delete_variant(self, tenant_id, variant_id):
 		"""Realiza un borrado lógico de la variante."""
 		with self.Session() as session:
 			try:
-				variant = session.query(ArticleVariant).filter_by(id=variant_id).first()
+				variant = (
+					session.query(ArticleVariant)
+					.join(Article)
+					.filter(
+						ArticleVariant.id == variant_id,
+						Article.tenant_id == tenant_id,
+					)
+					.first()
+				)
+
 				if not variant:
-					return False, 'Variante no encontrada.'
+					return (
+						False,
+						'Artículo no encontrado o no tienes permiso para eliminarlo.',
+					)
 
 				variant.is_active = False
 				session.commit()
-				return True, 'Artículo eliminado (Borrado lógico).'
+				return True, 'Artículo eliminado correctamente.'
 
 			except Exception as e:
 				session.rollback()
 				logger.error(
 					f'Error al eliminar variante {variant_id}: {e}', exc_info=True
 				)
-				return False, 'Error interno al intentar eliminar. Revise los logs.'
+				return False, 'Error interno al intentar eliminar. Intente de nuevo.'

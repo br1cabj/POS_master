@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy.orm import sessionmaker
 
@@ -11,17 +12,17 @@ class CustomerController:
 	def __init__(self, db_engine):
 		self.Session = sessionmaker(bind=db_engine)
 
-	def _parse_float(self, value):
-		"""Convierte valores de la UI a float de forma segura, soportando comas."""
+	def _parse_decimal(self, value):
+		"""Convertimos a Decimal para evitar pérdida de centavos."""
 		try:
 			if isinstance(value, str):
 				value = value.replace(',', '.')
-			return float(value)
-		except (ValueError, TypeError):
+			return Decimal(str(value))
+		except (ValueError, TypeError, InvalidOperation):
 			return None
 
 	def get_customers(self, tenant_id):
-		"""Obtiene la lista de clientes activos ordenados por nombre y los devuelve como diccionarios"""
+		"""Obtiene la lista de clientes activos ordenados por nombre."""
 		with self.Session() as session:
 			try:
 				customers = (
@@ -50,6 +51,7 @@ class CustomerController:
 			return False, 'El nombre del cliente es obligatorio.'
 
 		name_clean = str(name).strip()
+		phone_clean = str(phone).strip() if phone else None
 
 		with self.Session() as session:
 			try:
@@ -63,17 +65,16 @@ class CustomerController:
 					if exist.is_active:
 						return False, 'Ese cliente ya existe en el sistema.'
 					else:
-						# Reactivamos al cliente borrado
 						exist.is_active = True
-						exist.phone = phone
+						exist.phone = phone_clean
 						session.commit()
 						return True, 'Cliente reactivado con éxito.'
 
 				new_customer = Customer(
 					tenant_id=tenant_id,
 					name=name_clean,
-					phone=phone,
-					current_balance=0.0,
+					phone=phone_clean,
+					current_balance=Decimal('0.0'),
 				)
 				session.add(new_customer)
 				session.commit()
@@ -85,11 +86,10 @@ class CustomerController:
 				return False, 'Error interno al intentar crear el cliente.'
 
 	def pay_debt(self, tenant_id, user_id, customer_id, amount):
-		"""Registra el pago de una deuda: descuenta el saldo del cliente y mete dinero a la caja"""
-		amount_float = self._parse_float(amount)
+		"""Registra el pago de una deuda de forma transaccional y segura."""
+		amount_dec = self._parse_decimal(amount)
 
-		# Validación temprana y segura
-		if amount_float is None or amount_float <= 0:
+		if amount_dec is None or amount_dec <= Decimal('0.0'):
 			return False, 'El monto a abonar debe ser un número válido mayor a cero.'
 
 		with self.Session() as session:
@@ -103,18 +103,28 @@ class CustomerController:
 				if not active_cash:
 					return False, '⚠️ Abre la caja para registrar el pago.'
 
-				# 2. Buscar al cliente y actualizar su saldo
-				customer = session.query(Customer).filter_by(id=customer_id).first()
-				if not customer:
-					return False, 'Cliente no encontrado.'
+				# 2. Buscar al cliente
+				customer = (
+					session.query(Customer)
+					.filter_by(id=customer_id, tenant_id=tenant_id)
+					.with_for_update()
+					.first()
+				)
 
-				customer.current_balance -= amount_float
+				if not customer:
+					return False, 'Cliente no encontrado o no autorizado.'
+
+				# Opcional: Si NO quieres permitir que paguen de más (saldo a favor), descomenta esto:
+				# if amount_dec > customer.current_balance:
+				#     return False, f'El pago supera la deuda actual (${customer.current_balance:.2f}).'
+
+				customer.current_balance -= amount_dec
 
 				# 3. Registrar el ingreso en la caja
 				movement = CashMovement(
 					session_id=active_cash.id,
 					movement_type='ingreso',
-					amount=amount_float,
+					amount=amount_dec,
 					description=f'Abono de Cuenta Corriente: {customer.name}',
 				)
 				session.add(movement)
@@ -122,7 +132,7 @@ class CustomerController:
 				session.commit()
 				return (
 					True,
-					f'Pago de ${amount_float:.2f} registrado. Nueva deuda: ${customer.current_balance:.2f}',
+					f'Pago de ${amount_dec:.2f} registrado. Nuevo saldo: ${customer.current_balance:.2f}',
 				)
 
 			except Exception as e:
@@ -131,4 +141,4 @@ class CustomerController:
 					f'Error al procesar pago del cliente {customer_id}: {e}',
 					exc_info=True,
 				)
-				return False, 'Error interno al procesar el pago. Revisa los logs.'
+				return False, 'Error interno al procesar el pago. Intente de nuevo.'

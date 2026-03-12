@@ -7,6 +7,8 @@ from database.models import User
 
 logger = logging.getLogger(__name__)
 
+ALLOWED_ROLES = ['admin', 'cajero', 'gerente']  # Ajusta esto según tus necesidades
+
 
 class UserController:
 	def __init__(self, db_engine):
@@ -22,7 +24,6 @@ class UserController:
 					.all()
 				)
 
-				# Devolvemos diccionarios para evitar el DetachedInstanceError
 				return [
 					{
 						'id': u.id,
@@ -38,18 +39,29 @@ class UserController:
 
 	def add_user(self, tenant_id, username, password, role):
 		"""Crea un nuevo empleado o reactiva uno borrado lógicamente."""
-		# 1. Validación temprana de UI
+
 		username_clean = str(username).strip()
-		if not username_clean or not password:
-			return False, 'El nombre de usuario y la contraseña son obligatorios.'
+
+		# Validamos que el nombre no esté vacío y la contraseña tenga una longitud segura
+		if not username_clean:
+			return False, 'El nombre de usuario es obligatorio.'
+
+		if not password or len(str(password).strip()) < 6:
+			return False, 'La contraseña debe tener al menos 6 caracteres.'
+
+		role_clean = str(role).strip().lower()
+		if role_clean not in ALLOWED_ROLES:
+			return False, 'Rol inválido o no permitido en el sistema.'
 
 		with self.Session() as session:
 			try:
-				# 2. Encriptación
-				hashed_bytes = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+				# 3. Encriptación
+				hashed_bytes = bcrypt.hashpw(
+					str(password).encode('utf-8'), bcrypt.gensalt()
+				)
 				hashed_pw = hashed_bytes.decode('utf-8')
 
-				# 3. Buscamos si el usuario ya existe (activo o borrado)
+				# 4. Buscamos si el usuario ya existe para este tenant específico
 				exist = (
 					session.query(User)
 					.filter_by(username=username_clean, tenant_id=tenant_id)
@@ -58,25 +70,28 @@ class UserController:
 
 				if exist:
 					if exist.is_active:
-						return False, 'Ese nombre de usuario ya está en uso.'
+						return (
+							False,
+							'Ese nombre de usuario ya está en uso en su negocio.',
+						)
 					else:
-						# Reactivamos y actualizamos con la nueva contraseña
+						# Reactivamos y actualizamos
 						exist.is_active = True
 						exist.password_hash = hashed_pw
-						exist.role = role
+						exist.role = role_clean
 						session.commit()
 						return True, f'Empleado {username_clean} reactivado con éxito.'
 
-				# 4. Si es un usuario completamente nuevo
+				# 5. Nuevo usuario
 				new_user = User(
 					tenant_id=tenant_id,
 					username=username_clean,
 					password_hash=hashed_pw,
-					role=role,
+					role=role_clean,
 				)
 				session.add(new_user)
 				session.commit()
-				return True, f'Empleado {username_clean} creado como {role}.'
+				return True, f'Empleado {username_clean} creado como {role_clean}.'
 
 			except Exception as e:
 				session.rollback()
@@ -85,9 +100,9 @@ class UserController:
 				)
 				return False, 'Error interno al intentar crear el usuario.'
 
-	def delete_user(self, user_id, current_user_id=None):
+	def delete_user(self, tenant_id, user_id, current_user_id=None):
 		"""Realiza un borrado lógico del empleado."""
-		# 1. Validación de seguridad para evitar que el admin se borre a sí mismo
+
 		if current_user_id and str(user_id) == str(current_user_id):
 			return (
 				False,
@@ -96,9 +111,19 @@ class UserController:
 
 		with self.Session() as session:
 			try:
-				user = session.query(User).filter_by(id=user_id).first()
+				user = (
+					session.query(User)
+					.filter_by(
+						id=user_id, tenant_id=tenant_id
+					)  # Validamos que sea su empleado
+					.first()
+				)
+
 				if not user:
-					return False, 'Usuario no encontrado.'
+					return (
+						False,
+						'Usuario no encontrado o no tienes permiso para borrarlo.',
+					)
 
 				# Borrado Lógico
 				user.is_active = False
