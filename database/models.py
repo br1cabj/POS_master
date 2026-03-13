@@ -134,6 +134,10 @@ class ArticleVariant(Base):
 	stocks = relationship('Stock', back_populates='variant')
 	sale_details = relationship('SaleDetail', back_populates='variant')
 
+	is_combo = Column(Boolean, default=False)
+	show_on_touch = Column(Boolean, default=False)
+	btn_color = Column(String, default='#1f538d')
+
 	__table_args__ = (
 		CheckConstraint('cost_price >= 0', name='chk_cost_price_positive'),
 		CheckConstraint('selling_price >= 0', name='chk_selling_price_positive'),
@@ -334,6 +338,24 @@ class Purchase(Base):
 
 	supplier_id = Column(Integer, ForeignKey('suppliers.id'), nullable=True, index=True)
 	supplier = relationship('Supplier', back_populates='purchases')
+
+
+class ComboItem(Base):
+	__tablename__ = 'combo_items'
+	id = Column(Integer, primary_key=True)
+
+	combo_id = Column(
+		Integer, ForeignKey('article_variants.id'), nullable=False, index=True
+	)
+
+	ingredient_id = Column(Integer, ForeignKey('article_variants.id'), nullable=False)
+
+	quantity_required = Column(Numeric(12, 4), nullable=False)
+
+	combo = relationship(
+		'ArticleVariant', foreign_keys=[combo_id], backref='ingredients'
+	)
+	ingredient = relationship('ArticleVariant', foreign_keys=[ingredient_id])
 
 
 # ==========================================

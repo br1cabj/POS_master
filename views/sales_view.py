@@ -241,49 +241,77 @@ class SalesView(ctk.CTkFrame):
 	def add_by_barcode(self, event=None):
 		self.lbl_msg.configure(text='')
 
-		# 🐛 SOLUCIÓN BUG: Limpieza de ceros a la izquierda
-		code = self.entry_barcode.get().strip().lstrip('0') or '0'
-		if not code or code == '0':
+		raw_code = self.entry_barcode.get().strip()
+		if not raw_code:
 			return
 
+		is_scale_barcode = False
+		scale_price = Decimal('0.0')
+		search_code = raw_code.lstrip('0') or '0'
+
+		# Si tiene 13 dígitos y empieza con 20, es un ticket de balanza
+		if len(raw_code) == 13 and raw_code.startswith('20'):
+			# Extraemos el código interno (PLU) y el precio incrustado
+			plu_code = str(int(raw_code[2:7]))
+			price_str = raw_code[7:12]
+
+			scale_price = Decimal(price_str) / Decimal('100')
+			search_code = plu_code
+			is_scale_barcode = True
+
 		found_variant = next(
-			(v for v in self.db_variants if str(v.get('barcode')) == code), None
+			(v for v in self.db_variants if str(v.get('barcode')) == search_code), None
 		)
 
 		if not found_variant:
 			CTkMessagebox(
-				title='Error', message=f'Código no encontrado:\n{code}', icon='cancel'
+				title='Error',
+				message=f'Código no encontrado:\n{search_code}',
+				icon='cancel',
 			)
 			self.entry_barcode.delete(0, 'end')
 			return
 
 		variant_id = found_variant.get('variant_id')
-		qty_to_add = Decimal('1')
-		total_stock = Decimal(str(found_variant.get('total_stock', 0)))
 		name = found_variant.get('name', 'Desconocido')
-		price = Decimal(str(found_variant.get('selling_price', 0.0)))
+		unit_price = Decimal(str(found_variant.get('selling_price', 0.0)))
+		total_stock = Decimal(str(found_variant.get('total_stock', 0)))
 
-		# 🐛 SOLUCIÓN BUG 2: Verificación de Stock Acumulativa
+		# CÁLCULO DE BALANZA: Si viene de la balanza, calculamos el peso
+		if is_scale_barcode:
+			if unit_price == 0:
+				CTkMessagebox(
+					title='Error',
+					message='El producto de balanza tiene precio $0 en la base.',
+					icon='cancel',
+				)
+				return
+
+			qty_to_add = scale_price / unit_price
+			subtotal = scale_price
+		else:
+			qty_to_add = Decimal('1')
+			subtotal = unit_price * qty_to_add
+
+		# Verificación de Stock
 		current_cart_qty = Decimal(str(self._get_qty_in_cart(variant_id)))
-
 		if (current_cart_qty + qty_to_add) > total_stock:
 			CTkMessagebox(
 				title='Stock Insuficiente',
-				message=f'No puedes agregar más {name}.\nLlevas {current_cart_qty} en el carrito y solo hay {total_stock} disponibles.',
+				message=f'Llevas {current_cart_qty:.3f} en el carrito y solo hay {total_stock:.3f} disponibles.',
 				icon='warning',
 			)
 			self.entry_barcode.delete(0, 'end')
 			return
 
-		subtotal = price * qty_to_add
-
-		# 🛡️ Formateo visual limpio sin perder la precisión Decimal en la memoria
 		qty_visual = (
-			f'{int(qty_to_add)}' if qty_to_add % 1 == 0 else f'{qty_to_add:.2f}'
+			f'{int(qty_to_add)}' if qty_to_add % 1 == 0 else f'{qty_to_add:.3f}'
 		)
 
 		item_id = self.tree.insert(
-			'', 'end', values=(name, qty_visual, f'${price:.2f}', f'${subtotal:.2f}')
+			'',
+			'end',
+			values=(name, qty_visual, f'${unit_price:.2f}', f'${subtotal:.2f}'),
 		)
 
 		self.cart.append(
@@ -291,7 +319,7 @@ class SalesView(ctk.CTkFrame):
 				'tree_id': item_id,
 				'variant_id': variant_id,
 				'desc': name,
-				'price': float(price),
+				'price': float(unit_price),
 				'qty': float(qty_to_add),
 				'subtotal': float(subtotal),
 			}

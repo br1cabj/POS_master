@@ -1,9 +1,12 @@
+import os
+import random
 from tkinter import ttk
 
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
 from controllers.article_controller import ArticleController
+from utils.label_printer import LabelPrinter
 
 
 class ArticlesView(ctk.CTkFrame):
@@ -152,6 +155,13 @@ class ArticlesView(ctk.CTkFrame):
 		)
 		self.btn_delete.pack(pady=10)
 
+		self.btn_print_labels = ctk.CTkButton(
+			self.right_panel,
+			text='🖨️ Imprimir Etiquetas PDF',
+			fg_color='#0055ff',
+			command=self.print_labels,
+		)
+		self.btn_print_labels.pack(pady=5)
 		self.after(100, self.load_data)
 
 		# Foco inicial en la pistola de barras
@@ -292,7 +302,12 @@ class ArticlesView(ctk.CTkFrame):
 	# --- GUARDAR / ACTUALIZAR ---
 	def save_article(self):
 		name = self.entry_name.get().strip()
-		barcode = self.entry_barcode.get().strip().lstrip('0') or '0'
+		raw_barcode = self.entry_barcode.get().strip().lstrip('0')
+		barcode = (
+			raw_barcode
+			if raw_barcode
+			else f'99{random.randint(1000000000, 9999999999)}'
+		)
 		cost_str = self.entry_cost.get().strip().replace(',', '.')
 		price_str = self.entry_price.get().strip().replace(',', '.')
 
@@ -388,3 +403,43 @@ class ArticlesView(ctk.CTkFrame):
 				CTkMessagebox(title='Eliminado', message=msg_response, icon='check')
 			else:
 				CTkMessagebox(title='Error', message=msg_response, icon='cancel')
+
+	def print_labels(self):
+		"""Toma los artículos seleccionados en la tabla y genera el PDF"""
+		selected_items = self.tree.selection()
+
+		if not selected_items:
+			CTkMessagebox(
+				title='Atención',
+				message='Selecciona al menos un artículo de la tabla.\n(Puedes usar Shift o Ctrl para seleccionar varios)',
+				icon='info',
+			)
+			return
+
+		products_to_print = []
+		for item_id in selected_items:
+			values = self.tree.item(item_id, 'values')
+			# values: ('ID', 'Código', 'Nombre', 'Proveedor', 'Costo', 'Venta', 'Stock')
+			barcode = values[1] if values[1] != 'N/A' else '000000000000'
+			price_str = values[5].replace('$', '')
+
+			products_to_print.append(
+				{'name': values[2], 'barcode': barcode, 'price': float(price_str)}
+			)
+
+		try:
+			printer = LabelPrinter()
+			filename = f'etiquetas_{self._get_tenant_id()}.pdf'
+			printer.generate_labels_pdf(products_to_print, filename)
+
+			CTkMessagebox(
+				title='¡Éxito!',
+				message=f'PDF generado correctamente:\n{filename}',
+				icon='check',
+			)
+			os.startfile(filename)  # Abre el PDF automáticamente (En Windows)
+			# Si usas Mac/Linux, usa: os.system(f"open {filename}")
+		except Exception as e:
+			CTkMessagebox(
+				title='Error', message=f'No se pudo generar el PDF: {e}', icon='cancel'
+			)
