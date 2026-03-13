@@ -2,12 +2,14 @@ import customtkinter as ctk
 
 # Importamos todas las vistas
 from views.alerts_view import AlertsView
+from views.article_history_view import ArticleHistoryView
 from views.articles_view import ArticlesView
 from views.cash_view import CashView
 from views.customers_view import CustomersView
 from views.history_view import HistoryView
 from views.home_view import HomeView
 from views.kardex_view import KardexView
+from views.price_update_view import PriceUpdateView
 from views.purchases_view import PurchasesView
 from views.sales_view import SalesView
 from views.suppliers_view import SuppliersView
@@ -104,14 +106,34 @@ class MainDashboard(ctk.CTkFrame):
 			)
 			self.btn_articles.pack(pady=5, padx=20)
 
+			self.btn_bulk_price = ctk.CTkButton(
+				self.menu_scroll,
+				text='📈 Ajuste Masivo Precios',
+				fg_color='#e68a00',
+				hover_color='#cc7a00',
+				command=lambda: self.safe_switch_view(
+					PriceUpdateView, requires_admin=True
+				),
+			)
+			self.btn_bulk_price.pack(pady=5, padx=20)
+
 			self.btn_kardex = ctk.CTkButton(
 				self.menu_scroll,
-				text='📊 Kardex / Inventario',
+				text='📊 Inventario',
 				fg_color='#005580',
 				hover_color='#003d5c',
 				command=lambda: self.safe_switch_view(KardexView, requires_admin=True),
 			)
 			self.btn_kardex.pack(pady=5, padx=20)
+
+			self.btn_price_history = ctk.CTkButton(
+				self.menu_scroll,
+				text='🕵️ Auditoría Precios',
+				command=lambda: self.safe_switch_view(
+					ArticleHistoryView, requires_admin=True
+				),
+			)
+			self.btn_price_history.pack(pady=5, padx=20)
 
 			self.btn_purchases = ctk.CTkButton(
 				self.menu_scroll,

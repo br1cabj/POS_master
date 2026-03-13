@@ -5,6 +5,7 @@ from sqlalchemy.orm import joinedload, sessionmaker
 
 from database.models import (
 	Article,
+	ArticleHistory,
 	ArticleVariant,
 	Branch,
 	Stock,
@@ -281,3 +282,87 @@ class ArticleController:
 					f'Error eliminar variante {variant_id}: {e}', exc_info=True
 				)
 				return False, 'Error interno al intentar eliminar.'
+
+	def apply_bulk_price_changes(self, tenant_id, user_id, changes_list):
+		if not changes_list:
+			return False, 'No hay cambios para aplicar.'
+
+		with self.Session() as session:
+			try:
+				for item in changes_list:
+					variant = (
+						session.query(ArticleVariant)
+						.join(Article)
+						.filter(
+							ArticleVariant.id == item['variant_id'],
+							Article.tenant_id == tenant_id,
+						)
+						.first()
+					)
+
+					if variant:
+						# 1. Guardamos los precios Viejos
+						old_cost = variant.cost_price
+						old_price = variant.selling_price
+
+						# 2. Aplicamos los Nuevos
+						if 'new_cost' in item:
+							variant.cost_price = Decimal(str(item['new_cost']))
+						if 'new_selling' in item:
+							variant.selling_price = Decimal(str(item['new_selling']))
+
+						history_log = ArticleHistory(
+							tenant_id=tenant_id,
+							user_id=user_id,
+							action_type='AUMENTO MASIVO',
+							article_name=variant.article.name,
+							variant_id=variant.id,
+							old_cost=old_cost,
+							new_cost=variant.cost_price,
+							old_price=old_price,
+							new_price=variant.selling_price,
+						)
+						session.add(history_log)
+
+				session.commit()
+				return (
+					True,
+					f'¡Se actualizaron {len(changes_list)} artículos correctamente!',
+				)
+			except Exception as e:
+				session.rollback()
+				logger.error(f'Error en actualización masiva: {e}', exc_info=True)
+				return False, 'Error interno al intentar guardar los nuevos precios.'
+
+	def get_price_history(self, tenant_id):
+		"""Obtiene las últimas 100 modificaciones de precios de la empresa"""
+		with self.Session() as session:
+			try:
+				history = (
+					session.query(ArticleHistory)
+					.filter_by(tenant_id=tenant_id)
+					.order_by(ArticleHistory.date.desc())
+					.limit(100)
+					.all()
+				)
+
+				result = []
+				for h in history:
+					result.append(
+						{
+							'date': h.date,
+							'action': h.action_type,
+							'article_name': h.article_name,
+							'user_name': h.user.username if h.user else 'Sistema',
+							'old_cost': h.old_cost,
+							'new_cost': h.new_cost,
+							'old_price': h.old_price,
+							'new_price': h.new_price,
+						}
+					)
+				return result
+			except Exception as e:
+				logger.error(
+					f'Error al obtener historial de precios: {e}', exc_info=True
+				)
+				return []

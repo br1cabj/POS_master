@@ -140,6 +140,30 @@ class ArticleVariant(Base):
 	)
 
 
+class ArticleHistory(Base):
+	__tablename__ = 'article_history'
+	id = Column(Integer, primary_key=True)
+
+	date = Column(DateTime, default=datetime.utcnow, index=True)
+	user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+
+	action_type = Column(
+		String, nullable=False
+	)  # Ej: 'CREACIÓN', 'EDICIÓN MANUAL', 'AUMENTO MASIVO', 'ELIMINACIÓN'
+	article_name = Column(String, nullable=False)
+	variant_id = Column(
+		Integer, ForeignKey('article_variants.id'), nullable=True, index=True
+	)
+
+	old_cost = Column(Numeric(10, 2), nullable=True)
+	new_cost = Column(Numeric(10, 2), nullable=True)
+	old_price = Column(Numeric(10, 2), nullable=True)
+	new_price = Column(Numeric(10, 2), nullable=True)
+
+	user = relationship('User')
+
+
 # ==========================================
 # 4. CONTROL DE STOCK E HISTORIAL
 # ==========================================
