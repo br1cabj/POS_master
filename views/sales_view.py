@@ -1,3 +1,4 @@
+from decimal import Decimal, InvalidOperation
 from tkinter import ttk
 
 import customtkinter as ctk
@@ -52,6 +53,7 @@ class SalesView(ctk.CTkFrame):
 			font=('Arial', 12, 'bold'),
 			text_color='#00aaff',
 		).pack(pady=(10, 0))
+
 		self.entry_barcode = ctk.CTkEntry(
 			self.left_panel, placeholder_text='Escanea o escribe + Enter', width=200
 		)
@@ -125,11 +127,20 @@ class SalesView(ctk.CTkFrame):
 		self.customers_combo.set('Cargando...')
 		self.customers_combo.pack(side='left', padx=5)
 
+		# 🛡️ MEJORA: Agregamos el Scrollbar
+		self.table_container = ctk.CTkFrame(self.right_panel, fg_color='transparent')
+		self.table_container.pack(fill='both', expand=True, padx=10, pady=5)
+
+		self.tree_scroll = ttk.Scrollbar(self.table_container, orient='vertical')
+
 		self.tree = ttk.Treeview(
-			self.right_panel,
+			self.table_container,
 			columns=('Artículo', 'Cant', 'Precio', 'Subtotal'),
 			show='headings',
+			yscrollcommand=self.tree_scroll.set,
 		)
+		self.tree_scroll.configure(command=self.tree.yview)
+
 		self.tree.heading('Artículo', text='Artículo')
 		self.tree.heading('Cant', text='Cant')
 		self.tree.heading('Precio', text='Precio')
@@ -140,7 +151,8 @@ class SalesView(ctk.CTkFrame):
 		self.tree.column('Precio', width=100, anchor='e')
 		self.tree.column('Subtotal', width=100, anchor='e')
 
-		self.tree.pack(fill='both', expand=True, padx=10, pady=5)
+		self.tree_scroll.pack(side='right', fill='y')
+		self.tree.pack(side='left', fill='both', expand=True)
 
 		self.btn_remove = ctk.CTkButton(
 			self.right_panel,
@@ -179,17 +191,26 @@ class SalesView(ctk.CTkFrame):
 		self.after(50, self.load_data)
 		self.setup_shortcuts()
 
-	def load_data(self):
-		tenant_id = (
+	# --- Funciones Auxiliares DRY ---
+	def _get_tenant_id(self):
+		return (
 			self.current_user.get('tenant_id')
 			if isinstance(self.current_user, dict)
 			else self.current_user.tenant_id
 		)
 
-		# 1. Traemos diccionarios desde el backend
+	def _get_user_id(self):
+		return (
+			self.current_user.get('id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.id
+		)
+
+	def load_data(self):
+		tenant_id = self._get_tenant_id()
+
 		self.db_variants = self.sales_ctrl.get_articles_for_sale(tenant_id)
 
-		# Mapeamos por nombre para el combo
 		self.variant_map = {v.get('name'): v for v in self.db_variants if v.get('name')}
 		if self.variant_map:
 			self.products_combo.configure(values=list(self.variant_map.keys()))
@@ -207,16 +228,24 @@ class SalesView(ctk.CTkFrame):
 			self.customers_combo.configure(values=['Consumidor Final'])
 			self.customers_combo.set('Consumidor Final')
 
-		# Ponemos el foco en el lector de códigos por defecto
 		self.entry_barcode.focus()
+
+	def _get_qty_in_cart(self, variant_id):
+		"""🛡️ Función auxiliar para contar cuánto de este producto YA está en el carrito"""
+		return sum(
+			item.get('qty', 0)
+			for item in self.cart
+			if item.get('variant_id') == variant_id
+		)
 
 	def add_by_barcode(self, event=None):
 		self.lbl_msg.configure(text='')
-		code = self.entry_barcode.get().strip()
-		if not code:
+
+		# 🐛 SOLUCIÓN BUG: Limpieza de ceros a la izquierda
+		code = self.entry_barcode.get().strip().lstrip('0') or '0'
+		if not code or code == '0':
 			return
 
-		# Buscamos en la lista de diccionarios
 		found_variant = next(
 			(v for v in self.db_variants if str(v.get('barcode')) == code), None
 		)
@@ -228,35 +257,43 @@ class SalesView(ctk.CTkFrame):
 			self.entry_barcode.delete(0, 'end')
 			return
 
-		qty = 1
-		total_stock = found_variant.get('total_stock', 0)
+		variant_id = found_variant.get('variant_id')
+		qty_to_add = Decimal('1')
+		total_stock = Decimal(str(found_variant.get('total_stock', 0)))
 		name = found_variant.get('name', 'Desconocido')
-		price = float(found_variant.get('selling_price', 0.0))
+		price = Decimal(str(found_variant.get('selling_price', 0.0)))
 
-		if qty > total_stock:
+		# 🐛 SOLUCIÓN BUG 2: Verificación de Stock Acumulativa
+		current_cart_qty = Decimal(str(self._get_qty_in_cart(variant_id)))
+
+		if (current_cart_qty + qty_to_add) > total_stock:
 			CTkMessagebox(
 				title='Stock Insuficiente',
-				message=f'No puedes agregar {name}.\nSolo quedan {total_stock} disponibles.',
+				message=f'No puedes agregar más {name}.\nLlevas {current_cart_qty} en el carrito y solo hay {total_stock} disponibles.',
 				icon='warning',
 			)
 			self.entry_barcode.delete(0, 'end')
 			return
 
-		subtotal = price * qty
+		subtotal = price * qty_to_add
 
-		# Insertamos y guardamos el ID visual (tree_id)
+		# 🛡️ Formateo visual limpio sin perder la precisión Decimal en la memoria
+		qty_visual = (
+			f'{int(qty_to_add)}' if qty_to_add % 1 == 0 else f'{qty_to_add:.2f}'
+		)
+
 		item_id = self.tree.insert(
-			'', 'end', values=(name, qty, f'${price:.2f}', f'${subtotal:.2f}')
+			'', 'end', values=(name, qty_visual, f'${price:.2f}', f'${subtotal:.2f}')
 		)
 
 		self.cart.append(
 			{
 				'tree_id': item_id,
-				'variant_id': found_variant.get('variant_id'),
+				'variant_id': variant_id,
 				'desc': name,
-				'price': price,
-				'qty': qty,
-				'subtotal': subtotal,
+				'price': float(price),
+				'qty': float(qty_to_add),
+				'subtotal': float(subtotal),
 			}
 		)
 
@@ -270,39 +307,49 @@ class SalesView(ctk.CTkFrame):
 		qty_str = self.qty_entry.get().replace(',', '.')
 
 		try:
-			qty = float(qty_str)  # Permitimos float por si es a granel
-			if qty <= 0:
+			qty_to_add = Decimal(qty_str)
+			if qty_to_add <= Decimal('0.0'):
 				raise ValueError
-		except ValueError:
+		except (ValueError, InvalidOperation):
 			CTkMessagebox(title='Error', message='Cantidad inválida.', icon='cancel')
 			return
 
 		if desc in self.variant_map:
 			variant = self.variant_map[desc]
-			total_stock = variant.get('total_stock', 0)
-			price = float(variant.get('selling_price', 0.0))
+			variant_id = variant.get('variant_id')
+			total_stock = Decimal(str(variant.get('total_stock', 0)))
+			price = Decimal(str(variant.get('selling_price', 0.0)))
 
-			if qty > total_stock:
+			# 🐛 SOLUCIÓN BUG 2: Verificación de Stock Acumulativa
+			current_cart_qty = Decimal(str(self._get_qty_in_cart(variant_id)))
+
+			if (current_cart_qty + qty_to_add) > total_stock:
 				CTkMessagebox(
 					title='Stock Insuficiente',
-					message=f'Solo quedan {total_stock} unidades de {desc}.',
+					message=f'Llevas {current_cart_qty} en el carrito y solo quedan {total_stock} disponibles.',
 					icon='warning',
 				)
 				return
 
-			subtotal = price * qty
+			subtotal = price * qty_to_add
+			qty_visual = (
+				f'{int(qty_to_add)}' if qty_to_add % 1 == 0 else f'{qty_to_add:.2f}'
+			)
+
 			item_id = self.tree.insert(
-				'', 'end', values=(desc, qty, f'${price:.2f}', f'${subtotal:.2f}')
+				'',
+				'end',
+				values=(desc, qty_visual, f'${price:.2f}', f'${subtotal:.2f}'),
 			)
 
 			self.cart.append(
 				{
 					'tree_id': item_id,
-					'variant_id': variant.get('variant_id'),
+					'variant_id': variant_id,
 					'desc': desc,
-					'price': price,
-					'qty': qty,
-					'subtotal': subtotal,
+					'price': float(price),
+					'qty': float(qty_to_add),
+					'subtotal': float(subtotal),
 				}
 			)
 			self.update_total()
@@ -319,9 +366,11 @@ class SalesView(ctk.CTkFrame):
 			return
 
 		try:
-			price = float(price_str)
-			qty = float(qty_str)
-		except ValueError:
+			price = Decimal(price_str)
+			qty = Decimal(qty_str)
+			if price < Decimal('0.0') or qty <= Decimal('0.0'):
+				raise ValueError
+		except (ValueError, InvalidOperation):
 			CTkMessagebox(
 				title='Datos Inválidos',
 				message='Asegúrate de ingresar números válidos en Precio y Cantidad.',
@@ -331,9 +380,12 @@ class SalesView(ctk.CTkFrame):
 
 		subtotal = price * qty
 		visual_desc = f'*(Libre)* {desc}'
+		qty_visual = f'{int(qty)}' if qty % 1 == 0 else f'{qty:.2f}'
 
 		item_id = self.tree.insert(
-			'', 'end', values=(visual_desc, qty, f'${price:.2f}', f'${subtotal:.2f}')
+			'',
+			'end',
+			values=(visual_desc, qty_visual, f'${price:.2f}', f'${subtotal:.2f}'),
 		)
 
 		self.cart.append(
@@ -341,9 +393,9 @@ class SalesView(ctk.CTkFrame):
 				'tree_id': item_id,
 				'variant_id': None,
 				'desc': visual_desc,
-				'price': price,
-				'qty': qty,
-				'subtotal': subtotal,
+				'price': float(price),
+				'qty': float(qty),
+				'subtotal': float(subtotal),
 			}
 		)
 		self.update_total()
@@ -375,19 +427,23 @@ class SalesView(ctk.CTkFrame):
 
 		if response == 'Sí':
 			for item_id in selected_item:
-				# Borrar usando el tree_id
 				for i, item in enumerate(self.cart):
 					if item.get('tree_id') == item_id:
 						self.cart.pop(i)
 						break
-
 				self.tree.delete(item_id)
 			self.update_total()
 
 	def update_total(self):
-		total = sum(item.get('subtotal', 0) for item in self.cart)
+		total = sum(
+			(Decimal(str(item.get('subtotal', 0))) for item in self.cart),
+			Decimal('0.0'),
+		)
 		self.lbl_total.configure(text=f'TOTAL: ${total:.2f}')
 
+	# ==========================================
+	# LÓGICA DEL POP-UP DE COBRO Y VUELTO
+	# ==========================================
 	def process_sale(self):
 		if not self.cart:
 			CTkMessagebox(
@@ -397,132 +453,140 @@ class SalesView(ctk.CTkFrame):
 			)
 			return
 
-		total = sum(item.get('subtotal', 0) for item in self.cart)
-		customer_name = self.customers_combo.get()
+		self.current_total = sum(
+			(Decimal(str(item.get('subtotal', 0))) for item in self.cart),
+			Decimal('0.0'),
+		)
+		self.customer_name = self.customers_combo.get()
 
-		popup = ctk.CTkToplevel(self)
-		popup.title('Cobrar Venta')
-		popup.geometry('380x500')
-		popup.attributes('-topmost', True)
-		popup.grab_set()
+		self.popup = ctk.CTkToplevel(self)
+		self.popup.title('Cobrar Venta')
+		self.popup.geometry('380x500')
+		self.popup.attributes('-topmost', True)
+		self.popup.grab_set()
 
-		ctk.CTkLabel(popup, text='Total a Pagar:', font=('Arial', 18)).pack(
+		ctk.CTkLabel(self.popup, text='Total a Pagar:', font=('Arial', 18)).pack(
 			pady=(20, 5)
 		)
 		ctk.CTkLabel(
-			popup,
-			text=f'${total:.2f}',
+			self.popup,
+			text=f'${self.current_total:.2f}',
 			font=('Arial', 35, 'bold'),
 			text_color='#00cc66',
 		).pack(pady=5)
 
-		ctk.CTkLabel(popup, text='Método de Pago:', font=('Arial', 14, 'bold')).pack(
-			pady=(15, 5)
-		)
+		ctk.CTkLabel(
+			self.popup, text='Método de Pago:', font=('Arial', 14, 'bold')
+		).pack(pady=(15, 5))
+
+		# 🐛 SOLUCIÓN BUG 3: Referencias limpias a comandos de clase
 		self.combo_payment = ctk.CTkComboBox(
-			popup,
+			self.popup,
 			values=['Efectivo', 'Tarjeta', 'Transferencia', 'QR Billetera'],
 			font=('Arial', 14),
 			width=200,
+			command=self._calculate_change,  # Pasamos la función de la clase directamente
 		)
 		self.combo_payment.pack(pady=5)
 
 		ctk.CTkLabel(
-			popup, text='El cliente abona con (Solo Efectivo):', font=('Arial', 12)
+			self.popup, text='El cliente abona con (Solo Efectivo):', font=('Arial', 12)
 		).pack(pady=(15, 5))
-		entry_paid = ctk.CTkEntry(
-			popup, font=('Arial', 20), justify='center', width=200
+		self.entry_paid = ctk.CTkEntry(
+			self.popup, font=('Arial', 20), justify='center', width=200
 		)
-		entry_paid.pack(pady=5)
-		entry_paid.focus()
+		self.entry_paid.pack(pady=5)
+		self.entry_paid.focus()
 
-		lbl_change = ctk.CTkLabel(
-			popup,
+		self.lbl_change = ctk.CTkLabel(
+			self.popup,
 			text='Vuelto: $0.00',
 			font=('Arial', 24, 'bold'),
 			text_color='#00aaff',
 		)
-		lbl_change.pack(pady=15)
-		lbl_error = ctk.CTkLabel(popup, text='', text_color='#ff3333')
-		lbl_error.pack()
+		self.lbl_change.pack(pady=15)
 
-		def calculate_change(event):
-			if self.combo_payment.get() != 'Efectivo':
-				lbl_change.configure(text='No aplica vuelto', text_color='gray')
-				return
+		self.lbl_error_popup = ctk.CTkLabel(self.popup, text='', text_color='#ff3333')
+		self.lbl_error_popup.pack()
 
-			paid_str = entry_paid.get().strip().replace(',', '.')
-			if not paid_str:
-				lbl_change.configure(text='Vuelto: $0.00', text_color='#00aaff')
-				return
-			try:
-				change = float(paid_str) - total
-				lbl_change.configure(
-					text='Falta dinero' if change < 0 else f'Vuelto: ${change:.2f}',
-					text_color='#ff3333' if change < 0 else '#00aaff',
-				)
-			except ValueError:
-				lbl_change.configure(text='Monto inválido', text_color='#ff3333')
+		# Evento de teclado
+		self.entry_paid.bind('<KeyRelease>', self._calculate_change)
 
-		entry_paid.bind('<KeyRelease>', calculate_change)
-		# Cambio mágico de tipo de pago
-		self.combo_payment.configure(command=calculate_change)
-
-		def confirm_and_save(is_fiado=False):
-			payment_method = self.combo_payment.get()
-
-			if not is_fiado and payment_method == 'Efectivo':
-				try:
-					paid_str = entry_paid.get().strip().replace(',', '.')
-					paid = float(paid_str) if paid_str else total
-					if paid < total:
-						lbl_error.configure(text='El pago es menor al total')
-						return
-				except ValueError:
-					lbl_error.configure(text='Monto inválido')
-					return
-
-			popup.destroy()
-
-			customer_id = None
-			if customer_name in self.customer_map:
-				customer_id = self.customer_map[customer_name].get('id')
-
-			self.finalize_sale(customer_id, is_fiado, payment_method)
-
+		# Botones
 		ctk.CTkButton(
-			popup,
+			self.popup,
 			text='✅ CONFIRMAR COBRO',
 			fg_color='#5cb85c',
 			hover_color='#4cae4c',
 			height=45,
 			font=('Arial', 14, 'bold'),
-			command=lambda: confirm_and_save(False),
+			command=lambda: self._confirm_and_save(False),
 		).pack(pady=10)
 
-		if customer_name != 'Consumidor Final':
-			ctk.CTkLabel(popup, text='--- O ---').pack()
+		if self.customer_name != 'Consumidor Final':
+			ctk.CTkLabel(self.popup, text='--- O ---').pack()
 			ctk.CTkButton(
-				popup,
+				self.popup,
 				text='📝 Anotar como Fiado',
 				fg_color='#e68a00',
 				hover_color='#cc7a00',
 				height=40,
 				font=('Arial', 14, 'bold'),
-				command=lambda: confirm_and_save(True),
+				command=lambda: self._confirm_and_save(True),
 			).pack(pady=5)
 
+	def _calculate_change(self, event=None):
+		"""Calcula el vuelto en tiempo real dentro del popup"""
+		if self.combo_payment.get() != 'Efectivo':
+			self.lbl_change.configure(text='No aplica vuelto', text_color='gray')
+			return
+
+		paid_str = self.entry_paid.get().strip().replace(',', '.')
+		if not paid_str:
+			self.lbl_change.configure(text='Vuelto: $0.00', text_color='#00aaff')
+			return
+
+		try:
+			paid = Decimal(paid_str)
+			change = paid - self.current_total
+			if change < Decimal('0.0'):
+				self.lbl_change.configure(text='Falta dinero', text_color='#ff3333')
+			else:
+				self.lbl_change.configure(
+					text=f'Vuelto: ${change:.2f}', text_color='#00aaff'
+				)
+		except (ValueError, InvalidOperation):
+			self.lbl_change.configure(text='Monto inválido', text_color='#ff3333')
+
+	def _confirm_and_save(self, is_fiado=False):
+		"""Valida los datos del popup y lanza la venta al controlador"""
+		payment_method = self.combo_payment.get()
+
+		if not is_fiado and payment_method == 'Efectivo':
+			try:
+				paid_str = self.entry_paid.get().strip().replace(',', '.')
+				paid = Decimal(paid_str) if paid_str else self.current_total
+
+				if paid < self.current_total:
+					self.lbl_error_popup.configure(text='El pago es menor al total')
+					return
+			except (ValueError, InvalidOperation):
+				self.lbl_error_popup.configure(text='Monto inválido')
+				return
+
+		# Si llegamos aquí, la validación visual fue exitosa. Destruimos el popup.
+		if hasattr(self, 'popup') and self.popup:
+			self.popup.destroy()
+
+		customer_id = None
+		if self.customer_name in self.customer_map:
+			customer_id = self.customer_map[self.customer_name].get('id')
+
+		self.finalize_sale(customer_id, is_fiado, payment_method)
+
 	def finalize_sale(self, customer_id, is_fiado, payment_method):
-		tenant_id = (
-			self.current_user.get('tenant_id')
-			if isinstance(self.current_user, dict)
-			else self.current_user.tenant_id
-		)
-		user_id = (
-			self.current_user.get('id')
-			if isinstance(self.current_user, dict)
-			else self.current_user.id
-		)
+		tenant_id = self._get_tenant_id()
+		user_id = self._get_user_id()
 
 		success, msg = self.sales_ctrl.process_sale(
 			tenant_id,
@@ -539,28 +603,23 @@ class SalesView(ctk.CTkFrame):
 			for item in self.tree.get_children():
 				self.tree.delete(item)
 			self.update_total()
-			self.load_data()  # Recarga el stock interno
-			self.entry_barcode.focus()  # Deja el lector listo para la próxima venta
+			self.load_data()
+			self.entry_barcode.focus()
 		else:
 			CTkMessagebox(title='Error', message=msg, icon='cancel')
 
+	# ==========================================
+	# ATAJOS DE TECLADO
+	# ==========================================
 	def setup_shortcuts(self):
-		"""Conecta las teclas específicas para la pantalla de Ventas"""
 		top = self.winfo_toplevel()
-
-		# Foco e Interacción
 		top.bind('<F5>', lambda e: self.process_sale())
 		top.bind('<F6>', lambda e: self.entry_barcode.focus())
 		top.bind('<F7>', lambda e: self.entry_fast_desc.focus())
-
-		# Borrar item seleccionado con la tecla Suprimir (Delete)
 		top.bind('<Delete>', lambda e: self.remove_from_cart())
-
-		# Vaciar carrito completo con Ctrl + Suprimir (Control-Delete)
 		top.bind('<Control-Delete>', lambda e: self.clear_entire_cart())
 
-		# Cartelito de ayuda visual para el cajero
-		help_text = '⌨️ Atajos: [F5] Cobrar | [F6] Escanear | [F7] Venta Libre | [Supr] Quitar Item'
+		help_text = '⌨️ Atajos: [F5] Cobrar | [F6] Escanear | [F7] Venta Libre | [Supr] Quitar Item | [Ctrl+Supr] Vaciar Todo'
 		ctk.CTkLabel(
 			self.left_panel,
 			text=help_text,
@@ -569,7 +628,6 @@ class SalesView(ctk.CTkFrame):
 		).pack(side='bottom', pady=5)
 
 	def clear_entire_cart(self):
-		"""Función nueva para el atajo Ctrl+Suprimir"""
 		if not self.cart:
 			return
 
@@ -587,13 +645,13 @@ class SalesView(ctk.CTkFrame):
 				self.tree.delete(item)
 			self.update_total()
 			self.lbl_msg.configure(text='Venta anulada.', text_color='#ff3333')
+			self.entry_barcode.focus()
 
-	def destroy(self):
-		"""Borramos los atajos al salir para que no hagan conflicto con otras pantallas"""
+	def destroy_custom(self):
+		"""Limpieza limpia de atajos para el Dashboard Orquestador"""
 		top = self.winfo_toplevel()
 		top.unbind('<F5>')
 		top.unbind('<F6>')
 		top.unbind('<F7>')
 		top.unbind('<Delete>')
 		top.unbind('<Control-Delete>')
-		super().destroy()

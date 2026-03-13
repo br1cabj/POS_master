@@ -24,12 +24,23 @@ class HomeView(ctk.CTkFrame):
 		)
 
 		# --- ENCABEZADO ---
-		welcome_text = f'¡Bienvenido de nuevo, {username.capitalize()}!'
+		header_frame = ctk.CTkFrame(self, fg_color='transparent')
+		header_frame.grid(row=0, column=0, columnspan=3, pady=(30, 5), sticky='ew')
 
+		welcome_text = f'¡Bienvenido de nuevo, {username.capitalize()}!'
 		self.lbl_welcome = ctk.CTkLabel(
-			self, text=welcome_text, font=('Arial', 32, 'bold')
+			header_frame, text=welcome_text, font=('Arial', 32, 'bold')
 		)
-		self.lbl_welcome.grid(row=0, column=0, columnspan=3, pady=(30, 5))
+		self.lbl_welcome.pack(side='left', padx=20)
+
+		# 🛡️ MEJORA: Botón de refresco para el Dashboard
+		self.btn_refresh = ctk.CTkButton(
+			header_frame,
+			text='🔄 Actualizar Dashboard',
+			command=self.load_dashboard_data,
+			width=150,
+		)
+		self.btn_refresh.pack(side='right', padx=20)
 
 		self.lbl_subtitle = ctk.CTkLabel(
 			self,
@@ -68,37 +79,33 @@ class HomeView(ctk.CTkFrame):
 		)
 
 		# ==========================================
-		# ZONA INFERIOR: GRÁFICO (Izquierda) Y TOP 5 (Derecha)
+		# ZONA INFERIOR: GRÁFICO Y TOP 5
 		# ==========================================
 
-		# 1. Contenedor del Gráfico (Ocupa 2 columnas)
+		# 1. Contenedor del Gráfico
 		self.chart_frame = ctk.CTkFrame(self, corner_radius=15)
 		self.chart_frame.grid(
 			row=3, column=0, columnspan=2, padx=(20, 10), pady=(20, 30), sticky='nsew'
 		)
+		self.canvas_widget = None  # 🛡️ Guardamos la referencia para limpiar memoria
 
-		# Etiqueta temporal mientras carga el gráfico
-		self.lbl_chart_loading = ctk.CTkLabel(
-			self.chart_frame, text='Generando gráfico...', font=('Arial', 14, 'italic')
-		)
-		self.lbl_chart_loading.place(relx=0.5, rely=0.5, anchor='center')
-
-		# 2. Contenedor del Ranking Top 5 (Ocupa 1 columna)
+		# 2. Contenedor del Ranking Top 5
 		self.top_frame = ctk.CTkFrame(self, corner_radius=15, fg_color='#1E1E1E')
 		self.top_frame.grid(
 			row=3, column=2, padx=(10, 20), pady=(20, 30), sticky='nsew'
 		)
 
-		self.lbl_top_loading = ctk.CTkLabel(
-			self.top_frame, text='Cargando ranking...', font=('Arial', 14, 'italic')
-		)
-		self.lbl_top_loading.place(relx=0.5, rely=0.5, anchor='center')
-
-		# Lanzamos la carga de datos un instante DESPUÉS de dibujar la pantalla vacía
+		# Lanzamos la carga de datos
 		self.after(150, self.load_dashboard_data)
 
+	def _get_tenant_id(self):
+		return (
+			self.current_user.get('tenant_id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.tenant_id
+		)
+
 	def create_stat_card(self, row, col, title, text_var, bg_color):
-		"""Crea la tarjeta y le asigna un StringVar para que se actualice sola"""
 		card = ctk.CTkFrame(self, fg_color=bg_color, corner_radius=15)
 		card.grid(row=row, column=col, padx=20, pady=10, sticky='nsew')
 
@@ -114,16 +121,18 @@ class HomeView(ctk.CTkFrame):
 
 	def load_dashboard_data(self):
 		"""Descarga la información de la BD y actualiza la UI"""
-		tenant_id = (
-			self.current_user.get('tenant_id')
-			if isinstance(self.current_user, dict)
-			else self.current_user.tenant_id
-		)
+		# Deshabilitar botón temporalmente para evitar spam de clics
+		if hasattr(self, 'btn_refresh'):
+			self.btn_refresh.configure(state='disabled')
+
+		tenant_id = self._get_tenant_id()
 
 		# 1. Actualizar Tarjetas
 		revenue, profit, tickets = self.controller.get_today_stats(tenant_id)
-		self.var_revenue.set(f'${revenue:.2f}')
-		self.var_profit.set(f'${profit:.2f}')
+
+		# 🐛 SOLUCIÓN BUG 3: Conversión segura a float desde Decimal
+		self.var_revenue.set(f'${float(revenue):.2f}')
+		self.var_profit.set(f'${float(profit):.2f}')
 		self.var_tickets.set(str(tickets))
 
 		# 2. Dibujar Gráfico
@@ -132,18 +141,28 @@ class HomeView(ctk.CTkFrame):
 		# 3. Dibujar Top 5
 		self.draw_top_products(tenant_id)
 
-	def draw_weekly_chart(self, tenant_id):
-		dates, totals = self.controller.get_weekly_sales(tenant_id)
+		# Reactivar botón
+		if hasattr(self, 'btn_refresh'):
+			self.btn_refresh.configure(state='normal')
 
-		# Quitamos el label de "Cargando..."
-		if self.lbl_chart_loading:
-			self.lbl_chart_loading.destroy()
+	def draw_weekly_chart(self, tenant_id):
+		# 🐛 SOLUCIÓN BUG 1: Destruir el canvas anterior para evitar memory leaks
+		if self.canvas_widget:
+			self.canvas_widget.destroy()
+			self.canvas_widget = None
+
+		# Limpiar etiquetas previas en el frame del gráfico
+		for widget in self.chart_frame.winfo_children():
+			widget.destroy()
+
+		dates, totals = self.controller.get_weekly_sales(tenant_id)
 
 		if not dates:
 			ctk.CTkLabel(
 				self.chart_frame,
 				text='No hay suficientes datos esta semana.',
 				text_color='gray',
+				font=('Arial', 16),
 			).place(relx=0.5, rely=0.5, anchor='center')
 			return
 
@@ -152,30 +171,31 @@ class HomeView(ctk.CTkFrame):
 
 		ax = fig.add_subplot(111)
 		ax.set_facecolor('#2B2B2B')
-
 		ax.yaxis.grid(True, linestyle='--', alpha=0.2, color='white')
 
-		ax.bar(dates, totals, color='#00aaff', width=0.4)
+		# Convertimos los totales (Decimales) a float para que Matplotlib pueda dibujarlos
+		float_totals = [float(t) for t in totals]
+		ax.bar(dates, float_totals, color='#00aaff', width=0.4)
 
 		ax.tick_params(colors='white')
 		ax.spines['bottom'].set_color('white')
 		ax.spines['left'].set_color('white')
 		ax.spines['top'].set_visible(False)
 		ax.spines['right'].set_visible(False)
-
 		ax.set_title(
 			'Evolución de Ventas (Últimos 7 Días)', color='white', fontsize=12, pad=10
 		)
 
 		canvas = FigureCanvasTkAgg(fig, master=self.chart_frame)
 		canvas.draw()
-		canvas.get_tk_widget().pack(fill='both', expand=True, padx=15, pady=15)
+		self.canvas_widget = canvas.get_tk_widget()
+		self.canvas_widget.pack(fill='both', expand=True, padx=15, pady=15)
 
 	def draw_top_products(self, tenant_id):
 		"""Dibuja una lista elegante con los productos más vendidos"""
-		# Quitamos el label de "Cargando..."
-		if self.lbl_top_loading:
-			self.lbl_top_loading.destroy()
+		# 🐛 SOLUCIÓN BUG 2: Limpiar los items viejos antes de dibujar los nuevos
+		for widget in self.top_frame.winfo_children():
+			widget.destroy()
 
 		ctk.CTkLabel(
 			self.top_frame,
@@ -192,12 +212,9 @@ class HomeView(ctk.CTkFrame):
 			).pack(pady=20)
 			return
 
-		# Dibujamos cada producto leyendo desde el DICCIONARIO
 		for index, item in enumerate(top_items):
 			desc = item.get('description', 'Desconocido')
-			# Aseguramos que sea int/float en caso de que venga como Decimal
 			qty = float(item.get('quantity', 0))
-			# Si es un número entero exacto, le quitamos el ".0" visualmente
 			qty_str = f'{int(qty)}' if qty.is_integer() else f'{qty:.2f}'
 
 			if len(desc) > 20:

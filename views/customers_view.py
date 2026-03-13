@@ -107,10 +107,19 @@ class CustomersView(ctk.CTkFrame):
 			font=('Arial', 12, 'italic'),
 		).pack(pady=(0, 10))
 
-		# Configuramos la tabla
-		columns = ('ID', 'Nombre', 'Teléfono', 'Deuda Acumulada')
+		self.table_container = ctk.CTkFrame(self.right_panel, fg_color='transparent')
+		self.table_container.pack(fill='both', expand=True, padx=10, pady=10)
 
-		self.tree = ttk.Treeview(self.right_panel, columns=columns, show='headings')
+		self.tree_scroll = ttk.Scrollbar(self.table_container, orient='vertical')
+
+		columns = ('ID', 'Nombre', 'Teléfono', 'Deuda Acumulada')
+		self.tree = ttk.Treeview(
+			self.table_container,
+			columns=columns,
+			show='headings',
+			yscrollcommand=self.tree_scroll.set,  # Conectamos tabla a scroll
+		)
+		self.tree_scroll.configure(command=self.tree.yview)
 
 		for col in columns:
 			self.tree.heading(col, text=col)
@@ -121,36 +130,43 @@ class CustomersView(ctk.CTkFrame):
 			else:
 				self.tree.column(col, anchor='center', width=80)
 
-		self.tree.pack(fill='both', expand=True, padx=10, pady=10)
+		# Empaquetamos
+		self.tree_scroll.pack(side='right', fill='y')
+		self.tree.pack(side='left', fill='both', expand=True)
 
-		# Color rojo para deudores (ajustado para modo oscuro)
 		self.tree.tag_configure('deudor', foreground='#ff6666')
 
 		self.customer_map = {}
 
-		# Cargamos los datos con un ligero retraso para una apertura fluida
 		self.after(100, self.load_data)
+
+	# --- Funciones auxiliares ---
+	def _get_tenant_id(self):
+		return (
+			self.current_user.get('tenant_id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.tenant_id
+		)
+
+	def _get_user_id(self):
+		return (
+			self.current_user.get('id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.id
+		)
 
 	def load_data(self):
 		"""Carga la tabla y el combobox de clientes."""
 		for item in self.tree.get_children():
 			self.tree.delete(item)
 
-		tenant_id = (
-			self.current_user.get('tenant_id')
-			if isinstance(self.current_user, dict)
-			else self.current_user.tenant_id
-		)
-
-		# Obtenemos lista de diccionarios desde el controlador
+		tenant_id = self._get_tenant_id()
 		customers = self.controller.get_customers(tenant_id)
 
-		# Guardamos a los clientes reales en un diccionario (usando claves de diccionario)
 		self.customer_map = {
 			c['name']: c for c in customers if c['name'] != 'Consumidor Final'
 		}
 
-		# Actualizamos la lista desplegable
 		if self.customer_map:
 			self.combo_customers.configure(values=list(self.customer_map.keys()))
 			self.combo_customers.set('Seleccionar cliente...')
@@ -158,7 +174,6 @@ class CustomersView(ctk.CTkFrame):
 			self.combo_customers.configure(values=['Sin clientes'])
 			self.combo_customers.set('No hay clientes registrados')
 
-		# Llenamos la tabla visual
 		for c in customers:
 			balance = float(c.get('current_balance', 0.0))
 			saldo_str = f'${balance:.2f}'
@@ -167,7 +182,6 @@ class CustomersView(ctk.CTkFrame):
 				'', 'end', values=(c['id'], c['name'], c.get('phone') or '-', saldo_str)
 			)
 
-			# Pintamos de rojo si debe dinero (balance > 0)
 			if balance > 0:
 				self.tree.item(item_id, tags=('deudor',))
 
@@ -180,10 +194,9 @@ class CustomersView(ctk.CTkFrame):
 			self.entry_payment.delete(0, 'end')
 
 			if balance > 0:
-				# Formateamos a dos decimales para que se vea profesional
 				self.entry_payment.insert(0, f'{balance:.2f}')
-			else:
-				self.entry_payment.insert(0, '0.00')
+			# 🐛 SOLUCIÓN BUG 2: Dejamos el campo vacío si el saldo es <= 0
+			# para que el placeholder sea visible y el usuario pueda tipear sin borrar.
 
 	def add_customer(self):
 		"""Guarda un cliente nuevo"""
@@ -198,12 +211,7 @@ class CustomersView(ctk.CTkFrame):
 			)
 			return
 
-		tenant_id = (
-			self.current_user.get('tenant_id')
-			if isinstance(self.current_user, dict)
-			else self.current_user.tenant_id
-		)
-
+		tenant_id = self._get_tenant_id()
 		success, msg = self.controller.add_customer(tenant_id, name, phone)
 
 		if success:
@@ -217,9 +225,7 @@ class CustomersView(ctk.CTkFrame):
 	def pay_debt(self):
 		"""Registra el pago de una deuda"""
 		name = self.combo_customers.get()
-		amount_str = (
-			self.entry_payment.get().strip().replace(',', '.')
-		)  # Limpiamos comas
+		amount_str = self.entry_payment.get().strip().replace(',', '.')
 
 		if name not in self.customer_map or not amount_str:
 			CTkMessagebox(
@@ -229,10 +235,23 @@ class CustomersView(ctk.CTkFrame):
 			)
 			return
 
-		# CTkMessagebox asíncrono-ish: guardamos el objeto, luego llamamos get()
+		# 🐛 SOLUCIÓN BUG 3: Validación rápida visual del número ANTES del popup
+		try:
+			amount_val = float(amount_str)
+			if amount_val <= 0:
+				raise ValueError
+		except ValueError:
+			CTkMessagebox(
+				title='Error de Monto',
+				message='Por favor ingresa un número mayor a cero (Ej: 150.50).',
+				icon='cancel',
+			)
+			return
+
+		# Ahora que sabemos que es un número válido, mostramos la confirmación
 		msg_box = CTkMessagebox(
 			title='Confirmar Abono',
-			message=f'¿Confirmas que {name} te está entregando ${amount_str}?',
+			message=f'¿Confirmas que {name} te está entregando ${amount_val:.2f}?',
 			icon='question',
 			option_1='No',
 			option_2='Sí',
@@ -241,18 +260,9 @@ class CustomersView(ctk.CTkFrame):
 		if msg_box.get() != 'Sí':
 			return
 
-		customer_id = self.customer_map[name]['id']  # Acceso mediante diccionario
-
-		tenant_id = (
-			self.current_user.get('tenant_id')
-			if isinstance(self.current_user, dict)
-			else self.current_user.tenant_id
-		)
-		user_id = (
-			self.current_user.get('id')
-			if isinstance(self.current_user, dict)
-			else self.current_user.id
-		)
+		customer_id = self.customer_map[name]['id']
+		tenant_id = self._get_tenant_id()
+		user_id = self._get_user_id()
 
 		success, msg = self.controller.pay_debt(
 			tenant_id, user_id, customer_id, amount_str

@@ -2,6 +2,7 @@ import customtkinter as ctk
 
 
 class LoginView(ctk.CTkFrame):
+	# 🛡️ MEJORA: El login_command en tu main.py ahora deberá recibir 3 parámetros: (tenant, user, pwd)
 	def __init__(self, master, login_command):
 		super().__init__(master)
 		self.login_command = login_command
@@ -22,6 +23,15 @@ class LoginView(ctk.CTkFrame):
 		ctk.CTkLabel(
 			self.login_frame, text='Bienvenido al Sistema', font=('Arial', 24, 'bold')
 		).pack(pady=(0, 20))
+
+		# 🛡️ ESCUDO MULTITENANT: Campo de Empresa (Tenant)
+		self.entry_tenant = ctk.CTkEntry(
+			self.login_frame,
+			width=250,
+			height=35,
+			placeholder_text='Código de Empresa (Ej: 1)',
+		)
+		self.entry_tenant.pack(pady=(0, 10), padx=40)
 
 		# Campo de Usuario
 		self.entry_username = ctk.CTkEntry(
@@ -66,23 +76,31 @@ class LoginView(ctk.CTkFrame):
 		self.lbl_error.pack(pady=(0, 20))
 
 		# === EVENTOS DE TECLADO ===
-		# Conectamos funciones específicas para mejorar la experiencia con el teclado
+		# 🛡️ MEJORA: Cadena de saltos con la tecla Enter
+		self.entry_tenant.bind('<Return>', self.handle_tenant_return)
 		self.entry_username.bind('<Return>', self.handle_username_return)
 		self.entry_password.bind('<Return>', lambda e: self.trigger_login())
 
-		# Ponemos el cursor automáticamente en el campo de usuario al abrir
-		self.entry_username.focus()
+		# Ponemos el cursor automáticamente en el campo de la empresa al abrir
+		self.entry_tenant.focus()
 
 	def toggle_password(self):
 		"""Muestra u oculta los asteriscos de la contraseña según el checkbox"""
-		# En CustomTkinter, .get() devuelve 1 o 0. Evaluamos directamente.
 		if self.check_show_pass.get():
 			self.entry_password.configure(show='')
 		else:
 			self.entry_password.configure(show='*')
 
+	# --- Lógica de navegación por teclado ---
+	def handle_tenant_return(self, event):
+		"""Salta de Empresa a Usuario"""
+		if not self.entry_username.get():
+			self.entry_username.focus()
+		else:
+			self.handle_username_return(event)
+
 	def handle_username_return(self, event):
-		"""Si presiona Enter en el usuario, salta a la contraseña si está vacía."""
+		"""Salta de Usuario a Contraseña."""
 		if not self.entry_password.get():
 			self.entry_password.focus()
 		else:
@@ -91,25 +109,33 @@ class LoginView(ctk.CTkFrame):
 	def trigger_login(self):
 		"""Valida, cambia el estado de la UI y lanza el comando a main.py"""
 		self.lbl_error.configure(text='')
+
+		tenant_val = self.entry_tenant.get().strip()
 		user = self.entry_username.get().strip()
 		pwd = self.entry_password.get().strip()
 
-		if not user or not pwd:
-			self.show_error('Por favor, ingresa tu usuario y contraseña.')
+		if not tenant_val or not user or not pwd:
+			self.show_error('Por favor, completa todos los campos.')
+			return
+
+		# Validamos que el código de empresa sea un número para evitar errores tempranos
+		try:
+			tenant_id = int(tenant_val)
+		except ValueError:
+			self.show_error('El código de empresa debe ser un número.')
 			return
 
 		# Feedback visual para el usuario: Evitamos que haga doble clic
 		self.btn_login.configure(state='disabled', text='CONECTANDO...')
 
-		# Usamos self.after para que la UI se actualice visualmente antes
-		# de que el controlador empiece a buscar en la base de datos
-		self.after(50, lambda: self._execute_login(user, pwd))
+		self.after(50, lambda: self._execute_login(tenant_id, user, pwd))
 
-	def _execute_login(self, user, pwd):
+	def _execute_login(self, tenant_id, user, pwd):
 		"""Delega la ejecución a main.py y restaura la vista si falla."""
-		self.login_command(user, pwd)
+		# 🐛 SOLUCIÓN BUG 1: Pasamos los tres parámetros al orquestador principal
+		self.login_command(tenant_id, user, pwd)
 
-		# Restauramos el botón. (Si el login fue exitoso, main.py destruirá
+		# Restauramos el botón si la vista no fue destruida (login fallido)
 		if self.winfo_exists():
 			self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
 

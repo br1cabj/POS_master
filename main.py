@@ -18,7 +18,7 @@ class App(ctk.CTk):
 		super().__init__()
 
 		# 1. Configuración básica y profesional de la ventana
-		self.title('Punto de Venta')
+		self.title('Punto de Venta y ERP')
 
 		# Calculamos el centro de la pantalla
 		window_width = 1000
@@ -30,9 +30,7 @@ class App(ctk.CTk):
 
 		# Aplicamos geometría y tamaño mínimo
 		self.geometry(f'{window_width}x{window_height}+{x_cordinate}+{y_cordinate}')
-		self.minsize(
-			900, 600
-		)  # Evita que la interfaz se rompa si se achica mucho la ventana
+		self.minsize(900, 600)
 
 		try:
 			# Inicializamos BD y Controlador
@@ -45,8 +43,9 @@ class App(ctk.CTk):
 			)
 			sys.exit(1)
 
-		# Variable para guardar quién está logueado actualmente (será un diccionario)
+		# Variable para guardar quién está logueado actualmente (diccionario)
 		self.current_user = None
+		self.view = None
 
 		# 3. Mostrar la primera pantalla
 		self.show_login()
@@ -64,26 +63,29 @@ class App(ctk.CTk):
 		self.view = MainDashboard(
 			master=self,
 			current_user=self.current_user,
-			db_engine=self.db_engine,
 			logout_command=self.logout,
+			db_engine=self.db_engine,
 		)
-		# Nota: Si dejaste el self.pack() dentro de MainDashboard, esta línea no es estrictamente
-		# necesaria, pero es buena práctica hacerlo desde aquí para mantener coherencia.
-		# self.view.pack(fill='both', expand=True)
+		# 🛡️ MEJORA: Empaquetamos desde el padre (asegúrate de quitar el self.pack() dentro de MainDashboard.__init__)
+		self.view.pack(fill='both', expand=True)
 
-	def attempt_login(self, username, password):
+	# 🐛 SOLUCIÓN BUG 1: Recibimos tenant_id desde LoginView
+	def attempt_login(self, tenant_id, username, password):
 		"""Esta función conecta la VISTA (LoginView) con el CONTROLADOR (AuthController)"""
-		user = self.auth_controller.login(username, password)
+
+		# 🛡️ Se lo pasamos al auth_controller (usamos keyword argument por seguridad)
+		user = self.auth_controller.login(username, password, tenant_id=tenant_id)
 
 		if user:
-			# CORRECCIÓN: Accedemos al diccionario de forma segura
 			nombre_usuario = user.get('username', 'Usuario')
-			print(f'Acceso concedido a {nombre_usuario}')
+			print(f'Acceso concedido a {nombre_usuario} en el negocio ID: {tenant_id}')
 
 			self.current_user = user
 			self.show_dashboard()
 		else:
-			self.view.show_error('Usuario o contraseña incorrectos')
+			self.view.show_error(
+				'Credenciales incorrectas o código de empresa no válido.'
+			)
 
 	def logout(self):
 		"""Cierra sesión y vuelve al login de forma segura"""

@@ -2,7 +2,6 @@ from tkinter import ttk
 
 import customtkinter as ctk
 
-# Clean Code: Importaciones arriba
 from controllers.sales_controller import SalesController
 
 
@@ -11,6 +10,9 @@ class HistoryView(ctk.CTkFrame):
 		super().__init__(master)
 		self.current_user = current_user
 		self.controller = SalesController(db_engine)
+
+		self.grid_columnconfigure(0, weight=1)
+		self.grid_rowconfigure(1, weight=1)
 
 		# --- ESTILO MODERNO PARA LA TABLA ---
 		style = ttk.Style()
@@ -35,7 +37,7 @@ class HistoryView(ctk.CTkFrame):
 
 		# --- ENCABEZADO ---
 		header_frame = ctk.CTkFrame(self, fg_color='transparent')
-		header_frame.pack(fill='x', pady=20, padx=20)
+		header_frame.grid(row=0, column=0, sticky='ew', pady=20, padx=20)
 
 		ctk.CTkLabel(
 			header_frame,
@@ -51,44 +53,64 @@ class HistoryView(ctk.CTkFrame):
 			fg_color='#1f538d',
 		).pack(side='right')
 
+		# --- CONTENEDOR DE LA TABLA Y SCROLLBAR ---
+		# 🛡️ MEJORA: Contenedor dedicado para la tabla
+		self.table_container = ctk.CTkFrame(self, fg_color='transparent')
+		self.table_container.grid(row=1, column=0, sticky='nsew', padx=20, pady=(0, 20))
+
+		self.tree_scroll = ttk.Scrollbar(self.table_container, orient='vertical')
+
 		# --- TABLA DE VENTAS ---
 		columns = ('ID', 'Fecha', 'Cliente', 'Vendedor', 'Total', 'Ganancia')
-		self.tree = ttk.Treeview(self, columns=columns, show='headings')
+		self.tree = ttk.Treeview(
+			self.table_container,
+			columns=columns,
+			show='headings',
+			yscrollcommand=self.tree_scroll.set,
+		)
+		self.tree_scroll.configure(command=self.tree.yview)
 
 		for col in columns:
 			self.tree.heading(col, text=col)
 			width = 150 if col == 'Cliente' else 100
 			self.tree.column(col, width=width, anchor='center')
 
-		self.tree.pack(fill='both', expand=True, padx=20, pady=10)
+		# Empaquetamos
+		self.tree_scroll.pack(side='right', fill='y')
+		self.tree.pack(side='left', fill='both', expand=True)
+
 		self.tree.bind('<Double-1>', self.open_details_popup)
 
-		# Carga diferida para evitar congelamientos al iniciar la app
+		# Carga diferida
 		self.after(100, self.load_history)
+
+	# --- Función DRY ---
+	def _get_tenant_id(self):
+		return (
+			self.current_user.get('tenant_id')
+			if isinstance(self.current_user, dict)
+			else self.current_user.tenant_id
+		)
 
 	def load_history(self):
 		# Limpiar tabla
 		for item in self.tree.get_children():
 			self.tree.delete(item)
 
-		# Manejo seguro del usuario (Diccionario u Objeto)
-		tenant_id = (
-			self.current_user.get('tenant_id')
-			if isinstance(self.current_user, dict)
-			else self.current_user.tenant_id
-		)
-
-		# Obtenemos la lista de diccionarios desde el controlador
+		tenant_id = self._get_tenant_id()
 		sales = self.controller.get_history(tenant_id)
 
 		for sale in sales:
-			# Manejo seguro de la fecha por si viene como string desde la BD
 			raw_date = sale.get('date')
 			date_str = (
 				raw_date.strftime('%Y-%m-%d %H:%M')
 				if hasattr(raw_date, 'strftime')
 				else str(raw_date)
 			)
+
+			# 🛡️ MEJORA: Conversión segura de Decimal a float para el formateo
+			total_amount = float(sale.get('total_amount', 0.0))
+			profit = float(sale.get('profit', 0.0))
 
 			self.tree.insert(
 				'',
@@ -98,9 +120,8 @@ class HistoryView(ctk.CTkFrame):
 					date_str,
 					sale.get('customer_name', 'Sin Cliente'),
 					sale.get('user_name', 'Desconocido'),
-					f'${sale.get("total_amount", 0.0):.2f}',
-					# Ojo: Asegúrate de que tu sales_controller devuelva 'profit' en el diccionario
-					f'${sale.get("profit", 0.0):.2f}',
+					f'${total_amount:.2f}',
+					f'${profit:.2f}',
 				),
 			)
 
@@ -111,33 +132,37 @@ class HistoryView(ctk.CTkFrame):
 
 		item_data = self.tree.item(selected_item)
 		sale_id = item_data['values'][0]
+		tenant_id = self._get_tenant_id()
 
-		# Obtenemos el detalle (que ahora es una lista de diccionarios)
-		details = self.controller.get_sale_details(sale_id)
+		# 🐛 SOLUCIÓN BUG 1: Pasamos el tenant_id por seguridad
+		details = self.controller.get_sale_details(tenant_id, sale_id)
 
 		popup = ctk.CTkToplevel(self)
 		popup.title(f'Detalle Venta #{sale_id}')
-		popup.geometry('500x350')  # Un poco más grande para que quepa bien el texto
+		popup.geometry('550x350')  # Un poco más ancho
 		popup.attributes('-topmost', True)
 
 		ctk.CTkLabel(
 			popup, text=f'Artículos de la Venta #{sale_id}', font=('Arial', 16, 'bold')
 		).pack(pady=15)
 
-		# Usamos una fuente monoespaciada (Courier) para que las columnas del ticket se alineen mejor
-		textbox = ctk.CTkTextbox(popup, width=460, height=250, font=('Courier', 12))
+		# CustomTkinter Textbox ya incluye scroll interno, así que aquí estamos a salvo.
+		textbox = ctk.CTkTextbox(popup, width=500, height=250, font=('Courier', 12))
 		textbox.pack(pady=10, padx=20)
 
 		text_content = ''
 		for d in details:
-			# Accedemos como diccionario
 			desc = d.get('description', 'Desconocido')
-			qty = d.get('quantity', 0)
-			price = d.get('unit_price', 0.0)
-			subtotal = d.get('subtotal', 0.0)
 
-			# Formateamos el texto para que se vea como un mini ticket
-			text_content += f'• {desc[:20]:<20} | x{qty:<4} | ${price:<7.2f} | Sub: ${subtotal:.2f}\n'
+			# 🛡️ Formateo limpio de cantidades (ej. 1 en vez de 1.00)
+			raw_qty = float(d.get('quantity', 0))
+			qty = f'{int(raw_qty)}' if raw_qty.is_integer() else f'{raw_qty:.2f}'
+
+			price = float(d.get('unit_price', 0.0))
+			subtotal = float(d.get('subtotal', 0.0))
+
+			# Ajustamos un poco el espaciado para que se vea perfectamente alineado
+			text_content += f'• {desc[:20]:<20} | x{qty:<5} | ${price:<7.2f} | Sub: ${subtotal:.2f}\n'
 
 		textbox.insert('0.0', text_content)
 		textbox.configure(state='disabled')  # Bloqueamos edición

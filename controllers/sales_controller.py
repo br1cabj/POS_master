@@ -96,6 +96,7 @@ class SalesController:
 						'id': s.id,
 						'date': s.date,
 						'total_amount': s.total_amount,
+						'profit': s.profit,
 						'payment_method': s.payment_method,
 						'status': s.status,
 						'customer_name': s.customer.name

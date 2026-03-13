@@ -1,4 +1,5 @@
 import customtkinter as ctk
+from CTkMessagebox import CTkMessagebox
 
 from controllers.cash_controller import CashController
 
@@ -47,7 +48,7 @@ class CashView(ctk.CTkFrame):
 		self.lbl_msg = ctk.CTkLabel(self.left_panel, text='')
 		self.lbl_msg.pack(pady=5)
 
-		# --- PANEL DERECHO: MOVIMIENTOS MANUALES (Solo visible si está abierta) ---
+		# --- PANEL DERECHO: MOVIMIENTOS MANUALES ---
 		self.right_panel = ctk.CTkFrame(self, corner_radius=15)
 		self.right_panel.grid(row=0, column=1, padx=10, pady=20, sticky='nsew')
 
@@ -87,34 +88,42 @@ class CashView(ctk.CTkFrame):
 		# Cargamos los datos con un ligero retraso para una apertura fluida
 		self.after(100, self.refresh_view)
 
-	def refresh_view(self):
-		# 1. Manejo seguro del usuario (Diccionario u Objeto)
-		tenant_id = (
+	# --- 🛡️ MEJORA: Métodos auxiliares DRY (Don't Repeat Yourself) ---
+	def _get_tenant_id(self):
+		return (
 			self.current_user.get('tenant_id')
 			if isinstance(self.current_user, dict)
 			else self.current_user.tenant_id
 		)
-		user_id = (
+
+	def _get_user_id(self):
+		return (
 			self.current_user.get('id')
 			if isinstance(self.current_user, dict)
 			else self.current_user.id
 		)
 
+	def refresh_view(self):
+		tenant_id = self._get_tenant_id()
+		user_id = self._get_user_id()
+
 		self.active_session = self.controller.get_active_session(tenant_id, user_id)
 
 		if self.active_session:
-			# 2. Acceso a datos de la sesión como diccionario
 			session_id = self.active_session.get('id')
 			fondo = float(self.active_session.get('opening_balance', 0.0))
 
-			ventas, ingresos, gastos = self.controller.get_session_summary(session_id)
-			total_esperado = fondo + ventas + ingresos - gastos
+			# 🐛 SOLUCIÓN BUG 1: Pasamos el tenant_id al método
+			ventas, ingresos, gastos = self.controller.get_session_summary(
+				tenant_id, session_id
+			)
+			total_esperado = fondo + float(ventas) + float(ingresos) - float(gastos)
 
 			resumen_texto = (
 				f'Fondo Inicial : ${fondo:.2f}\n'
-				f'+ Ventas      : ${ventas:.2f}\n'
-				f'+ Otros Ingr. : ${ingresos:.2f}\n'
-				f'- Gastos      : ${gastos:.2f}\n'
+				f'+ Ventas      : ${float(ventas):.2f}\n'
+				f'+ Otros Ingr. : ${float(ingresos):.2f}\n'
+				f'- Gastos      : ${float(gastos):.2f}\n'
 				f'------------------------\n'
 				f'TOTAL EN CAJA : ${total_esperado:.2f}'
 			)
@@ -130,10 +139,7 @@ class CashView(ctk.CTkFrame):
 				text='CERRAR CAJA', fg_color='#d9534f', hover_color='#c9302c'
 			)
 
-			# Habilitar panel derecho de forma segura
-			for widget in self.right_panel.winfo_children():
-				if isinstance(widget, (ctk.CTkEntry, ctk.CTkButton, ctk.CTkComboBox)):
-					widget.configure(state='normal')
+			self._set_panel_state(self.right_panel, 'normal')
 		else:
 			self.lbl_status.configure(
 				text='🔴 CAJA CERRADA', text_color='#ffaa00', font=('Arial', 18, 'bold')
@@ -146,41 +152,47 @@ class CashView(ctk.CTkFrame):
 				text='ABRIR CAJA', fg_color='#5cb85c', hover_color='#4cae4c'
 			)
 
-			# Deshabilitar panel derecho
-			for widget in self.right_panel.winfo_children():
-				if isinstance(widget, (ctk.CTkEntry, ctk.CTkButton, ctk.CTkComboBox)):
-					widget.configure(state='disabled')
+			self._set_panel_state(self.right_panel, 'disabled')
 
 		self.entry_amount.delete(0, 'end')
 
+	def _set_panel_state(self, panel, state):
+		"""Activa o desactiva recursivamente los widgets de un panel"""
+		for widget in panel.winfo_children():
+			if hasattr(widget, 'configure') and not isinstance(widget, ctk.CTkLabel):
+				try:
+					widget.configure(state=state)
+				except ValueError:
+					pass
+
 	def handle_action(self):
 		amount_str = self.entry_amount.get().strip().replace(',', '.')
+		tenant_id = self._get_tenant_id()
+		user_id = self._get_user_id()
 
-		try:
-			amount = float(amount_str)
-		except ValueError:
-			self.lbl_msg.configure(
-				text='Ingresa un monto numérico válido.', text_color='#ff3333'
-			)
+		if not amount_str:
+			self.lbl_msg.configure(text='Ingresa un monto.', text_color='#ff3333')
 			return
 
-		tenant_id = (
-			self.current_user.get('tenant_id')
-			if isinstance(self.current_user, dict)
-			else self.current_user.tenant_id
-		)
-		user_id = (
-			self.current_user.get('id')
-			if isinstance(self.current_user, dict)
-			else self.current_user.id
-		)
-
 		if self.active_session:
-			success, msg = self.controller.close_session(
-				self.active_session.get('id'), amount
+			msg_box = CTkMessagebox(
+				title='Confirmar Arqueo',
+				message='¿Estás seguro de que deseas cerrar la caja con este monto declarado?',
+				icon='warning',
+				option_1='Cancelar',
+				option_2='Sí, cerrar caja',
 			)
+
+			if msg_box.get() == 'Sí, cerrar caja':
+				session_id = self.active_session.get('id')
+				success, msg = self.controller.close_session(
+					tenant_id, session_id, amount_str
+				)
+			else:
+				return  # El usuario canceló
 		else:
-			success, msg = self.controller.open_session(tenant_id, user_id, amount)
+			# Abrir caja
+			success, msg = self.controller.open_session(tenant_id, user_id, amount_str)
 
 		if success:
 			self.lbl_msg.configure(text=msg, text_color='#00cc66')
@@ -192,29 +204,22 @@ class CashView(ctk.CTkFrame):
 		desc = self.entry_mov_desc.get().strip()
 		amount_str = self.entry_mov_amount.get().strip().replace(',', '.')
 		mov_type = self.combo_mov_type.get()
+		tenant_id = self._get_tenant_id()
 
-		try:
-			amount = float(amount_str)
-			if amount <= 0:
-				raise ValueError
-		except ValueError:
+		if not desc or not amount_str:
 			self.lbl_mov_msg.configure(
-				text='Monto inválido. Debe ser mayor a 0.', text_color='#ff3333'
+				text='Descripción y monto son obligatorios.', text_color='#ff3333'
 			)
 			return
 
-		if not desc:
-			self.lbl_mov_msg.configure(
-				text='La descripción es obligatoria.', text_color='#ff3333'
-			)
-			return
-
+		session_id = self.active_session.get('id')
 		success, msg = self.controller.add_manual_movement(
-			self.active_session.get('id'), mov_type, amount_str, desc
+			tenant_id, session_id, mov_type, amount_str, desc
 		)
 
 		if success:
-			self.lbl_mov_msg.configure(text=msg, text_color='#00cc66')
+			CTkMessagebox(title='Éxito', message=msg, icon='check')
+			self.lbl_mov_msg.configure(text='', text_color='#00cc66')
 			self.entry_mov_desc.delete(0, 'end')
 			self.entry_mov_amount.delete(0, 'end')
 			self.refresh_view()

@@ -10,7 +10,6 @@ class ArticlesView(ctk.CTkFrame):
 	def __init__(self, master, current_user, db_engine):
 		super().__init__(master)
 		self.current_user = current_user
-
 		self.controller = ArticleController(db_engine)
 
 		self.grid_columnconfigure(0, weight=1)
@@ -84,18 +83,30 @@ class ArticlesView(ctk.CTkFrame):
 			self.right_panel, text='Catálogo de Productos', font=('Arial', 18, 'bold')
 		).pack(pady=10)
 
+		self.table_container = ctk.CTkFrame(self.right_panel, fg_color='transparent')
+		self.table_container.pack(fill='both', expand=True, padx=20, pady=10)
+
+		self.tree_scroll = ttk.Scrollbar(self.table_container, orient='vertical')
+
 		# Tabla (Treeview)
 		columns = ('ID Variante', 'Código', 'Nombre', 'Costo', 'Venta', 'Stock Total')
 		self.tree = ttk.Treeview(
-			self.right_panel, columns=columns, show='headings', height=15
+			self.table_container,
+			columns=columns,
+			show='headings',
+			height=15,
+			yscrollcommand=self.tree_scroll.set,  # Conectamos tabla a scroll
 		)
+		self.tree_scroll.configure(command=self.tree.yview)  # Conectamos scroll a tabla
 
 		for col in columns:
 			self.tree.heading(col, text=col)
 			width = 150 if col == 'Nombre' else 80
 			self.tree.column(col, anchor='center', width=width)
 
-		self.tree.pack(fill='both', expand=True, padx=20, pady=10)
+		# Empaquetamos
+		self.tree_scroll.pack(side='right', fill='y')
+		self.tree.pack(side='left', fill='both', expand=True)
 
 		self.btn_delete = ctk.CTkButton(
 			self.right_panel,
@@ -109,22 +120,30 @@ class ArticlesView(ctk.CTkFrame):
 		# Cargamos los datos con un ligero retraso para que la UI se dibuje rápido
 		self.after(100, self.load_data)
 
-	def load_data(self):
-		"""Lee las variantes de la base de datos y las dibuja en la tabla"""
-		for item in self.tree.get_children():
-			self.tree.delete(item)
-
-		tenant_id = (
+	def _get_tenant_id(self):
+		"""Función auxiliar para no repetir código"""
+		return (
 			self.current_user.get('tenant_id')
 			if isinstance(self.current_user, dict)
 			else self.current_user.tenant_id
 		)
 
-		# Traemos los diccionarios limpios desde el controlador
+	def load_data(self):
+		"""Lee las variantes de la base de datos y las dibuja en la tabla"""
+		for item in self.tree.get_children():
+			self.tree.delete(item)
+
+		tenant_id = self._get_tenant_id()
 		variants = self.controller.get_all_variants(tenant_id)
 
 		for variant in variants:
-			# Ahora accedemos a los datos como diccionarios, no como objetos SQL
+			stock_actual = variant.get('total_stock', 0)
+			stock_format = (
+				f'{int(stock_actual)}'
+				if float(stock_actual).is_integer()
+				else f'{float(stock_actual):.2f}'
+			)
+
 			self.tree.insert(
 				'',
 				'end',
@@ -134,17 +153,18 @@ class ArticlesView(ctk.CTkFrame):
 					variant.get('name'),
 					f'${variant.get("cost_price", 0):.2f}',
 					f'${variant.get("selling_price", 0):.2f}',
-					variant.get('total_stock', 0),
+					stock_format,
 				),
 			)
 
 	def add_article(self):
 		"""Toma los datos del formulario y los envía al controlador"""
 		name = self.entry_name.get().strip()
-		barcode = self.entry_barcode.get().strip()
-		cost_str = (
-			self.entry_cost.get().strip().replace(',', '.')
-		)  # <-- Truco antimolestias
+
+		# 🐛 SOLUCIÓN BUG 2: Limpieza de ceros a la izquierda
+		barcode = self.entry_barcode.get().strip().lstrip('0') or '0'
+
+		cost_str = self.entry_cost.get().strip().replace(',', '.')
 		price_str = self.entry_price.get().strip().replace(',', '.')
 		stock_str = self.entry_stock.get().strip().replace(',', '.')
 
@@ -157,6 +177,7 @@ class ArticlesView(ctk.CTkFrame):
 			return
 
 		try:
+			# Mandamos la conversión para validar, pero el controlador usa Decimal
 			cost = float(cost_str)
 			price = float(price_str)
 			initial_stock = float(stock_str)
@@ -168,11 +189,7 @@ class ArticlesView(ctk.CTkFrame):
 			)
 			return
 
-		tenant_id = (
-			self.current_user.get('tenant_id')
-			if isinstance(self.current_user, dict)
-			else self.current_user.tenant_id
-		)
+		tenant_id = self._get_tenant_id()
 		user_id = (
 			self.current_user.get('id')
 			if isinstance(self.current_user, dict)
@@ -211,7 +228,6 @@ class ArticlesView(ctk.CTkFrame):
 			)
 			return
 
-		# CTkMessagebox devuelve un objeto, obtenemos el texto de la respuesta con get()
 		msg = CTkMessagebox(
 			title='Confirmar',
 			message='¿Seguro que deseas eliminar este producto?',
@@ -223,8 +239,13 @@ class ArticlesView(ctk.CTkFrame):
 		if msg.get() == 'Sí':
 			values = self.tree.item(selected[0], 'values')
 			variant_id = values[0]
+			tenant_id = self._get_tenant_id()  # Obtenemos el tenant
 
-			success, msg_response = self.controller.delete_variant(variant_id)
+			# 🐛 SOLUCIÓN BUG 1: Pasamos el tenant_id a la función
+			success, msg_response = self.controller.delete_variant(
+				tenant_id, variant_id
+			)
+
 			if success:
 				self.load_data()
 				CTkMessagebox(title='Eliminado', message=msg_response, icon='check')
