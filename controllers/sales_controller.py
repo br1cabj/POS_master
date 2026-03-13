@@ -9,6 +9,7 @@ from database.models import (
 	ArticleVariant,
 	CashMovement,
 	CashSession,
+	ComboItem,
 	Customer,
 	Sale,
 	SaleDetail,
@@ -33,30 +34,69 @@ class SalesController:
 			return Decimal('0.0')
 
 	def get_articles_for_sale(self, tenant_id):
+		"""Obtiene el catálogo calculando el stock real y el stock virtual de los combos"""
 		with self.Session() as session:
 			try:
+				# 🛡️ MEJORA: Cargamos también los ingredientes por si es un Combo
 				variants = (
 					session.query(ArticleVariant)
 					.options(
 						joinedload(ArticleVariant.article),
 						joinedload(ArticleVariant.stocks),
+						joinedload(ArticleVariant.ingredients)
+						.joinedload(ComboItem.ingredient)
+						.joinedload(ArticleVariant.stocks),
 					)
 					.join(Article)
 					.filter(Article.tenant_id == tenant_id, ArticleVariant.is_active)
 					.all()
 				)
-				return [
-					{
-						'variant_id': v.id,
-						'name': v.article.name,
-						'barcode': v.barcode,
-						'selling_price': v.selling_price,
-						'total_stock': sum(s.quantity for s in v.stocks)
-						if v.stocks
-						else 0,
-					}
-					for v in variants
-				]
+
+				result = []
+				for v in variants:
+					# CÁLCULO DE STOCK VIRTUAL PARA COMBOS
+					if v.is_combo:
+						virtual_stock = float('inf')
+						if not v.ingredients:
+							virtual_stock = 0
+						else:
+							for ci in v.ingredients:
+								ing = ci.ingredient
+								ing_stock = (
+									sum(s.quantity for s in ing.stocks)
+									if ing.stocks
+									else 0
+								)
+
+								possible = (
+									int(Decimal(ing_stock) / ci.quantity_required)
+									if ci.quantity_required > 0
+									else 0
+								)
+								if possible < virtual_stock:
+									virtual_stock = possible
+						total_stock = (
+							0 if virtual_stock == float('inf') else virtual_stock
+						)
+					else:
+						# Cálculo normal
+						total_stock = (
+							sum(s.quantity for s in v.stocks) if v.stocks else 0
+						)
+
+					result.append(
+						{
+							'variant_id': v.id,
+							'name': v.article.name,
+							'barcode': v.barcode,
+							'selling_price': v.selling_price,
+							'total_stock': total_stock,
+							'is_combo': v.is_combo,
+							'show_on_touch': v.show_on_touch,
+							'btn_color': v.btn_color,
+						}
+					)
+				return result
 			except Exception as e:
 				logger.error(
 					f'Error al obtener artículos para venta: {e}', exc_info=True
@@ -111,7 +151,6 @@ class SalesController:
 				return []
 
 	def get_sale_details(self, tenant_id, sale_id):
-		"""🛡️ ESCUDO: Se agregó tenant_id para evitar IDOR"""
 		with self.Session() as session:
 			try:
 				details = (
@@ -158,7 +197,7 @@ class SalesController:
 				if not active_cash:
 					return False, '⚠️ ¡Debes ABRIR LA CAJA en el menú antes de vender!'
 
-				# 2. Gestión de Cliente (🛡️ ESCUDO: Verificamos que el cliente pertenezca al tenant)
+				# 2. Gestión de Cliente
 				customer_str = 'Consumidor Final'
 				customer_obj = None
 
@@ -199,30 +238,49 @@ class SalesController:
 				session.add(new_sale)
 				session.flush()
 
-				variant_ids = [
+				variant_ids_in_cart = [
 					item['variant_id']
 					for item in cart_items
 					if item.get('variant_id') is not None
 				]
-
 				variants_db = {}
-				stocks_db = {}
-				if variant_ids:
+				variants_to_deduct_ids = set()
+
+				if variant_ids_in_cart:
 					variants_list = (
 						session.query(ArticleVariant)
-						.options(joinedload(ArticleVariant.article))
-						.join(Article)
+						.options(
+							joinedload(ArticleVariant.article),
+							joinedload(ArticleVariant.ingredients).joinedload(
+								ComboItem.ingredient
+							),
+						)
 						.filter(
-							ArticleVariant.id.in_(variant_ids),
+							ArticleVariant.id.in_(variant_ids_in_cart),
 							Article.tenant_id == tenant_id,
 						)
 						.all()
 					)
+
 					variants_db = {v.id: v for v in variants_list}
 
+					# Identificamos a quiénes hay que descontarle stock
+					for item in cart_items:
+						v_id = item.get('variant_id')
+						if v_id and v_id in variants_db:
+							variant = variants_db[v_id]
+							if variant.is_combo:
+								for c_item in variant.ingredients:
+									variants_to_deduct_ids.add(c_item.ingredient_id)
+							else:
+								variants_to_deduct_ids.add(v_id)
+
+				# Bloqueo estricto de concurrencia
+				stocks_db = {}
+				if variants_to_deduct_ids:
 					stocks_list = (
 						session.query(Stock)
-						.filter(Stock.variant_id.in_(variant_ids))
+						.filter(Stock.variant_id.in_(variants_to_deduct_ids))
 						.with_for_update()
 						.all()
 					)
@@ -231,7 +289,7 @@ class SalesController:
 				total_sale = Decimal('0.0')
 				total_cost = Decimal('0.0')
 
-				# 4. Procesamiento del Carrito
+				# 4. Procesamiento del Carrito y Deducción (El Desarmador de Combos)
 				for item in cart_items:
 					qty = self._parse_float(item.get('qty', 1))
 
@@ -241,6 +299,8 @@ class SalesController:
 						)
 
 					v_id = item.get('variant_id')
+					cost_price = Decimal('0.0')
+					price = self._parse_float(item.get('price', 0))
 
 					if v_id is not None:
 						variant = variants_db.get(v_id)
@@ -249,36 +309,61 @@ class SalesController:
 								f'Producto no encontrado o no autorizado: {item.get("desc")}'
 							)
 
-						# price = self._parse_float(item.get('price', variant.selling_price))
 						price = variant.selling_price
 
-						stock_record = stocks_db.get(v_id)
-						if not stock_record or stock_record.quantity < qty:
-							raise ValueError(
-								f'Stock insuficiente para {variant.article.name}'
+						# 🍔 SI ES COMBO: Desarmar y cobrar ingredientes
+						if variant.is_combo:
+							for c_item in variant.ingredients:
+								ing_id = c_item.ingredient_id
+								req_qty = c_item.quantity_required * qty
+
+								stock_record = stocks_db.get(ing_id)
+								if not stock_record or stock_record.quantity < req_qty:
+									raise ValueError(
+										f'Falta ingrediente para preparar Promo: {variant.article.name}'
+									)
+
+								stock_record.quantity -= req_qty
+								cost_price += (
+									c_item.ingredient.cost_price
+									* c_item.quantity_required
+								)
+
+								movimiento_salida = StockMovement(
+									movement_type='out',
+									quantity=req_qty,
+									reference=f'Venta Promo #{new_sale.id}',
+									source_warehouse_id=stock_record.warehouse_id,
+									variant_id=ing_id,
+									user_id=user_id,
+								)
+								session.add(movimiento_salida)
+
+						# 📦 SI ES NORMAL: Descontar stock directamente
+						else:
+							stock_record = stocks_db.get(v_id)
+							if not stock_record or stock_record.quantity < qty:
+								raise ValueError(
+									f'Stock insuficiente para {variant.article.name}'
+								)
+
+							stock_record.quantity -= qty
+							cost_price = variant.cost_price
+
+							movimiento_salida = StockMovement(
+								movement_type='out',
+								quantity=qty,
+								reference=f'Venta Ticket #{new_sale.id}',
+								source_warehouse_id=stock_record.warehouse_id,
+								variant_id=v_id,
+								user_id=user_id,
 							)
-
-						stock_record.quantity -= qty
-						cost_price = variant.cost_price
-
-						movimiento_salida = StockMovement(
-							movement_type='out',
-							quantity=qty,
-							reference=f'Venta Ticket #{new_sale.id}',
-							source_warehouse_id=stock_record.warehouse_id,
-							variant_id=variant.id,
-							user_id=user_id,
-						)
-						session.add(movimiento_salida)
+							session.add(movimiento_salida)
 					else:
-						# Si es un item sin ID (ej. servicio manual), leemos el precio del carrito pero validamos
-						price = self._parse_float(item.get('price', 0))
-						cost_price = Decimal('0.0')
-
-					if price < 0:
-						raise ValueError(
-							f'El precio no puede ser negativo: {item.get("desc", "Desconocido")}'
-						)
+						if price < 0:
+							raise ValueError(
+								f'El precio no puede ser negativo: {item.get("desc", "Desconocido")}'
+							)
 
 					subtotal = price * qty
 					cost_subtotal = cost_price * qty
@@ -314,7 +399,7 @@ class SalesController:
 
 				session.commit()
 
-				# 7. Generación del Ticket (Fuera del commit principal por si falla el PDF)
+				# 7. Generación del Ticket
 				try:
 					from controllers.receipt_controller import ReceiptController
 

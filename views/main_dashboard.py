@@ -5,7 +5,9 @@ from views.alerts_view import AlertsView
 from views.article_history_view import ArticleHistoryView
 from views.articles_view import ArticlesView
 from views.cash_view import CashView
+from views.combo_maker_view import ComboMakerView
 from views.customers_view import CustomersView
+from views.data_sync_view import DataSyncView
 from views.history_view import HistoryView
 from views.home_view import HomeView
 from views.kardex_view import KardexView
@@ -177,6 +179,16 @@ class MainDashboard(ctk.CTkFrame):
 			)
 			self.btn_alerts.pack(pady=5, padx=20)
 
+			self.btn_combos = ctk.CTkButton(
+				self.menu_scroll,
+				text='🍔 Combos y Botonera',
+				fg_color='#1f538d',
+				command=lambda: self.safe_switch_view(
+					ComboMakerView, requires_admin=True
+				),
+			)
+			self.btn_combos.pack(pady=5, padx=20)
+
 			self.btn_users = ctk.CTkButton(
 				self.menu_scroll,
 				text='🛠️ Empleados',
@@ -184,6 +196,16 @@ class MainDashboard(ctk.CTkFrame):
 				command=lambda: self.safe_switch_view(UsersView, requires_admin=True),
 			)
 			self.btn_users.pack(pady=5, padx=20)
+
+			self.btn_sync = ctk.CTkButton(
+				self.menu_scroll,
+				text='📥 Importar / Exportar Excel',
+				fg_color='#1f538d',
+				command=lambda: self.safe_switch_view(
+					DataSyncView, requires_admin=True
+				),
+			)
+			self.btn_sync.pack(pady=5, padx=20)
 
 		# --- Botón Salir ---
 		ctk.CTkButton(
