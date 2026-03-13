@@ -249,7 +249,6 @@ class SalesController:
 								f'Producto no encontrado o no autorizado: {item.get("desc")}'
 							)
 
-						# 🛡️ ESCUDO: Forzamos el precio de la base de datos (descomenta si permites a cajeros cambiar precios)
 						# price = self._parse_float(item.get('price', variant.selling_price))
 						price = variant.selling_price
 
@@ -322,6 +321,7 @@ class SalesController:
 					pdf_maker = ReceiptController()
 					date_str = new_sale.date.strftime('%Y-%m-%d %H:%M')
 					pdf_maker.generate_pdf(
+						tenant_id=tenant_id,
 						sale_id=new_sale.id,
 						date_str=date_str,
 						items_list=cart_items,

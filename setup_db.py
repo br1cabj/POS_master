@@ -53,7 +53,7 @@ def create_initial_data():
 			default_customer = Customer(
 				name='Consumidor Final',
 				phone='N/A',
-				current_balance=Decimal('0.0'),  # 🐛 SOLUCIÓN: Precisión Decimal
+				current_balance=Decimal('0.0'),
 				tenant_id=new_tenant.id,
 			)
 			session.add(default_customer)

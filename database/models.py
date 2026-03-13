@@ -106,8 +106,10 @@ class Article(Base):
 
 	category_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
 
+	supplier_id = Column(Integer, ForeignKey('suppliers.id'), nullable=True, index=True)
+	supplier = relationship('Supplier')
+
 	# El borrado en cascada aquí está bien porque borrar un artículo padre lógicamente
-	# debería destruir las variantes huérfanas si hacemos hard-delete.
 	variants = relationship(
 		'ArticleVariant', back_populates='article', cascade='all, delete-orphan'
 	)

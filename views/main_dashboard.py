@@ -10,6 +10,7 @@ from views.home_view import HomeView
 from views.kardex_view import KardexView
 from views.purchases_view import PurchasesView
 from views.sales_view import SalesView
+from views.suppliers_view import SuppliersView
 from views.users_view import UsersView
 
 
@@ -136,6 +137,15 @@ class MainDashboard(ctk.CTkFrame):
 				command=lambda: self.safe_switch_view(HistoryView, requires_admin=True),
 			)
 			self.btn_history.pack(pady=5, padx=20)
+
+			self.btn_suppliers = ctk.CTkButton(
+				self.menu_scroll,
+				text='🚚 Proveedores',
+				command=lambda: self.safe_switch_view(
+					SuppliersView, requires_admin=True
+				),
+			)
+			self.btn_suppliers.pack(pady=5, padx=20)
 
 			self.btn_alerts = ctk.CTkButton(
 				self.menu_scroll,
