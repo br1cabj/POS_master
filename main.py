@@ -1,104 +1,128 @@
-import sys
-from tkinter import messagebox
+import os
 
 import customtkinter as ctk
+from CTkMessagebox import CTkMessagebox
+from sqlalchemy import create_engine
 
-from controllers.auth_controller import AuthController
-from database.models import init_db
+# Importamos tus controladores y vistas
+from controllers.license_controller import LicenseController
 from views.login_view import LoginView
 from views.main_dashboard import MainDashboard
+from views.setup_wizard_view import SetupWizard
 
-# Configuración visual
-ctk.set_appearance_mode('System')
+# Ruta de tu base de datos
+DB_URL = 'sqlite:///pos_system.db'
+
+ctk.set_appearance_mode('Dark')
 ctk.set_default_color_theme('blue')
 
 
-class App(ctk.CTk):
+class PosApp(ctk.CTk):
 	def __init__(self):
 		super().__init__()
+		self.title('CloudPOS - Sistema de Gestión')
+		self.geometry('1000x600')
 
-		# 1. Configuración básica y profesional de la ventana
-		self.title('Punto de Venta y ERP')
-
-		# Calculamos el centro de la pantalla
-		window_width = 1000
-		window_height = 650
-		screen_width = self.winfo_screenwidth()
-		screen_height = self.winfo_screenheight()
-		x_cordinate = int((screen_width / 2) - (window_width / 2))
-		y_cordinate = int((screen_height / 2) - (window_height / 2))
-
-		# Aplicamos geometría y tamaño mínimo
-		self.geometry(f'{window_width}x{window_height}+{x_cordinate}+{y_cordinate}')
-		self.minsize(900, 600)
-
+		# 1. PONER EL ÍCONO
 		try:
-			# Inicializamos BD y Controlador
-			self.db_engine = init_db()
-			self.auth_controller = AuthController(self.db_engine)
-		except Exception as e:
-			# Si la base de datos falla, mostramos una alerta y cerramos el programa limpiamente
-			messagebox.showerror(
-				'Error Crítico', f'No se pudo conectar a la base de datos:\n{str(e)}'
-			)
-			sys.exit(1)
+			self.iconbitmap('icono.ico')
+		except Exception:
+			pass
 
-		# Variable para guardar quién está logueado actualmente (diccionario)
-		self.current_user = None
-		self.view = None
+		self.license_ctrl = LicenseController()
 
-		# 3. Mostrar la primera pantalla
-		self.show_login()
+		# Arrancamos el motor de base de datos
+		self.db_engine = create_engine(DB_URL)
 
-	def show_login(self):
-		"""Limpia la ventana y muestra el Login"""
-		self.clear_window()
-		self.view = LoginView(self, login_command=self.attempt_login)
-		# EMPAQUETADO: Ahora el Main decide cómo mostrar la vista
-		self.view.pack(fill='both', expand=True)
+		self.check_system_state()
 
-	def show_dashboard(self):
-		"""Limpia la ventana y muestra el Dashboard"""
-		self.clear_window()
-		self.view = MainDashboard(
-			master=self,
-			current_user=self.current_user,
-			logout_command=self.logout,
-			db_engine=self.db_engine,
-		)
-		# 🛡️ MEJORA: Empaquetamos desde el padre (asegúrate de quitar el self.pack() dentro de MainDashboard.__init__)
-		self.view.pack(fill='both', expand=True)
-
-	# 🐛 SOLUCIÓN BUG 1: Recibimos tenant_id desde LoginView
-	def attempt_login(self, tenant_id, username, password):
-		"""Esta función conecta la VISTA (LoginView) con el CONTROLADOR (AuthController)"""
-
-		# 🛡️ Se lo pasamos al auth_controller (usamos keyword argument por seguridad)
-		user = self.auth_controller.login(username, password, tenant_id=tenant_id)
-
-		if user:
-			nombre_usuario = user.get('username', 'Usuario')
-			print(f'Acceso concedido a {nombre_usuario} en el negocio ID: {tenant_id}')
-
-			self.current_user = user
-			self.show_dashboard()
-		else:
-			self.view.show_error(
-				'Credenciales incorrectas o código de empresa no válido.'
-			)
-
-	def logout(self):
-		"""Cierra sesión y vuelve al login de forma segura"""
-		self.current_user = None
-		self.show_login()
-
-	def clear_window(self):
-		"""Elimina cualquier widget que esté en la ventana principal de forma agresiva y segura"""
+	def check_system_state(self):
+		"""Decide a qué pantalla enviar al usuario"""
+		# Limpiar ventana completa
 		for widget in self.winfo_children():
 			widget.destroy()
-		self.view = None
+
+		# 1. ¿Es la primera vez que se abre el sistema?
+		if not os.path.exists('pos_system.db') or not os.path.exists('license.dat'):
+			self.show_wizard()
+			return
+
+		# 2. El sistema existe. ¿Pagó la licencia?
+		is_valid, status_msg = self.license_ctrl.check_license_status()
+
+		if is_valid:
+			# Todo en orden, ir al Login normal
+			self.show_login()
+		else:
+			# Licencia vencida o alterada
+			self.show_license_lock(status_msg)
+
+	def show_wizard(self):
+		# Llama a la pantalla de configuración inicial
+		SetupWizard(self, on_complete_callback=self.check_system_state)
+		# El pack() ya se hace dentro de SetupWizard
+
+	def show_login(self):
+		# 🔌 CONEXIÓN REAL AL LOGIN
+		login_frame = LoginView(
+			self, self.db_engine, on_login_success=self.start_dashboard
+		)
+		login_frame.pack(fill='both', expand=True)
+
+	def start_dashboard(self, current_user):
+		# 🔌 CONEXIÓN REAL AL SISTEMA
+		for widget in self.winfo_children():
+			widget.destroy()
+
+		dashboard = MainDashboard(self, current_user, self.db_engine)
+		dashboard.pack(fill='both', expand=True)
+
+	def show_license_lock(self, error_type):
+		"""Pantalla de bloqueo para clientes morosos"""
+		frame = ctk.CTkFrame(self)
+		frame.pack(fill='both', expand=True, padx=50, pady=50)
+
+		ctk.CTkLabel(
+			frame,
+			text='⚠️ SISTEMA BLOQUEADO',
+			font=('Arial', 24, 'bold'),
+			text_color='red',
+		).pack(pady=20)
+
+		motivo = (
+			'Tu período de prueba o licencia ha expirado.'
+			if error_type == 'EXPIRED'
+			else 'Licencia alterada o no encontrada.'
+		)
+		ctk.CTkLabel(frame, text=motivo).pack(pady=10)
+		ctk.CTkLabel(
+			frame,
+			text='Contacta a tu proveedor para renovar y obtén tu nuevo código de activación.',
+		).pack(pady=20)
+
+		self.entry_renewal = ctk.CTkEntry(
+			frame, width=300, placeholder_text='Ingresa el nuevo código de licencia'
+		)
+		self.entry_renewal.pack(pady=10)
+
+		ctk.CTkButton(
+			frame, text='Renovar y Desbloquear', command=self.renew_license
+		).pack(pady=10)
+
+	def renew_license(self):
+		key = self.entry_renewal.get().strip()
+		success, msg = self.license_ctrl.activate_license(key)
+		if success:
+			CTkMessagebox(
+				title='¡Gracias!',
+				message='Sistema desbloqueado. Gracias por tu pago.',
+				icon='check',
+			)
+			self.check_system_state()
+		else:
+			CTkMessagebox(title='Error', message=msg, icon='cancel')
 
 
 if __name__ == '__main__':
-	app = App()
+	app = PosApp()
 	app.mainloop()
