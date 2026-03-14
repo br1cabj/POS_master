@@ -37,7 +37,6 @@ class SalesController:
 		"""Obtiene el catálogo calculando el stock real y el stock virtual de los combos"""
 		with self.Session() as session:
 			try:
-				# 🛡️ MEJORA: Cargamos también los ingredientes por si es un Combo
 				variants = (
 					session.query(ArticleVariant)
 					.options(
