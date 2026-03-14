@@ -1,11 +1,15 @@
+import bcrypt
 import customtkinter as ctk
+from sqlalchemy.orm import sessionmaker
+
+from database.models import User
 
 
 class LoginView(ctk.CTkFrame):
-	# 🛡️ MEJORA: El login_command en tu main.py ahora deberá recibir 3 parámetros: (tenant, user, pwd)
-	def __init__(self, master, login_command):
+	def __init__(self, master, db_engine, on_login_success):
 		super().__init__(master)
-		self.login_command = login_command
+		self.db_engine = db_engine
+		self.on_login_success = on_login_success
 
 		self.grid_rowconfigure(0, weight=1)
 		self.grid_rowconfigure(2, weight=1)
@@ -13,37 +17,43 @@ class LoginView(ctk.CTkFrame):
 		self.grid_columnconfigure(2, weight=1)
 
 		# === TARJETA CENTRAL (CARD) ===
-		self.login_frame = ctk.CTkFrame(self, corner_radius=15)
-		self.login_frame.grid(row=1, column=1, padx=20, pady=20)
+		self.login_frame = ctk.CTkFrame(self, corner_radius=20, fg_color='#2b2b2b')
+		self.login_frame.grid(row=1, column=1, padx=20, pady=20, ipadx=20, ipady=20)
 
-		# Ícono / Título
-		ctk.CTkLabel(self.login_frame, text='🏪', font=('Arial', 60)).pack(
-			pady=(30, 10)
-		)
 		ctk.CTkLabel(
-			self.login_frame, text='Bienvenido al Sistema', font=('Arial', 24, 'bold')
-		).pack(pady=(0, 20))
+			self.login_frame,
+			text='☁️ CloudPOS',
+			font=('Arial', 36, 'bold'),
+			text_color='#00aaff',
+		).pack(pady=(20, 0))
 
-		# 🛡️ ESCUDO MULTITENANT: Campo de Empresa (Tenant)
+		ctk.CTkLabel(
+			self.login_frame,
+			text='Sistema de Gestión',
+			font=('Arial', 16, 'italic'),
+			text_color='gray',
+		).pack(pady=(0, 30))
+
 		self.entry_tenant = ctk.CTkEntry(
 			self.login_frame,
-			width=250,
-			height=35,
+			width=280,
+			height=40,
 			placeholder_text='Código de Empresa (Ej: 1)',
 		)
 		self.entry_tenant.pack(pady=(0, 10), padx=40)
+		self.entry_tenant.insert(0, '1')
 
 		# Campo de Usuario
 		self.entry_username = ctk.CTkEntry(
-			self.login_frame, width=250, height=35, placeholder_text='Usuario'
+			self.login_frame, width=280, height=40, placeholder_text='Usuario'
 		)
 		self.entry_username.pack(pady=10, padx=40)
 
 		# Campo de Contraseña
 		self.entry_password = ctk.CTkEntry(
 			self.login_frame,
-			width=250,
-			height=35,
+			width=280,
+			height=40,
 			placeholder_text='Contraseña',
 			show='*',
 		)
@@ -54,6 +64,7 @@ class LoginView(ctk.CTkFrame):
 			self.login_frame,
 			text='Mostrar contraseña',
 			font=('Arial', 12),
+			text_color='gray',
 			command=self.toggle_password,
 		)
 		self.check_show_pass.pack(pady=(5, 15), padx=40, anchor='w')
@@ -62,27 +73,26 @@ class LoginView(ctk.CTkFrame):
 		self.btn_login = ctk.CTkButton(
 			self.login_frame,
 			text='INICIAR SESIÓN',
-			width=250,
-			height=40,
+			width=280,
+			height=45,
 			font=('Arial', 14, 'bold'),
 			command=self.trigger_login,
 		)
 		self.btn_login.pack(pady=(10, 10))
 
-		# Etiqueta para mostrar errores (roja, vacía por defecto)
+		# Etiqueta para mostrar errores
 		self.lbl_error = ctk.CTkLabel(
-			self.login_frame, text='', text_color='#d9534f', font=('Arial', 12)
+			self.login_frame, text='', text_color='#ff3333', font=('Arial', 13, 'bold')
 		)
-		self.lbl_error.pack(pady=(0, 20))
+		self.lbl_error.pack(pady=(0, 10))
 
 		# === EVENTOS DE TECLADO ===
-		# 🛡️ MEJORA: Cadena de saltos con la tecla Enter
 		self.entry_tenant.bind('<Return>', self.handle_tenant_return)
 		self.entry_username.bind('<Return>', self.handle_username_return)
 		self.entry_password.bind('<Return>', lambda e: self.trigger_login())
 
-		# Ponemos el cursor automáticamente en el campo de la empresa al abrir
-		self.entry_tenant.focus()
+		# Ponemos el cursor en el usuario ya que la empresa viene pre-llenada
+		self.entry_username.focus()
 
 	def toggle_password(self):
 		"""Muestra u oculta los asteriscos de la contraseña según el checkbox"""
@@ -93,21 +103,19 @@ class LoginView(ctk.CTkFrame):
 
 	# --- Lógica de navegación por teclado ---
 	def handle_tenant_return(self, event):
-		"""Salta de Empresa a Usuario"""
 		if not self.entry_username.get():
 			self.entry_username.focus()
 		else:
 			self.handle_username_return(event)
 
 	def handle_username_return(self, event):
-		"""Salta de Usuario a Contraseña."""
 		if not self.entry_password.get():
 			self.entry_password.focus()
 		else:
 			self.trigger_login()
 
 	def trigger_login(self):
-		"""Valida, cambia el estado de la UI y lanza el comando a main.py"""
+		"""Valida visualmente y pasa a la verificación en base de datos"""
 		self.lbl_error.configure(text='')
 
 		tenant_val = self.entry_tenant.get().strip()
@@ -118,28 +126,50 @@ class LoginView(ctk.CTkFrame):
 			self.show_error('Por favor, completa todos los campos.')
 			return
 
-		# Validamos que el código de empresa sea un número para evitar errores tempranos
 		try:
 			tenant_id = int(tenant_val)
 		except ValueError:
 			self.show_error('El código de empresa debe ser un número.')
 			return
 
-		# Feedback visual para el usuario: Evitamos que haga doble clic
 		self.btn_login.configure(state='disabled', text='CONECTANDO...')
-
 		self.after(50, lambda: self._execute_login(tenant_id, user, pwd))
 
-	def _execute_login(self, tenant_id, user, pwd):
-		"""Delega la ejecución a main.py y restaura la vista si falla."""
-		# 🐛 SOLUCIÓN BUG 1: Pasamos los tres parámetros al orquestador principal
-		self.login_command(tenant_id, user, pwd)
+	def _execute_login(self, tenant_id, username, pwd):
+		"""🔐 Verifica las credenciales en la base de datos local"""
+		Session = sessionmaker(bind=self.db_engine)
 
-		# Restauramos el botón si la vista no fue destruida (login fallido)
-		if self.winfo_exists():
-			self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
+		with Session() as session:
+			try:
+				# Buscamos al usuario en la base de datos
+				user_obj = (
+					session.query(User)
+					.filter_by(tenant_id=tenant_id, username=username, is_active=True)
+					.first()
+				)
+
+				# Verificamos que exista y que la contraseña encriptada coincida
+				if user_obj and bcrypt.checkpw(
+					pwd.encode('utf-8'), user_obj.password_hash.encode('utf-8')
+				):
+					# Convertimos el objeto de la base de datos a un diccionario para pasarlo al sistema
+					user_dict = {
+						'id': user_obj.id,
+						'tenant_id': user_obj.tenant_id,
+						'username': user_obj.username,
+						'role': user_obj.role,
+					}
+
+					self.on_login_success(user_dict)
+
+				else:
+					self.show_error('Usuario o contraseña incorrectos.')
+
+			except Exception as e:
+				self.show_error('Error de conexión a la base de datos.')
+				print(f'Error Login: {e}')
 
 	def show_error(self, message):
-		"""Esta función es llamada desde main.py si el usuario/clave son incorrectos"""
+		"""Muestra el mensaje de error y reactiva el botón"""
 		self.lbl_error.configure(text=message)
 		self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
