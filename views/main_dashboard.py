@@ -121,7 +121,7 @@ class MainDashboard(ctk.CTkFrame):
 
 			self.btn_kardex = ctk.CTkButton(
 				self.menu_scroll,
-				text='📊 Inventario',
+				text='📊 Auditoria',
 				fg_color='#005580',
 				hover_color='#003d5c',
 				command=lambda: self.safe_switch_view(KardexView, requires_admin=True),
@@ -229,6 +229,59 @@ class MainDashboard(ctk.CTkFrame):
 			'<F4>', lambda e: self.safe_switch_view(CustomersView, requires_admin=True)
 		)
 		self.master_app.bind('<Escape>', lambda e: self.safe_switch_view(HomeView))
+
+		# ==========================================
+		# ⌚ RELOJ Y PANTALLA COMPLETA (F11)
+		# ==========================================
+		self.is_fullscreen = False
+
+		# Creamos el reloj, pero NO le hacemos .pack() todavía para que nazca invisible
+		self.lbl_clock = ctk.CTkLabel(
+			self, text='', font=('Arial', 12, 'bold'), text_color='gray'
+		)
+		self.update_clock()  # Arrancamos el motor del tiempo en segundo plano
+
+		# Enlazamos las teclas (Le damos 100ms para asegurar que la ventana ya existe)
+		self.after(100, self._setup_fullscreen_binds)
+
+		# ==========================================
+		# NUEVOS MÉTODOS PARA LA CLASE
+		# ==========================================
+
+	def _setup_fullscreen_binds(self):
+		"""Conecta las teclas a la ventana principal"""
+		top_level = self.winfo_toplevel()
+		top_level.bind('<F11>', self.toggle_fullscreen)
+		top_level.bind('<Escape>', self.exit_fullscreen)  # Un salvavidas clásico
+
+	def update_clock(self):
+		"""Actualiza la hora cada segundo de forma silenciosa"""
+		import time
+
+		current_time = time.strftime('%d/%m/%Y  |  %H:%M:%S')
+		self.lbl_clock.configure(text=current_time)
+		self.after(1000, self.update_clock)
+
+	def toggle_fullscreen(self, event=None):
+		"""Entra/Sale de pantalla completa y muestra/oculta el reloj"""
+		top_level = self.winfo_toplevel()
+		self.is_fullscreen = not self.is_fullscreen
+
+		top_level.attributes('-fullscreen', self.is_fullscreen)
+
+		if self.is_fullscreen:
+			# Aparece el reloj abajo a la derecha
+			self.lbl_clock.pack(side='bottom', anchor='se', padx=20, pady=5)
+		else:
+			# Desaparece el reloj mágicamente
+			self.lbl_clock.pack_forget()
+
+	def exit_fullscreen(self, event=None):
+		"""Fuerza la salida si aprietan Escape"""
+		if self.is_fullscreen:
+			self.is_fullscreen = False
+			self.winfo_toplevel().attributes('-fullscreen', False)
+			self.lbl_clock.pack_forget()
 
 	# =========================================================
 	# FUNCIONES MAESTRAS DE NAVEGACIÓN Y LIMPIEZA

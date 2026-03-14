@@ -308,7 +308,7 @@ class SalesView(ctk.CTkFrame):
 		if len(raw_code) == 13 and raw_code.startswith('20'):
 			plu_code = str(int(raw_code[2:7]))
 			price_str = raw_code[7:12]
-			scale_price = Decimal(price_str) / Decimal('100')
+			scale_price = Decimal(price_str)
 			search_code = plu_code
 			is_scale_barcode = True
 

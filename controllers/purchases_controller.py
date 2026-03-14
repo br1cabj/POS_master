@@ -204,7 +204,7 @@ class PurchasesController:
 					user_id=user_id,
 					supplier_id=supplier.id,
 					total_amount=total_purchase,
-					date=datetime.utcnow(),
+					date=datetime.now(),
 				)
 				session.add(new_purchase)
 				session.flush()  # Genera el ID de compra

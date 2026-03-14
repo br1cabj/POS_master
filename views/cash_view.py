@@ -1,3 +1,5 @@
+from decimal import Decimal, InvalidOperation
+
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
@@ -27,12 +29,14 @@ class CashView(ctk.CTkFrame):
 		self.lbl_status.pack(pady=5)
 
 		self.lbl_summary = ctk.CTkLabel(
-			self.left_panel, text='', font=('Courier', 14), justify='left'
+			self.left_panel, text='', font=('Courier', 14), justify='center'
 		)
 		self.lbl_summary.pack(pady=10)
 
 		self.entry_amount = ctk.CTkEntry(
-			self.left_panel, placeholder_text='Monto ($)', font=('Arial', 16)
+			self.left_panel,
+			placeholder_text='Monto de Apertura ($)',
+			font=('Arial', 16),
 		)
 		self.entry_amount.pack(pady=10)
 
@@ -88,7 +92,7 @@ class CashView(ctk.CTkFrame):
 		# Cargamos los datos con un ligero retraso para una apertura fluida
 		self.after(100, self.refresh_view)
 
-	# --- 🛡️ MEJORA: Métodos auxiliares DRY (Don't Repeat Yourself) ---
+	# --- Métodos auxiliares DRY ---
 	def _get_tenant_id(self):
 		return (
 			self.current_user.get('tenant_id')
@@ -110,54 +114,49 @@ class CashView(ctk.CTkFrame):
 		self.active_session = self.controller.get_active_session(tenant_id, user_id)
 
 		if self.active_session:
-			session_id = self.active_session.get('id')
 			fondo = float(self.active_session.get('opening_balance', 0.0))
 
-			# 🐛 SOLUCIÓN BUG 1: Pasamos el tenant_id al método
-			ventas, ingresos, gastos = self.controller.get_session_summary(
-				tenant_id, session_id
-			)
-			total_esperado = fondo + float(ventas) + float(ingresos) - float(gastos)
-
+			# ARQUEO CIEGO
 			resumen_texto = (
-				f'Fondo Inicial : ${fondo:.2f}\n'
-				f'+ Ventas      : ${float(ventas):.2f}\n'
-				f'+ Otros Ingr. : ${float(ingresos):.2f}\n'
-				f'- Gastos      : ${float(gastos):.2f}\n'
-				f'------------------------\n'
-				f'TOTAL EN CAJA : ${total_esperado:.2f}'
+				f'Fondo Inicial : ${fondo:.2f}\n\n'
+				f'🔒 MODO ARQUEO CIEGO ACTIVO 🔒\n'
+				f'El total de ventas es secreto.\n'
+				f'Al cerrar turno, deberás contar tus\nbilletes y declarar lo que tienes.'
 			)
 
 			self.lbl_status.configure(
 				text='🟢 CAJA ABIERTA', text_color='#00cc66', font=('Arial', 18, 'bold')
 			)
-			self.lbl_summary.configure(text=resumen_texto)
-			self.entry_amount.configure(
-				placeholder_text='¿Cuánto dinero cuentas en físico?'
-			)
-			self.btn_action.configure(
-				text='CERRAR CAJA', fg_color='#d9534f', hover_color='#c9302c'
-			)
+			self.lbl_summary.configure(text=resumen_texto, text_color='#00aaff')
 
+			# Ocultamos el campo de monto de apertura porque ya está abierta
+			self.entry_amount.pack_forget()
+
+			self.btn_action.configure(
+				text='🔒 INICIAR CIERRE CIEGO',
+				fg_color='#d9534f',
+				hover_color='#c9302c',
+			)
 			self._set_panel_state(self.right_panel, 'normal')
 		else:
 			self.lbl_status.configure(
 				text='🔴 CAJA CERRADA', text_color='#ffaa00', font=('Arial', 18, 'bold')
 			)
 			self.lbl_summary.configure(
-				text='\nDebes abrirla para poder vender\no registrar movimientos.\n'
+				text='\nDebes abrirla para poder vender\no registrar movimientos.\n',
+				text_color='white',
 			)
+
+			# Mostramos el campo para poner la plata inicial
+			self.entry_amount.pack(pady=10, before=self.btn_action)
 			self.entry_amount.configure(placeholder_text='Fondo inicial ($)')
+
 			self.btn_action.configure(
 				text='ABRIR CAJA', fg_color='#5cb85c', hover_color='#4cae4c'
 			)
-
 			self._set_panel_state(self.right_panel, 'disabled')
 
-		self.entry_amount.delete(0, 'end')
-
 	def _set_panel_state(self, panel, state):
-		"""Activa o desactiva recursivamente los widgets de un panel"""
 		for widget in panel.winfo_children():
 			if hasattr(widget, 'configure') and not isinstance(widget, ctk.CTkLabel):
 				try:
@@ -166,39 +165,28 @@ class CashView(ctk.CTkFrame):
 					pass
 
 	def handle_action(self):
-		amount_str = self.entry_amount.get().strip().replace(',', '.')
 		tenant_id = self._get_tenant_id()
 		user_id = self._get_user_id()
 
-		if not amount_str:
-			self.lbl_msg.configure(text='Ingresa un monto.', text_color='#ff3333')
-			return
-
 		if self.active_session:
-			msg_box = CTkMessagebox(
-				title='Confirmar Arqueo',
-				message='¿Estás seguro de que deseas cerrar la caja con este monto declarado?',
-				icon='warning',
-				option_1='Cancelar',
-				option_2='Sí, cerrar caja',
-			)
-
-			if msg_box.get() == 'Sí, cerrar caja':
-				session_id = self.active_session.get('id')
-				success, msg = self.controller.close_session(
-					tenant_id, session_id, amount_str
+			# Si la caja está abierta, abrimos la calculadora de billetes
+			self.show_blind_close_popup()
+		else:
+			# Si está cerrada, procesamos la apertura normalmente
+			amount_str = self.entry_amount.get().strip().replace(',', '.')
+			if not amount_str:
+				self.lbl_msg.configure(
+					text='Ingresa un monto inicial.', text_color='#ff3333'
 				)
-			else:
-				return  # El usuario canceló
-		else:
-			# Abrir caja
-			success, msg = self.controller.open_session(tenant_id, user_id, amount_str)
+				return
 
-		if success:
-			self.lbl_msg.configure(text=msg, text_color='#00cc66')
-			self.refresh_view()
-		else:
-			self.lbl_msg.configure(text=msg, text_color='#ff3333')
+			success, msg = self.controller.open_session(tenant_id, user_id, amount_str)
+			if success:
+				self.lbl_msg.configure(text=msg, text_color='#00cc66')
+				self.entry_amount.delete(0, 'end')
+				self.refresh_view()
+			else:
+				self.lbl_msg.configure(text=msg, text_color='#ff3333')
 
 	def save_movement(self):
 		desc = self.entry_mov_desc.get().strip()
@@ -222,6 +210,117 @@ class CashView(ctk.CTkFrame):
 			self.lbl_mov_msg.configure(text='', text_color='#00cc66')
 			self.entry_mov_desc.delete(0, 'end')
 			self.entry_mov_amount.delete(0, 'end')
-			self.refresh_view()
 		else:
 			self.lbl_mov_msg.configure(text=msg, text_color='#ff3333')
+
+	# ==========================================
+	# 🧮 CALCULADORA DE BILLETES (BLIND CLOSE)
+	# ==========================================
+	def show_blind_close_popup(self):
+		self.popup = ctk.CTkToplevel(self)
+		self.popup.title('Arqueo de Caja')
+		self.popup.geometry('350x650')
+		self.popup.attributes('-topmost', True)
+		self.popup.grab_set()
+
+		ctk.CTkLabel(
+			self.popup, text='Cuenta tus billetes', font=('Arial', 20, 'bold')
+		).pack(pady=(20, 5))
+		ctk.CTkLabel(
+			self.popup,
+			text='Ingresa la CANTIDAD de billetes que tienes:',
+			text_color='gray',
+		).pack(pady=(0, 15))
+
+		# Denominaciones comunes de billetes (Modificable según país)
+		denominations = [10000, 2000, 1000, 500, 200, 100, 50]
+		self.bill_entries = {}
+
+		grid_frame = ctk.CTkFrame(self.popup, fg_color='transparent')
+		grid_frame.pack(fill='x', padx=30)
+
+		for i, denom in enumerate(denominations):
+			ctk.CTkLabel(
+				grid_frame, text=f'Billetes de ${denom}:', font=('Arial', 14)
+			).grid(row=i, column=0, sticky='e', pady=5, padx=10)
+			entry = ctk.CTkEntry(grid_frame, width=80, justify='center')
+			entry.grid(row=i, column=1, pady=5)
+			entry.insert(0, '0')
+			entry.bind('<KeyRelease>', self._calculate_realtime_total)
+			self.bill_entries[denom] = entry
+
+		# Campo extra para monedas o cambio chico
+		ctk.CTkLabel(grid_frame, text='Monedas/Otros ($):', font=('Arial', 14)).grid(
+			row=len(denominations), column=0, sticky='e', pady=15, padx=10
+		)
+		self.entry_otros = ctk.CTkEntry(grid_frame, width=80, justify='center')
+		self.entry_otros.grid(row=len(denominations), column=1, pady=15)
+		self.entry_otros.insert(0, '0')
+		self.entry_otros.bind('<KeyRelease>', self._calculate_realtime_total)
+
+		self.lbl_popup_total = ctk.CTkLabel(
+			self.popup,
+			text='Total Declarado: $0.00',
+			font=('Arial', 22, 'bold'),
+			text_color='#00aaff',
+		)
+		self.lbl_popup_total.pack(pady=20)
+
+		self.current_counted_total = '0.00'
+
+		ctk.CTkButton(
+			self.popup,
+			text='💾 CONFIRMAR Y CERRAR TURNO',
+			fg_color='#d9534f',
+			hover_color='#c9302c',
+			height=45,
+			font=('Arial', 14, 'bold'),
+			command=self._confirm_blind_close,
+		).pack(pady=10)
+
+		ctk.CTkButton(
+			self.popup, text='Cancelar', fg_color='#555555', command=self.popup.destroy
+		).pack()
+
+	def _calculate_realtime_total(self, event=None):
+		total = Decimal('0.0')
+		for denom, entry in self.bill_entries.items():
+			qty = entry.get().strip()
+			if qty.isdigit():
+				total += Decimal(str(denom)) * Decimal(qty)
+
+		otros = self.entry_otros.get().strip().replace(',', '.')
+		if otros:
+			try:
+				total += Decimal(otros)
+			except (InvalidOperation, ValueError):
+				pass
+
+		self.lbl_popup_total.configure(text=f'Total Declarado: ${total:.2f}')
+		self.current_counted_total = str(total)
+
+	def _confirm_blind_close(self):
+		msg_box = CTkMessagebox(
+			title='Advertencia',
+			message=f'Estás declarando que tienes exactamente ${self.current_counted_total} en tu caja.\n¿Estás seguro? Esta acción no se puede deshacer y generará el Reporte Z.',
+			icon='warning',
+			option_1='Revisar de nuevo',
+			option_2='Sí, Cerrar Caja',
+		)
+
+		if msg_box.get() == 'Sí, Cerrar Caja':
+			tenant_id = self._get_tenant_id()
+			session_id = self.active_session.get('id')
+
+			success, msg = self.controller.close_session(
+				tenant_id, session_id, self.current_counted_total
+			)
+
+			if success:
+				self.popup.destroy()
+				CTkMessagebox(
+					title='Turno Finalizado', message=msg, icon='check', width=450
+				)  # Mensaje más ancho para que quepa la ruta del PDF
+				self.refresh_view()
+			else:
+				CTkMessagebox(title='Error', message=msg, icon='cancel')
