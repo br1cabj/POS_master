@@ -281,15 +281,21 @@ class SaleDetail(Base):
 class CashSession(Base):
 	__tablename__ = 'cash_sessions'
 	id = Column(Integer, primary_key=True)
-	opening_time = Column(DateTime, default=datetime.utcnow)
-	closing_time = Column(DateTime, nullable=True)
-	opening_balance = Column(Numeric(10, 2), default=0.0)
-	closing_balance = Column(Numeric(10, 2), default=0.0)
-	is_open = Column(Boolean, default=True)
-
 	user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
 	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
 
+	opened_at = Column(DateTime, default=datetime.utcnow)
+	closed_at = Column(DateTime, nullable=True)
+	is_open = Column(Boolean, default=True)
+
+	opening_balance = Column(Numeric(10, 2), default=0.0)
+	closing_balance = Column(Numeric(10, 2), default=0.0)
+
+	expected_amount = Column(Numeric(10, 2), nullable=True)
+	declared_amount = Column(Numeric(10, 2), nullable=True)
+	difference = Column(Numeric(10, 2), nullable=True)
+
+	user = relationship('User')
 	movements = relationship('CashMovement', back_populates='session')
 
 

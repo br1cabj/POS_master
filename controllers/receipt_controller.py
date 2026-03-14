@@ -23,12 +23,10 @@ class ReceiptController:
 
 	def _sanitize_for_pdf(self, text):
 		"""
-		🛡️ ESCUDO: FPDF no soporta todos los caracteres Unicode.
-		Esto elimina emojis y caracteres no imprimibles en Latin-1 para evitar crashes.
+		Esto elimina emojis y caracteres no imprimibles en Latin-1.
 		"""
 		if not text:
 			return ''
-		# Normalizamos y codificamos a ascii/latin-1 ignorando los errores
 		text_str = str(text)
 		return (
 			unicodedata.normalize('NFKD', text_str)
@@ -39,12 +37,8 @@ class ReceiptController:
 	def generate_pdf(
 		self, tenant_id, sale_id, date_str, items_list, total, customer_name
 	):
-		"""
-		Genera un archivo PDF con formato de ticketera térmica dinámico (80mm).
-		🛡️ ESCUDO: Requiere tenant_id para aislar los archivos.
-		"""
+		"""Genera un archivo PDF con formato de ticketera térmica dinámico (80mm)."""
 		try:
-			# 1. 🛡️ ESCUDO: Validación estricta del ID para evitar Path Traversal
 			try:
 				safe_sale_id = int(sale_id)
 				safe_tenant_id = int(tenant_id)
@@ -52,11 +46,15 @@ class ReceiptController:
 				logger.error(f'Intento de Path Traversal o ID inválido: {sale_id}')
 				return False, 'ID de venta inválido.'
 
-			# 2. Calculamos el alto dinámico del ticket
+			# 1.  CÁLCULO DINÁMICO DEL LARGO
+			# Sumamos 1 línea por producto normal, y 2 líneas por producto pesable
+			lineas_items = sum(
+				1 if Decimal(str(i.get('qty', 1))) % 1 == 0 else 2 for i in items_list
+			)
+
 			alto_encabezado = 45
 			alto_pie = 30
-			alto_items = len(items_list) * 5
-
+			alto_items = lineas_items * 5
 			alto_total = alto_encabezado + alto_items + alto_pie + 15
 
 			pdf = FPDF(format=(80, alto_total))
@@ -77,27 +75,30 @@ class ReceiptController:
 			pdf.cell(ancho_usable, 5, f'Cliente: {safe_customer}', ln=True, align='C')
 			pdf.cell(ancho_usable, 5, '-' * 40, ln=True, align='C')
 
-			# --- CABECERA DE LA TABLA ---
-			pdf.set_font('Arial', 'B', 8)
-			pdf.cell(35, 5, 'Articulo', align='L')
-			pdf.cell(10, 5, 'Cant', align='C')
-			pdf.cell(25, 5, 'Subtotal', ln=True, align='R')
-
-			# --- LISTA DE PRODUCTOS ---
+			# --- LISTA DE PRODUCTOS (Diseño Supermercado) ---
 			pdf.set_font('Arial', '', 8)
+
 			for item in items_list:
-				desc_corta = self._sanitize_for_pdf(item.get('desc', ''))[:18]
-
+				desc_corta = self._sanitize_for_pdf(item.get('desc', ''))[:22]
 				qty = Decimal(str(item.get('qty', 1)))
-				qty_str = f'{int(qty)}' if qty % 1 == 0 else f'{qty:.2f}'
-
+				price = Decimal(str(item.get('price', 0)))
 				subtotal = Decimal(str(item.get('subtotal', '0.0')))
 
-				pdf.cell(35, 5, desc_corta, align='L')
-				pdf.cell(10, 5, qty_str, align='C')
-				pdf.cell(25, 5, f'${subtotal:.2f}', ln=True, align='R')
+				#  LÓGICA DE IMPRESIÓN
+				if qty % 1 == 0:
+					# Producto Normal (1 línea) -> Ej: "2 x Alfajor Jorgito   $1000.00"
+					pdf.cell(10, 5, f'{int(qty)} x', align='L')
+					pdf.cell(38, 5, desc_corta, align='L')
+					pdf.cell(22, 5, f'${subtotal:.2f}', ln=True, align='R')
+				else:
+					# Producto Pesable (2 líneas) -> Ej: "Queso Tybo"
+					#                                    "  0.285 Kg x $7000   $1995.00"
+					pdf.cell(ancho_usable, 5, desc_corta, ln=True, align='L')
+					pdf.cell(5, 5, '', align='L')  # Pequeña sangría visual
+					pdf.cell(43, 5, f'{qty:.3f} Kg x ${price:.2f}', align='L')
+					pdf.cell(22, 5, f'${subtotal:.2f}', ln=True, align='R')
 
-			# --- TOTAL ---
+			# --- TOTAL Y PIE DE PÁGINA ---
 			pdf.cell(ancho_usable, 5, '-' * 40, ln=True, align='C')
 			pdf.set_font('Arial', 'B', 12)
 
@@ -113,8 +114,7 @@ class ReceiptController:
 
 			pdf.output(filepath)
 
-			# Opcional: Si esto corre en la nube, NO llames a self.print_receipt().
-			# Devuelve el filepath o el contenido del PDF para que el Frontend lo imprima.
+			# Mandar a imprimir (Abre el PDF en el OS)
 			self.print_receipt(filepath)
 
 			return True, filepath

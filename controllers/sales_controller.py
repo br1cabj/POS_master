@@ -231,7 +231,7 @@ class SalesController:
 					customer_id=customer_id,
 					payment_method=metodo_final,
 					status=estado_final,
-					date=datetime.utcnow(),
+					date=datetime.now(),
 					total_amount=0.0,
 					profit=0.0,
 				)
@@ -249,6 +249,7 @@ class SalesController:
 				if variant_ids_in_cart:
 					variants_list = (
 						session.query(ArticleVariant)
+						.join(Article)
 						.options(
 							joinedload(ArticleVariant.article),
 							joinedload(ArticleVariant.ingredients).joinedload(
