@@ -1,16 +1,21 @@
 import logging
 from decimal import Decimal, InvalidOperation
 
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database.models import CashMovement, CashSession, Customer
+
+DB_URL = 'sqlite:///pos_system.db'
+engine = create_engine(DB_URL, connect_args={'check_same_thread': False})
+SessionLocal = sessionmaker(bind=engine)
 
 logger = logging.getLogger(__name__)
 
 
 class CustomerController:
-	def __init__(self, db_engine):
-		self.Session = sessionmaker(bind=db_engine)
+	def __init__(self, db_engine=None):
+		pass
 
 	def _parse_decimal(self, value):
 		"""Convertimos a Decimal para evitar pérdida de centavos."""
@@ -23,11 +28,11 @@ class CustomerController:
 
 	def get_customers(self, tenant_id):
 		"""Obtiene la lista de clientes activos ordenados por nombre."""
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				customers = (
 					session.query(Customer)
-					.filter_by(tenant_id=tenant_id, is_active=True)
+					.filter(Customer.tenant_id == tenant_id, Customer.is_active)
 					.order_by(Customer.name)
 					.all()
 				)
@@ -53,7 +58,7 @@ class CustomerController:
 		name_clean = str(name).strip()
 		phone_clean = str(phone).strip() if phone else None
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				exist = (
 					session.query(Customer)
@@ -92,7 +97,7 @@ class CustomerController:
 		if amount_dec is None or amount_dec <= Decimal('0.0'):
 			return False, 'El monto a abonar debe ser un número válido mayor a cero.'
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				# 1. Verificar que la caja esté abierta
 				active_cash = (
