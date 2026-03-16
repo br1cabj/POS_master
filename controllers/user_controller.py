@@ -1,22 +1,28 @@
 import logging
 
 import bcrypt
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database.models import User
 
 logger = logging.getLogger(__name__)
 
+DB_URL = 'sqlite:///pos_system.db'
+engine = create_engine(DB_URL)
+SessionLocal = sessionmaker(bind=engine)
+
+
 ALLOWED_ROLES = ['admin', 'cajero', 'gerente']  # Ajusta esto según tus necesidades
 
 
 class UserController:
-	def __init__(self, db_engine):
-		self.Session = sessionmaker(bind=db_engine)
+	def __init__(self, db_engine=None):
+		pass
 
 	def get_users(self, tenant_id):
 		"""Obtiene la lista de empleados activos como diccionarios para la UI."""
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				users = (
 					session.query(User)
@@ -29,7 +35,6 @@ class UserController:
 						'id': u.id,
 						'username': u.username,
 						'role': u.role,
-						# No devolvemos el password_hash por seguridad
 					}
 					for u in users
 				]
@@ -53,7 +58,7 @@ class UserController:
 		if role_clean not in ALLOWED_ROLES:
 			return False, 'Rol inválido o no permitido en el sistema.'
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				# 3. Encriptación
 				hashed_bytes = bcrypt.hashpw(
@@ -109,13 +114,11 @@ class UserController:
 				'No puedes eliminar tu propia cuenta mientras tienes la sesión iniciada.',
 			)
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				user = (
 					session.query(User)
-					.filter_by(
-						id=user_id, tenant_id=tenant_id
-					)  # Validamos que sea su empleado
+					.filter_by(id=user_id, tenant_id=tenant_id)
 					.first()
 				)
 

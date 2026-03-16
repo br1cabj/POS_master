@@ -63,9 +63,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(self, text='- O ingresa tu código de compra -').pack()
 
-		self.entry_license = ctk.CTkEntry(
-			self, width=300, placeholder_text='Ej: MES-20260413-A1B2...'
-		)
+		self.entry_license = ctk.CTkEntry(self, width=300)
 		self.entry_license.pack(pady=5)
 		self.btn_activate = ctk.CTkButton(
 			self,
@@ -86,7 +84,7 @@ class SetupWizard(ctk.CTkFrame):
 		Session = sessionmaker(bind=engine)
 
 		with Session() as session:
-			# Crear Empresa (Sin la palabra active=True que daba error)
+			# Crear Empresa
 			tenant = Tenant(name=store_name)
 			session.add(tenant)
 			session.flush()

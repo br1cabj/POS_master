@@ -1,18 +1,24 @@
 import logging
 
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database.models import Supplier
+
+DB_URL = 'sqlite:///pos_system.db'
+engine = create_engine(DB_URL)
+SessionLocal = sessionmaker(bind=engine)
+
 
 logger = logging.getLogger(__name__)
 
 
 class SupplierController:
-	def __init__(self, db_engine):
-		self.Session = sessionmaker(bind=db_engine)
+	def __init__(self, db_engine=None):
+		pass
 
 	def get_all_suppliers(self, tenant_id):
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				# Traemos solo los proveedores activos de esta empresa
 				suppliers = (
@@ -40,7 +46,7 @@ class SupplierController:
 		if not name or not str(name).strip():
 			return False, 'El nombre del proveedor es obligatorio.'
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				if supplier_id:
 					# MODO EDICIÓN
@@ -77,7 +83,7 @@ class SupplierController:
 				return False, 'Error interno de base de datos.'
 
 	def delete_supplier(self, tenant_id, supplier_id):
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				supplier = (
 					session.query(Supplier)

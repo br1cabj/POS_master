@@ -1,16 +1,22 @@
 import logging
 from decimal import Decimal, InvalidOperation
 
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database.models import Article, ArticleVariant, Branch, ComboItem, Warehouse
+
+DB_URL = 'sqlite:///pos_system.db'
+engine = create_engine(DB_URL)
+SessionLocal = sessionmaker(bind=engine)
+
 
 logger = logging.getLogger(__name__)
 
 
 class ComboController:
-	def __init__(self, db_engine):
-		self.Session = sessionmaker(bind=db_engine)
+	def __init__(self, db_engine=None):
+		pass
 
 	def _get_or_create_default_warehouse(self, session, tenant_id):
 		branch = (
@@ -47,7 +53,7 @@ class ComboController:
 		except (ValueError, InvalidOperation):
 			return False, 'Precio inválido.'
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				# 1. Creamos el Artículo "Contenedor"
 				new_article = Article(
@@ -87,7 +93,7 @@ class ComboController:
 
 	def toggle_touch_status(self, tenant_id, variant_id, show_on_touch, btn_color):
 		"""Activa o desactiva un producto normal para que aparezca en la botonera"""
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				variant = (
 					session.query(ArticleVariant)

@@ -1,15 +1,21 @@
 import logging
 
+from sqlalchemy import create_engine
 from sqlalchemy.orm import joinedload, sessionmaker
 
 from database.models import Article, ArticleVariant, StockMovement
+
+DB_URL = 'sqlite:///pos_system.db'
+engine = create_engine(DB_URL)
+SessionLocal = sessionmaker(bind=engine)
+
 
 logger = logging.getLogger(__name__)
 
 
 class InventoryController:
-	def __init__(self, db_engine):
-		self.Session = sessionmaker(bind=db_engine)
+	def __init__(self, db_engine=None):
+		pass
 
 	def get_kardex(self, tenant_id, page=1, limit=100):
 		"""
@@ -38,7 +44,7 @@ class InventoryController:
 		# Calculamos el desplazamiento (offset)
 		offset = (page - 1) * limit
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				movements = (
 					session.query(StockMovement)

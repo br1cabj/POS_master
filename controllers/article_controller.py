@@ -1,6 +1,7 @@
 import logging
 from decimal import Decimal
 
+from sqlalchemy import create_engine
 from sqlalchemy.orm import joinedload, sessionmaker
 
 from database.models import (
@@ -14,12 +15,17 @@ from database.models import (
 	Warehouse,
 )
 
+DB_URL = 'sqlite:///pos_system.db'
+engine = create_engine(DB_URL)
+SessionLocal = sessionmaker(bind=engine)
+
+
 logger = logging.getLogger(__name__)
 
 
 class ArticleController:
-	def __init__(self, db_engine):
-		self.Session = sessionmaker(bind=db_engine)
+	def __init__(self, db_engine=None):
+		pass
 
 	def _get_or_create_default_warehouse(self, session, tenant_id):
 		try:
@@ -51,7 +57,7 @@ class ArticleController:
 			raise
 
 	def get_suppliers_for_combo(self, tenant_id):
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				suppliers = (
 					session.query(Supplier)
@@ -64,7 +70,7 @@ class ArticleController:
 				return []
 
 	def get_all_variants(self, tenant_id):
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				variants = (
 					session.query(ArticleVariant)
@@ -131,7 +137,7 @@ class ArticleController:
 		):
 			return False, 'Los precios y el stock no pueden ser negativos.'
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				existing = (
 					session.query(ArticleVariant)
@@ -210,7 +216,7 @@ class ArticleController:
 		except Exception:
 			return False, 'Valores numéricos inválidos.'
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				variant = (
 					session.query(ArticleVariant)
@@ -259,7 +265,7 @@ class ArticleController:
 				return False, 'Error interno al actualizar.'
 
 	def delete_variant(self, tenant_id, variant_id):
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				variant = (
 					session.query(ArticleVariant)
@@ -287,7 +293,7 @@ class ArticleController:
 		if not changes_list:
 			return False, 'No hay cambios para aplicar.'
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				for item in changes_list:
 					variant = (
@@ -336,7 +342,7 @@ class ArticleController:
 
 	def get_price_history(self, tenant_id):
 		"""Obtiene las últimas 100 modificaciones de precios de la empresa"""
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				history = (
 					session.query(ArticleHistory)

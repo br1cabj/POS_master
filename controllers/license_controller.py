@@ -3,13 +3,13 @@ import json
 import os
 from datetime import datetime, timedelta
 
-# 🛑 TU SECRETO COMERCIAL (Nunca le des esto a nadie)
+# SECRETO COMERCIAL (Nunca le des esto a nadie)
 SECRET_SALT = 'KioscoPOS_SaaS_2026_Secreto_X99'
 
 
 class LicenseController:
 	def __init__(self):
-		self.license_file = 'license.dat'  # Archivo oculto donde se guarda el estado
+		self.license_file = 'license.dat'  # Archivo oculto
 
 	def _generate_signature(self, license_type, expiration_date):
 		"""Genera una firma matemática imposible de falsificar sin el SECRET_SALT"""

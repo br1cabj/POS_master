@@ -1,19 +1,24 @@
 import logging
 
-from sqlalchemy import func
+from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 
 from database.models import Article, ArticleVariant, Stock
+
+DB_URL = 'sqlite:///pos_system.db'
+engine = create_engine(DB_URL)
+SessionLocal = sessionmaker(bind=engine)
+
 
 logger = logging.getLogger(__name__)
 
 
 class AlertsController:
-	def __init__(self, db_engine):
-		self.Session = sessionmaker(bind=db_engine)
+	def __init__(self, db_engine=None):
+		pass
 
 	def get_low_stock_variants(self, tenant_id, threshold=5):
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				query = (
 					session.query(

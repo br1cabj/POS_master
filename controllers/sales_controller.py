@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
+from sqlalchemy import create_engine
 from sqlalchemy.orm import joinedload, sessionmaker
 
 from database.models import (
@@ -17,12 +18,17 @@ from database.models import (
 	StockMovement,
 )
 
+DB_URL = 'sqlite:///pos_system.db'
+engine = create_engine(DB_URL)
+SessionLocal = sessionmaker(bind=engine)
+
+
 logger = logging.getLogger(__name__)
 
 
 class SalesController:
-	def __init__(self, db_engine):
-		self.Session = sessionmaker(bind=db_engine)
+	def __init__(self, db_engine=None):
+		pass
 
 	def _parse_float(self, value):
 		"""Convierte valores de la UI a float de forma segura."""
@@ -35,7 +41,7 @@ class SalesController:
 
 	def get_articles_for_sale(self, tenant_id):
 		"""Obtiene el catálogo calculando el stock real y el stock virtual de los combos"""
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				variants = (
 					session.query(ArticleVariant)
@@ -103,7 +109,7 @@ class SalesController:
 				return []
 
 	def get_customers(self, tenant_id):
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				customers = (
 					session.query(Customer)
@@ -120,7 +126,7 @@ class SalesController:
 				return []
 
 	def get_history(self, tenant_id, limit=500):
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				sales = (
 					session.query(Sale)
@@ -150,7 +156,7 @@ class SalesController:
 				return []
 
 	def get_sale_details(self, tenant_id, sale_id):
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				details = (
 					session.query(SaleDetail)
@@ -185,7 +191,7 @@ class SalesController:
 		if not cart_items:
 			return False, 'El carrito está vacío.'
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				# 1. Verificación de Caja
 				active_cash = (
@@ -311,7 +317,7 @@ class SalesController:
 
 						price = variant.selling_price
 
-						# 🍔 SI ES COMBO: Desarmar y cobrar ingredientes
+						# SI ES COMBO: Desarmar y cobrar ingredientes
 						if variant.is_combo:
 							for c_item in variant.ingredients:
 								ing_id = c_item.ingredient_id
@@ -339,7 +345,7 @@ class SalesController:
 								)
 								session.add(movimiento_salida)
 
-						# 📦 SI ES NORMAL: Descontar stock directamente
+						# SI ES NORMAL: Descontar stock directamente
 						else:
 							stock_record = stocks_db.get(v_id)
 							if not stock_record or stock_record.quantity < qty:

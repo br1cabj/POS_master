@@ -1,23 +1,27 @@
 import logging
 
 import bcrypt
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database.models import User
+
+DB_URL = 'sqlite:///pos_system.db'
+engine = create_engine(DB_URL)
+SessionLocal = sessionmaker(bind=engine)
+
 
 logger = logging.getLogger(__name__)
 
 
 class AuthController:
-	def __init__(self, db_engine):
-		self.Session = sessionmaker(bind=db_engine)
-		# Esto servirá para gastar tiempo cuando el usuario no exista.
+	def __init__(self, db_engine=None):
 		self._dummy_hash = bcrypt.hashpw(b'dummy_password', bcrypt.gensalt())
+		pass
 
 	def login(self, username, password, tenant_id=None):
 		"""
 		Verifica las credenciales del usuario.
-		🛡️ Se agregó tenant_id para evitar colisiones entre diferentes empresas.
 		"""
 		if not username or not password:
 			logger.warning('Intento de login con campos vacíos.')
@@ -25,7 +29,7 @@ class AuthController:
 
 		username_clean = str(username).strip()
 
-		with self.Session() as session:
+		with SessionLocal as session:
 			try:
 				query = session.query(User).filter_by(
 					username=username_clean,

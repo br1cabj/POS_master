@@ -4,19 +4,24 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from fpdf import FPDF
-from sqlalchemy import func
+from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 
 from database.models import CashMovement, CashSession
+
+DB_URL = 'sqlite:///pos_system.db'
+engine = create_engine(DB_URL)
+SessionLocal = sessionmaker(bind=engine)
+
 
 logger = logging.getLogger(__name__)
 
 
 class CashController:
-	def __init__(self, db_engine):
-		self.Session = sessionmaker(bind=db_engine)
+	def __init__(self, db_engine=None):
+		pass
 
-		# 🛡️ Crear carpeta para los reportes si no existe
+		# Crear carpeta para los reportes si no existe
 		self.reports_dir = 'reportes_caja'
 		if not os.path.exists(self.reports_dir):
 			os.makedirs(self.reports_dir)
@@ -32,7 +37,7 @@ class CashController:
 
 	def get_active_session(self, tenant_id, user_id):
 		"""Devuelve un diccionario con los datos de la caja si está abierta, o None"""
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				active = (
 					session.query(CashSession)
@@ -65,7 +70,7 @@ class CashController:
 				'El monto de apertura debe ser un número válido y no negativo.',
 			)
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				active = (
 					session.query(CashSession)
@@ -91,14 +96,13 @@ class CashController:
 				logger.error(f'Error al abrir caja: {e}', exc_info=True)
 				return False, 'Error interno al intentar abrir la caja.'
 
-	# 🛡️ MEJORA NIVEL DIOS: CIERRE CIEGO
 	def close_session(self, tenant_id, session_id, declared_amount):
 		"""Cierra la caja calculando faltantes/sobrantes y genera el Reporte Z"""
 		parsed_declared = self._parse_decimal(declared_amount)
 		if parsed_declared is None or parsed_declared < Decimal('0.0'):
 			return False, 'El monto declarado debe ser un número válido y no negativo.'
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				cash_session = (
 					session.query(CashSession)
@@ -171,7 +175,7 @@ class CashController:
 				return False, 'Error interno al intentar cerrar la caja.'
 
 	def get_session_summary(self, tenant_id, session_id):
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				valid_session = (
 					session.query(CashSession)
@@ -228,7 +232,7 @@ class CashController:
 		if not description or len(str(description).strip()) == 0:
 			return False, 'La descripción del movimiento es obligatoria.'
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				cash_session = (
 					session.query(CashSession)

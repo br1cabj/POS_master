@@ -2,6 +2,7 @@ import logging
 from decimal import Decimal, InvalidOperation
 
 import pandas as pd
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database.models import (
@@ -14,12 +15,17 @@ from database.models import (
 	Warehouse,
 )
 
+DB_URL = 'sqlite:///pos_system.db'
+engine = create_engine(DB_URL)
+SessionLocal = sessionmaker(bind=engine)
+
+
 logger = logging.getLogger(__name__)
 
 
 class DataSyncController:
-	def __init__(self, db_engine):
-		self.Session = sessionmaker(bind=db_engine)
+	def __init__(self, db_engine=None):
+		pass
 
 	def _get_default_warehouse(self, session, tenant_id):
 		branch = (
@@ -40,7 +46,7 @@ class DataSyncController:
 	def export_template(self, tenant_id, entity_type, save_path):
 		"""Genera un Excel con los datos actuales o una plantilla vacía"""
 		try:
-			with self.Session() as session:
+			with SessionLocal() as session:
 				if entity_type == 'Artículos':
 					data = []
 					variants = (
@@ -138,7 +144,7 @@ class DataSyncController:
 			created_count = 0
 			updated_count = 0
 
-			with self.Session() as session:
+			with SessionLocal() as session:
 				warehouse_id = self._get_default_warehouse(session, tenant_id)
 
 				for index, row in df.iterrows():

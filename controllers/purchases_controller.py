@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
+from sqlalchemy import create_engine
 from sqlalchemy.orm import joinedload, sessionmaker
 
 from database.models import (
@@ -17,12 +18,17 @@ from database.models import (
 	Warehouse,
 )
 
+DB_URL = 'sqlite:///pos_system.db'
+engine = create_engine(DB_URL)
+SessionLocal = sessionmaker(bind=engine)
+
+
 logger = logging.getLogger(__name__)
 
 
 class PurchasesController:
-	def __init__(self, db_engine):
-		self.Session = sessionmaker(bind=db_engine)
+	def __init__(self, db_engine=None):
+		pass
 
 	def _parse_decimal(self, value):
 		"""Usamos Decimal para manejar dinero y stock sin perder precisión."""
@@ -34,7 +40,7 @@ class PurchasesController:
 			return Decimal('0.0')
 
 	def get_suppliers(self, tenant_id):
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				suppliers = (
 					session.query(Supplier)
@@ -50,7 +56,7 @@ class PurchasesController:
 				return []
 
 	def get_variants(self, tenant_id):
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				variants = (
 					session.query(ArticleVariant)
@@ -79,7 +85,7 @@ class PurchasesController:
 		if not cart_items:
 			return False, 'El carrito de compras está vacío.'
 
-		with self.Session() as session:
+		with SessionLocal() as session:
 			try:
 				active_cash = (
 					session.query(CashSession)
