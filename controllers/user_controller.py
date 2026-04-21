@@ -6,51 +6,37 @@ from sqlalchemy.orm import sessionmaker
 
 from database.models import User
 
+DB_URL = 'sqlite:///pos_system.db'
+_default_engine = create_engine(DB_URL)
+
 logger = logging.getLogger(__name__)
 
-DB_URL = 'sqlite:///pos_system.db'
-engine = create_engine(DB_URL)
-SessionLocal = sessionmaker(bind=engine)
-
-
-ALLOWED_ROLES = ['admin', 'cajero', 'gerente']  # Ajusta esto según tus necesidades
+ALLOWED_ROLES = ['admin', 'cajero', 'gerente']
 
 
 class UserController:
 	def __init__(self, db_engine=None):
-		pass
+		engine = db_engine if db_engine is not None else _default_engine
+		self.SessionLocal = sessionmaker(bind=engine)
 
 	def get_users(self, tenant_id):
-		"""Obtiene la lista de empleados activos como diccionarios para la UI."""
-		with SessionLocal() as session:
+		with self.SessionLocal() as session:
 			try:
-				users = (
-					session.query(User)
+				return [
+					{'id': u.id, 'username': u.username, 'role': u.role}
+					for u in session.query(User)
 					.filter_by(tenant_id=tenant_id, is_active=True)
 					.all()
-				)
-
-				return [
-					{
-						'id': u.id,
-						'username': u.username,
-						'role': u.role,
-					}
-					for u in users
 				]
 			except Exception as e:
 				logger.error(f'Error al obtener usuarios: {e}', exc_info=True)
 				return []
 
 	def add_user(self, tenant_id, username, password, role):
-		"""Crea un nuevo empleado o reactiva uno borrado lógicamente."""
-
+		"""Crea un empleado con contraseña hasheada. Reactiva usuarios inactivos en lugar de duplicar."""
 		username_clean = str(username).strip()
-
-		# Validamos que el nombre no esté vacío y la contraseña tenga una longitud segura
 		if not username_clean:
 			return False, 'El nombre de usuario es obligatorio.'
-
 		if not password or len(str(password).strip()) < 6:
 			return False, 'La contraseña debe tener al menos 6 caracteres.'
 
@@ -58,15 +44,11 @@ class UserController:
 		if role_clean not in ALLOWED_ROLES:
 			return False, 'Rol inválido o no permitido en el sistema.'
 
-		with SessionLocal() as session:
+		with self.SessionLocal() as session:
 			try:
-				# 3. Encriptación
-				hashed_bytes = bcrypt.hashpw(
+				hashed_pw = bcrypt.hashpw(
 					str(password).encode('utf-8'), bcrypt.gensalt()
-				)
-				hashed_pw = hashed_bytes.decode('utf-8')
-
-				# 4. Buscamos si el usuario ya existe para este tenant específico
+				).decode('utf-8')
 				exist = (
 					session.query(User)
 					.filter_by(username=username_clean, tenant_id=tenant_id)
@@ -79,25 +61,22 @@ class UserController:
 							False,
 							'Ese nombre de usuario ya está en uso en su negocio.',
 						)
-					else:
-						# Reactivamos y actualizamos
-						exist.is_active = True
-						exist.password_hash = hashed_pw
-						exist.role = role_clean
-						session.commit()
-						return True, f'Empleado {username_clean} reactivado con éxito.'
+					exist.is_active = True
+					exist.password_hash = hashed_pw
+					exist.role = role_clean
+					session.commit()
+					return True, f'Empleado {username_clean} reactivado con éxito.'
 
-				# 5. Nuevo usuario
-				new_user = User(
-					tenant_id=tenant_id,
-					username=username_clean,
-					password_hash=hashed_pw,
-					role=role_clean,
+				session.add(
+					User(
+						tenant_id=tenant_id,
+						username=username_clean,
+						password_hash=hashed_pw,
+						role=role_clean,
+					)
 				)
-				session.add(new_user)
 				session.commit()
 				return True, f'Empleado {username_clean} creado como {role_clean}.'
-
 			except Exception as e:
 				session.rollback()
 				logger.error(
@@ -106,33 +85,28 @@ class UserController:
 				return False, 'Error interno al intentar crear el usuario.'
 
 	def delete_user(self, tenant_id, user_id, current_user_id=None):
-		"""Realiza un borrado lógico del empleado."""
-
+		"""Baja lógica del empleado. Impide auto-eliminación durante sesión activa."""
 		if current_user_id and str(user_id) == str(current_user_id):
 			return (
 				False,
 				'No puedes eliminar tu propia cuenta mientras tienes la sesión iniciada.',
 			)
 
-		with SessionLocal() as session:
+		with self.SessionLocal() as session:
 			try:
 				user = (
 					session.query(User)
 					.filter_by(id=user_id, tenant_id=tenant_id)
 					.first()
 				)
-
 				if not user:
 					return (
 						False,
 						'Usuario no encontrado o no tienes permiso para borrarlo.',
 					)
-
-				# Borrado Lógico
 				user.is_active = False
 				session.commit()
 				return True, 'Empleado eliminado correctamente.'
-
 			except Exception as e:
 				session.rollback()
 				logger.error(f'Error al eliminar usuario {user_id}: {e}', exc_info=True)

@@ -19,19 +19,17 @@ from database.models import (
 )
 
 DB_URL = 'sqlite:///pos_system.db'
-engine = create_engine(DB_URL)
-SessionLocal = sessionmaker(bind=engine)
-
+_default_engine = create_engine(DB_URL)
 
 logger = logging.getLogger(__name__)
 
 
 class PurchasesController:
 	def __init__(self, db_engine=None):
-		pass
+		engine = db_engine if db_engine is not None else _default_engine
+		self.SessionLocal = sessionmaker(bind=engine)
 
 	def _parse_decimal(self, value):
-		"""Usamos Decimal para manejar dinero y stock sin perder precisión."""
 		try:
 			if isinstance(value, str):
 				value = value.replace(',', '.')
@@ -40,31 +38,21 @@ class PurchasesController:
 			return Decimal('0.0')
 
 	def get_suppliers(self, tenant_id):
-		with SessionLocal() as session:
+		with self.SessionLocal() as session:
 			try:
-				suppliers = (
-					session.query(Supplier)
-					.filter_by(tenant_id=tenant_id, is_active=True)
-					.all()
-				)
 				return [
 					{'id': s.id, 'name': s.name, 'phone': s.phone, 'email': s.email}
-					for s in suppliers
+					for s in session.query(Supplier)
+					.filter_by(tenant_id=tenant_id, is_active=True)
+					.all()
 				]
 			except Exception as e:
 				logger.error(f'Error al obtener proveedores: {e}', exc_info=True)
 				return []
 
 	def get_variants(self, tenant_id):
-		with SessionLocal() as session:
+		with self.SessionLocal() as session:
 			try:
-				variants = (
-					session.query(ArticleVariant)
-					.options(joinedload(ArticleVariant.article))
-					.join(Article)
-					.filter(Article.tenant_id == tenant_id, ArticleVariant.is_active)
-					.all()
-				)
 				return [
 					{
 						'variant_id': v.id,
@@ -73,7 +61,16 @@ class PurchasesController:
 						'cost_price': v.cost_price,
 						'selling_price': v.selling_price,
 					}
-					for v in variants
+					for v in (
+						session.query(ArticleVariant)
+						.options(joinedload(ArticleVariant.article))
+						.join(Article)
+						.filter(
+							Article.tenant_id == tenant_id,
+							ArticleVariant.is_active,
+						)
+						.all()
+					)
 				]
 			except Exception as e:
 				logger.error(
@@ -82,10 +79,15 @@ class PurchasesController:
 				return []
 
 	def process_purchase(self, tenant_id, user_id, supplier_id, cart_items):
+		"""
+		Procesa una compra a proveedor de forma atómica: actualiza stock y costos,
+		registra en el kardex y descuenta el total de la caja activa.
+		El total se calcula en el backend; nunca se confía en valores de la UI.
+		"""
 		if not cart_items:
 			return False, 'El carrito de compras está vacío.'
 
-		with SessionLocal() as session:
+		with self.SessionLocal() as session:
 			try:
 				active_cash = (
 					session.query(CashSession)
@@ -106,7 +108,6 @@ class PurchasesController:
 				if not supplier:
 					return False, 'Proveedor no encontrado o no autorizado.'
 
-				# Buscamos el almacén por defecto del tenant
 				branch = (
 					session.query(Branch)
 					.filter_by(tenant_id=tenant_id, name='Sede Principal')
@@ -123,28 +124,26 @@ class PurchasesController:
 				variant_ids = [
 					item['variant_id'] for item in cart_items if item.get('variant_id')
 				]
-
-				variants_list = (
-					session.query(ArticleVariant)
+				variants_db = {
+					v.id: v
+					for v in session.query(ArticleVariant)
 					.join(Article)
 					.filter(
 						ArticleVariant.id.in_(variant_ids),
 						Article.tenant_id == tenant_id,
 					)
 					.all()
-				)
-				variants_db = {v.id: v for v in variants_list}
-
-				stocks_list = (
-					session.query(Stock)
+				}
+				stocks_db = {
+					s.variant_id: s
+					for s in session.query(Stock)
 					.filter(Stock.variant_id.in_(variant_ids))
 					.with_for_update()
 					.all()
-				)
-				stocks_db = {s.variant_id: s for s in stocks_list}
+				}
 
-				# 4. Procesar el detalle del carrito y CALCULAR el total nosotros mismos
-				total_purchase = Decimal('0.0')
+				total = Decimal('0.0')
+				kardex_entries = []
 
 				for item in cart_items:
 					variant_id = item.get('variant_id')
@@ -154,9 +153,7 @@ class PurchasesController:
 					if qty <= 0:
 						raise ValueError('La cantidad no puede ser nula o negativa.')
 					if new_cost < 0:
-						raise ValueError(
-							'El costo de un producto no puede ser negativo.'
-						)
+						raise ValueError('El costo no puede ser negativo.')
 
 					variant = variants_db.get(variant_id)
 					if not variant:
@@ -164,75 +161,64 @@ class PurchasesController:
 							f'La variante ID {variant_id} no existe o no te pertenece.'
 						)
 
-					# Calculamos el subtotal REAL en el backend
-					subtotal_real = qty * new_cost
-					total_purchase += subtotal_real
-
-					# Actualizamos el costo
+					total += qty * new_cost
 					variant.cost_price = new_cost
 
-					# Gestionamos el stock
-					stock_record = stocks_db.get(variant_id)
-					if stock_record:
-						stock_record.quantity += qty
-						warehouse_id = stock_record.warehouse_id
+					stock = stocks_db.get(variant_id)
+					if stock:
+						stock.quantity += qty
+						warehouse_id = stock.warehouse_id
 					else:
 						if not default_warehouse:
 							raise ValueError(
 								"No se encontró el 'Depósito General' para ingresar la mercadería."
 							)
-
-						stock_record = Stock(
-							quantity=qty,
-							warehouse_id=default_warehouse.id,
-							variant_id=variant_id,
+						session.add(
+							Stock(
+								quantity=qty,
+								warehouse_id=default_warehouse.id,
+								variant_id=variant_id,
+							)
 						)
-						session.add(stock_record)
 						warehouse_id = default_warehouse.id
 
-					# Registro en Kardex
-					movimiento_entrada = StockMovement(
+					mov = StockMovement(
 						movement_type='in',
 						quantity=qty,
-						reference='Compra Proveedor (Pendiente ID)',  # Actualizaremos esto abajo
+						reference='PENDING',
 						dest_warehouse_id=warehouse_id,
 						variant_id=variant_id,
 						user_id=user_id,
 					)
-					session.add(movimiento_entrada)
+					session.add(mov)
+					kardex_entries.append(mov)
 
-					# Truco de SQLAlchemy: asociaremos el objeto directamente en vez de IDs si fuera necesario,
-					# pero lo dejaremos así por ahora.
-
-				# 5. Crear la cabecera de la compra ahora que tenemos el TOTAL REAL
-				new_purchase = Purchase(
+				purchase = Purchase(
 					tenant_id=tenant_id,
 					user_id=user_id,
 					supplier_id=supplier.id,
-					total_amount=total_purchase,
+					total_amount=total,
 					date=datetime.now(),
 				)
-				session.add(new_purchase)
-				session.flush()  # Genera el ID de compra
+				session.add(purchase)
+				session.flush()
 
-				# Actualizamos las referencias del Kardex con el ID real
-				for obj in session.new:
-					if isinstance(obj, StockMovement) and 'Pendiente' in obj.reference:
-						obj.reference = f'Compra Proveedor #{new_purchase.id}'
+				for mov in kardex_entries:
+					mov.reference = f'Compra Proveedor #{purchase.id}'
 
-				# 6. Descontar el dinero de la caja
-				movement = CashMovement(
-					session_id=active_cash.id,
-					movement_type='gasto',
-					amount=total_purchase,
-					description=f'Pago a proveedor {supplier.name} (Compra #{new_purchase.id})',
+				session.add(
+					CashMovement(
+						session_id=active_cash.id,
+						movement_type='gasto',
+						amount=total,
+						description=f'Pago a proveedor {supplier.name} (Compra #{purchase.id})',
+					)
 				)
-				session.add(movement)
 
 				session.commit()
 				return (
 					True,
-					f'Compra registrada exitosamente. Total pagado: ${total_purchase:.2f}',
+					f'Compra registrada exitosamente. Total pagado: ${total:.2f}',
 				)
 
 			except ValueError as ve:

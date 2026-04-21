@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 
 from database.models import (
 	Article,
+	ArticleHistory,
 	ArticleVariant,
 	Branch,
 	Customer,
@@ -16,16 +17,15 @@ from database.models import (
 )
 
 DB_URL = 'sqlite:///pos_system.db'
-engine = create_engine(DB_URL)
-SessionLocal = sessionmaker(bind=engine)
-
+_default_engine = create_engine(DB_URL)
 
 logger = logging.getLogger(__name__)
 
 
 class DataSyncController:
 	def __init__(self, db_engine=None):
-		pass
+		engine = db_engine if db_engine is not None else _default_engine
+		self.SessionLocal = sessionmaker(bind=engine)
 
 	def _get_default_warehouse(self, session, tenant_id):
 		branch = (
@@ -33,6 +33,8 @@ class DataSyncController:
 			.filter_by(tenant_id=tenant_id, name='Sede Principal')
 			.first()
 		)
+		if not branch:
+			return None
 		warehouse = (
 			session.query(Warehouse)
 			.filter_by(branch_id=branch.id, name='Depósito General')
@@ -40,15 +42,11 @@ class DataSyncController:
 		)
 		return warehouse.id if warehouse else None
 
-	# ==========================================
-	# EXPORTACIÓN / PLANTILLAS
-	# ==========================================
 	def export_template(self, tenant_id, entity_type, save_path):
-		"""Genera un Excel con los datos actuales o una plantilla vacía"""
+		"""Exporta artículos o clientes a Excel. Incluye fila de ejemplo si no hay datos."""
 		try:
-			with SessionLocal() as session:
+			with self.SessionLocal() as session:
 				if entity_type == 'Artículos':
-					data = []
 					variants = (
 						session.query(ArticleVariant)
 						.join(Article)
@@ -58,40 +56,37 @@ class DataSyncController:
 						)
 						.all()
 					)
+					data = [
+						{
+							'Nombre': v.article.name,
+							'Codigo_Barras': v.barcode or '',
+							'Costo': float(v.cost_price),
+							'Precio_Venta': float(v.selling_price),
+							'Stock': float(
+								sum(s.quantity for s in v.stocks) if v.stocks else 0
+							),
+							'Proveedor': v.article.supplier.name
+							if v.article.supplier
+							else '',
+						}
+						for v in variants
+					] or [
+						{
+							'Nombre': 'Ejemplo Coca Cola',
+							'Codigo_Barras': '779123456',
+							'Costo': 500.0,
+							'Precio_Venta': 800.0,
+							'Stock': 24,
+							'Proveedor': '',
+						}
+					]
 
-					for v in variants:
-						stock_qty = sum(s.quantity for s in v.stocks) if v.stocks else 0
-						data.append(
-							{
-								'Nombre': v.article.name,
-								'Codigo_Barras': v.barcode or '',
-								'Costo': float(v.cost_price),
-								'Precio_Venta': float(v.selling_price),
-								'Stock': float(stock_qty),
-								'Proveedor': v.article.supplier.name
-								if v.article.supplier
-								else '',
-							}
-						)
-
-					# Si no hay datos, creamos una fila de ejemplo
-					if not data:
-						data.append(
-							{
-								'Nombre': 'Ejemplo Coca Cola',
-								'Codigo_Barras': '779123456',
-								'Costo': 500.0,
-								'Precio_Venta': 800.0,
-								'Stock': 24,
-								'Proveedor': '',
-							}
-						)
-
-					df = pd.DataFrame(data)
-					df.to_excel(save_path, index=False, engine='openpyxl')
+					pd.DataFrame(data).to_excel(
+						save_path, index=False, engine='openpyxl'
+					)
 					return True, f'Plantilla de Artículos exportada en:\n{save_path}'
 
-				elif entity_type == 'Clientes':
+				if entity_type == 'Clientes':
 					customers = (
 						session.query(Customer)
 						.filter_by(tenant_id=tenant_id, is_active=True)
@@ -104,15 +99,13 @@ class DataSyncController:
 							'Deuda_Actual': float(c.current_balance),
 						}
 						for c in customers
+					] or [
+						{
+							'Nombre': 'Juan Perez',
+							'Telefono': '1122334455',
+							'Deuda_Actual': 0.0,
+						}
 					]
-					if not data:
-						data.append(
-							{
-								'Nombre': 'Juan Perez',
-								'Telefono': '1122334455',
-								'Deuda_Actual': 0.0,
-							}
-						)
 
 					pd.DataFrame(data).to_excel(
 						save_path, index=False, engine='openpyxl'
@@ -120,41 +113,35 @@ class DataSyncController:
 					return True, f'Plantilla de Clientes exportada en:\n{save_path}'
 
 				return False, 'Tipo de entidad no soportada para exportar.'
-
 		except Exception as e:
 			logger.error(f'Error exportando Excel: {e}', exc_info=True)
 			return False, f'Error al exportar: {e}'
 
-	# ==========================================
-	# IMPORTACIÓN (MOTOR UPSERT)
-	# ==========================================
 	def import_articles_from_excel(self, tenant_id, user_id, file_path):
-		"""Lee el Excel. Si el código existe, actualiza precios. Si no, lo crea."""
+		"""
+		Importa artículos con lógica upsert: actualiza precios si el barcode existe,
+		crea el producto completo si no. Registra cambios de precio en ArticleHistory.
+		Omite filas con datos faltantes, valores negativos o formatos inválidos.
+		"""
 		try:
 			df = pd.read_excel(file_path, engine='openpyxl')
 
-			# Validar columnas obligatorias
-			required_columns = ['Nombre', 'Codigo_Barras', 'Costo', 'Precio_Venta']
-			for col in required_columns:
+			for col in ['Nombre', 'Codigo_Barras', 'Costo', 'Precio_Venta']:
 				if col not in df.columns:
 					return False, f"El Excel no tiene la columna obligatoria: '{col}'."
 
-			df = df.fillna('')  # Rellenar nulos
+			df = df.fillna('')
+			created = updated = 0
 
-			created_count = 0
-			updated_count = 0
-
-			with SessionLocal() as session:
+			with self.SessionLocal() as session:
 				warehouse_id = self._get_default_warehouse(session, tenant_id)
 
-				for index, row in df.iterrows():
+				for _, row in df.iterrows():
 					name = str(row['Nombre']).strip()
-					barcode = (
-						str(row['Codigo_Barras']).strip().replace('.0', '')
-					)  # Limpieza de números de excel
+					barcode = str(row['Codigo_Barras']).strip().replace('.0', '')
 
 					if not name or not barcode:
-						continue  # Saltamos filas vacías
+						continue
 
 					try:
 						cost = Decimal(str(row['Costo']))
@@ -165,10 +152,12 @@ class DataSyncController:
 							else Decimal('0.0')
 						)
 					except (InvalidOperation, TypeError):
-						continue  # Saltamos si los precios no son números
+						continue
 
-					# Buscar si ya existe por código de barras
-					existing_variant = (
+					if cost < 0 or price < 0 or stock_val < 0:
+						continue
+
+					existing = (
 						session.query(ArticleVariant)
 						.join(Article)
 						.filter(
@@ -178,53 +167,71 @@ class DataSyncController:
 						.first()
 					)
 
-					if existing_variant:
-						# ACTUALIZAMOS PRECIOS (No tocamos el stock aquí por seguridad contable)
-						existing_variant.cost_price = cost
-						existing_variant.selling_price = price
-						existing_variant.article.name = name
-						updated_count += 1
+					if existing:
+						session.add(
+							ArticleHistory(
+								tenant_id=tenant_id,
+								user_id=user_id,
+								action_type='IMPORTACIÓN EXCEL',
+								article_name=name,
+								variant_id=existing.id,
+								old_cost=existing.cost_price,
+								new_cost=cost,
+								old_price=existing.selling_price,
+								new_price=price,
+							)
+						)
+						existing.cost_price = cost
+						existing.selling_price = price
+						existing.article.name = name
+						updated += 1
 					else:
-						# CREAMOS PRODUCTO NUEVO
-						new_article = Article(
+						if warehouse_id is None:
+							logger.warning(
+								f'Sin depósito para tenant {tenant_id}. Producto "{name}" omitido.'
+							)
+							continue
+
+						article = Article(
 							name=name, tenant_id=tenant_id, has_variants=False
 						)
-						session.add(new_article)
+						session.add(article)
 						session.flush()
 
-						new_variant = ArticleVariant(
+						variant = ArticleVariant(
 							barcode=barcode,
 							cost_price=cost,
 							selling_price=price,
-							article_id=new_article.id,
+							article_id=article.id,
 						)
-						session.add(new_variant)
+						session.add(variant)
 						session.flush()
 
-						new_stock = Stock(
-							quantity=stock_val,
-							warehouse_id=warehouse_id,
-							variant_id=new_variant.id,
+						session.add(
+							Stock(
+								quantity=stock_val,
+								warehouse_id=warehouse_id,
+								variant_id=variant.id,
+							)
 						)
-						session.add(new_stock)
 
 						if stock_val > 0:
-							mov = StockMovement(
-								movement_type='in',
-								quantity=stock_val,
-								reference='Importación Excel',
-								dest_warehouse_id=warehouse_id,
-								variant_id=new_variant.id,
-								user_id=user_id,
+							session.add(
+								StockMovement(
+									movement_type='in',
+									quantity=stock_val,
+									reference='Importación Excel',
+									dest_warehouse_id=warehouse_id,
+									variant_id=variant.id,
+									user_id=user_id,
+								)
 							)
-							session.add(mov)
-
-						created_count += 1
+						created += 1
 
 				session.commit()
 				return (
 					True,
-					f'Importación exitosa.\n- Productos Creados: {created_count}\n- Precios Actualizados: {updated_count}',
+					f'Importación exitosa.\n- Productos Creados: {created}\n- Precios Actualizados: {updated}',
 				)
 
 		except Exception as e:

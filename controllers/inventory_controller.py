@@ -6,45 +6,24 @@ from sqlalchemy.orm import joinedload, sessionmaker
 from database.models import Article, ArticleVariant, StockMovement
 
 DB_URL = 'sqlite:///pos_system.db'
-engine = create_engine(DB_URL)
-SessionLocal = sessionmaker(bind=engine)
-
+_default_engine = create_engine(DB_URL)
 
 logger = logging.getLogger(__name__)
 
 
 class InventoryController:
 	def __init__(self, db_engine=None):
-		pass
+		engine = db_engine if db_engine is not None else _default_engine
+		self.SessionLocal = sessionmaker(bind=engine)
 
 	def get_kardex(self, tenant_id, page=1, limit=100):
-		"""
-		Obtiene el historial de movimientos de inventario (Kardex).
-		"""
-
+		"""Retorna el kardex paginado del tenant. Hard limit: 1000 registros por página."""
 		try:
-			page = int(page)
-			limit = int(limit)
-
-			# Evitamos números negativos o ceros
-			if page < 1:
-				page = 1
-			if limit < 1:
-				limit = 100
-
-			# Tope máximo inquebrantable (Hard Limit)
-			if limit > 1000:
-				limit = 1000
-
+			page, limit = max(1, int(page)), min(max(1, int(limit)), 1000)
 		except (ValueError, TypeError):
-			# Si nos envían basura (strings, booleanos), usamos valores por defecto
-			page = 1
-			limit = 100
+			page, limit = 1, 100
 
-		# Calculamos el desplazamiento (offset)
-		offset = (page - 1) * limit
-
-		with SessionLocal() as session:
+		with self.SessionLocal() as session:
 			try:
 				movements = (
 					session.query(StockMovement)
@@ -59,10 +38,9 @@ class InventoryController:
 					.filter(Article.tenant_id == tenant_id)
 					.order_by(StockMovement.date.desc())
 					.limit(limit)
-					.offset(offset)
+					.offset((page - 1) * limit)
 					.all()
 				)
-
 				return [
 					{
 						'id': mov.id,
@@ -78,7 +56,6 @@ class InventoryController:
 					}
 					for mov in movements
 				]
-
 			except Exception as e:
 				logger.error(
 					f'Error al obtener Kardex para el tenant {tenant_id}: {e}',

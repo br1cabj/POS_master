@@ -7,21 +7,22 @@ from sqlalchemy.orm import sessionmaker
 from database.models import User
 
 DB_URL = 'sqlite:///pos_system.db'
-engine = create_engine(DB_URL)
-SessionLocal = sessionmaker(bind=engine)
-
+_default_engine = create_engine(DB_URL)
 
 logger = logging.getLogger(__name__)
 
 
 class AuthController:
 	def __init__(self, db_engine=None):
+		engine = db_engine if db_engine is not None else _default_engine
+		self.SessionLocal = sessionmaker(bind=engine)
 		self._dummy_hash = bcrypt.hashpw(b'dummy_password', bcrypt.gensalt())
-		pass
 
 	def login(self, username, password, tenant_id=None):
 		"""
-		Verifica las credenciales del usuario.
+		Autentica al usuario y retorna sus datos, o None si las credenciales son inválidas.
+		Ejecuta bcrypt.checkpw() incluso cuando el usuario no existe para equiparar
+		el tiempo de respuesta y prevenir enumeración de usuarios por timing attack.
 		"""
 		if not username or not password:
 			logger.warning('Intento de login con campos vacíos.')
@@ -29,19 +30,15 @@ class AuthController:
 
 		username_clean = str(username).strip()
 
-		with SessionLocal as session:
+		with self.SessionLocal() as session:
 			try:
 				query = session.query(User).filter_by(
-					username=username_clean,
-					is_active=True,
+					username=username_clean, is_active=True
 				)
-
-				# Si tu app usa el mismo nombre de usuario para distintas empresas:
 				if tenant_id:
 					query = query.filter_by(tenant_id=tenant_id)
 
 				user = query.first()
-
 				password_bytes = str(password).encode('utf-8')
 
 				if user:
@@ -49,32 +46,24 @@ class AuthController:
 					if isinstance(stored_hash, str):
 						stored_hash = stored_hash.encode('utf-8')
 
-					# Verificamos la contraseña real
 					if bcrypt.checkpw(password_bytes, stored_hash):
 						logger.info(
-							f'Login exitoso: {user.username} de la empresa ID {user.tenant_id}'
+							f'Login exitoso: {user.username} — empresa ID {user.tenant_id}'
 						)
-
 						return {
 							'id': user.id,
 							'username': user.username,
 							'tenant_id': user.tenant_id,
-							'role': user.role,  # Sugiero devolver el rol para que el frontend arme el menú
+							'role': user.role,
 						}
 				else:
-					# Si el usuario no existe, calculamos un hash de todas formas
-					# para que la CPU tarde lo mismo y el atacante no pueda medir el tiempo.
 					bcrypt.checkpw(password_bytes, self._dummy_hash)
 
-				# Si falla (ya sea por mala clave o porque no existe), devolvemos el mismo mensaje
-				logger.warning(
-					f'Fallo de autenticación para el usuario: {username_clean}'
-				)
+				logger.warning(f'Fallo de autenticación para: {username_clean}')
 				return None
 
 			except Exception as e:
 				logger.error(
-					f'Error crítico de base de datos durante el login: {e}',
-					exc_info=True,
+					f'Error de base de datos durante el login: {e}', exc_info=True
 				)
 				return None
