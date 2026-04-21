@@ -1,8 +1,10 @@
-import bcrypt
-import customtkinter as ctk
-from sqlalchemy.orm import sessionmaker
+import logging
 
-from database.models import User
+import customtkinter as ctk
+
+from controllers.auth_controller import AuthController
+
+logger = logging.getLogger(__name__)
 
 
 class LoginView(ctk.CTkFrame):
@@ -10,6 +12,7 @@ class LoginView(ctk.CTkFrame):
 		super().__init__(master)
 		self.db_engine = db_engine
 		self.on_login_success = on_login_success
+		self.auth_ctrl = AuthController(db_engine)
 
 		self.grid_rowconfigure(0, weight=1)
 		self.grid_rowconfigure(2, weight=1)
@@ -135,39 +138,20 @@ class LoginView(ctk.CTkFrame):
 		self.btn_login.configure(state='disabled', text='CONECTANDO...')
 		self.after(50, lambda: self._execute_login(tenant_id, user, pwd))
 
-	def _execute_login(self, tenant_id, username, pwd):
-		"""🔐 Verifica las credenciales en la base de datos local"""
-		Session = sessionmaker(bind=self.db_engine)
-
-		with Session() as session:
-			try:
-				# Buscamos al usuario en la base de datos
-				user_obj = (
-					session.query(User)
-					.filter_by(tenant_id=tenant_id, username=username, is_active=True)
-					.first()
-				)
-
-				# Verificamos que exista y que la contraseña encriptada coincida
-				if user_obj and bcrypt.checkpw(
-					pwd.encode('utf-8'), user_obj.password_hash.encode('utf-8')
-				):
-					# Convertimos el objeto de la base de datos a un diccionario para pasarlo al sistema
-					user_dict = {
-						'id': user_obj.id,
-						'tenant_id': user_obj.tenant_id,
-						'username': user_obj.username,
-						'role': user_obj.role,
-					}
-
-					self.on_login_success(user_dict)
-
-				else:
-					self.show_error('Usuario o contraseña incorrectos.')
-
-			except Exception as e:
-				self.show_error('Error de conexión a la base de datos.')
-				print(f'Error Login: {e}')
+	def _execute_login(self, tenant_id: int, username: str, pwd: str):
+		"""
+		Delega la autenticación a AuthController, que incluye protección
+		contra timing attacks y manejo correcto de bytes/str en el hash.
+		"""
+		try:
+			user_dict = self.auth_ctrl.login(username, pwd, tenant_id=tenant_id)
+			if user_dict:
+				self.on_login_success(user_dict)
+			else:
+				self.show_error('Usuario o contraseña incorrectos.')
+		except Exception as e:
+			logger.error(f'Error inesperado durante el login: {e}', exc_info=True)
+			self.show_error('Error de conexión a la base de datos.')
 
 	def show_error(self, message):
 		"""Muestra el mensaje de error y reactiva el botón"""

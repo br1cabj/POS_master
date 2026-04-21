@@ -1,12 +1,11 @@
 import logging
 
-from sqlalchemy import create_engine
 from sqlalchemy.orm import joinedload, sessionmaker
 
 from database.models import Article, ArticleVariant, StockMovement
+from utils.config import make_engine
 
-DB_URL = 'sqlite:///pos_system.db'
-_default_engine = create_engine(DB_URL)
+_default_engine = make_engine()
 
 logger = logging.getLogger(__name__)
 

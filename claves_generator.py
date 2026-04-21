@@ -1,8 +1,11 @@
 import hashlib
+import os
 from datetime import datetime, timedelta
 
-# DEBE SER EXACTAMENTE EL MISMO QUE PUSISTE EN TU PROGRAMA
-SECRET_SALT = 'KioscoPOS_SaaS_2026_Secreto_X99'
+# Lee el salt desde variable de entorno.
+# Define SECRET_SALT en tu .env o en el entorno del sistema.
+# El valor por defecto solo debe usarse en desarrollo local.
+SECRET_SALT = os.getenv('SECRET_SALT', 'KioscoPOS_SaaS_2026_Secreto_X99')
 
 
 def generar_clave(tipo_licencia, dias_duracion):

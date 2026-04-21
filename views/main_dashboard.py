@@ -1,4 +1,8 @@
+import logging
+
 import customtkinter as ctk
+
+logger = logging.getLogger(__name__)
 
 # Importamos todas las vistas
 from views.alerts_view import AlertsView
@@ -239,6 +243,7 @@ class MainDashboard(ctk.CTkFrame):
 		self.lbl_clock = ctk.CTkLabel(
 			self, text='', font=('Arial', 12, 'bold'), text_color='gray'
 		)
+		self._clock_job = None
 		self.update_clock()  # Arrancamos el motor del tiempo en segundo plano
 
 		# Enlazamos las teclas (Le damos 100ms para asegurar que la ventana ya existe)
@@ -260,7 +265,14 @@ class MainDashboard(ctk.CTkFrame):
 
 		current_time = time.strftime('%d/%m/%Y  |  %H:%M:%S')
 		self.lbl_clock.configure(text=current_time)
-		self.after(1000, self.update_clock)
+		self._clock_job = self.after(1000, self.update_clock)
+
+	def destroy(self):
+		"""Cancela el reloj antes de destruir el widget para evitar memory leaks."""
+		if hasattr(self, '_clock_job') and self._clock_job:
+			self.after_cancel(self._clock_job)
+			self._clock_job = None
+		super().destroy()
 
 	def toggle_fullscreen(self, event=None):
 		"""Entra/Sale de pantalla completa y muestra/oculta el reloj"""
@@ -293,9 +305,7 @@ class MainDashboard(ctk.CTkFrame):
 		"""
 		# Verificación de Seguridad para atajos de teclado
 		if requires_admin and not self.is_admin:
-			print(
-				'Acceso denegado: Se requiere rol de administrador.'
-			)  # Podrías usar CTkMessagebox aquí
+			logger.warning('Acceso denegado: se requiere rol de administrador.')
 			return
 
 		# 1. Limpieza profunda

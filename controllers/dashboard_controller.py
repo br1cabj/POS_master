@@ -1,13 +1,13 @@
 import logging
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import create_engine, func
+from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
 from database.models import Sale, SaleDetail
+from utils.config import make_engine
 
-DB_URL = 'sqlite:///pos_system.db'
-_default_engine = create_engine(DB_URL)
+_default_engine = make_engine()
 
 logger = logging.getLogger(__name__)
 

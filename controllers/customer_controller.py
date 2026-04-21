@@ -1,13 +1,14 @@
 import logging
+import re
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database.models import CashMovement, CashSession, Customer
+from utils.config import make_engine
+from utils.shared import parse_decimal
 
-DB_URL = 'sqlite:///pos_system.db'
-_default_engine = create_engine(DB_URL)
+_default_engine = make_engine()
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +19,17 @@ class CustomerController:
 		self.SessionLocal = sessionmaker(bind=engine)
 
 	def _parse_decimal(self, value):
-		try:
-			if isinstance(value, str):
-				value = value.replace(',', '.')
-			return Decimal(str(value))
-		except (ValueError, TypeError, InvalidOperation):
+		return parse_decimal(value, default=None)
+
+	@staticmethod
+	def _validate_phone(phone):
+		"""Valida que el teléfono solo contenga caracteres permitidos. Retorna None si está vacío."""
+		if not phone:
 			return None
+		phone_clean = str(phone).strip()
+		if phone_clean and not re.match(r'^[0-9\s\-\+\(\)]{6,}$', phone_clean):
+			return False
+		return phone_clean
 
 	def get_customers(self, tenant_id):
 		"""Retorna clientes activos del tenant ordenados por nombre."""
@@ -51,7 +57,9 @@ class CustomerController:
 			return False, 'El nombre del cliente es obligatorio.'
 
 		name_clean = str(name).strip()
-		phone_clean = str(phone).strip() if phone else None
+		phone_clean = self._validate_phone(phone)
+		if phone and phone_clean is False:
+			return False, 'Número de teléfono con formato inválido.'
 
 		with self.SessionLocal() as session:
 			try:
@@ -111,6 +119,11 @@ class CustomerController:
 				if not customer:
 					return False, 'Cliente no encontrado o no autorizado.'
 
+				if customer.current_balance < amount_dec:
+					return (
+						False,
+						f'Saldo insuficiente. Saldo actual: ${customer.current_balance:.2f}',
+					)
 				customer.current_balance -= amount_dec
 				session.add(
 					CashMovement(

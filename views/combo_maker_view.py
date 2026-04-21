@@ -5,6 +5,7 @@ from CTkMessagebox import CTkMessagebox
 
 from controllers.article_controller import ArticleController
 from controllers.combo_controller import ComboController
+from utils.styles import apply_treeview_style
 
 
 class ComboMakerView(ctk.CTkFrame):
@@ -129,16 +130,7 @@ class ComboMakerView(ctk.CTkFrame):
 		).pack(pady=10)
 
 		# Usamos Treeview básico para la lista de ingredientes
-		style = ttk.Style()
-		style.theme_use('default')
-		style.configure(
-			'Treeview',
-			background='#2b2b2b',
-			foreground='white',
-			rowheight=30,
-			fieldbackground='#2b2b2b',
-			borderwidth=0,
-		)
+		apply_treeview_style()
 
 		self.tree_recipe = ttk.Treeview(
 			right, columns=('Producto', 'Cantidad'), show='headings', height=10

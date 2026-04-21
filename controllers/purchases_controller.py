@@ -2,7 +2,6 @@ import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import create_engine
 from sqlalchemy.orm import joinedload, sessionmaker
 
 from database.models import (
@@ -17,9 +16,10 @@ from database.models import (
 	Supplier,
 	Warehouse,
 )
+from utils.config import make_engine
+from utils.shared import parse_decimal
 
-DB_URL = 'sqlite:///pos_system.db'
-_default_engine = create_engine(DB_URL)
+_default_engine = make_engine()
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +30,7 @@ class PurchasesController:
 		self.SessionLocal = sessionmaker(bind=engine)
 
 	def _parse_decimal(self, value):
-		try:
-			if isinstance(value, str):
-				value = value.replace(',', '.')
-			return Decimal(str(value))
-		except (ValueError, TypeError, InvalidOperation):
-			return Decimal('0.0')
+		return parse_decimal(value, default=Decimal('0.0'))
 
 	def get_suppliers(self, tenant_id):
 		with self.SessionLocal() as session:

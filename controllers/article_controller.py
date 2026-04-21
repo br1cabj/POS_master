@@ -1,7 +1,6 @@
 import logging
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import create_engine
 from sqlalchemy.orm import joinedload, sessionmaker
 
 from database.models import (
@@ -14,9 +13,10 @@ from database.models import (
 	Supplier,
 	Warehouse,
 )
+from utils.config import make_engine
+from utils.shared import get_or_create_default_warehouse
 
-DB_URL = 'sqlite:///pos_system.db'
-_default_engine = create_engine(DB_URL)
+_default_engine = make_engine()
 
 logger = logging.getLogger(__name__)
 
@@ -27,29 +27,9 @@ class ArticleController:
 		self.SessionLocal = sessionmaker(bind=engine)
 
 	def _get_or_create_default_warehouse(self, session, tenant_id):
-		"""Retorna el ID del depósito general, creando sucursal y depósito si no existen."""
+		"""Delega en la utilidad compartida. Propaga excepción para que el caller haga rollback."""
 		try:
-			branch = (
-				session.query(Branch)
-				.filter_by(tenant_id=tenant_id, name='Sede Principal')
-				.first()
-			)
-			if not branch:
-				branch = Branch(name='Sede Principal', tenant_id=tenant_id)
-				session.add(branch)
-				session.flush()
-
-			warehouse = (
-				session.query(Warehouse)
-				.filter_by(branch_id=branch.id, name='Depósito General')
-				.first()
-			)
-			if not warehouse:
-				warehouse = Warehouse(name='Depósito General', branch_id=branch.id)
-				session.add(warehouse)
-				session.flush()
-
-			return warehouse.id
+			return get_or_create_default_warehouse(session, tenant_id)
 		except Exception as e:
 			logger.error(
 				f'Error al obtener/crear almacén por defecto: {e}', exc_info=True

@@ -1,12 +1,14 @@
 import logging
+import re
 
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database.models import Supplier
+from utils.config import make_engine
 
-DB_URL = 'sqlite:///pos_system.db'
-_default_engine = create_engine(DB_URL)
+_default_engine = make_engine()
+
+_EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +38,24 @@ class SupplierController:
 				logger.error(f'Error al obtener proveedores: {e}', exc_info=True)
 				return []
 
+	@staticmethod
+	def _validate_email(email):
+		"""Retorna el email en minúsculas si es válido, None si está vacío, False si es inválido."""
+		if not email:
+			return None
+		email_clean = str(email).strip().lower()
+		if not _EMAIL_PATTERN.match(email_clean):
+			return False
+		return email_clean
+
 	def save_supplier(self, tenant_id, supplier_id, name, phone, email, address):
 		"""Crea o actualiza un proveedor según si se provee supplier_id."""
 		if not name or not str(name).strip():
 			return False, 'El nombre del proveedor es obligatorio.'
+
+		email_clean = self._validate_email(email)
+		if email and email_clean is False:
+			return False, 'El formato del correo electrónico es inválido.'
 
 		with self.SessionLocal() as session:
 			try:
@@ -53,7 +69,7 @@ class SupplierController:
 						return False, 'Proveedor no encontrado.'
 					supplier.name = str(name).strip()
 					supplier.phone = str(phone).strip() if phone else None
-					supplier.email = str(email).strip() if email else None
+					supplier.email = email_clean
 					supplier.address = str(address).strip() if address else None
 					msg = 'Proveedor actualizado correctamente.'
 				else:
@@ -62,7 +78,7 @@ class SupplierController:
 							tenant_id=tenant_id,
 							name=str(name).strip(),
 							phone=str(phone).strip() if phone else None,
-							email=str(email).strip() if email else None,
+							email=email_clean,
 							address=str(address).strip() if address else None,
 						)
 					)

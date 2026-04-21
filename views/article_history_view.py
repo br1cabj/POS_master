@@ -3,6 +3,7 @@ from tkinter import ttk
 import customtkinter as ctk
 
 from controllers.article_controller import ArticleController
+from utils.styles import apply_treeview_style
 
 
 class ArticleHistoryView(ctk.CTkFrame):
@@ -15,24 +16,7 @@ class ArticleHistoryView(ctk.CTkFrame):
 		self.grid_rowconfigure(1, weight=1)
 
 		# --- ESTILO ---
-		style = ttk.Style()
-		style.theme_use('default')
-		style.configure(
-			'Treeview',
-			background='#2b2b2b',
-			foreground='white',
-			rowheight=30,
-			fieldbackground='#2b2b2b',
-			borderwidth=0,
-		)
-		style.map('Treeview', background=[('selected', '#1f538d')])
-		style.configure(
-			'Treeview.Heading',
-			background='#565b5e',
-			foreground='white',
-			relief='flat',
-			font=('Arial', 10, 'bold'),
-		)
+		apply_treeview_style()
 
 		# --- ENCABEZADO ---
 		header_frame = ctk.CTkFrame(self, fg_color='transparent')
@@ -112,10 +96,11 @@ class ArticleHistoryView(ctk.CTkFrame):
 			old_c, new_c = h.get('old_cost'), h.get('new_cost')
 			old_p, new_p = h.get('old_price'), h.get('new_price')
 
-			cost_str = f'${old_c:.2f} ➔ ${new_c:.2f}' if old_c is not None else '-'
-			price_str = f'${old_p:.2f} ➔ ${new_p:.2f}' if old_p is not None else '-'
+			cost_str = f'${float(old_c):.2f} ➔ ${float(new_c):.2f}' if old_c is not None else '-'
+			price_str = f'${float(old_p):.2f} ➔ ${float(new_p):.2f}' if old_p is not None else '-'
 
-			tag = 'masivo' if h.get('action') == 'AUMENTO MASIVO' else 'manual'
+			action = h.get('action', '')
+			tag = 'masivo' if action in ('AUMENTO MASIVO', 'REDUCCIÓN MASIVA') else 'manual'
 
 			self.tree.insert(
 				'',

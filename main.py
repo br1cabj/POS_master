@@ -1,15 +1,16 @@
+import logging
 import os
 
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
-from sqlalchemy import create_engine
 
 from controllers.license_controller import LicenseController
+from utils.config import make_engine
 from views.login_view import LoginView
 from views.main_dashboard import MainDashboard
 from views.setup_wizard_view import SetupWizard
 
-DB_URL = 'sqlite:///pos_system.db'
+logger = logging.getLogger(__name__)
 
 ctk.set_appearance_mode('Dark')
 ctk.set_default_color_theme('blue')
@@ -23,8 +24,10 @@ class PosApp(ctk.CTk):
 
 		try:
 			self.iconbitmap('icono.ico')
-		except Exception:
-			pass
+		except FileNotFoundError:
+			logger.warning('Archivo de icono no encontrado: icono.ico')
+		except Exception as e:
+			logger.error(f'Error al cargar el icono: {e}')
 
 		self.license_ctrl = LicenseController()
 		self.db_engine = None
@@ -42,7 +45,7 @@ class PosApp(ctk.CTk):
 
 	def _get_or_create_engine(self):
 		if self.db_engine is None:
-			self.db_engine = create_engine(DB_URL)
+			self.db_engine = make_engine()
 		return self.db_engine
 
 	def check_system_state(self):
@@ -73,9 +76,12 @@ class PosApp(ctk.CTk):
 
 	def start_dashboard(self, current_user):
 		self._clear_window()
-		MainDashboard(self, current_user, self._get_or_create_engine()).pack(
-			fill='both', expand=True
-		)
+		MainDashboard(
+			self,
+			current_user,
+			logout_command=self.show_login,
+			db_engine=self._get_or_create_engine(),
+		).pack(fill='both', expand=True)
 
 	def show_license_lock(self, error_type):
 		self._clear_window()

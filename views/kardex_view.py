@@ -3,6 +3,7 @@ from tkinter import ttk
 import customtkinter as ctk
 
 from controllers.inventory_controller import InventoryController
+from utils.styles import apply_treeview_style
 
 
 class KardexView(ctk.CTkFrame):
@@ -17,25 +18,8 @@ class KardexView(ctk.CTkFrame):
 		self.grid_rowconfigure(1, weight=1)
 
 		# --- ESTILO MODERNO PARA LA TABLA ---
-		style = ttk.Style()
-		style.theme_use('default')
-		style.configure(
-			'Treeview',
-			background='#2b2b2b',
-			foreground='white',
-			rowheight=30,
-			fieldbackground='#2b2b2b',
-			borderwidth=0,
-		)
-		style.map('Treeview', background=[('selected', '#1f538d')])
-		style.configure(
-			'Treeview.Heading',
-			background='#565b5e',
-			foreground='white',
-			relief='flat',
-			font=('Arial', 10, 'bold'),
-		)
-		style.map('Treeview.Heading', background=[('active', '#343638')])
+		apply_treeview_style()
+		ttk.Style().map('Treeview.Heading', background=[('active', '#343638')])
 
 		# --- ENCABEZADO Y CONTROLES ---
 		header_frame = ctk.CTkFrame(self, fg_color='transparent')

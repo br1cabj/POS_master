@@ -1,3 +1,4 @@
+import logging
 import os
 import platform
 import subprocess
@@ -5,6 +6,8 @@ from tkinter import filedialog
 
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
+
+logger = logging.getLogger(__name__)
 
 from controllers.data_sync_controller import DataSyncController
 
@@ -147,7 +150,7 @@ class DataSyncView(ctk.CTkFrame):
 					subprocess.call(['xdg-open', file_path])
 			except Exception as e:
 				# Si falla abrir el Excel (ej. no tiene Office instalado), no pasa nada
-				print(f'Nota: No se pudo abrir el archivo automáticamente. {e}')
+				logger.warning(f'No se pudo abrir el archivo automáticamente: {e}')
 		else:
 			CTkMessagebox(title='Error', message=msg, icon='cancel')
 
@@ -210,7 +213,9 @@ class DataSyncView(ctk.CTkFrame):
 					text='Ningún archivo seleccionado', text_color='gray'
 				)
 				self.selected_file = None
+				# Mantener deshabilitado hasta que se seleccione un nuevo archivo
+				self.btn_import.configure(state='disabled', text='🚀 INICIAR IMPORTACIÓN')
 			else:
 				CTkMessagebox(title='Error', message=msg, icon='cancel')
-
-			self.btn_import.configure(state='disabled', text='🚀 INICIAR IMPORTACIÓN')
+				# Re-habilitar para que el usuario pueda reintentar con el mismo archivo
+				self.btn_import.configure(state='normal', text='🚀 INICIAR IMPORTACIÓN')

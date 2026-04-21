@@ -4,6 +4,7 @@ import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
 from controllers.user_controller import UserController
+from utils.styles import apply_treeview_style
 
 
 class UsersView(ctk.CTkFrame):
@@ -17,25 +18,8 @@ class UsersView(ctk.CTkFrame):
 		self.grid_rowconfigure(0, weight=1)
 
 		# --- ESTILO MODERNO PARA LA TABLA ---
-		style = ttk.Style()
-		style.theme_use('default')
-		style.configure(
-			'Treeview',
-			background='#2b2b2b',
-			foreground='white',
-			rowheight=30,
-			fieldbackground='#2b2b2b',
-			borderwidth=0,
-		)
-		style.map('Treeview', background=[('selected', '#1f538d')])
-		style.configure(
-			'Treeview.Heading',
-			background='#565b5e',
-			foreground='white',
-			relief='flat',
-			font=('Arial', 10, 'bold'),
-		)
-		style.map('Treeview.Heading', background=[('active', '#343638')])
+		apply_treeview_style()
+		ttk.Style().map('Treeview.Heading', background=[('active', '#343638')])
 
 		# === PANEL IZQUIERDO: NUEVO EMPLEADO ===
 		self.left_panel = ctk.CTkFrame(self)

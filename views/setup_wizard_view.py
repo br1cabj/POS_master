@@ -1,15 +1,15 @@
+import logging
+
 import bcrypt
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from controllers.license_controller import LicenseController
-
-# Importamos para crear la base de datos de cero
 from database.models import Base, Branch, Tenant, User, Warehouse
+from utils.config import make_engine
 
-DB_URL = 'sqlite:///pos_system.db'
+logger = logging.getLogger(__name__)
 
 
 class SetupWizard(ctk.CTkFrame):
@@ -17,6 +17,7 @@ class SetupWizard(ctk.CTkFrame):
 		super().__init__(master)
 		self.on_complete_callback = on_complete_callback
 		self.license_ctrl = LicenseController()
+		self._busy = False  # Bloqueo anti-doble-clic
 
 		self.pack(fill='both', expand=True, padx=40, pady=40)
 
@@ -74,12 +75,19 @@ class SetupWizard(ctk.CTkFrame):
 		)
 		self.btn_activate.pack()
 
+	def _set_busy(self, busy: bool) -> None:
+		"""Habilita/deshabilita botones durante el proceso de configuración."""
+		self._busy = busy
+		state = 'disabled' if busy else 'normal'
+		self.btn_demo.configure(state=state)
+		self.btn_activate.configure(state=state)
+
 	def _setup_database(self):
 		"""Crea la BD y el usuario administrador físicamente en la PC del cliente"""
 		store_name = self.entry_store.get().strip()
 		password = self.entry_pass.get().strip()
 
-		engine = create_engine(DB_URL)
+		engine = make_engine()
 		Base.metadata.create_all(engine)  # Crea el archivo pos_system.db
 		Session = sessionmaker(bind=engine)
 
@@ -112,6 +120,8 @@ class SetupWizard(ctk.CTkFrame):
 			session.commit()
 
 	def start_demo(self):
+		if self._busy:
+			return
 		if not self.entry_store.get() or not self.entry_pass.get():
 			CTkMessagebox(
 				title='Error',
@@ -120,23 +130,29 @@ class SetupWizard(ctk.CTkFrame):
 			)
 			return
 
+		self._set_busy(True)
 		success, msg = self.license_ctrl.activate_demo()
 		if success:
 			try:
 				self._setup_database()
 				msg_box = CTkMessagebox(title='Listo!!', message=msg, icon='check')
 				msg_box.get()
-				self.after(
-					100, self.on_complete_callback
-				)  # Pasa a la pantalla de Login
+				self.after(100, self.on_complete_callback)
 			except Exception as e:
+				logger.error(f'Error al crear la base de datos: {e}', exc_info=True)
 				CTkMessagebox(
 					title='Error Fatal',
 					message=f'Fallo al crear la base de datos:\n{str(e)}',
 					icon='cancel',
 				)
+				self._set_busy(False)
+		else:
+			CTkMessagebox(title='Error de Licencia', message=msg, icon='cancel')
+			self._set_busy(False)
 
 	def activate_pro(self):
+		if self._busy:
+			return
 		if (
 			not self.entry_store.get()
 			or not self.entry_pass.get()
@@ -149,6 +165,7 @@ class SetupWizard(ctk.CTkFrame):
 			)
 			return
 
+		self._set_busy(True)
 		success, msg = self.license_ctrl.activate_license(
 			self.entry_license.get().strip()
 		)
@@ -159,10 +176,13 @@ class SetupWizard(ctk.CTkFrame):
 				msg_box.get()
 				self.after(100, self.on_complete_callback)
 			except Exception as e:
+				logger.error(f'Error al crear la base de datos: {e}', exc_info=True)
 				CTkMessagebox(
 					title='Error Fatal',
 					message=f'Fallo al crear la base de datos:\n{str(e)}',
 					icon='cancel',
 				)
+				self._set_busy(False)
 		else:
 			CTkMessagebox(title='Licencia Rechazada', message=msg, icon='cancel')
+			self._set_busy(False)

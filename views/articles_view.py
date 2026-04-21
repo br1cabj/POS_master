@@ -1,5 +1,7 @@
 import os
+import platform
 import random
+import subprocess
 from tkinter import ttk
 
 import customtkinter as ctk
@@ -7,6 +9,7 @@ from CTkMessagebox import CTkMessagebox
 
 from controllers.article_controller import ArticleController
 from utils.label_printer import LabelPrinter
+from utils.styles import apply_treeview_style
 
 
 class ArticlesView(ctk.CTkFrame):
@@ -24,24 +27,7 @@ class ArticlesView(ctk.CTkFrame):
 		self.grid_rowconfigure(0, weight=1)
 
 		# --- ESTILO PARA EL TREEVIEW ---
-		style = ttk.Style()
-		style.theme_use('default')
-		style.configure(
-			'Treeview',
-			background='#2b2b2b',
-			foreground='white',
-			rowheight=30,
-			fieldbackground='#2b2b2b',
-			borderwidth=0,
-		)
-		style.map('Treeview', background=[('selected', '#1f538d')])
-		style.configure(
-			'Treeview.Heading',
-			background='#565b5e',
-			foreground='white',
-			relief='flat',
-			font=('Arial', 10, 'bold'),
-		)
+		apply_treeview_style()
 
 		# === PANEL IZQUIERDO: FORMULARIO ===
 		self.left_panel = ctk.CTkFrame(self)
@@ -437,8 +423,16 @@ class ArticlesView(ctk.CTkFrame):
 				message=f'PDF generado correctamente:\n{filename}',
 				icon='check',
 			)
-			os.startfile(filename)  # Abre el PDF automáticamente (En Windows)
-			# Si usas Mac/Linux, usa: os.system(f"open {filename}")
+			# Apertura multiplataforma del PDF
+			try:
+				if platform.system() == 'Windows':
+					os.startfile(filename)
+				elif platform.system() == 'Darwin':
+					subprocess.call(['open', filename], capture_output=True)
+				else:
+					subprocess.call(['xdg-open', filename], capture_output=True)
+			except Exception:
+				pass  # Si no hay visor instalado simplemente no abre
 		except Exception as e:
 			CTkMessagebox(
 				title='Error', message=f'No se pudo generar el PDF: {e}', icon='cancel'

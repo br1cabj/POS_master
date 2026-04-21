@@ -110,14 +110,23 @@ class ReceiptController:
 				return False
 
 			abs_path = os.path.abspath(filepath)
+
+			# Seguridad: verificar que el archivo esté dentro del directorio permitido
+			allowed_dir = os.path.abspath(self.receipts_dir)
+			if not abs_path.startswith(allowed_dir + os.sep) and abs_path != allowed_dir:
+				logger.error(
+					f'Intento de acceso a archivo fuera del directorio de recibos: {filepath}'
+				)
+				return False
+
 			os_name = platform.system()
 
 			if os_name == 'Windows':
 				os.startfile(abs_path, 'open')
 			elif os_name == 'Darwin':
-				subprocess.run(['open', abs_path], check=True)
+				subprocess.run(['open', abs_path], check=True, capture_output=True)
 			else:
-				subprocess.run(['xdg-open', abs_path], check=True)
+				subprocess.run(['xdg-open', abs_path], check=True, capture_output=True)
 
 			return True
 		except Exception as e:

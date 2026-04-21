@@ -5,6 +5,7 @@ import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
 from controllers.article_controller import ArticleController
+from utils.styles import apply_treeview_style
 
 
 class PriceUpdateView(ctk.CTkFrame):
@@ -20,25 +21,7 @@ class PriceUpdateView(ctk.CTkFrame):
 		self.grid_columnconfigure(1, weight=3)
 		self.grid_rowconfigure(0, weight=1)
 
-		# --- ESTILO DE TABLA ---
-		style = ttk.Style()
-		style.theme_use('default')
-		style.configure(
-			'Treeview',
-			background='#2b2b2b',
-			foreground='white',
-			rowheight=30,
-			fieldbackground='#2b2b2b',
-			borderwidth=0,
-		)
-		style.map('Treeview', background=[('selected', '#1f538d')])
-		style.configure(
-			'Treeview.Heading',
-			background='#565b5e',
-			foreground='white',
-			relief='flat',
-			font=('Arial', 10, 'bold'),
-		)
+		apply_treeview_style()
 
 		# === PANEL IZQUIERDO: CONTROLES DE INFLACIÓN ===
 		self.left_panel = ctk.CTkFrame(self)

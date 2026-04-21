@@ -2,7 +2,6 @@ import logging
 from decimal import Decimal, InvalidOperation
 
 import pandas as pd
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database.models import (
@@ -15,9 +14,9 @@ from database.models import (
 	StockMovement,
 	Warehouse,
 )
+from utils.config import make_engine
 
-DB_URL = 'sqlite:///pos_system.db'
-_default_engine = create_engine(DB_URL)
+_default_engine = make_engine()
 
 logger = logging.getLogger(__name__)
 

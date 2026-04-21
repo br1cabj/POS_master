@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import customtkinter as ctk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -10,6 +11,8 @@ class HomeView(ctk.CTkFrame):
 		super().__init__(master)
 		self.current_user = current_user
 		self.controller = DashboardController(db_engine)
+		self._fig = None
+		self.canvas_widget = None
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=1)
@@ -150,6 +153,10 @@ class HomeView(ctk.CTkFrame):
 		if self.canvas_widget:
 			self.canvas_widget.destroy()
 			self.canvas_widget = None
+		# Cerrar figura anterior en el gestor de matplotlib para liberar memoria
+		if hasattr(self, '_fig') and self._fig is not None:
+			plt.close(self._fig)
+			self._fig = None
 
 		# Limpiar etiquetas previas en el frame del gráfico
 		for widget in self.chart_frame.winfo_children():
@@ -166,7 +173,8 @@ class HomeView(ctk.CTkFrame):
 			).place(relx=0.5, rely=0.5, anchor='center')
 			return
 
-		fig = Figure(figsize=(6, 3.5), dpi=100)
+		self._fig = Figure(figsize=(6, 3.5), dpi=100)
+		fig = self._fig
 		fig.patch.set_facecolor('#2B2B2B')
 
 		ax = fig.add_subplot(111)
@@ -233,3 +241,10 @@ class HomeView(ctk.CTkFrame):
 				font=('Arial', 14, 'bold'),
 				text_color='#00aaff',
 			).pack(side='right')
+
+	def destroy(self):
+		"""Cierra la figura de matplotlib antes de destruir el widget."""
+		if hasattr(self, '_fig') and self._fig is not None:
+			plt.close(self._fig)
+			self._fig = None
+		super().destroy()

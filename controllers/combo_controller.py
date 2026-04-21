@@ -1,13 +1,13 @@
 import logging
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database.models import Article, ArticleVariant, Branch, ComboItem, Warehouse
+from utils.config import make_engine
+from utils.shared import get_or_create_default_warehouse
 
-DB_URL = 'sqlite:///pos_system.db'
-_default_engine = create_engine(DB_URL)
+_default_engine = make_engine()
 
 logger = logging.getLogger(__name__)
 
@@ -16,29 +16,6 @@ class ComboController:
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
 		self.SessionLocal = sessionmaker(bind=engine)
-
-	def _get_or_create_default_warehouse(self, session, tenant_id):
-		branch = (
-			session.query(Branch)
-			.filter_by(tenant_id=tenant_id, name='Sede Principal')
-			.first()
-		)
-		if not branch:
-			branch = Branch(name='Sede Principal', tenant_id=tenant_id)
-			session.add(branch)
-			session.flush()
-
-		warehouse = (
-			session.query(Warehouse)
-			.filter_by(branch_id=branch.id, name='Depósito General')
-			.first()
-		)
-		if not warehouse:
-			warehouse = Warehouse(name='Depósito General', branch_id=branch.id)
-			session.add(warehouse)
-			session.flush()
-
-		return warehouse.id
 
 	def create_combo(self, tenant_id, name, price, btn_color, ingredients_list):
 		"""
@@ -66,18 +43,9 @@ class ComboController:
 				session.add(article)
 				session.flush()
 
-				combo_variant = ArticleVariant(
-					article_id=article.id,
-					barcode=None,
-					cost_price=Decimal('0.0'),
-					selling_price=price,
-					is_combo=True,
-					show_on_touch=True,
-					btn_color=btn_color,
-				)
-				session.add(combo_variant)
-				session.flush()
-
+				# Calcular el costo real del combo sumando ingredientes antes de crear la variante
+				combo_cost = Decimal('0.0')
+				validated_items = []
 				for item in ingredients_list:
 					try:
 						qty = Decimal(str(item['qty']))
@@ -92,10 +60,28 @@ class ComboController:
 							'La cantidad de cada ingrediente debe ser mayor a cero.',
 						)
 
+					ing_variant = session.get(ArticleVariant, item['variant_id'])
+					if ing_variant:
+						combo_cost += ing_variant.cost_price * qty
+					validated_items.append((item['variant_id'], qty))
+
+				combo_variant = ArticleVariant(
+					article_id=article.id,
+					barcode=None,
+					cost_price=combo_cost,
+					selling_price=price,
+					is_combo=True,
+					show_on_touch=True,
+					btn_color=btn_color,
+				)
+				session.add(combo_variant)
+				session.flush()
+
+				for variant_id, qty in validated_items:
 					session.add(
 						ComboItem(
 							combo_id=combo_variant.id,
-							ingredient_id=item['variant_id'],
+							ingredient_id=variant_id,
 							quantity_required=qty,
 						)
 					)

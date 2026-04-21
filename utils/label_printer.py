@@ -1,9 +1,12 @@
 # utils/label_printer.py
+import logging
 import os
 
 import barcode
 from barcode.writer import ImageWriter
 from fpdf import FPDF
+
+logger = logging.getLogger(__name__)
 
 
 class LabelPrinter:
@@ -76,6 +79,12 @@ class LabelPrinter:
 		return filename
 
 	def _cleanup_temp_files(self):
-		for file in os.listdir(self.temp_dir):
-			if file.endswith('.png'):
-				os.remove(os.path.join(self.temp_dir, file))
+		try:
+			for file in os.listdir(self.temp_dir):
+				if file.endswith('.png'):
+					try:
+						os.remove(os.path.join(self.temp_dir, file))
+					except OSError as e:
+						logger.warning(f'No se pudo eliminar archivo temporal: {file} — {e}')
+		except Exception as e:
+			logger.error(f'Error al limpiar archivos temporales: {e}', exc_info=True)

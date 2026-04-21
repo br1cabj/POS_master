@@ -4,13 +4,14 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from fpdf import FPDF
-from sqlalchemy import create_engine, func
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload, sessionmaker
 
 from database.models import CashMovement, CashSession
+from utils.config import make_engine
+from utils.shared import parse_decimal
 
-DB_URL = 'sqlite:///pos_system.db'
-_default_engine = create_engine(DB_URL)
+_default_engine = make_engine()
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +24,7 @@ class CashController:
 		os.makedirs(self.reports_dir, exist_ok=True)
 
 	def _parse_decimal(self, value):
-		try:
-			if isinstance(value, str):
-				value = value.replace(',', '.')
-			return Decimal(str(value))
-		except (ValueError, TypeError, InvalidOperation):
-			return None
+		return parse_decimal(value, default=None)
 
 	def get_active_session(self, tenant_id, user_id):
 		"""Retorna la sesión de caja abierta del usuario, o None si no hay ninguna."""
@@ -46,9 +42,7 @@ class CashController:
 					'tenant_id': active.tenant_id,
 					'user_id': active.user_id,
 					'opening_balance': active.opening_balance,
-					'opening_time': active.opened_at
-					if hasattr(active, 'opened_at')
-					else active.opening_time,
+					'opening_time': active.opened_at,
 				}
 			except Exception as e:
 				logger.error(
@@ -67,11 +61,14 @@ class CashController:
 
 		with self.SessionLocal() as session:
 			try:
-				if (
+				# with_for_update() evita race condition si dos procesos abren caja simultáneamente
+				existing = (
 					session.query(CashSession)
 					.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
+					.with_for_update()
 					.first()
-				):
+				)
+				if existing:
 					return False, 'Ya tienes una caja abierta.'
 
 				session.add(

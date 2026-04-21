@@ -1,9 +1,10 @@
+import base64
 import hashlib
 import json
 import os
 from datetime import datetime, timedelta
 
-SECRET_SALT = 'KioscoPOS_SaaS_2026_Secreto_X99'
+from utils.config import SECRET_SALT
 
 
 class LicenseController:
@@ -14,6 +15,22 @@ class LicenseController:
 		raw = f'{license_type}|{expiration_date}|{SECRET_SALT}'
 		return hashlib.sha256(raw.encode('utf-8')).hexdigest()[:16]
 
+	def _write_license(self, data: dict):
+		"""Serializa la licencia a JSON y la guarda codificada en base64 para dificultar edición manual."""
+		encoded = base64.b64encode(json.dumps(data).encode('utf-8')).decode('utf-8')
+		with open(self.license_file, 'w') as f:
+			f.write(encoded)
+
+	def _read_license(self) -> dict:
+		"""Lee y decodifica el archivo de licencia. Lanza ValueError si está corrupto."""
+		with open(self.license_file, 'r') as f:
+			raw = f.read().strip()
+		try:
+			decoded = base64.b64decode(raw.encode('utf-8')).decode('utf-8')
+			return json.loads(decoded)
+		except Exception:
+			raise ValueError('Archivo de licencia corrupto o en formato inválido.')
+
 	def activate_demo(self):
 		"""Activa una licencia de prueba válida por 7 días."""
 		expire_date = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
@@ -22,8 +39,7 @@ class LicenseController:
 			'expiration': expire_date,
 			'signature': self._generate_signature('DEMO', expire_date),
 		}
-		with open(self.license_file, 'w') as f:
-			json.dump(data, f)
+		self._write_license(data)
 		return True, '¡Demo de 7 días activada con éxito!'
 
 	def activate_license(self, license_key):
@@ -47,9 +63,7 @@ class LicenseController:
 				'expiration': '2099-12-31' if l_type == 'FULL' else exp_date,
 				'signature': self._generate_signature(l_type, exp_date),
 			}
-			with open(self.license_file, 'w') as f:
-				json.dump(data, f)
-
+			self._write_license(data)
 			return True, f'¡Licencia {l_type} activada exitosamente!'
 		except Exception:
 			return False, 'Error al procesar la licencia.'
@@ -60,8 +74,12 @@ class LicenseController:
 			return False, 'NO_LICENSE'
 
 		try:
-			with open(self.license_file, 'r') as f:
-				data = json.load(f)
+			data = self._read_license()
+
+			# Verificar integridad de la firma
+			expected_sig = self._generate_signature(data['type'], data['expiration'])
+			if data.get('signature') != expected_sig:
+				return False, 'CORRUPT_LICENSE'
 
 			if data['type'] == 'FULL':
 				return True, 'VITALICIA'
@@ -72,5 +90,7 @@ class LicenseController:
 
 			dias_restantes = (exp_date - datetime.now()).days
 			return True, f'{data["type"]} ({dias_restantes} días restantes)'
+		except ValueError:
+			return False, 'CORRUPT_LICENSE'
 		except Exception:
 			return False, 'CORRUPT_LICENSE'

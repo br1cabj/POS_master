@@ -5,6 +5,7 @@ import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
 from controllers.sales_controller import SalesController
+from utils.styles import apply_treeview_style
 
 
 class SalesView(ctk.CTkFrame):
@@ -20,25 +21,8 @@ class SalesView(ctk.CTkFrame):
 		self.grid_rowconfigure(0, weight=1)
 
 		# === ESTILO MODERNO PARA LA TABLA ===
-		style = ttk.Style()
-		style.theme_use('default')
-		style.configure(
-			'Treeview',
-			background='#2b2b2b',
-			foreground='white',
-			rowheight=30,
-			fieldbackground='#2b2b2b',
-			borderwidth=0,
-		)
-		style.map('Treeview', background=[('selected', '#1f538d')])
-		style.configure(
-			'Treeview.Heading',
-			background='#565b5e',
-			foreground='white',
-			relief='flat',
-			font=('Arial', 10, 'bold'),
-		)
-		style.map('Treeview.Heading', background=[('active', '#343638')])
+		apply_treeview_style()
+		ttk.Style().map('Treeview.Heading', background=[('active', '#343638')])
 
 		# ==========================================
 		# PANEL IZQUIERDO: LECTOR Y BÚSQUEDA MANUAL
@@ -452,7 +436,7 @@ class SalesView(ctk.CTkFrame):
 
 			subtotal = price * qty_to_add
 			qty_visual = (
-				f'{int(qty_to_add)}' if qty_to_add % 1 == 0 else f'{qty_to_add:.2f}'
+				f'{int(qty_to_add)}' if qty_to_add % 1 == 0 else f'{qty_to_add:.3f}'
 			)
 
 			item_id = self.tree.insert(
