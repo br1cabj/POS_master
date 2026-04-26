@@ -126,6 +126,7 @@ class ArticleVariant(Base):
 
 	cost_price = Column(Numeric(10, 2), nullable=False)
 	selling_price = Column(Numeric(10, 2), nullable=False)
+	cost_price_usd = Column(Numeric(10, 4), nullable=True, default=None)
 	is_active = Column(Boolean, default=True)
 
 	article_id = Column(Integer, ForeignKey('articles.id'), nullable=False, index=True)

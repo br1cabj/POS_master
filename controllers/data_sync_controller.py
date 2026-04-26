@@ -2,8 +2,8 @@ import logging
 from decimal import Decimal, InvalidOperation
 
 import pandas as pd
-from sqlalchemy.orm import sessionmaker
 
+from controllers.base import BaseController
 from database.models import (
 	Article,
 	ArticleHistory,
@@ -18,13 +18,11 @@ from utils.config import make_engine
 
 _default_engine = make_engine()
 
-logger = logging.getLogger(__name__)
 
-
-class DataSyncController:
+class DataSyncController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
-		self.SessionLocal = sessionmaker(bind=engine)
+		super().__init__(engine)
 
 	def _get_default_warehouse(self, session, tenant_id):
 		branch = (
@@ -44,7 +42,7 @@ class DataSyncController:
 	def export_template(self, tenant_id, entity_type, save_path):
 		"""Exporta artículos o clientes a Excel. Incluye fila de ejemplo si no hay datos."""
 		try:
-			with self.SessionLocal() as session:
+			with self._Session() as session:
 				if entity_type == 'Artículos':
 					variants = (
 						session.query(ArticleVariant)
@@ -132,7 +130,7 @@ class DataSyncController:
 			df = df.fillna('')
 			created = updated = 0
 
-			with self.SessionLocal() as session:
+			with self._Session() as session:
 				warehouse_id = self._get_default_warehouse(session, tenant_id)
 
 				for _, row in df.iterrows():

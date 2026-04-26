@@ -1,8 +1,9 @@
 import logging
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy.orm import joinedload, sessionmaker
+from sqlalchemy.orm import joinedload
 
+from controllers.base import BaseController
 from database.models import (
 	Article,
 	ArticleHistory,
@@ -18,13 +19,11 @@ from utils.shared import get_or_create_default_warehouse
 
 _default_engine = make_engine()
 
-logger = logging.getLogger(__name__)
 
-
-class ArticleController:
+class ArticleController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
-		self.SessionLocal = sessionmaker(bind=engine)
+		super().__init__(engine)
 
 	def _get_or_create_default_warehouse(self, session, tenant_id):
 		"""Delega en la utilidad compartida. Propaga excepción para que el caller haga rollback."""
@@ -38,7 +37,7 @@ class ArticleController:
 
 	def get_suppliers_for_combo(self, tenant_id):
 		"""Retorna proveedores activos formateados para un widget de selección."""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				return [
 					{'id': s.id, 'name': s.name}
@@ -52,7 +51,7 @@ class ArticleController:
 
 	def get_all_variants(self, tenant_id):
 		"""Retorna todas las variantes activas con stock total acumulado y datos del proveedor."""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				variants = (
 					session.query(ArticleVariant)
@@ -118,7 +117,7 @@ class ArticleController:
 		if initial_stock < 0 or cost_price < 0 or selling_price < 0:
 			return False, 'Los precios y el stock no pueden ser negativos.'
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				exists = (
 					session.query(ArticleVariant)
@@ -205,7 +204,7 @@ class ArticleController:
 		if cost_price < 0 or selling_price < 0:
 			return False, 'Los precios no pueden ser negativos.'
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				variant = (
 					session.query(ArticleVariant)
@@ -253,7 +252,7 @@ class ArticleController:
 
 	def delete_variant(self, tenant_id, variant_id):
 		"""Baja lógica de la variante. Emite warning si tiene stock positivo."""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				variant = (
 					session.query(ArticleVariant)
@@ -290,7 +289,7 @@ class ArticleController:
 		if not changes_list:
 			return False, 'No hay cambios para aplicar.'
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				updated = 0
 				for item in changes_list:
@@ -353,7 +352,7 @@ class ArticleController:
 
 	def get_price_history(self, tenant_id):
 		"""Retorna las últimas 100 modificaciones de precios ordenadas por fecha descendente."""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				return [
 					{

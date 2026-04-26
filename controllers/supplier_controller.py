@@ -1,8 +1,7 @@
 import logging
 import re
 
-from sqlalchemy.orm import sessionmaker
-
+from controllers.base import BaseController
 from database.models import Supplier
 from utils.config import make_engine
 
@@ -10,16 +9,14 @@ _default_engine = make_engine()
 
 _EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 
-logger = logging.getLogger(__name__)
 
-
-class SupplierController:
+class SupplierController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
-		self.SessionLocal = sessionmaker(bind=engine)
+		super().__init__(engine)
 
 	def get_all_suppliers(self, tenant_id):
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				return [
 					{
@@ -57,7 +54,7 @@ class SupplierController:
 		if email and email_clean is False:
 			return False, 'El formato del correo electrónico es inválido.'
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				if supplier_id:
 					supplier = (
@@ -93,7 +90,7 @@ class SupplierController:
 
 	def delete_supplier(self, tenant_id, supplier_id):
 		"""Baja lógica del proveedor para preservar historial de compras."""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				supplier = (
 					session.query(Supplier)

@@ -2,24 +2,22 @@ import logging
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import func
-from sqlalchemy.orm import sessionmaker
 
+from controllers.base import BaseController
 from database.models import Sale, SaleDetail
 from utils.config import make_engine
 
 _default_engine = make_engine()
 
-logger = logging.getLogger(__name__)
 
-
-class DashboardController:
+class DashboardController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
-		self.SessionLocal = sessionmaker(bind=engine)
+		super().__init__(engine)
 
 	def get_today_stats(self, tenant_id):
 		"""Retorna (total_ventas, total_ganancia, cantidad_tickets) de ventas completadas del día."""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				today = date.today()
 				result = (
@@ -47,7 +45,7 @@ class DashboardController:
 
 	def get_weekly_sales(self, tenant_id):
 		"""Retorna (etiquetas, valores) con el total de ventas completadas de los últimos 7 días."""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				today = date.today()
 				daily_totals = {
@@ -82,7 +80,7 @@ class DashboardController:
 
 	def get_top_products(self, tenant_id, limit=5):
 		"""Retorna los N productos más vendidos por cantidad en todo el historial."""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				return [
 					{'description': item[0], 'quantity': float(item[1])}

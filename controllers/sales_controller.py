@@ -2,8 +2,9 @@ import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy.orm import joinedload, sessionmaker
+from sqlalchemy.orm import joinedload
 
+from controllers.base import BaseController
 from database.models import (
 	Article,
 	ArticleVariant,
@@ -21,13 +22,11 @@ from utils.shared import parse_decimal
 
 _default_engine = make_engine()
 
-logger = logging.getLogger(__name__)
 
-
-class SalesController:
+class SalesController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
-		self.SessionLocal = sessionmaker(bind=engine)
+		super().__init__(engine)
 
 	def _parse_decimal(self, value):
 		return parse_decimal(value, default=Decimal('0.0'))
@@ -37,7 +36,7 @@ class SalesController:
 		Retorna el catálogo activo con stock calculado.
 		Para combos, el stock virtual es el mínimo de unidades armables según ingredientes.
 		"""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				variants = (
 					session.query(ArticleVariant)
@@ -101,7 +100,7 @@ class SalesController:
 				return []
 
 	def get_customers(self, tenant_id):
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				return [
 					{'id': c.id, 'name': c.name, 'current_balance': c.current_balance}
@@ -115,7 +114,7 @@ class SalesController:
 				return []
 
 	def get_history(self, tenant_id, limit=500):
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				return [
 					{
@@ -142,7 +141,7 @@ class SalesController:
 				return []
 
 	def get_sale_details(self, tenant_id, sale_id):
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				return [
 					{
@@ -179,7 +178,7 @@ class SalesController:
 		if not cart_items:
 			return False, 'El carrito está vacío.'
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				active_cash = (
 					session.query(CashSession)

@@ -2,8 +2,9 @@ import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy.orm import joinedload, sessionmaker
+from sqlalchemy.orm import joinedload
 
+from controllers.base import BaseController
 from database.models import (
 	Article,
 	ArticleVariant,
@@ -21,19 +22,17 @@ from utils.shared import parse_decimal
 
 _default_engine = make_engine()
 
-logger = logging.getLogger(__name__)
 
-
-class PurchasesController:
+class PurchasesController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
-		self.SessionLocal = sessionmaker(bind=engine)
+		super().__init__(engine)
 
 	def _parse_decimal(self, value):
 		return parse_decimal(value, default=Decimal('0.0'))
 
 	def get_suppliers(self, tenant_id):
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				return [
 					{'id': s.id, 'name': s.name, 'phone': s.phone, 'email': s.email}
@@ -46,7 +45,7 @@ class PurchasesController:
 				return []
 
 	def get_variants(self, tenant_id):
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				return [
 					{
@@ -82,7 +81,7 @@ class PurchasesController:
 		if not cart_items:
 			return False, 'El carrito de compras está vacío.'
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				active_cash = (
 					session.query(CashSession)

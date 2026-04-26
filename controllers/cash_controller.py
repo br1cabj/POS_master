@@ -5,21 +5,20 @@ from decimal import Decimal, InvalidOperation
 
 from fpdf import FPDF
 from sqlalchemy import func
-from sqlalchemy.orm import joinedload, sessionmaker
+from sqlalchemy.orm import joinedload
 
+from controllers.base import BaseController
 from database.models import CashMovement, CashSession
 from utils.config import make_engine
 from utils.shared import parse_decimal
 
 _default_engine = make_engine()
 
-logger = logging.getLogger(__name__)
 
-
-class CashController:
+class CashController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
-		self.SessionLocal = sessionmaker(bind=engine)
+		super().__init__(engine)
 		self.reports_dir = 'reportes_caja'
 		os.makedirs(self.reports_dir, exist_ok=True)
 
@@ -28,7 +27,7 @@ class CashController:
 
 	def get_active_session(self, tenant_id, user_id):
 		"""Retorna la sesión de caja abierta del usuario, o None si no hay ninguna."""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				active = (
 					session.query(CashSession)
@@ -59,7 +58,7 @@ class CashController:
 				'El monto de apertura debe ser un número válido y no negativo.',
 			)
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				# with_for_update() evita race condition si dos procesos abren caja simultáneamente
 				existing = (
@@ -97,7 +96,7 @@ class CashController:
 		if parsed_declared is None or parsed_declared < Decimal('0.0'):
 			return False, 'El monto declarado debe ser un número válido y no negativo.'
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				cash_session = (
 					session.query(CashSession)
@@ -162,7 +161,7 @@ class CashController:
 
 	def get_session_summary(self, tenant_id, session_id):
 		"""Retorna (ventas, ingresos, gastos) como Decimals para la sesión indicada."""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				if (
 					not session.query(CashSession)
@@ -206,7 +205,7 @@ class CashController:
 		if not description or not str(description).strip():
 			return False, 'La descripción del movimiento es obligatoria.'
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				cash_session = (
 					session.query(CashSession)

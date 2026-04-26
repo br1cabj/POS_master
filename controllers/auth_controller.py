@@ -1,20 +1,18 @@
 import logging
 
 import bcrypt
-from sqlalchemy.orm import sessionmaker
 
+from controllers.base import BaseController
 from database.models import User
 from utils.config import make_engine
 
 _default_engine = make_engine()
 
-logger = logging.getLogger(__name__)
 
-
-class AuthController:
+class AuthController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
-		self.SessionLocal = sessionmaker(bind=engine)
+		super().__init__(engine)
 		self._dummy_hash = bcrypt.hashpw(b'dummy_password', bcrypt.gensalt())
 
 	def login(self, username, password, tenant_id=None):
@@ -29,7 +27,7 @@ class AuthController:
 
 		username_clean = str(username).strip()
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				query = session.query(User).filter_by(
 					username=username_clean, is_active=True

@@ -1,24 +1,22 @@
 import logging
 
 from sqlalchemy import func
-from sqlalchemy.orm import sessionmaker
 
+from controllers.base import BaseController
 from database.models import Article, ArticleVariant, Stock
 from utils.config import make_engine
 
 _default_engine = make_engine()
 
-logger = logging.getLogger(__name__)
 
-
-class AlertsController:
+class AlertsController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
-		self.SessionLocal = sessionmaker(bind=engine)
+		super().__init__(engine)
 
 	def get_low_stock_variants(self, tenant_id, threshold=5):
 		"""Retorna variantes activas con stock total <= threshold, ordenadas de menor a mayor."""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				return [
 					{

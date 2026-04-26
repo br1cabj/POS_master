@@ -2,21 +2,18 @@ import logging
 import re
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy.orm import sessionmaker
-
+from controllers.base import BaseController
 from database.models import CashMovement, CashSession, Customer
 from utils.config import make_engine
 from utils.shared import parse_decimal
 
 _default_engine = make_engine()
 
-logger = logging.getLogger(__name__)
 
-
-class CustomerController:
+class CustomerController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
-		self.SessionLocal = sessionmaker(bind=engine)
+		super().__init__(engine)
 
 	def _parse_decimal(self, value):
 		return parse_decimal(value, default=None)
@@ -33,7 +30,7 @@ class CustomerController:
 
 	def get_customers(self, tenant_id):
 		"""Retorna clientes activos del tenant ordenados por nombre."""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				return [
 					{
@@ -61,7 +58,7 @@ class CustomerController:
 		if phone and phone_clean is False:
 			return False, 'Número de teléfono con formato inválido.'
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				exist = (
 					session.query(Customer)
@@ -100,7 +97,7 @@ class CustomerController:
 		if amount_dec is None or amount_dec <= Decimal('0.0'):
 			return False, 'El monto a abonar debe ser un número válido mayor a cero.'
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				active_cash = (
 					session.query(CashSession)

@@ -1,21 +1,18 @@
 import logging
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy.orm import sessionmaker
-
+from controllers.base import BaseController
 from database.models import Article, ArticleVariant, Branch, ComboItem, Warehouse
 from utils.config import make_engine
 from utils.shared import get_or_create_default_warehouse
 
 _default_engine = make_engine()
 
-logger = logging.getLogger(__name__)
 
-
-class ComboController:
+class ComboController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
-		self.SessionLocal = sessionmaker(bind=engine)
+		super().__init__(engine)
 
 	def create_combo(self, tenant_id, name, price, btn_color, ingredients_list):
 		"""
@@ -35,7 +32,7 @@ class ComboController:
 		if price < Decimal('0.0'):
 			return False, 'El precio no puede ser negativo.'
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				article = Article(
 					name=str(name).strip(), tenant_id=tenant_id, has_variants=False
@@ -95,7 +92,7 @@ class ComboController:
 
 	def toggle_touch_status(self, tenant_id, variant_id, show_on_touch, btn_color):
 		"""Activa o desactiva la visibilidad de un producto en la botonera táctil."""
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				variant = (
 					session.query(ArticleVariant)

@@ -1,25 +1,23 @@
 import logging
 
 import bcrypt
-from sqlalchemy.orm import sessionmaker
 
+from controllers.base import BaseController
 from database.models import User
 from utils.config import make_engine
 
 _default_engine = make_engine()
 
-logger = logging.getLogger(__name__)
-
 ALLOWED_ROLES = ['admin', 'cajero', 'gerente']
 
 
-class UserController:
+class UserController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
-		self.SessionLocal = sessionmaker(bind=engine)
+		super().__init__(engine)
 
 	def get_users(self, tenant_id):
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				return [
 					{'id': u.id, 'username': u.username, 'role': u.role}
@@ -43,7 +41,7 @@ class UserController:
 		if role_clean not in ALLOWED_ROLES:
 			return False, 'Rol inválido o no permitido en el sistema.'
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				hashed_pw = bcrypt.hashpw(
 					str(password).encode('utf-8'), bcrypt.gensalt()
@@ -91,7 +89,7 @@ class UserController:
 				'No puedes eliminar tu propia cuenta mientras tienes la sesión iniciada.',
 			)
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				user = (
 					session.query(User)

@@ -1,19 +1,18 @@
 import logging
 
-from sqlalchemy.orm import joinedload, sessionmaker
+from sqlalchemy.orm import joinedload
 
+from controllers.base import BaseController
 from database.models import Article, ArticleVariant, StockMovement
 from utils.config import make_engine
 
 _default_engine = make_engine()
 
-logger = logging.getLogger(__name__)
 
-
-class InventoryController:
+class InventoryController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
-		self.SessionLocal = sessionmaker(bind=engine)
+		super().__init__(engine)
 
 	def get_kardex(self, tenant_id, page=1, limit=100):
 		"""Retorna el kardex paginado del tenant. Hard limit: 1000 registros por página."""
@@ -22,7 +21,7 @@ class InventoryController:
 		except (ValueError, TypeError):
 			page, limit = 1, 100
 
-		with self.SessionLocal() as session:
+		with self._Session() as session:
 			try:
 				movements = (
 					session.query(StockMovement)

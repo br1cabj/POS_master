@@ -5,7 +5,10 @@ import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
 from controllers.license_controller import LicenseController
+from core.context import AppContext
 from utils.config import make_engine
+from database.migrations import run_migrations
+from utils.settings_manager import SettingsManager
 from views.login_view import LoginView
 from views.main_dashboard import MainDashboard
 from views.setup_wizard_view import SetupWizard
@@ -46,6 +49,7 @@ class PosApp(ctk.CTk):
 	def _get_or_create_engine(self):
 		if self.db_engine is None:
 			self.db_engine = make_engine()
+			run_migrations(self.db_engine)
 		return self.db_engine
 
 	def check_system_state(self):
@@ -76,11 +80,15 @@ class PosApp(ctk.CTk):
 
 	def start_dashboard(self, current_user):
 		self._clear_window()
+		ctx = AppContext(
+			db_engine=self._get_or_create_engine(),
+			current_user=current_user,
+			settings=SettingsManager(),
+		)
 		MainDashboard(
 			self,
-			current_user,
+			ctx=ctx,
 			logout_command=self.show_login,
-			db_engine=self._get_or_create_engine(),
 		).pack(fill='both', expand=True)
 
 	def show_license_lock(self, error_type):
