@@ -7,6 +7,8 @@ from database.models import CashMovement, CashSession, Customer
 from utils.config import make_engine
 from utils.shared import parse_decimal
 
+logger = logging.getLogger(__name__)
+
 _default_engine = make_engine()
 
 

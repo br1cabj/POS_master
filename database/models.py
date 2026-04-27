@@ -38,6 +38,7 @@ class User(Base):
 
 	username = Column(String, nullable=False)
 	password_hash = Column(String, nullable=False)
+	recovery_pin_hash = Column(String, nullable=True)   # PIN de recuperación (opcional)
 	role = Column(String, default='cajero')
 	is_active = Column(Boolean, default=True)
 
@@ -370,5 +371,5 @@ class ComboItem(Base):
 # ==========================================
 def init_db(database_url='sqlite:///pos_system.db'):
 	engine = create_engine(database_url, connect_args={'check_same_thread': False})
-	Base.metadata.create_all(bind=engine)
+	Base.metadata.create_all(engine)
 	return engine

@@ -1,3 +1,4 @@
+import logging
 import base64
 import hashlib
 import json
@@ -5,6 +6,8 @@ import os
 from datetime import datetime, timedelta
 
 from utils.config import SECRET_SALT
+
+logger = logging.getLogger(__name__)
 
 
 class LicenseController:

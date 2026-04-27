@@ -1,0 +1,43 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+
+# ── Entornos virtuales ────────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+
+# ── Base de datos ──────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Archivos de respaldo de BD ────────────────────────────────────────────────
+backup_*.db
+
+# ── Configuración local (puede tener datos sensibles) ────────────────────────
+settings.json
+license.dat
+
+# ── Archivos generados en runtime ────────────────────────────────────────────
+*.log
+*.pdf
+*.csv
+
+# ── Etiquetas generadas ───────────────────────────────────────────────────────
+etiquetas_*.pdf
+
+# ── Sistema operativo ─────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo

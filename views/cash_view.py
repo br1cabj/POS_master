@@ -41,7 +41,7 @@ class CashView(BaseView):
         self.lbl_status.pack(pady=(0, 6))
 
         self.lbl_summary = ctk.CTkLabel(
-            self.left_panel, text='', font=('Courier', 13), justify='center',
+            self.left_panel, text='', font=('Consolas', 12), justify='center',
             text_color=TEXT_SECONDARY,
         )
         self.lbl_summary.pack(pady=10)
@@ -324,6 +324,14 @@ class CashView(BaseView):
         self.entry_otros.grid(row=len(denominations), column=1, pady=15)
         self.entry_otros.insert(0, '0')
         self.entry_otros.bind('<KeyRelease>', self._calculate_realtime_total)
+
+        # ── Enter/Tab navega entre campos de billetes ─────────────────────
+        _ordered_entries = [self.bill_entries[d] for d in denominations] + [self.entry_otros]
+        for _idx, _e in enumerate(_ordered_entries[:-1]):
+            _nxt = _ordered_entries[_idx + 1]
+            _e.bind('<Return>', lambda evt, ne=_nxt: (ne.focus(), ne.select_range(0, 'end')))
+        # Enter en el último campo activa el cálculo
+        _ordered_entries[-1].bind('<Return>', lambda evt: self._calculate_realtime_total())
 
         self.lbl_popup_total = ctk.CTkLabel(
             self.popup, text='Total Declarado: $0.00',

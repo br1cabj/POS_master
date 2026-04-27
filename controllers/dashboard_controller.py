@@ -7,6 +7,8 @@ from controllers.base import BaseController
 from database.models import Sale, SaleDetail
 from utils.config import make_engine
 
+logger = logging.getLogger(__name__)
+
 _default_engine = make_engine()
 
 

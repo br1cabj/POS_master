@@ -39,19 +39,27 @@ class CustomersView(BaseView):
             font=('Arial', 17, 'bold'), text_color=TEXT_PRIMARY,
         ).pack(pady=(22, 16))
 
+        ctk.CTkLabel(
+            self.left_panel, text='NOMBRE COMPLETO',
+            font=('Arial', 9, 'bold'), text_color=TEXT_MUTED, anchor='w',
+        ).pack(padx=20, anchor='w', pady=(0, 2))
         self.entry_name = ctk.CTkEntry(
             self.left_panel, placeholder_text='Nombre Completo',
             fg_color=SURFACE3, border_color=BORDER_ACTIVE,
             text_color=TEXT_PRIMARY, height=36,
         )
-        self.entry_name.pack(pady=(0, 8), padx=20, fill='x')
+        self.entry_name.pack(pady=(0, 6), padx=20, fill='x')
 
+        ctk.CTkLabel(
+            self.left_panel, text='TELÉFONO (OPCIONAL)',
+            font=('Arial', 9, 'bold'), text_color=TEXT_MUTED, anchor='w',
+        ).pack(padx=20, anchor='w', pady=(0, 2))
         self.entry_phone = ctk.CTkEntry(
             self.left_panel, placeholder_text='Teléfono (Opcional)',
             fg_color=SURFACE3, border_color=BORDER_ACTIVE,
             text_color=TEXT_PRIMARY, height=36,
         )
-        self.entry_phone.pack(pady=(0, 12), padx=20, fill='x')
+        self.entry_phone.pack(pady=(0, 10), padx=20, fill='x')
 
         self.btn_add = ctk.CTkButton(
             self.left_panel, text='➕  Guardar Cliente',
@@ -168,9 +176,34 @@ class CustomersView(BaseView):
 
         self.tree.tag_configure('deudor', foreground=RED_TEXT)
 
+        # ── Botón Seleccionar para Cobro ─────────────────────────────────
+        btn_row = ctk.CTkFrame(self.right_panel, fg_color='transparent')
+        btn_row.pack(fill='x', padx=14, pady=(4, 14))
+
+        ctk.CTkButton(
+            btn_row, text='💰  Seleccionar para Cobro',
+            fg_color=GREEN_DIM, hover_color=GREEN, text_color=GREEN_TEXT,
+            border_width=1, border_color=GREEN, height=36, corner_radius=8,
+            cursor='hand2',
+            command=self._select_for_payment,
+        ).pack(side='left', fill='x', expand=True)
+
         self.customer_map = {}
         self._all_customers = []
         self.after(100, self.load_data)
+
+    def _select_for_payment(self):
+        """Carga el cliente seleccionado en la tabla al combo de Cobro."""
+        selected = self.tree.selection()
+        if not selected:
+            from CTkMessagebox import CTkMessagebox
+            CTkMessagebox(title='Selección', message='Seleccioná un cliente de la tabla primero.', icon='info')
+            return
+        values = self.tree.item(selected[0], 'values')
+        name = values[1] if len(values) > 1 else ''
+        if name and name in self.customer_map:
+            self.combo_customers.set(name)
+            self.on_customer_select(name)
 
     def _filter_tree(self, *args):
         """Filtra la tabla en tiempo real."""

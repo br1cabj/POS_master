@@ -5,6 +5,8 @@ from controllers.base import BaseController
 from database.models import Supplier
 from utils.config import make_engine
 
+logger = logging.getLogger(__name__)
+
 _default_engine = make_engine()
 
 _EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')

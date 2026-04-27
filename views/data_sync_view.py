@@ -16,6 +16,8 @@ from utils.styles import (
     TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class DataSyncView(BaseView):
     def __init__(self, master, ctx: AppContext):

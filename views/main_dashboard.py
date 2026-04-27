@@ -22,6 +22,8 @@ from views.customers_view import CustomersView
 from views.data_sync_view import DataSyncView
 from views.dollar_price_view import DollarPriceView
 from views.history_view import HistoryView
+from views.report_view import ReportView
+from views.returns_view import ReturnsView
 from views.home_view import HomeView
 from views.kardex_view import KardexView
 from views.price_update_view import PriceUpdateView
@@ -49,6 +51,8 @@ NAV_ITEMS_ADMIN = [
     (SuppliersView,     '🚚', 'Proveedores',         'gestión'),
     (ComboMakerView,    '🍔', 'Combos y Botonera',   'gestión'),
     (HistoryView,       '📜', 'Historial Ventas',    'reportes'),
+    (ReturnsView,       '↩',  'Devoluciones',        'reportes'),
+    (ReportView,        '📋', 'Reporte de Cierre',   'reportes'),
     (KardexView,        '📊', 'Kardex · Mov. Stock', 'reportes'),
     (ArticleHistoryView,'🕵', 'Historial de Precios','reportes'),
     (AlertsView,        '🔔', 'Alertas',             'reportes'),
@@ -91,6 +95,9 @@ class MainDashboard(ctk.CTkFrame):
         # ── Layout principal ───────────────────────────────────────────────
         self._build_sidebar()
         self._build_main_area()
+
+        # ── Inyectar navigate en contexto (para vistas que lo necesitan) ───
+        self.ctx.navigate = self.safe_switch_view
 
         # ── Reloj pantalla completa ────────────────────────────────────────
         self.is_fullscreen = False
@@ -136,8 +143,8 @@ class MainDashboard(ctk.CTkFrame):
         # Dot de estado (verde = caja activa)
         self.lbl_dot = ctk.CTkLabel(
             logo_frame,
-            text='●',
-            font=('Arial', 10),
+            text='● Cerrada',
+            font=('Arial', 9, 'bold'),
             text_color='#f87171',
         )
         self.lbl_dot.pack(side='right', padx=(0, 4))
@@ -370,10 +377,12 @@ class MainDashboard(ctk.CTkFrame):
             ctrl = CashController(self.ctx.db_engine)
             session = ctrl.get_active_session(self.ctx.tenant_id, self.ctx.user_id)
             color = '#22c55e' if session else '#f87171'
+            label = '● Abierta' if session else '● Cerrada'
         except Exception:
             color = '#888888'
+            label = '●'
         if hasattr(self, 'lbl_dot'):
-            self.lbl_dot.configure(text_color=color)
+            self.lbl_dot.configure(text_color=color, text=label)
 
     def handle_logout(self):
         for key in ('<F1>', '<F2>', '<F3>', '<F4>', '<Escape>'):

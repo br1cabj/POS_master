@@ -18,6 +18,8 @@ from sqlalchemy.orm import joinedload
 from controllers.base import BaseController
 from database.models import Article, ArticleHistory, ArticleVariant
 
+logger = logging.getLogger(__name__)
+
 
 class DollarPriceController(BaseController):
     def __init__(self, db_engine):

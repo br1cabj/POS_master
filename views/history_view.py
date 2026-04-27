@@ -1,3 +1,5 @@
+import csv
+import os
 from tkinter import ttk
 
 import customtkinter as ctk
@@ -18,11 +20,13 @@ class HistoryView(BaseView):
         self.controller = SalesController(ctx.db_engine)
 
         self._all_sales = []
+        self._active_filter = 'all'
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=0)
         self.grid_rowconfigure(1, weight=0)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(2, weight=0)
+        self.grid_rowconfigure(3, weight=1)
 
         apply_treeview_style()
 
@@ -64,13 +68,50 @@ class HistoryView(BaseView):
         )
         self.lbl_count.pack(side='right', padx=(8, 0))
 
+        # ── Filtros rápidos ───────────────────────────────────────────────
+        filter_row = ctk.CTkFrame(self, fg_color='transparent')
+        filter_row.grid(row=2, column=0, sticky='ew', padx=20, pady=(0, 6))
+
+        self._filter_btns = {}
+        _filters = [
+            ('all',   'Todos'),
+            ('today', 'Hoy'),
+            ('week',  'Esta Semana'),
+            ('fiado', 'Solo Fiados'),
+        ]
+        for fkey, flabel in _filters:
+            is_active = fkey == 'all'
+            btn = ctk.CTkButton(
+                filter_row,
+                text=flabel,
+                height=28,
+                corner_radius=6,
+                font=('Arial', 11, 'bold') if is_active else ('Arial', 11),
+                fg_color=ACCENT_DIM if is_active else SURFACE2,
+                hover_color=ACCENT if is_active else SURFACE3,
+                text_color=ACCENT_TEXT if is_active else TEXT_SECONDARY,
+                border_width=1,
+                border_color=ACCENT if is_active else BORDER,
+                command=lambda k=fkey: self._apply_filter(k),
+            )
+            btn.pack(side='left', padx=(0, 6))
+            self._filter_btns[fkey] = btn
+
+        ctk.CTkButton(
+            filter_row, text='📄  Exportar CSV',
+            height=28, corner_radius=6, font=('Arial', 11),
+            fg_color=SURFACE2, hover_color=SURFACE3, text_color=TEXT_SECONDARY,
+            border_width=1, border_color=BORDER,
+            command=self.export_csv,
+        ).pack(side='right')
+
         # ── Tabla ─────────────────────────────────────────────────────────
         self.table_container = ctk.CTkFrame(
             self, fg_color=SURFACE2, corner_radius=12,
             border_width=1, border_color=BORDER
         )
         self.table_container.grid(
-            row=2, column=0, sticky='nsew', padx=20, pady=(0, 20)
+            row=3, column=0, sticky='nsew', padx=20, pady=(0, 4)
         )
 
         inner = ctk.CTkFrame(self.table_container, fg_color='transparent')
@@ -78,33 +119,87 @@ class HistoryView(BaseView):
 
         self.tree_scroll = ttk.Scrollbar(inner, orient='vertical')
 
-        columns = ('ID', 'Fecha', 'Cliente', 'Vendedor', 'Total', 'Ganancia')
+        columns = ('ID', 'Fecha', 'Cliente', 'Vendedor', 'Total', 'Ganancia', 'Estado')
         self.tree = ttk.Treeview(
             inner, columns=columns, show='headings',
             yscrollcommand=self.tree_scroll.set,
         )
         self.tree_scroll.configure(command=self.tree.yview)
 
+        _col_widths = {
+            'ID': 50, 'Fecha': 130, 'Cliente': 160,
+            'Vendedor': 110, 'Total': 90, 'Ganancia': 90, 'Estado': 100,
+        }
         for col in columns:
             self.tree.heading(col, text=col)
-            width = 150 if col == 'Cliente' else 100
-            self.tree.column(col, width=width, anchor='center')
+            self.tree.column(col, width=_col_widths.get(col, 100), anchor='center')
 
         self.tree_scroll.pack(side='right', fill='y')
         self.tree.pack(side='left', fill='both', expand=True)
         self.tree.bind('<Double-1>', self.open_details_popup)
+        self.tree.tag_configure('fiado',     foreground='#fb923c')
+        self.tree.tag_configure('pendiente', foreground='#facc15')
+        self.tree.tag_configure('completada', foreground='#4ade80')
+        self.tree.tag_configure('odd',  background='#161616')
+        self.tree.tag_configure('even', background='#1a1a1a')
+
+        # ── Botón Ver Detalle ──────────────────────────────────────────────
+        btn_row = ctk.CTkFrame(self, fg_color='transparent')
+        btn_row.grid(row=4, column=0, sticky='ew', padx=20, pady=(0, 14))
+
+        ctk.CTkButton(
+            btn_row, text='🔍  Ver Detalle de Venta Seleccionada',
+            height=34, corner_radius=8, font=('Arial', 12),
+            fg_color=SURFACE2, hover_color=SURFACE3, text_color=TEXT_SECONDARY,
+            border_width=1, border_color=BORDER,
+            command=lambda: self.open_details_popup(None),
+        ).pack(side='left', padx=(0, 8))
 
         self.after(100, self.load_history)
 
+    def _apply_filter(self, key: str):
+        """Activa un filtro rápido y actualiza los botones."""
+        self._active_filter = key
+        for k, btn in self._filter_btns.items():
+            active = k == key
+            btn.configure(
+                fg_color=ACCENT_DIM if active else SURFACE2,
+                hover_color=ACCENT if active else SURFACE3,
+                text_color=ACCENT_TEXT if active else TEXT_SECONDARY,
+                border_color=ACCENT if active else BORDER,
+                font=('Arial', 11, 'bold') if active else ('Arial', 11),
+            )
+        self._filter_tree()
+
     def _filter_tree(self, *args):
-        """Filtra las ventas en tiempo real."""
+        """Filtra las ventas por búsqueda + filtro rápido activo."""
+        from datetime import date, timedelta
         q = self._search_var.get().lower()
+        today = date.today()
+        week_start = today - timedelta(days=today.weekday())
+
+        def _passes_quick_filter(s):
+            if self._active_filter == 'all':
+                return True
+            raw_date = s.get('date')
+            sale_date = raw_date.date() if hasattr(raw_date, 'date') else None
+            if self._active_filter == 'today':
+                return sale_date == today
+            if self._active_filter == 'week':
+                return sale_date is not None and sale_date >= week_start
+            if self._active_filter == 'fiado':
+                return s.get('payment_method') == 'fiado'
+            return True
+
         matches = [
             s for s in self._all_sales
-            if q in (s.get('customer_name') or '').lower()
-            or q in (s.get('user_name') or '').lower()
-            or q in str(s.get('date') or '').lower()
-        ] if q else self._all_sales
+            if _passes_quick_filter(s) and (
+                not q
+                or q in (s.get('customer_name') or '').lower()
+                or q in (s.get('user_name') or '').lower()
+                or q in str(s.get('date') or '').lower()
+            )
+        ]
 
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -118,6 +213,19 @@ class HistoryView(BaseView):
             )
             total_amount = float(sale.get('total_amount', 0.0))
             profit = float(sale.get('profit', 0.0))
+            pm = sale.get('payment_method', '') or ''
+            status = sale.get('status', '') or ''
+            if pm == 'fiado':
+                estado_label = '💳 Fiado'
+                row_color = 'fiado'
+            elif status == 'pendiente':
+                estado_label = '⏳ Pendiente'
+                row_color = 'pendiente'
+            else:
+                estado_label = '✓ Efectivo' if pm == 'efectivo' else f'✓ {pm.capitalize()}'
+                row_color = 'completada'
+            row_idx = len(self.tree.get_children())
+            alt_tag = 'odd' if row_idx % 2 == 0 else 'even'
             self.tree.insert(
                 '', 'end',
                 values=(
@@ -127,7 +235,9 @@ class HistoryView(BaseView):
                     sale.get('user_name', 'Desconocido'),
                     f'${total_amount:.2f}',
                     f'${profit:.2f}',
+                    estado_label,
                 ),
+                tags=(row_color, alt_tag),
             )
 
         total = len(self._all_sales)
@@ -137,6 +247,35 @@ class HistoryView(BaseView):
                 text=f'{shown} de {total}' if q else f'{total} ventas'
             )
 
+    def export_csv(self):
+        """Exporta las ventas visibles a un CSV en el escritorio."""
+        import tempfile, platform
+        rows = []
+        for iid in self.tree.get_children():
+            rows.append(self.tree.item(iid, 'values'))
+        if not rows:
+            from CTkMessagebox import CTkMessagebox
+            CTkMessagebox(title='Sin datos', message='No hay ventas para exportar.', icon='info')
+            return
+        try:
+            desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
+            if not os.path.isdir(desktop):
+                desktop = os.path.expanduser('~')
+            filepath = os.path.join(desktop, 'historial_ventas.csv')
+            with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
+                w = csv.writer(f)
+                w.writerow(['ID', 'Fecha', 'Cliente', 'Vendedor', 'Total', 'Ganancia', 'Estado'])
+                w.writerows(rows)
+            from CTkMessagebox import CTkMessagebox
+            CTkMessagebox(
+                title='Exportado',
+                message=f'Archivo guardado en:\n{filepath}',
+                icon='check',
+            )
+        except Exception as e:
+            from CTkMessagebox import CTkMessagebox
+            CTkMessagebox(title='Error', message=f'No se pudo exportar: {e}', icon='cancel')
+
     def load_history(self):
         tenant_id = self.ctx.tenant_id
         self._all_sales = self.controller.get_history(tenant_id)
@@ -145,6 +284,8 @@ class HistoryView(BaseView):
     def open_details_popup(self, event):
         selected_item = self.tree.selection()
         if not selected_item:
+            from CTkMessagebox import CTkMessagebox
+            CTkMessagebox(title='Selección', message='Seleccioná una venta de la tabla primero.', icon='info')
             return
 
         item_data = self.tree.item(selected_item)

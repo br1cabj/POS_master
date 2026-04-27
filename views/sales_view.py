@@ -256,6 +256,9 @@ class SalesView(BaseView):
         self.tree.column('Precio',   width=100, anchor='e')
         self.tree.column('Subtotal', width=100, anchor='e')
 
+        self.tree.tag_configure('odd',  background=SURFACE2)
+        self.tree.tag_configure('even', background=SURFACE3)
+
         self.tree_scroll.pack(side='right', fill='y')
         self.tree.pack(side='left', fill='both', expand=True)
 
@@ -341,17 +344,29 @@ class SalesView(BaseView):
     # HELPER
     # =========================================================
     def _section_title(self, parent, text: str):
+        """Separador visual + etiqueta de sección en uppercase."""
+        wrapper = ctk.CTkFrame(parent, fg_color='transparent')
+        wrapper.pack(fill='x', padx=14, pady=(12, 4))
+        ctk.CTkFrame(wrapper, height=1, fg_color=BORDER).pack(fill='x', pady=(0, 5))
         ctk.CTkLabel(
-            parent,
-            text=text,
-            font=('Arial', 10, 'bold'),
+            wrapper,
+            text=text.upper(),
+            font=('Arial', 9, 'bold'),
             text_color=TEXT_MUTED,
             anchor='w',
-        ).pack(fill='x', padx=14, pady=(10, 2))
+        ).pack(anchor='w')
 
-    # =========================================================
-    # AUXILIARES
-    # =========================================================
+    def _set_msg(self, text: str, color: str = None):
+        """Muestra un mensaje de feedback y lo borra automáticamente a los 3 segundos."""
+        from utils.styles import GREEN_TEXT
+        self.lbl_msg.configure(text=text, text_color=color or GREEN_TEXT)
+        if hasattr(self, '_msg_after_id') and self._msg_after_id:
+            try:
+                self.after_cancel(self._msg_after_id)
+            except Exception:
+                pass
+        self._msg_after_id = self.after(3000, lambda: self.lbl_msg.configure(text=''))
+
     # =========================================================
     # CARGA DE DATOS
     # =========================================================
@@ -402,21 +417,64 @@ class SalesView(BaseView):
                 name = v.get('name', 'Promo')
                 is_disabled = stock <= 0
 
-                btn = ctk.CTkButton(
+                from utils.settings_manager import get as settings_get
+                low_threshold = settings_get('low_stock_threshold', 5)
+                stock_int = int(stock)
+                if is_disabled:
+                    stock_label = 'Sin stock'
+                    stock_color = TEXT_MUTED
+                elif stock_int <= low_threshold:
+                    stock_label = f'Stock: {stock_int}'
+                    stock_color = ORANGE_TEXT
+                else:
+                    stock_label = f'Stock: {stock_int}'
+                    stock_color = TEXT_MUTED
+
+                btn_frame = ctk.CTkFrame(
                     self.touch_scroll,
-                    text=f'{name}\n${price:.2f}',
                     fg_color=SURFACE3 if is_disabled else ACCENT_DIM,
-                    hover_color=ACCENT if not is_disabled else SURFACE3,
-                    text_color=TEXT_MUTED if is_disabled else ACCENT_TEXT,
-                    state='disabled' if is_disabled else 'normal',
-                    width=118, height=72,
-                    font=('Arial', 11, 'bold'),
                     corner_radius=8,
                     border_width=1,
                     border_color=BORDER,
-                    command=lambda var_id=v.get('variant_id'): self.add_from_touch(var_id),
+                    width=118, height=80,
                 )
-                btn.grid(row=row, column=col, padx=4, pady=4)
+                btn_frame.grid(row=row, column=col, padx=4, pady=4)
+                btn_frame.grid_propagate(False)
+                btn_frame.bind('<Button-1>', lambda e, vid=v.get('variant_id'): self.add_from_touch(vid) if not is_disabled else None)
+
+                inner = ctk.CTkFrame(btn_frame, fg_color='transparent')
+                inner.place(relx=0.5, rely=0.5, anchor='center')
+
+                lbl_name = ctk.CTkLabel(
+                    inner,
+                    text=name,
+                    font=('Arial', 11, 'bold'),
+                    text_color=TEXT_MUTED if is_disabled else ACCENT_TEXT,
+                    wraplength=108,
+                    justify='center',
+                )
+                lbl_name.pack()
+                lbl_price = ctk.CTkLabel(
+                    inner,
+                    text=f'${price:.2f}',
+                    font=('Arial', 10),
+                    text_color=TEXT_MUTED if is_disabled else ACCENT_TEXT,
+                )
+                lbl_price.pack()
+                lbl_stock = ctk.CTkLabel(
+                    inner,
+                    text=stock_label,
+                    font=('Arial', 9),
+                    text_color=stock_color,
+                )
+                lbl_stock.pack()
+
+                for widget in [btn_frame, inner, lbl_name, lbl_price, lbl_stock]:
+                    if not is_disabled:
+                        widget.bind('<Button-1>', lambda e, vid=v.get('variant_id'): self.add_from_touch(vid))
+                        widget.configure(cursor='hand2')
+
+                btn = btn_frame  # keep reference for touch_buttons list
                 self.touch_buttons.append({'variant_id': v.get('variant_id'), 'button': btn})
 
                 col += 1
@@ -501,7 +559,7 @@ class SalesView(BaseView):
                           'price': float(unit_price), 'qty': float(qty_to_add), 'subtotal': float(subtotal)})
         self.update_total()
         self.entry_barcode.delete(0, 'end')
-        self.lbl_msg.configure(text=f'✓ Agregado: {name}', text_color=GREEN_TEXT)
+        self._set_msg(f'✓ Agregado: {name}')
 
     def add_from_touch(self, variant_id):
         found = next((v for v in self.db_variants if v['variant_id'] == variant_id), None)
@@ -521,8 +579,9 @@ class SalesView(BaseView):
         item_id = self.tree.insert('', 'end', values=(name, '1', f'${price:.2f}', f'${price:.2f}'))
         self.cart.append({'tree_id': item_id, 'variant_id': variant_id, 'desc': name,
                           'price': float(price), 'qty': 1.0, 'subtotal': float(price)})
+        self._refresh_row_tags()
         self.update_total()
-        self.lbl_msg.configure(text=f'✓ Agregado: {name}', text_color=GREEN_TEXT)
+        self._set_msg(f'✓ Agregado: {name}')
 
     def add_to_cart(self):
         self.lbl_msg.configure(text='')
@@ -556,6 +615,7 @@ class SalesView(BaseView):
                 values=(desc, qty_visual, f'${price:.2f}', f'${subtotal:.2f}'))
             self.cart.append({'tree_id': item_id, 'variant_id': variant_id, 'desc': desc,
                                'price': float(price), 'qty': float(qty_to_add), 'subtotal': float(subtotal)})
+            self._refresh_row_tags()
             self.update_total()
             self.qty_entry.delete(0, 'end')
             self.qty_entry.insert(0, '1')
@@ -585,6 +645,7 @@ class SalesView(BaseView):
             values=(visual_desc, qty_visual, f'${price:.2f}', f'${subtotal:.2f}'))
         self.cart.append({'tree_id': item_id, 'variant_id': None, 'desc': visual_desc,
                            'price': float(price), 'qty': float(qty), 'subtotal': float(subtotal)})
+        self._refresh_row_tags()
         self.update_total()
         self.entry_fast_desc.delete(0, 'end')
         self.entry_fast_price.delete(0, 'end')
@@ -608,9 +669,16 @@ class SalesView(BaseView):
                 self.tree.delete(item_id)
             self.update_total()
 
+    def _refresh_row_tags(self):
+        """Re-aplica tags de filas alternas al carrito completo."""
+        for i, item_id in enumerate(self.tree.get_children()):
+            tag = 'odd' if i % 2 == 0 else 'even'
+            self.tree.item(item_id, tags=(tag,))
+
     def update_total(self):
+        from utils.settings_manager import fmt_price
         total = sum((Decimal(str(item.get('subtotal', 0))) for item in self.cart), Decimal('0.0'))
-        self.lbl_total.configure(text=f'${total:,.0f}')
+        self.lbl_total.configure(text=fmt_price(float(total)))
 
     def clear_entire_cart(self):
         if not self.cart:
@@ -621,7 +689,7 @@ class SalesView(BaseView):
             for item in self.tree.get_children():
                 self.tree.delete(item)
             self.update_total()
-            self.lbl_msg.configure(text='Venta anulada.', text_color='#f87171')
+            self._set_msg('Venta anulada.', '#f87171')
             self.entry_barcode.focus()
 
     # =========================================================
@@ -639,10 +707,15 @@ class SalesView(BaseView):
 
         self.popup = ctk.CTkToplevel(self)
         self.popup.title('Cobrar Venta')
-        self.popup.geometry('420x560')
         self.popup.configure(fg_color=SURFACE2)
         self.popup.attributes('-topmost', True)
         self.popup.grab_set()
+        # Centrar el popup respecto a la ventana principal
+        self.popup.update_idletasks()
+        pw, ph = 420, 560
+        rx = self.winfo_rootx() + (self.winfo_width() - pw) // 2
+        ry = self.winfo_rooty() + (self.winfo_height() - ph) // 2
+        self.popup.geometry(f'{pw}x{ph}+{rx}+{ry}')
 
         # Header
         ctk.CTkLabel(self.popup, text='Total a Cobrar',

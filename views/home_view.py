@@ -446,15 +446,15 @@ class HomeView(BaseView):
             ).pack(side='right')
 
             # Barra de progreso
-            bar_bg = ctk.CTkFrame(col, fg_color=SURFACE3, height=4, corner_radius=2)
+            bar_bg = ctk.CTkFrame(col, fg_color=SURFACE3, height=6, corner_radius=3)
             bar_bg.pack(fill='x', pady=(3, 0))
             bar_fill_width = max(int(pct / 100 * 160), 4)
             ctk.CTkFrame(
                 bar_bg,
                 fg_color=accent_colors[i],
-                height=4,
+                height=6,
                 width=bar_fill_width,
-                corner_radius=2,
+                corner_radius=3,
             ).place(x=0, y=0)
 
     # =========================================================

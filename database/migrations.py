@@ -17,13 +17,12 @@ def run_migrations(engine) -> None:
     Llamar una vez al inicio de la aplicación, después de crear el motor.
     """
     _v1_add_cost_price_usd(engine)
+    _v2_add_recovery_pin_hash(engine)
 
 
 def _v1_add_cost_price_usd(engine) -> None:
     """
     v1: Agrega la columna cost_price_usd a article_variants.
-    Permite guardar el precio base en dólares para recalcular automáticamente
-    cuando cambia el tipo de cambio.
     """
     with engine.connect() as conn:
         try:
@@ -32,7 +31,23 @@ def _v1_add_cost_price_usd(engine) -> None:
                 'ADD COLUMN cost_price_usd NUMERIC(10, 4) DEFAULT NULL'
             ))
             conn.commit()
-            logger.info('Migración v1 aplicada: cost_price_usd agregado a article_variants.')
+            logger.info('Migracion v1 aplicada: cost_price_usd agregado a article_variants.')
         except Exception:
-            # La columna ya existe — comportamiento esperado después del primer arranque
+            pass
+
+
+def _v2_add_recovery_pin_hash(engine) -> None:
+    """
+    v2: Agrega la columna recovery_pin_hash a users.
+    Almacena (hasheado con bcrypt) el PIN de recuperacion de contrasena.
+    Es nullable: usuarios existentes no tienen PIN hasta que lo configuren.
+    """
+    with engine.connect() as conn:
+        try:
+            conn.execute(text(
+                'ALTER TABLE users ADD COLUMN recovery_pin_hash VARCHAR DEFAULT NULL'
+            ))
+            conn.commit()
+            logger.info('Migracion v2 aplicada: recovery_pin_hash agregado a users.')
+        except Exception:
             pass

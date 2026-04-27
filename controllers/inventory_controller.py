@@ -6,6 +6,8 @@ from controllers.base import BaseController
 from database.models import Article, ArticleVariant, StockMovement
 from utils.config import make_engine
 
+logger = logging.getLogger(__name__)
+
 _default_engine = make_engine()
 
 

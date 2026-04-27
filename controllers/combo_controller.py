@@ -6,6 +6,8 @@ from database.models import Article, ArticleVariant, Branch, ComboItem, Warehous
 from utils.config import make_engine
 from utils.shared import get_or_create_default_warehouse
 
+logger = logging.getLogger(__name__)
+
 _default_engine = make_engine()
 
 

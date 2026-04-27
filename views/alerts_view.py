@@ -1,3 +1,5 @@
+import csv
+import os
 from tkinter import ttk
 
 import customtkinter as ctk
@@ -6,7 +8,7 @@ from core.base_view import BaseView
 from core.context import AppContext
 from controllers.alerts_controller import AlertsController
 from utils.styles import (
-    ACCENT_DIM, ACCENT_TEXT, BORDER, ORANGE_TEXT,
+    ACCENT, ACCENT_DIM, ACCENT_TEXT, BORDER, ORANGE_TEXT,
     RED_TEXT, GREEN_TEXT, SURFACE1, SURFACE2, SURFACE3,
     TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
     apply_treeview_style,
@@ -38,6 +40,23 @@ class AlertsView(BaseView):
             font=('Arial', 13), text_color=TEXT_MUTED,
         )
         self.lbl_count.pack(side='right', padx=(0, 12))
+
+        self.btn_restock = ctk.CTkButton(
+            header_frame, text='📥  Ir a Compras',
+            fg_color=ACCENT_DIM, hover_color=ACCENT, text_color=ACCENT_TEXT,
+            border_width=1, border_color=ACCENT,
+            width=140, height=34, corner_radius=8,
+            command=self._go_to_purchases,
+        )
+        self.btn_restock.pack(side='right', padx=(0, 8))
+
+        ctk.CTkButton(
+            header_frame, text='📄  Exportar CSV',
+            fg_color=SURFACE2, hover_color=SURFACE3, text_color=TEXT_SECONDARY,
+            border_width=1, border_color=BORDER,
+            width=130, height=34, corner_radius=8,
+            command=self.export_csv,
+        ).pack(side='right', padx=(0, 8))
 
         ctk.CTkButton(
             header_frame, text='↻  Actualizar',
@@ -73,8 +92,46 @@ class AlertsView(BaseView):
 
         self.tree_scroll.pack(side='right', fill='y')
         self.tree.pack(side='left', fill='both', expand=True)
+        self.tree.tag_configure('odd',  background='#161616')
+        self.tree.tag_configure('even', background='#1a1a1a')
+        self.tree.tag_configure('critical', foreground='#f87171')
 
         self.load_data()
+
+    def export_csv(self):
+        """Exporta los productos con stock crítico a CSV."""
+        rows = [self.tree.item(iid, 'values') for iid in self.tree.get_children()]
+        if not rows:
+            from CTkMessagebox import CTkMessagebox
+            CTkMessagebox(title='Sin datos', message='No hay alertas para exportar.', icon='info')
+            return
+        try:
+            desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
+            if not os.path.isdir(desktop):
+                desktop = os.path.expanduser('~')
+            filepath = os.path.join(desktop, 'alertas_stock.csv')
+            with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
+                w = csv.writer(f)
+                w.writerow(['Código', 'Producto', 'Stock Actual', 'Nivel de Alerta'])
+                w.writerows(rows)
+            from CTkMessagebox import CTkMessagebox
+            CTkMessagebox(title='Exportado', message=f'Guardado en:\n{filepath}', icon='check')
+        except Exception as e:
+            from CTkMessagebox import CTkMessagebox
+            CTkMessagebox(title='Error', message=f'No se pudo exportar: {e}', icon='cancel')
+
+    def _go_to_purchases(self):
+        navigate = getattr(self.ctx, 'navigate', None)
+        if navigate:
+            from views.purchases_view import PurchasesView
+            navigate(PurchasesView, requires_admin=True)
+        else:
+            from CTkMessagebox import CTkMessagebox
+            CTkMessagebox(
+                title='Reponer Stock',
+                message='Ve a la sección Compras para reponer el producto seleccionado.',
+                icon='info',
+            )
 
     def load_data(self):
         for item in self.tree.get_children():
@@ -92,14 +149,19 @@ class AlertsView(BaseView):
                 else f'{float(stock_actual):.2f}'
             )
             alerta_nivel = item.get('threshold', 5)
+            row_tag = 'odd' if len(self.tree.get_children()) % 2 == 0 else 'even'
+            is_zero = float(stock_actual) <= 0
+            tags = (row_tag, 'critical') if is_zero else (row_tag,)
+            nivel_label = f'<= {alerta_nivel}  (AGOTADO)' if is_zero else f'<= {alerta_nivel}'
             self.tree.insert(
                 '', 'end',
                 values=(
                     item.get('barcode', 'Sin código') or 'Sin código',
                     item.get('name', 'Desconocido'),
                     stock_format,
-                    f'Menor o igual a {alerta_nivel}',
+                    nivel_label,
                 ),
+                tags=tags,
             )
 
         cantidad = len(low_stock_items)

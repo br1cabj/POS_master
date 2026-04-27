@@ -124,10 +124,15 @@ class ReceiptController:
 			if os_name == 'Windows':
 				os.startfile(abs_path, 'open')
 			elif os_name == 'Darwin':
-				subprocess.run(['open', abs_path], check=True, capture_output=True)
+				result = subprocess.run(['open', abs_path], capture_output=True)
+				if result.returncode != 0:
+					logger.warning(f'open retornó código {result.returncode} para: {abs_path}')
+					return False
 			else:
-				subprocess.run(['xdg-open', abs_path], check=True, capture_output=True)
-
+				result = subprocess.run(['xdg-open', abs_path], capture_output=True)
+				if result.returncode != 0:
+					logger.warning(f'xdg-open retornó código {result.returncode} para: {abs_path}')
+					return False
 			return True
 		except Exception as e:
 			logger.error(f'Error al abrir el archivo PDF: {e}', exc_info=True)

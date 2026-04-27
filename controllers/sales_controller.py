@@ -20,6 +20,8 @@ from database.models import (
 from utils.config import make_engine
 from utils.shared import parse_decimal
 
+logger = logging.getLogger(__name__)
+
 _default_engine = make_engine()
 
 
@@ -201,15 +203,16 @@ class SalesController(BaseController):
 						return False, 'Cliente inválido o no autorizado.'
 					customer_str = customer_obj.name
 				else:
+					# Verificar fiado ANTES de asignar Consumidor Final,
+					# para evitar que un fiado quede registrado en nombre del cliente anónimo.
+					if is_fiado:
+						return False, 'Debes seleccionar un cliente válido para fiar.'
 					customer_obj = (
 						session.query(Customer)
 						.filter_by(name='Consumidor Final', tenant_id=tenant_id)
 						.first()
 					)
 					customer_id = customer_obj.id if customer_obj else None
-
-				if is_fiado and not customer_id:
-					return False, 'Debes seleccionar un cliente válido para fiar.'
 
 				metodo_final = 'fiado' if is_fiado else payment_method.lower()
 				new_sale = Sale(
@@ -372,6 +375,7 @@ class SalesController(BaseController):
 
 				try:
 					from controllers.receipt_controller import ReceiptController
+
 
 					ReceiptController().generate_pdf(
 						tenant_id=tenant_id,

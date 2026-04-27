@@ -74,3 +74,22 @@ def fmt_price(amount: float) -> str:
     if decimals == 0:
         return f'{symbol}{amount:,.0f}'
     return f'{symbol}{amount:,.{decimals}f}'
+
+
+class SettingsManager:
+    """
+    Wrapper de instancia sobre las funciones del módulo.
+    Permite usar SettingsManager() como objeto (compatibilidad con AppContext).
+    """
+
+    def load(self) -> dict:
+        return load()
+
+    def save(self, settings: dict) -> bool:
+        return save(settings)
+
+    def get(self, key: str, default=None):
+        return get(key, default)
+
+    def fmt_price(self, amount: float) -> str:
+        return fmt_price(amount)
