@@ -18,6 +18,9 @@ def run_migrations(engine) -> None:
     """
     _v1_add_cost_price_usd(engine)
     _v2_add_recovery_pin_hash(engine)
+    _v3_add_discount_amount(engine)
+    _v4_add_mixto_fields(engine)
+    _v5_create_quotations(engine)
 
 
 def _v1_add_cost_price_usd(engine) -> None:
@@ -51,3 +54,84 @@ def _v2_add_recovery_pin_hash(engine) -> None:
             logger.info('Migracion v2 aplicada: recovery_pin_hash agregado a users.')
         except Exception:
             pass
+
+
+def _v3_add_discount_amount(engine) -> None:
+    """
+    v3: Agrega la columna discount_amount a sales.
+    Guarda el monto total de descuento aplicado en la venta.
+    Es nullable/default 0: ventas existentes se tratan como sin descuento.
+    """
+    with engine.connect() as conn:
+        try:
+            conn.execute(text(
+                'ALTER TABLE sales ADD COLUMN discount_amount NUMERIC(10, 2) DEFAULT 0.0'
+            ))
+            conn.commit()
+            logger.info('Migracion v3 aplicada: discount_amount agregado a sales.')
+        except Exception:
+            pass
+
+
+def _v4_add_mixto_fields(engine) -> None:
+    """
+    v4: Agrega payment_method_2 y amount_method_2 a sales.
+    Permiten registrar ventas con dos metodos de pago (pago mixto).
+    Nullable: ventas existentes se tratan como pago simple.
+    """
+    with engine.connect() as conn:
+        for sql in [
+            'ALTER TABLE sales ADD COLUMN payment_method_2 VARCHAR DEFAULT NULL',
+            'ALTER TABLE sales ADD COLUMN amount_method_2 NUMERIC(10, 2) DEFAULT NULL',
+        ]:
+            try:
+                conn.execute(text(sql))
+                conn.commit()
+            except Exception:
+                pass
+        logger.info('Migracion v4 aplicada: payment_method_2 y amount_method_2 en sales.')
+
+
+def _v5_create_quotations(engine) -> None:
+    """
+    v5: Crea las tablas quotations y quotation_items si no existen.
+    """
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS quotations (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                number          VARCHAR NOT NULL,
+                date            DATETIME DEFAULT CURRENT_TIMESTAMP,
+                valid_until     DATE,
+                status          VARCHAR DEFAULT 'borrador',
+                total_amount    NUMERIC(10,2) NOT NULL DEFAULT 0,
+                discount_amount NUMERIC(10,2) DEFAULT 0,
+                notes           VARCHAR,
+                tenant_id       INTEGER NOT NULL REFERENCES tenants(id),
+                user_id         INTEGER NOT NULL REFERENCES users(id),
+                customer_id     INTEGER REFERENCES customers(id),
+                UNIQUE(tenant_id, number)
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS quotation_items (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                description   VARCHAR NOT NULL,
+                quantity      NUMERIC(12,4) NOT NULL,
+                unit_price    NUMERIC(10,2) NOT NULL,
+                subtotal      NUMERIC(10,2) NOT NULL,
+                quotation_id  INTEGER NOT NULL REFERENCES quotations(id),
+                variant_id    INTEGER REFERENCES article_variants(id)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_quotations_tenant_id ON quotations(tenant_id)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_quotations_date ON quotations(date)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_quotation_items_quotation_id ON quotation_items(quotation_id)"
+        ))
+        conn.commit()
+        logger.info('Migracion v5 aplicada: tablas quotations y quotation_items creadas.')

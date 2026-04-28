@@ -123,8 +123,11 @@ class SalesController(BaseController):
 						'id': s.id,
 						'date': s.date,
 						'total_amount': s.total_amount,
+						'discount_amount': float(s.discount_amount or 0),
 						'profit': s.profit,
 						'payment_method': s.payment_method,
+						'payment_method_2': s.payment_method_2 or '',
+						'amount_method_2': float(s.amount_method_2 or 0),
 						'status': s.status,
 						'customer_name': s.customer.name
 						if s.customer
@@ -145,7 +148,13 @@ class SalesController(BaseController):
 	def get_sale_details(self, tenant_id, sale_id):
 		with self._Session() as session:
 			try:
-				return [
+				sale = (
+					session.query(Sale)
+					.filter_by(id=sale_id, tenant_id=tenant_id)
+					.first()
+				)
+				discount = float(sale.discount_amount or 0) if sale else 0.0
+				details = [
 					{
 						'description': d.description,
 						'quantity': d.quantity,
@@ -157,11 +166,19 @@ class SalesController(BaseController):
 					.filter(SaleDetail.sale_id == sale_id, Sale.tenant_id == tenant_id)
 					.all()
 				]
+				return {
+					'items': details,
+					'discount_amount': discount,
+					'payment_method': sale.payment_method or '',
+					'payment_method_2': sale.payment_method_2 or '',
+					'amount_method_2': float(sale.amount_method_2 or 0),
+					'total_amount': float(sale.total_amount or 0),
+				}
 			except Exception as e:
 				logger.error(
 					f'Error al leer detalle de venta {sale_id}: {e}', exc_info=True
 				)
-				return []
+				return {'items': [], 'discount_amount': 0.0, 'payment_method': '', 'payment_method_2': '', 'amount_method_2': 0.0, 'total_amount': 0.0}
 
 	def process_sale(
 		self,
@@ -171,6 +188,9 @@ class SalesController(BaseController):
 		customer_id=None,
 		is_fiado=False,
 		payment_method='efectivo',
+		discount_amount=None,
+		payment_method_2=None,
+		amount_method_2=None,
 	):
 		"""
 		Procesa una venta de forma atómica. Verifica caja, resuelve cliente, descuenta stock
@@ -179,6 +199,22 @@ class SalesController(BaseController):
 		"""
 		if not cart_items:
 			return False, 'El carrito está vacío.'
+
+		discount_amount = self._parse_decimal(discount_amount) if discount_amount is not None else Decimal('0.0')
+		if discount_amount < Decimal('0.0'):
+			discount_amount = Decimal('0.0')
+
+		# Normalizar pago mixto
+		amount_m2 = Decimal('0')
+		payment_method_2_lower = None
+		if payment_method_2 and not is_fiado:
+			payment_method_2_lower = payment_method_2.lower()
+			try:
+				amount_m2 = self._parse_decimal(amount_method_2)
+				if amount_m2 < Decimal('0'):
+					amount_m2 = Decimal('0')
+			except Exception:
+				amount_m2 = Decimal('0')
 
 		with self._Session() as session:
 			try:
@@ -356,20 +392,43 @@ class SalesController(BaseController):
 						)
 					)
 
-				new_sale.total_amount = total_sale
-				new_sale.profit = total_sale - total_cost
+				# Aplicar descuento al total final
+				final_total = total_sale - discount_amount
+				if final_total < Decimal('0.0'):
+					final_total = Decimal('0.0')
+
+				new_sale.total_amount = final_total
+				new_sale.discount_amount = discount_amount
+				new_sale.profit = final_total - total_cost
 
 				if is_fiado and customer_obj:
-					customer_obj.current_balance += total_sale
+					customer_obj.current_balance += final_total
 				else:
-					session.add(
-						CashMovement(
+					disc_str = f' (Desc: ${discount_amount:.2f})' if discount_amount > 0 else ''
+					if payment_method_2_lower and amount_m2 > 0:
+						# Pago mixto: dos movimientos de caja
+						amount_m1 = final_total - amount_m2
+						new_sale.payment_method_2 = payment_method_2_lower
+						new_sale.amount_method_2 = amount_m2
+						session.add(CashMovement(
 							session_id=active_cash.id,
 							movement_type='venta',
-							amount=total_sale,
-							description=f'Ticket #{new_sale.id} - Pago: {payment_method.capitalize()}',
-						)
-					)
+							amount=amount_m1 if amount_m1 > 0 else Decimal('0.01'),
+							description=f'Ticket #{new_sale.id} - {payment_method.capitalize()} (Mixto){disc_str}',
+						))
+						session.add(CashMovement(
+							session_id=active_cash.id,
+							movement_type='venta',
+							amount=amount_m2,
+							description=f'Ticket #{new_sale.id} - {payment_method_2_lower.capitalize()} (Mixto)',
+						))
+					else:
+						session.add(CashMovement(
+							session_id=active_cash.id,
+							movement_type='venta',
+							amount=final_total if final_total > Decimal('0.0') else Decimal('0.01'),
+							description=f'Ticket #{new_sale.id} - Pago: {payment_method.capitalize()}{disc_str}',
+						))
 
 				session.commit()
 
@@ -382,17 +441,26 @@ class SalesController(BaseController):
 						sale_id=new_sale.id,
 						date_str=new_sale.date.strftime('%Y-%m-%d %H:%M'),
 						items_list=cart_items,
-						total=total_sale,
+						total=final_total,
 						customer_name=customer_str,
+						discount_amount=float(discount_amount),
 					)
 				except Exception as pdf_err:
 					logger.warning(
 						f'Venta guardada, pero falló la generación del ticket: {pdf_err}'
 					)
 
+				disc_msg = f' · Descuento: ${discount_amount:.2f}' if discount_amount > 0 else ''
+				if payment_method_2_lower and amount_m2 > 0:
+					amt_m1 = final_total - amount_m2
+					return (True, (
+						f'Venta registrada (Mixto: {payment_method.capitalize()} ${amt_m1:.2f} + '
+						f'{payment_method_2_lower.capitalize()} ${amount_m2:.2f}).'
+						f' Total: ${final_total:.2f}{disc_msg}'
+					))
 				return (
 					True,
-					f'Venta registrada ({metodo_final.capitalize()}). Total: ${total_sale:.2f}',
+					f'Venta registrada ({metodo_final.capitalize()}). Total: ${final_total:.2f}{disc_msg}',
 				)
 
 			except ValueError as ve:

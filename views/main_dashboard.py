@@ -14,23 +14,21 @@ from utils.styles import (
 
 # Importamos todas las vistas
 from views.alerts_view import AlertsView
-from views.article_history_view import ArticleHistoryView
 from views.articles_view import ArticlesView
 from views.cash_view import CashView
 from views.combo_maker_view import ComboMakerView
 from views.customers_view import CustomersView
 from views.data_sync_view import DataSyncView
-from views.dollar_price_view import DollarPriceView
-from views.history_view import HistoryView
-from views.report_view import ReportView
-from views.returns_view import ReturnsView
 from views.home_view import HomeView
-from views.kardex_view import KardexView
-from views.price_update_view import PriceUpdateView
+from views.prices_view import PricesView
 from views.purchases_view import PurchasesView
+from views.report_view import ReportView
+from views.sales_history_view import SalesHistoryView
 from views.sales_view import SalesView
 from views.settings_view import SettingsView
+from views.stock_history_view import StockHistoryView
 from views.suppliers_view import SuppliersView
+from views.quotation_view import QuotationView
 from views.users_view import UsersView
 
 logger = logging.getLogger(__name__)
@@ -43,22 +41,20 @@ NAV_ITEMS_PUBLIC = [
 ]
 
 NAV_ITEMS_ADMIN = [
-    (ArticlesView,      '📦', 'Artículos',          'gestión'),
-    (DollarPriceView,   '💵', 'Precios al Dólar',   'gestión'),
-    (PriceUpdateView,   '📈', 'Ajuste de Precios',   'gestión'),
-    (PurchasesView,     '📥', 'Compras',             'gestión'),
-    (CustomersView,     '👥', 'Clientes / Fiado',    'gestión'),
-    (SuppliersView,     '🚚', 'Proveedores',         'gestión'),
-    (ComboMakerView,    '🍔', 'Combos y Botonera',   'gestión'),
-    (HistoryView,       '📜', 'Historial Ventas',    'reportes'),
-    (ReturnsView,       '↩',  'Devoluciones',        'reportes'),
-    (ReportView,        '📋', 'Reporte de Cierre',   'reportes'),
-    (KardexView,        '📊', 'Kardex · Mov. Stock', 'reportes'),
-    (ArticleHistoryView,'🕵', 'Historial de Precios','reportes'),
-    (AlertsView,        '🔔', 'Alertas',             'reportes'),
-    (UsersView,         '🛠', 'Empleados',           'sistema'),
-    (DataSyncView,      '🔄', 'Importar / Exportar', 'sistema'),
-    (SettingsView,      '⚙',  'Configuración',       'sistema'),
+    (ArticlesView,    '📦', 'Artículos',           'gestión'),
+    (PricesView,      '💰', 'Gestión de Precios',  'gestión'),
+    (PurchasesView,   '📥', 'Compras',             'gestión'),
+    (CustomersView,   '👥', 'Clientes / Fiado',    'gestión'),
+    (SuppliersView,   '🚚', 'Proveedores',         'gestión'),
+    (QuotationView,   '📝', 'Cotizaciones',        'gestión'),
+    (ComboMakerView,  '🍔', 'Combos y Botonera',   'gestión'),
+    (SalesHistoryView,'📜', 'Ventas e Historial',  'reportes'),
+    (ReportView,      '📋', 'Reporte de Cierre',   'reportes'),
+    (StockHistoryView,'📊', 'Stock e Historial',   'reportes'),
+    (AlertsView,      '🔔', 'Alertas',             'reportes'),
+    (UsersView,       '🛠', 'Empleados',           'sistema'),
+    (DataSyncView,    '🔄', 'Importar / Exportar', 'sistema'),
+    (SettingsView,    '⚙',  'Configuración',       'sistema'),
 ]
 
 # Atajos de teclado que se muestran en la barra inferior

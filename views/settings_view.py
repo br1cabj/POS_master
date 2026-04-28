@@ -152,8 +152,78 @@ class SettingsView(BaseView):
             lambda p: _make_entry(p, self._settings.get('company_phone', ''),
                                   '+54 11 ...')
         )
+
+        # ── Logo del negocio ──────────────────────────────────────────
+        logo_row = ctk.CTkFrame(card, fg_color='transparent')
+        logo_row.pack(fill='x', padx=16, pady=(0, 10))
+        logo_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            logo_row, text='Logo del negocio',
+            font=('Arial', 11), text_color=TEXT_SECONDARY, anchor='w', width=180,
+        ).grid(row=0, column=0, sticky='w')
+
+        logo_inner = ctk.CTkFrame(logo_row, fg_color='transparent')
+        logo_inner.grid(row=0, column=1, sticky='ew', padx=(8, 0))
+        logo_inner.grid_columnconfigure(0, weight=1)
+
+        current_logo = self._settings.get('company_logo_path', '')
+        logo_name = os.path.basename(current_logo) if current_logo else 'Sin logo'
+        self._lbl_logo_name = ctk.CTkLabel(
+            logo_inner, text=logo_name,
+            font=('Arial', 10), text_color=TEXT_MUTED, anchor='w',
+        )
+        self._lbl_logo_name.grid(row=0, column=0, sticky='ew')
+
+        btn_row = ctk.CTkFrame(logo_inner, fg_color='transparent')
+        btn_row.grid(row=1, column=0, sticky='w', pady=(4, 0))
+        ctk.CTkButton(
+            btn_row, text='📁  Seleccionar imagen',
+            height=30, font=('Arial', 11), corner_radius=6,
+            fg_color=SURFACE3, hover_color=SURFACE4,
+            text_color=TEXT_SECONDARY, border_width=1, border_color=BORDER,
+            command=self._pick_logo,
+        ).pack(side='left', padx=(0, 6))
+        ctk.CTkButton(
+            btn_row, text='✕ Quitar',
+            height=30, font=('Arial', 10), corner_radius=6,
+            fg_color='transparent', hover_color=SURFACE3,
+            text_color=TEXT_MUTED, border_width=1, border_color=BORDER,
+            command=self._remove_logo,
+        ).pack(side='left')
+        ctk.CTkLabel(
+            logo_inner, text='PNG / JPG recomendado · tamaño máx. 2 MB',
+            font=('Arial', 9), text_color=TEXT_MUTED,
+        ).grid(row=2, column=0, sticky='w', pady=(2, 0))
+
         # Spacer bottom
         ctk.CTkFrame(card, height=4, fg_color='transparent').pack()
+
+    def _pick_logo(self):
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            title='Seleccionar logo',
+            filetypes=[('Imágenes', '*.png *.jpg *.jpeg *.gif *.bmp'), ('Todos', '*.*')],
+        )
+        if not path:
+            return
+        if os.path.getsize(path) > 2 * 1024 * 1024:
+            CTkMessagebox(title='Archivo muy grande', message='El logo debe pesar menos de 2 MB.', icon='warning')
+            return
+        # Copiar el logo a la carpeta del proyecto para portabilidad
+        dest_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets')
+        os.makedirs(dest_dir, exist_ok=True)
+        ext = os.path.splitext(path)[1].lower()
+        dest = os.path.join(dest_dir, f'logo{ext}')
+        shutil.copy2(path, dest)
+        self._settings['company_logo_path'] = dest
+        cfg.save(self._settings)
+        self._lbl_logo_name.configure(text=os.path.basename(dest), text_color=GREEN_TEXT)
+        CTkMessagebox(title='Logo guardado', message='El logo se guardó y se usará en los presupuestos PDF.', icon='check')
+
+    def _remove_logo(self):
+        self._settings['company_logo_path'] = ''
+        cfg.save(self._settings)
+        self._lbl_logo_name.configure(text='Sin logo', text_color=TEXT_MUTED)
 
     # =========================================================
     # SECCIÓN: MONEDA

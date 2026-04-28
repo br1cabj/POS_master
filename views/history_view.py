@@ -119,7 +119,7 @@ class HistoryView(BaseView):
 
         self.tree_scroll = ttk.Scrollbar(inner, orient='vertical')
 
-        columns = ('ID', 'Fecha', 'Cliente', 'Vendedor', 'Total', 'Ganancia', 'Estado')
+        columns = ('ID', 'Fecha', 'Cliente', 'Vendedor', 'Descuento', 'Total', 'Ganancia', 'Estado')
         self.tree = ttk.Treeview(
             inner, columns=columns, show='headings',
             yscrollcommand=self.tree_scroll.set,
@@ -127,8 +127,8 @@ class HistoryView(BaseView):
         self.tree_scroll.configure(command=self.tree.yview)
 
         _col_widths = {
-            'ID': 50, 'Fecha': 130, 'Cliente': 160,
-            'Vendedor': 110, 'Total': 90, 'Ganancia': 90, 'Estado': 100,
+            'ID': 50, 'Fecha': 130, 'Cliente': 150,
+            'Vendedor': 100, 'Descuento': 85, 'Total': 90, 'Ganancia': 90, 'Estado': 100,
         }
         for col in columns:
             self.tree.heading(col, text=col)
@@ -137,11 +137,12 @@ class HistoryView(BaseView):
         self.tree_scroll.pack(side='right', fill='y')
         self.tree.pack(side='left', fill='both', expand=True)
         self.tree.bind('<Double-1>', self.open_details_popup)
-        self.tree.tag_configure('fiado',     foreground='#fb923c')
-        self.tree.tag_configure('pendiente', foreground='#facc15')
+        self.tree.tag_configure('fiado',      foreground='#fb923c')
+        self.tree.tag_configure('pendiente',  foreground='#facc15')
         self.tree.tag_configure('completada', foreground='#4ade80')
-        self.tree.tag_configure('odd',  background='#161616')
-        self.tree.tag_configure('even', background='#1a1a1a')
+        self.tree.tag_configure('odd',        background='#161616')
+        self.tree.tag_configure('even',       background='#1a1a1a')
+        self.tree.tag_configure('has_disc',   foreground='#fbbf24')  # descuento activo → fila naranja
 
         # ── Botón Ver Detalle ──────────────────────────────────────────────
         btn_row = ctk.CTkFrame(self, fg_color='transparent')
@@ -211,9 +212,11 @@ class HistoryView(BaseView):
                 if hasattr(raw_date, 'strftime')
                 else str(raw_date)
             )
-            total_amount = float(sale.get('total_amount', 0.0))
+            total_amount    = float(sale.get('total_amount', 0.0))
+            discount_amount = float(sale.get('discount_amount', 0.0))
             profit = float(sale.get('profit', 0.0))
-            pm = sale.get('payment_method', '') or ''
+            pm  = sale.get('payment_method', '') or ''
+            pm2 = sale.get('payment_method_2', '') or ''
             status = sale.get('status', '') or ''
             if pm == 'fiado':
                 estado_label = '💳 Fiado'
@@ -221,11 +224,18 @@ class HistoryView(BaseView):
             elif status == 'pendiente':
                 estado_label = '⏳ Pendiente'
                 row_color = 'pendiente'
+            elif pm2:
+                estado_label = f'💰 Mixto'
+                row_color = 'completada'
             else:
                 estado_label = '✓ Efectivo' if pm == 'efectivo' else f'✓ {pm.capitalize()}'
                 row_color = 'completada'
-            row_idx = len(self.tree.get_children())
-            alt_tag = 'odd' if row_idx % 2 == 0 else 'even'
+
+            disc_str = f'-${discount_amount:.2f}' if discount_amount > 0 else '—'
+            row_idx  = len(self.tree.get_children())
+            alt_tag  = 'odd' if row_idx % 2 == 0 else 'even'
+            # Si hubo descuento, la fila entera toma color naranja para visibilidad
+            tags = ('has_disc', alt_tag) if discount_amount > 0 else (row_color, alt_tag)
             self.tree.insert(
                 '', 'end',
                 values=(
@@ -233,11 +243,12 @@ class HistoryView(BaseView):
                     date_str,
                     sale.get('customer_name', 'Sin Cliente'),
                     sale.get('user_name', 'Desconocido'),
+                    disc_str,
                     f'${total_amount:.2f}',
                     f'${profit:.2f}',
                     estado_label,
                 ),
-                tags=(row_color, alt_tag),
+                tags=tags,
             )
 
         total = len(self._all_sales)
@@ -264,7 +275,7 @@ class HistoryView(BaseView):
             filepath = os.path.join(desktop, 'historial_ventas.csv')
             with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
                 w = csv.writer(f)
-                w.writerow(['ID', 'Fecha', 'Cliente', 'Vendedor', 'Total', 'Ganancia', 'Estado'])
+                w.writerow(['ID', 'Fecha', 'Cliente', 'Vendedor', 'Descuento', 'Total', 'Ganancia', 'Estado'])
                 w.writerows(rows)
             from CTkMessagebox import CTkMessagebox
             CTkMessagebox(
@@ -291,11 +302,17 @@ class HistoryView(BaseView):
         item_data = self.tree.item(selected_item)
         sale_id = item_data['values'][0]
         tenant_id = self.ctx.tenant_id
-        details = self.controller.get_sale_details(tenant_id, sale_id)
+        result = self.controller.get_sale_details(tenant_id, sale_id)
+        details          = result.get('items', []) if isinstance(result, dict) else result
+        discount_amount  = result.get('discount_amount', 0.0) if isinstance(result, dict) else 0.0
+        pay_method       = result.get('payment_method', '') if isinstance(result, dict) else ''
+        pay_method_2     = result.get('payment_method_2', '') if isinstance(result, dict) else ''
+        pay_amount_2     = result.get('amount_method_2', 0.0) if isinstance(result, dict) else 0.0
+        sale_total       = result.get('total_amount', 0.0) if isinstance(result, dict) else 0.0
 
         popup = ctk.CTkToplevel(self)
         popup.title(f'Detalle Venta #{sale_id}')
-        popup.geometry('560x380')
+        popup.geometry('560x420')
         popup.configure(fg_color=SURFACE1)
         popup.attributes('-topmost', True)
 
@@ -305,13 +322,14 @@ class HistoryView(BaseView):
         ).pack(pady=(18, 10))
 
         textbox = ctk.CTkTextbox(
-            popup, width=520, height=270,
+            popup, width=520, height=250,
             font=('Consolas', 12),
             fg_color=SURFACE2, text_color=TEXT_PRIMARY,
             border_color=BORDER, border_width=1,
         )
-        textbox.pack(pady=(0, 14), padx=20)
+        textbox.pack(pady=(0, 6), padx=20)
 
+        subtotal_items = 0.0
         text_content = ''
         for d in details:
             desc = d.get('description', 'Desconocido')
@@ -319,7 +337,21 @@ class HistoryView(BaseView):
             qty = f'{int(raw_qty)}' if raw_qty.is_integer() else f'{raw_qty:.2f}'
             price = float(d.get('unit_price', 0.0))
             subtotal = float(d.get('subtotal', 0.0))
+            subtotal_items += subtotal
             text_content += f'• {desc[:20]:<20} | x{qty:<5} | ${price:<7.2f} | Sub: ${subtotal:.2f}\n'
+
+        if discount_amount > 0:
+            text_content += f'\n{"─" * 58}\n'
+            text_content += f'  {"Subtotal:":<30} ${subtotal_items:.2f}\n'
+            text_content += f'  {"Descuento aplicado:":<30}-${discount_amount:.2f}\n'
+            text_content += f'  {"TOTAL COBRADO:":<30} ${subtotal_items - discount_amount:.2f}\n'
+
+        if pay_method_2 and pay_amount_2 > 0:
+            pay_amount_1 = sale_total - pay_amount_2
+            text_content += f'\n{"─" * 58}\n'
+            text_content += f'  {"Pago Mixto:":<30}\n'
+            text_content += f'  {pay_method.capitalize():<30} ${pay_amount_1:.2f}\n'
+            text_content += f'  {pay_method_2.capitalize():<30} ${pay_amount_2:.2f}\n'
 
         textbox.insert('0.0', text_content)
         textbox.configure(state='disabled')

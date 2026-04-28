@@ -238,11 +238,17 @@ class ReturnsView(BaseView):
         bottom.grid(row=3, column=0, sticky='ew', padx=16, pady=(0, 16))
         bottom.grid_columnconfigure(0, weight=1)
 
+        self.lbl_discount_info = ctk.CTkLabel(
+            bottom, text='',
+            font=('Arial', 11), text_color=ORANGE_TEXT, anchor='e',
+        )
+        self.lbl_discount_info.grid(row=0, column=0, columnspan=3, sticky='e', pady=(0, 2))
+
         self.lbl_total = ctk.CTkLabel(
             bottom, text='Total: —',
             font=('Arial', 18, 'bold'), text_color=TEXT_PRIMARY, anchor='e',
         )
-        self.lbl_total.grid(row=0, column=0, columnspan=3, sticky='e', pady=(0, 10))
+        self.lbl_total.grid(row=1, column=0, columnspan=3, sticky='e', pady=(0, 10))
 
         self.btn_cancel_sale = ctk.CTkButton(
             bottom, text='🚫  Anular Ticket Completo',
@@ -252,7 +258,7 @@ class ReturnsView(BaseView):
             state='disabled',
             command=self._confirm_cancel,
         )
-        self.btn_cancel_sale.grid(row=1, column=0, sticky='ew', pady=(0, 6))
+        self.btn_cancel_sale.grid(row=2, column=0, sticky='ew', pady=(0, 6))
 
         self.btn_return_items = ctk.CTkButton(
             bottom, text='↩  Devolver Ítems (Parcial)',
@@ -262,7 +268,7 @@ class ReturnsView(BaseView):
             state='disabled',
             command=self._open_return_popup,
         )
-        self.btn_return_items.grid(row=2, column=0, sticky='ew', pady=(0, 6))
+        self.btn_return_items.grid(row=3, column=0, sticky='ew', pady=(0, 6))
 
         self.btn_modify = ctk.CTkButton(
             bottom, text='✏️  Modificar → Ir a Ventas',
@@ -272,7 +278,7 @@ class ReturnsView(BaseView):
             state='disabled',
             command=self._confirm_modify,
         )
-        self.btn_modify.grid(row=3, column=0, sticky='ew')
+        self.btn_modify.grid(row=4, column=0, sticky='ew')
 
     def _info_cell(self, parent, value, label, col):
         frame = ctk.CTkFrame(parent, fg_color='transparent')
@@ -401,8 +407,17 @@ class ReturnsView(BaseView):
                 tags=(alt,),
             )
 
-        # Total
-        self.lbl_total.configure(text=f"Total:  ${sale['total_amount']:.2f}")
+        # Total — con desglose de descuento si corresponde
+        total    = sale['total_amount']
+        discount = sale.get('discount_amount', 0.0)
+        if discount > 0:
+            subtotal_orig = total + discount
+            self.lbl_discount_info.configure(
+                text=f'Subtotal ${subtotal_orig:.2f}  ·  Descuento -${discount:.2f}'
+            )
+        else:
+            self.lbl_discount_info.configure(text='')
+        self.lbl_total.configure(text=f'Total cobrado:  ${total:.2f}')
 
         # Botones
         state = 'normal' if operable else 'disabled'
@@ -671,11 +686,13 @@ class ReturnsView(BaseView):
         )
         self.lbl_date.configure(text='—')
         self.lbl_client.configure(text='—')
-        self.lbl_method.configure(text='—', text_color=TEXT_PRIMARY)
+        self.lbl_method.configure(text='—')
         self.lbl_status.configure(text='—', text_color=TEXT_PRIMARY)
-        self.lbl_total.configure(text='Total: —')
         for iid in self.items_tree.get_children():
             self.items_tree.delete(iid)
-        self.btn_cancel_sale.configure(state='disabled', text='🚫  Anular Ticket Completo')
-        self.btn_return_items.configure(state='disabled')
-        self.btn_modify.configure(state='disabled')
+        self.lbl_discount_info.configure(text='')
+        self.lbl_total.configure(text='Total: —')
+        for btn in (self.btn_cancel_sale, self.btn_return_items, self.btn_modify):
+            btn.configure(state='disabled')
+        self.btn_cancel_sale.configure(text='🚫  Anular Ticket Completo')
+        self._selected_sale = None

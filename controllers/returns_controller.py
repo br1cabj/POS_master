@@ -90,7 +90,10 @@ class ReturnsController(BaseController):
                         'id': s.id,
                         'date': s.date,
                         'total_amount': float(s.total_amount or 0),
+                        'discount_amount': float(s.discount_amount or 0),
                         'payment_method': s.payment_method or '',
+                        'payment_method_2': s.payment_method_2 or '',
+                        'amount_method_2': float(s.amount_method_2 or 0),
                         'status': s.status or 'completada',
                         'customer_name': s.customer.name if s.customer else 'Consumidor Final',
                         'user_name': s.user.username if s.user else 'Desconocido',
@@ -122,8 +125,11 @@ class ReturnsController(BaseController):
                     'id': sale.id,
                     'date': sale.date,
                     'total_amount': float(sale.total_amount or 0),
+                    'discount_amount': float(sale.discount_amount or 0),
                     'profit': float(sale.profit or 0),
                     'payment_method': sale.payment_method or '',
+                    'payment_method_2': sale.payment_method_2 or '',
+                    'amount_method_2': float(sale.amount_method_2 or 0),
                     'status': sale.status or 'completada',
                     'customer_name': sale.customer.name if sale.customer else 'Consumidor Final',
                     'customer_id': sale.customer_id,
@@ -398,15 +404,40 @@ class ReturnsController(BaseController):
             .filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
             .first()
         )
-        if active_cash:
+        if not active_cash:
+            logger.warning('No hay caja abierta para registrar el reembolso.')
+            return
+
+        # Pago mixto: dividir el reembolso proporcionalmente entre ambos métodos
+        if sale.payment_method_2 and sale.amount_method_2:
+            amt_m2 = Decimal(str(sale.amount_method_2))
+            sale_total_approx = Decimal(str(sale.total_amount or 0)) + amount
+            if sale_total_approx > 0:
+                ratio_m2 = min(amt_m2 / sale_total_approx, Decimal('1'))
+            else:
+                ratio_m2 = Decimal('0.5')
+            refund_m2 = (amount * ratio_m2).quantize(Decimal('0.01'))
+            refund_m1 = amount - refund_m2
+            pm1 = (sale.payment_method or '').lower()
+            pm2 = (sale.payment_method_2 or '').lower()
+            if refund_m1 > 0:
+                session.add(CashMovement(
+                    session_id=active_cash.id,
+                    movement_type='gasto',
+                    amount=refund_m1,
+                    description=f'{description} ({pm1.capitalize()})',
+                ))
+            if refund_m2 > 0:
+                session.add(CashMovement(
+                    session_id=active_cash.id,
+                    movement_type='gasto',
+                    amount=refund_m2,
+                    description=f'{description} ({pm2.capitalize()})',
+                ))
+        else:
             session.add(CashMovement(
                 session_id=active_cash.id,
                 movement_type='gasto',
                 amount=amount,
                 description=description,
             ))
-        else:
-            logger.warning(
-                f'No hay caja abierta para registrar el reverso financiero de ${amount:.2f}. '
-                f'El stock fue restaurado pero el movimiento de caja no pudo registrarse.'
-            )

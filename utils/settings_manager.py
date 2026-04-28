@@ -19,6 +19,7 @@ DEFAULTS: dict = {
     'company_name':     'Mi Negocio',
     'company_address':  '',
     'company_phone':    '',
+    'company_logo_path': '',  # ruta absoluta al archivo de logo
     # Moneda
     'currency_symbol':  '$',
     'currency_decimals': 0,          # 0 = enteros  |  2 = centavos
