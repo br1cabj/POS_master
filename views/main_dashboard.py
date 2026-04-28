@@ -31,6 +31,7 @@ from views.combo_maker_view import ComboMakerView
 from views.customers_view import CustomersView
 from views.data_sync_view import DataSyncView
 from views.home_view import HomeView
+from views.label_view import LabelView
 from views.prices_view import PricesView
 from views.purchases_view import PurchasesView
 from views.quotation_view import QuotationView
@@ -58,6 +59,7 @@ NAV_ITEMS_ADMIN = [
 	(CustomersView, '👥', 'Clientes / Fiado', 'gestión'),
 	(SuppliersView, '🚚', 'Proveedores', 'gestión'),
 	(QuotationView, '📝', 'Cotizaciones', 'gestión'),
+	(LabelView, '🏷', 'Etiquetas', 'gestión'),
 	(ComboMakerView, '🍔', 'Combos y Botonera', 'gestión'),
 	(SalesHistoryView, '📜', 'Ventas e Historial', 'reportes'),
 	(ReportView, '📋', 'Reporte de Cierre', 'reportes'),
@@ -74,12 +76,9 @@ _SHORTCUTS = [
 	('F2', 'Caja'),
 	('F3', 'Artículos'),
 	('F4', 'Clientes'),
-	('ESC', 'Inicio'),
+	('ESC', 'Inicio / Pantalla'),
 	('F11', 'Pantalla Completa'),
 ]
-
-# Atajos específicos por vista (se muestran en el lado derecho de la barra)
-_VIEW_SHORTCUTS = {}  # Populated after view imports
 
 
 class MainDashboard(ctk.CTkFrame):
@@ -89,7 +88,7 @@ class MainDashboard(ctk.CTkFrame):
 		self.ctx = ctx
 		self._external_logout_command = logout_command
 		self._active_view_class = HomeView
-		self._nav_buttons: dict = {}  # view_class → CTkButton
+		self._nav_buttons: dict = {}
 		self._clock_job = None
 
 		self.pack(fill='both', expand=True)
@@ -97,7 +96,7 @@ class MainDashboard(ctk.CTkFrame):
 		# ── Usuario ────────────────────────────────────────────────────────
 		self.username = ctx.username
 		self.is_admin = ctx.is_admin
-		self.role_label = ctx.role.capitalize()
+		self.role_label = (ctx.role or 'Usuario').capitalize()
 
 		# ── Layout principal ───────────────────────────────────────────────
 		self._build_sidebar()
@@ -123,7 +122,7 @@ class MainDashboard(ctk.CTkFrame):
 		self.master_app.bind(
 			'<F4>', lambda e: self.safe_switch_view(CustomersView, requires_admin=True)
 		)
-		self.master_app.bind('<Escape>', lambda e: self.safe_switch_view(HomeView))
+		self.master_app.bind('<Escape>', self._handle_escape)
 
 		# ── Carga inicial ──────────────────────────────────────────────────
 		self.after(60, lambda: self.safe_switch_view(HomeView))
@@ -291,11 +290,9 @@ class MainDashboard(ctk.CTkFrame):
 	# MAIN AREA + SHORTCUTS BAR
 	# =========================================================
 	def _build_main_area(self):
-		# Contenedor que envuelve barra de atajos + área de contenido
 		area_container = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=0)
 		area_container.pack(side='right', fill='both', expand=True)
 
-		# IMPORTANTE: la barra inferior debe empaquetarse ANTES que el área expansible
 		self._build_shortcuts_bar(area_container)
 
 		self.main_area = ctk.CTkFrame(
@@ -305,7 +302,6 @@ class MainDashboard(ctk.CTkFrame):
 		self.current_view = None
 
 	def _build_shortcuts_bar(self, parent):
-		"""Barra fija en la parte inferior con los atajos de teclado visibles."""
 		bar = ctk.CTkFrame(
 			parent,
 			fg_color=SURFACE0,
@@ -352,6 +348,9 @@ class MainDashboard(ctk.CTkFrame):
 	# NAVEGACIÓN
 	# =========================================================
 	def safe_switch_view(self, view_class, requires_admin=False):
+		if not self.winfo_exists():
+			return
+
 		if requires_admin and not self.is_admin:
 			logger.warning('Acceso denegado: se requiere rol de administrador.')
 			CTkMessagebox(
@@ -361,17 +360,24 @@ class MainDashboard(ctk.CTkFrame):
 			)
 			return
 
+		# Destrucción segura de la vista actual
 		if self.current_view:
-			self.current_view.destroy()
+			try:
+				self.current_view.destroy()
+			except Exception:
+				pass
 			self.current_view = None
 
-		for widget in self.main_area.winfo_children():
-			widget.destroy()
+		if self.main_area.winfo_exists():
+			for widget in list(self.main_area.winfo_children()):
+				try:
+					widget.destroy()
+				except Exception:
+					pass
 
 		self._active_view_class = view_class
 		self._update_nav_highlight(view_class)
 
-		# HomeView recibe el callback de navegación para los accesos directos
 		if view_class is HomeView:
 			self.current_view = HomeView(
 				self.main_area,
@@ -383,22 +389,22 @@ class MainDashboard(ctk.CTkFrame):
 
 		self.current_view.pack(fill='both', expand=True)
 
-		# Actualizar atajos contextuales en la barra inferior
-		if hasattr(self, 'lbl_view_shortcuts'):
-			from views.sales_view import SalesView as _SV
-
-			if view_class is _SV:
+		if (
+			hasattr(self, 'lbl_view_shortcuts')
+			and self.lbl_view_shortcuts.winfo_exists()
+		):
+			if view_class is SalesView:
 				self.lbl_view_shortcuts.configure(
 					text='F5 Cobrar  ·  F6 Lector  ·  F7 Libre  ·  Supr Quitar'
 				)
 			else:
 				self.lbl_view_shortcuts.configure(text='')
 
-		# Refrescar dot de estado de caja
 		self.after(200, self._refresh_cash_dot)
 
 	def _refresh_cash_dot(self):
-		"""Actualiza el color del dot según si hay caja abierta."""
+		if not self.winfo_exists():
+			return
 		try:
 			from controllers.cash_controller import CashController
 
@@ -409,27 +415,37 @@ class MainDashboard(ctk.CTkFrame):
 		except Exception:
 			color = '#888888'
 			label = '●'
-		if hasattr(self, 'lbl_dot'):
+
+		if hasattr(self, 'lbl_dot') and self.lbl_dot.winfo_exists():
 			self.lbl_dot.configure(text_color=color, text=label)
 
 	def handle_logout(self):
-		for key in ('<F1>', '<F2>', '<F3>', '<F4>', '<Escape>'):
-			self.master_app.unbind(key)
+		for key in ('<F1>', '<F2>', '<F3>', '<F4>', '<Escape>', '<F11>'):
+			try:
+				self.master_app.unbind(key)
+			except Exception:
+				pass
 		self._external_logout_command()
 
 	# =========================================================
 	# RELOJ Y FULLSCREEN
 	# =========================================================
 	def _setup_fullscreen_binds(self):
+		if not self.winfo_exists():
+			return
 		top = self.winfo_toplevel()
 		top.bind('<F11>', self.toggle_fullscreen)
-		top.bind('<Escape>', self.exit_fullscreen)
 
 	def update_clock(self):
-		self.lbl_clock.configure(text=time.strftime('%d/%m/%Y  |  %H:%M:%S'))
+		if not self.winfo_exists():
+			return
+		if self.lbl_clock.winfo_exists():
+			self.lbl_clock.configure(text=time.strftime('%d/%m/%Y  |  %H:%M:%S'))
 		self._clock_job = self.after(1000, self.update_clock)
 
 	def toggle_fullscreen(self, event=None):
+		if not self.winfo_exists():
+			return
 		top = self.winfo_toplevel()
 		self.is_fullscreen = not self.is_fullscreen
 		top.attributes('-fullscreen', self.is_fullscreen)
@@ -439,13 +455,23 @@ class MainDashboard(ctk.CTkFrame):
 			self.lbl_clock.pack_forget()
 
 	def exit_fullscreen(self, event=None):
-		if self.is_fullscreen:
+		if self.is_fullscreen and self.winfo_exists():
 			self.is_fullscreen = False
 			self.winfo_toplevel().attributes('-fullscreen', False)
 			self.lbl_clock.pack_forget()
 
+	def _handle_escape(self, event=None):
+		"""Si está en pantalla completa, sale. Si no, va al Inicio."""
+		if self.is_fullscreen:
+			self.exit_fullscreen()
+		else:
+			self.safe_switch_view(HomeView)
+
 	def destroy(self):
 		if hasattr(self, '_clock_job') and self._clock_job:
-			self.after_cancel(self._clock_job)
+			try:
+				self.after_cancel(self._clock_job)
+			except Exception:
+				pass
 			self._clock_job = None
 		super().destroy()
