@@ -140,6 +140,21 @@ class ArticleVariant(Base):
 	show_on_touch = Column(Boolean, default=False)
 	btn_color = Column(String, default='#1f538d')
 
+	# Presentaciones / Empaque (cajones, pallets, etc.)
+	# units_per_pack: cuantas unidades base representa 1 pieza de esta variante
+	# base_variant_id: si no es None, el stock se descuenta de esa variante base
+	# pack_label: etiqueta de presentacion (ej: 'Cajon 12u', 'Pallet 200u')
+	units_per_pack = Column(Integer, default=1)
+	pack_label = Column(String, nullable=True)
+	base_variant_id = Column(
+		Integer, ForeignKey('article_variants.id'), nullable=True, index=True
+	)
+	base_variant = relationship(
+		'ArticleVariant',
+		foreign_keys='ArticleVariant.base_variant_id',
+		primaryjoin='ArticleVariant.base_variant_id == ArticleVariant.id',
+	)
+
 	__table_args__ = (
 		CheckConstraint('cost_price >= 0', name='chk_cost_price_positive'),
 		CheckConstraint('selling_price >= 0', name='chk_selling_price_positive'),

@@ -22,6 +22,7 @@ def run_migrations(engine) -> None:
 	_v3_add_discount_amount(engine)
 	_v4_add_mixto_fields(engine)
 	_v5_create_quotations(engine)
+	_v6_add_packaging_variants(engine)
 
 
 def _v1_add_cost_price_usd(engine) -> None:
@@ -155,4 +156,28 @@ def _v5_create_quotations(engine) -> None:
 		conn.commit()
 		logger.info(
 			'Migracion v5 aplicada: tablas quotations y quotation_items creadas.'
+		)
+
+
+def _v6_add_packaging_variants(engine) -> None:
+	"""
+	v6: Agrega soporte de presentaciones/empaque a article_variants.
+	  - units_per_pack: cuantas unidades base representa 1 pieza de esta variante.
+	  - pack_label: etiqueta visible (ej: 'Cajon 12u', 'Pallet 200u').
+	  - base_variant_id: FK a la variante base de la que se descuenta stock.
+	Nullable/default: todas las variantes existentes son presentacion unitaria (factor 1).
+	"""
+	with engine.connect() as conn:
+		for sql in [
+			'ALTER TABLE article_variants ADD COLUMN units_per_pack INTEGER DEFAULT 1',
+			'ALTER TABLE article_variants ADD COLUMN pack_label VARCHAR DEFAULT NULL',
+			'ALTER TABLE article_variants ADD COLUMN base_variant_id INTEGER DEFAULT NULL REFERENCES article_variants(id)',
+		]:
+			try:
+				conn.execute(text(sql))
+				conn.commit()
+			except Exception:
+				pass
+		logger.info(
+			'Migracion v6 aplicada: units_per_pack, pack_label, base_variant_id en article_variants.'
 		)

@@ -2,7 +2,8 @@
 controllers/quotation_controller.py
 ====================================
 Gestión de cotizaciones / presupuestos.
-Incluye CRUD, generación de PDF, conversión a venta y duplicado.
+Incluye operaciones CRUD, generación de archivos PDF, conversión directa a venta
+(impactando caja, stock y costos) y duplicación rápida de documentos.
 """
 
 import logging
@@ -30,21 +31,15 @@ from utils.quotation_pdf import QuotationPDF
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────────────────────
 def _to_dec(value, default=Decimal('0')) -> Decimal:
+	"""Convierte de forma segura cualquier valor a un objeto Decimal."""
 	try:
-		if isinstance(value, str):
-			value = value.replace(',', '.')
-		return Decimal(str(value))
+		if value is None:
+			return default
+		str_val = str(value).strip().replace(',', '.')
+		return Decimal(str_val)
 	except Exception:
 		return default
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Controller
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 class QuotationController(BaseController):
@@ -69,9 +64,8 @@ class QuotationController(BaseController):
 		self._pdf_dir = os.path.join(tempfile.gettempdir(), 'MiERP_Cotizaciones')
 		os.makedirs(self._pdf_dir, exist_ok=True)
 
-	# ── Helpers internos ──────────────────────────────────────────────────────
-
 	def _next_number(self, session: Session, tenant_id: int) -> str:
+		"""Genera el próximo número correlativo de cotización para un tenant específico."""
 		last = (
 			session.query(Quotation)
 			.filter_by(tenant_id=tenant_id)
@@ -87,20 +81,20 @@ class QuotationController(BaseController):
 		return f'COT-{n:04d}'
 
 	def _row_to_dict(self, q: Quotation) -> dict:
+		"""Serializa un objeto Quotation de SQLAlchemy a un diccionario de Python."""
 		cname = q.customer.name if q.customer else ''
 		uname = q.user.username if q.user else ''
-		items = []
-		for it in q.items:
-			items.append(
-				{
-					'id': it.id,
-					'description': it.description,
-					'quantity': float(it.quantity),
-					'unit_price': float(it.unit_price),
-					'subtotal': float(it.subtotal),
-					'variant_id': it.variant_id,
-				}
-			)
+		items = [
+			{
+				'id': it.id,
+				'description': it.description,
+				'quantity': float(it.quantity),
+				'unit_price': float(it.unit_price),
+				'subtotal': float(it.subtotal),
+				'variant_id': it.variant_id,
+			}
+			for it in q.items
+		]
 		return {
 			'id': q.id,
 			'number': q.number,
@@ -118,12 +112,10 @@ class QuotationController(BaseController):
 			'items': items,
 		}
 
-	# ── CRUD ──────────────────────────────────────────────────────────────────
-
 	def list_quotations(
 		self, tenant_id: int, status: str = None, limit: int = 100
 	) -> list[dict]:
-		"""MEJORA 1: Implementa límite para no sobrecargar memoria con el tiempo."""
+		"""Obtiene un listado paginado/limitado de cotizaciones asociadas a un tenant."""
 		with self._Session() as s:
 			q = s.query(Quotation).filter_by(tenant_id=tenant_id)
 			if status and status != 'todas':
@@ -132,6 +124,7 @@ class QuotationController(BaseController):
 			return [self._row_to_dict(r) for r in rows]
 
 	def get_quotation(self, quotation_id: int) -> dict | None:
+		"""Recupera los datos completos de una cotización específica por su ID."""
 		with self._Session() as s:
 			q = s.get(Quotation, quotation_id)
 			return self._row_to_dict(q) if q else None
@@ -146,6 +139,7 @@ class QuotationController(BaseController):
 		notes: str = '',
 		discount_amount: float = 0,
 	) -> tuple[bool, str | dict]:
+		"""Registra una nueva cotización en la base de datos."""
 		with self._Session() as s:
 			try:
 				number = self._next_number(s, tenant_id)
@@ -153,14 +147,12 @@ class QuotationController(BaseController):
 
 				subtotal = sum(_to_dec(it.get('subtotal', 0)) for it in items)
 				total = (subtotal - discount).quantize(Decimal('0.01'), ROUND_HALF_UP)
-				if total < 0:
+				if total < Decimal('0'):
 					total = Decimal('0')
 
 				valid_until = None
 				if valid_days and valid_days > 0:
-					valid_until = (
-						datetime.utcnow() + timedelta(days=valid_days)
-					).date()
+					valid_until = (datetime.now() + timedelta(days=valid_days)).date()
 
 				q = Quotation(
 					number=number,
@@ -190,9 +182,9 @@ class QuotationController(BaseController):
 				s.commit()
 				return True, self._row_to_dict(s.get(Quotation, q.id))
 			except Exception as e:
-				s.rollback()  # MEJORA 3: Rollback explícito
-				logger.error(f'Error creando cotización: {e}', exc_info=True)
-				return False, str(e)
+				s.rollback()
+				logger.error('Error creando cotización: %s', e, exc_info=True)
+				return False, 'Error interno al procesar la cotización.'
 
 	def update_quotation(
 		self,
@@ -204,6 +196,7 @@ class QuotationController(BaseController):
 		discount_amount: float = 0,
 		status: str = None,
 	) -> tuple[bool, str | dict]:
+		"""Modifica una cotización existente y actualiza sus ítems."""
 		with self._Session() as s:
 			try:
 				q = s.get(Quotation, quotation_id)
@@ -213,7 +206,7 @@ class QuotationController(BaseController):
 				discount = _to_dec(discount_amount)
 				subtotal = sum(_to_dec(it.get('subtotal', 0)) for it in items)
 				total = (subtotal - discount).quantize(Decimal('0.01'), ROUND_HALF_UP)
-				if total < 0:
+				if total < Decimal('0'):
 					total = Decimal('0')
 
 				q.customer_id = customer_id or None
@@ -244,11 +237,15 @@ class QuotationController(BaseController):
 			except Exception as e:
 				s.rollback()
 				logger.error(
-					f'Error actualizando cotización {quotation_id}: {e}', exc_info=True
+					'Error actualizando cotización %s: %s',
+					quotation_id,
+					e,
+					exc_info=True,
 				)
-				return False, str(e)
+				return False, 'Error interno al actualizar la cotización.'
 
 	def set_status(self, quotation_id: int, new_status: str) -> tuple[bool, str]:
+		"""Actualiza el estado (borrador, aceptada, etc.) de una cotización."""
 		valid = set(self.STATUS_LABELS.keys())
 		if new_status not in valid:
 			return False, f'Estado inválido: {new_status}'
@@ -263,10 +260,11 @@ class QuotationController(BaseController):
 				return True, new_status
 			except Exception as e:
 				s.rollback()
-				logger.error(f'Error cambiando estado: {e}', exc_info=True)
-				return False, str(e)
+				logger.error('Error cambiando estado: %s', e, exc_info=True)
+				return False, 'Error interno al modificar estado.'
 
 	def delete_quotation(self, quotation_id: int) -> tuple[bool, str]:
+		"""Elimina físicamente una cotización y todos sus ítems asociados."""
 		with self._Session() as s:
 			try:
 				q = s.get(Quotation, quotation_id)
@@ -274,40 +272,38 @@ class QuotationController(BaseController):
 					return False, 'Cotización no encontrada.'
 				s.delete(q)
 				s.commit()
-				return True, 'Eliminada.'
+				return True, 'Eliminada correctamente.'
 			except Exception as e:
 				s.rollback()
 				logger.error(
-					f'Error eliminando cotización {quotation_id}: {e}', exc_info=True
+					'Error eliminando cotización %s: %s', quotation_id, e, exc_info=True
 				)
-				return False, str(e)
+				return False, 'Error interno al eliminar la cotización.'
 
 	def duplicate_quotation(
 		self, quotation_id: int, user_id: int
 	) -> tuple[bool, str | dict]:
+		"""Crea una copia idéntica de una cotización existente y la asigna como borrador."""
 		with self._Session() as s:
 			try:
 				orig = s.get(Quotation, quotation_id)
 				if not orig:
-					return False, 'Cotización no encontrada.'
+					return False, 'Cotización original no encontrada.'
 
 				number = self._next_number(s, orig.tenant_id)
-				days_valid = (
-					(orig.valid_until - datetime.utcnow().date()).days
-					if orig.valid_until
-					else 15
-				)
+
+				days_valid = 15
+				if orig.valid_until:
+					# Protección ante diferencias horarias
+					diff = (orig.valid_until - datetime.now().date()).days
+					days_valid = max(diff, 1)
 
 				new_q = Quotation(
 					number=number,
 					tenant_id=orig.tenant_id,
 					user_id=user_id,
 					customer_id=orig.customer_id,
-					valid_until=(
-						(datetime.utcnow() + timedelta(days=max(days_valid, 15))).date()
-						if orig.valid_until
-						else None
-					),
+					valid_until=(datetime.now() + timedelta(days=days_valid)).date(),
 					total_amount=orig.total_amount,
 					discount_amount=orig.discount_amount,
 					notes=orig.notes,
@@ -333,9 +329,9 @@ class QuotationController(BaseController):
 			except Exception as e:
 				s.rollback()
 				logger.error(
-					f'Error duplicando cotización {quotation_id}: {e}', exc_info=True
+					'Error duplicando cotización %s: %s', quotation_id, e, exc_info=True
 				)
-				return False, str(e)
+				return False, 'Error interno al duplicar el documento.'
 
 	def convert_to_sale(
 		self,
@@ -344,6 +340,11 @@ class QuotationController(BaseController):
 		payment_method: str = 'efectivo',
 		warehouse_id: int = None,
 	) -> tuple[bool, str]:
+		"""
+		Transforma una cotización en una venta firme.
+		Descuenta stock, registra la ganancia real basada en el costo,
+		e ingresa el movimiento en la caja del usuario especificado.
+		"""
 		with self._Session() as s:
 			try:
 				q = s.get(Quotation, quotation_id)
@@ -352,7 +353,23 @@ class QuotationController(BaseController):
 				if q.status == 'rechazada':
 					return False, 'No se puede convertir una cotización rechazada.'
 
-				profit = q.total_amount
+				# Calcular el costo real para la rentabilidad de la venta
+				total_cost = Decimal('0')
+				items_data = []
+
+				for it in q.items:
+					unit_cost = Decimal('0')
+					if it.variant_id:
+						variant = s.get(ArticleVariant, it.variant_id)
+						if variant and variant.cost_price:
+							unit_cost = variant.cost_price
+
+					line_cost = unit_cost * it.quantity
+					total_cost += line_cost
+
+					items_data.append({'ref': it, 'unit_cost': unit_cost})
+
+				real_profit = q.total_amount - total_cost
 
 				sale = Sale(
 					tenant_id=q.tenant_id,
@@ -360,49 +377,59 @@ class QuotationController(BaseController):
 					customer_id=q.customer_id,
 					total_amount=q.total_amount,
 					discount_amount=q.discount_amount,
-					profit=profit,
+					profit=real_profit,
 					payment_method=payment_method,
 					status='completada',
 				)
 				s.add(sale)
 				s.flush()
 
-				for it in q.items:
+				for data in items_data:
+					it = data['ref']
 					sd = SaleDetail(
 						sale_id=sale.id,
 						description=it.description,
 						quantity=it.quantity,
-						unit_cost=Decimal('0'),
+						unit_cost=data['unit_cost'],
 						unit_price=it.unit_price,
 						subtotal=it.subtotal,
 						variant_id=it.variant_id,
 					)
 					s.add(sd)
 
-					# MEJORA 4: Permite que el stock quede en negativo si hay descuadre
+					# Manejo del inventario: si no existe stock previo, se crea en negativo
 					if it.variant_id and warehouse_id:
 						stock_row = (
 							s.query(Stock)
 							.filter_by(
 								variant_id=it.variant_id, warehouse_id=warehouse_id
 							)
+							.with_for_update()
 							.first()
 						)
 						if stock_row:
 							stock_row.quantity -= it.quantity
+						else:
+							new_stock = Stock(
+								variant_id=it.variant_id,
+								warehouse_id=warehouse_id,
+								quantity=-it.quantity,
+							)
+							s.add(new_stock)
 
+				# Registro del ingreso en caja, asegurando que sea la del usuario que ejecuta
 				cash_session = (
 					s.query(CashSession)
-					.filter_by(tenant_id=q.tenant_id, is_open=True)
+					.filter_by(tenant_id=q.tenant_id, user_id=user_id, is_open=True)
 					.first()
 				)
-				if cash_session and q.total_amount > 0:
+				if cash_session and q.total_amount > Decimal('0'):
 					s.add(
 						CashMovement(
 							session_id=cash_session.id,
 							movement_type='venta',
 							amount=q.total_amount,
-							description=f'Ticket #{sale.id} (desde {q.number})',
+							description=f'Ticket #{sale.id} (desde COT-{q.number.split("-")[-1]})',
 						)
 					)
 
@@ -412,13 +439,15 @@ class QuotationController(BaseController):
 			except Exception as e:
 				s.rollback()
 				logger.error(
-					f'Error convirtiendo cotización {quotation_id}: {e}', exc_info=True
+					'Error convirtiendo cotización %s a venta: %s',
+					quotation_id,
+					e,
+					exc_info=True,
 				)
-				return False, str(e)
-
-	# ── Catálogo de artículos para autocompletar ──────────────────────────────
+				return False, 'Error interno durante la conversión.'
 
 	def search_variants(self, tenant_id: int, query: str) -> list[dict]:
+		"""Busca variantes de artículos activos por nombre o código de barras."""
 		with self._Session() as s:
 			try:
 				q_str = f'%{query}%'
@@ -454,10 +483,13 @@ class QuotationController(BaseController):
 					)
 				return result
 			except Exception as e:
-				logger.error(f'Error buscando variantes: {e}', exc_info=True)
+				logger.error(
+					'Error buscando variantes en catálogo: %s', e, exc_info=True
+				)
 				return []
 
 	def generate_pdf(self, quotation_id: int) -> tuple[bool, str]:
+		"""Delega la creación del archivo PDF al servicio de renderizado."""
 		try:
 			data = self.get_quotation(quotation_id)
 			if not data:
@@ -468,6 +500,9 @@ class QuotationController(BaseController):
 
 		except Exception as e:
 			logger.error(
-				f'Error preparando PDF cotización {quotation_id}: {e}', exc_info=True
+				'Error preparando PDF de cotización %s: %s',
+				quotation_id,
+				e,
+				exc_info=True,
 			)
-			return False, str(e)
+			return False, 'Error interno al generar el documento PDF.'

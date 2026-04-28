@@ -80,6 +80,10 @@ class ArticleController(BaseController):
 						'supplier_name': v.article.supplier.name
 						if v.article.supplier
 						else 'Sin Proveedor',
+						# Presentaciones / Empaque
+						'units_per_pack': v.units_per_pack or 1,
+						'pack_label': v.pack_label,
+						'base_variant_id': v.base_variant_id,
 					}
 					for v in variants
 				]
@@ -398,3 +402,199 @@ class ArticleController(BaseController):
 					f'Error al obtener historial de precios: {e}', exc_info=True
 				)
 				return []
+
+	def get_packaging_variants(self, base_variant_id):
+		"""Retorna las presentaciones (cajon, pallet, etc.) de una variante base."""
+		with self._Session() as session:
+			try:
+				variants = (
+					session.query(ArticleVariant)
+					.filter(
+						ArticleVariant.base_variant_id == base_variant_id,
+						ArticleVariant.is_active == True,  # noqa: E712
+					)
+					.order_by(ArticleVariant.units_per_pack)
+					.all()
+				)
+				return [
+					{
+						'variant_id': v.id,
+						'barcode': v.barcode or '',
+						'pack_label': v.pack_label or '',
+						'units_per_pack': v.units_per_pack or 1,
+						'selling_price': float(v.selling_price),
+					}
+					for v in variants
+				]
+			except Exception as e:
+				logger.error(f'Error al obtener presentaciones: {e}', exc_info=True)
+				return []
+
+	def add_packaging_variant(
+		self,
+		tenant_id,
+		base_variant_id,
+		pack_label,
+		units_per_pack,
+		selling_price,
+		barcode=None,
+	):
+		"""
+		Agrega una presentacion (ej: Cajon 12u) vinculada a una variante base.
+		El stock se descuenta de la variante base al vender.
+		"""
+		try:
+			units_per_pack = int(units_per_pack)
+			selling_price = Decimal(str(selling_price))
+		except (ValueError, InvalidOperation):
+			return False, 'Datos numericos invalidos.'
+
+		if units_per_pack < 2:
+			return False, 'La presentacion debe tener al menos 2 unidades por paquete.'
+		if selling_price <= 0:
+			return False, 'El precio de venta debe ser mayor a cero.'
+		if not pack_label or not str(pack_label).strip():
+			return False, 'El nombre de la presentacion es obligatorio.'
+
+		with self._Session() as session:
+			try:
+				# Verificar que la variante base pertenece al tenant
+				base = (
+					session.query(ArticleVariant)
+					.join(Article)
+					.filter(
+						ArticleVariant.id == base_variant_id,
+						Article.tenant_id == tenant_id,
+					)
+					.first()
+				)
+				if not base:
+					return False, 'Variante base no encontrada.'
+
+				# Verificar barcode unico si se proporciona
+				bc = str(barcode).strip() if barcode and str(barcode).strip() else None
+				if bc:
+					conflict = (
+						session.query(ArticleVariant)
+						.join(Article)
+						.filter(
+							Article.tenant_id == tenant_id,
+							ArticleVariant.barcode == bc,
+							ArticleVariant.is_active == True,  # noqa: E712
+						)
+						.first()
+					)
+					if conflict:
+						return False, f'El codigo "{bc}" ya esta en uso.'
+
+				variant = ArticleVariant(
+					article_id=base.article_id,
+					barcode=bc,
+					cost_price=base.cost_price * units_per_pack,
+					selling_price=selling_price,
+					units_per_pack=units_per_pack,
+					pack_label=str(pack_label).strip(),
+					base_variant_id=base_variant_id,
+				)
+				session.add(variant)
+				session.commit()
+				return True, f'Presentacion "{pack_label}" agregada.'
+			except Exception as e:
+				session.rollback()
+				logger.error(f'Error al agregar presentacion: {e}', exc_info=True)
+				return False, 'Error interno al agregar la presentacion.'
+
+	def update_packaging_variant(
+		self,
+		tenant_id,
+		variant_id,
+		pack_label,
+		units_per_pack,
+		selling_price,
+		barcode=None,
+	):
+		"""Edita los datos de una variante de presentacion existente."""
+		try:
+			units_per_pack = int(units_per_pack)
+			selling_price = Decimal(str(selling_price))
+		except (ValueError, InvalidOperation):
+			return False, 'Datos numericos invalidos.'
+
+		if units_per_pack < 2:
+			return False, 'La presentacion debe tener al menos 2 unidades por paquete.'
+		if selling_price <= 0:
+			return False, 'El precio de venta debe ser mayor a cero.'
+		if not pack_label or not str(pack_label).strip():
+			return False, 'El nombre de la presentacion es obligatorio.'
+
+		with self._Session() as session:
+			try:
+				variant = (
+					session.query(ArticleVariant)
+					.join(Article)
+					.filter(
+						ArticleVariant.id == variant_id,
+						ArticleVariant.base_variant_id != None,  # noqa: E711
+						Article.tenant_id == tenant_id,
+					)
+					.first()
+				)
+				if not variant:
+					return False, 'Presentacion no encontrada.'
+
+				# Verificar barcode unico si cambio
+				bc = str(barcode).strip() if barcode and str(barcode).strip() else None
+				if bc and bc != (variant.barcode or ''):
+					conflict = (
+						session.query(ArticleVariant)
+						.join(Article)
+						.filter(
+							Article.tenant_id == tenant_id,
+							ArticleVariant.barcode == bc,
+							ArticleVariant.is_active == True,  # noqa: E712
+							ArticleVariant.id != variant_id,
+						)
+						.first()
+					)
+					if conflict:
+						return False, f'El codigo "{bc}" ya esta en uso.'
+
+				# Recalcular costo proporcional desde la variante base
+				base = session.query(ArticleVariant).get(variant.base_variant_id)
+				variant.pack_label = str(pack_label).strip()
+				variant.units_per_pack = units_per_pack
+				variant.selling_price = selling_price
+				variant.barcode = bc
+				if base:
+					variant.cost_price = base.cost_price * units_per_pack
+
+				session.commit()
+				return True, f'Presentacion "{pack_label}" actualizada.'
+			except Exception as e:
+				session.rollback()
+				logger.error(f'Error al editar presentacion: {e}', exc_info=True)
+				return False, 'Error interno al editar la presentacion.'
+
+	def delete_packaging_variant(self, tenant_id, variant_id):
+		"""Elimina (desactiva) una variante de presentacion."""
+		with self._Session() as session:
+			try:
+				variant = (
+					session.query(ArticleVariant)
+					.join(Article)
+					.filter(
+						ArticleVariant.id == variant_id,
+						ArticleVariant.base_variant_id != None,  # noqa: E711
+						Article.tenant_id == tenant_id,
+					)
+					.first()
+				)
+				if not variant:
+					return False, 'Presentacion no encontrada.'
+				variant.is_active = False
+				session.commit()
+				return True, 'Presentacion eliminada.'
+			except Exception as e:
+				session.rollback()
+				logger.error(f'Error al eliminar presentacion: {e}', exc_info=True)
+				return False, 'Error interno.'

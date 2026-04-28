@@ -82,6 +82,22 @@ class SalesController(BaseController):
 							sum(s.quantity for s in v.stocks) if v.stocks else 0
 						)
 
+					# Stock visible: para presentaciones mostrar en unidades del paquete
+					units = getattr(v, 'units_per_pack', 1) or 1
+					base_vid = getattr(v, 'base_variant_id', None)
+					if base_vid and units > 1:
+						# Stock de la variante base dividido por factor de empaque
+						base_v = next((x for x in variants if x.id == base_vid), None)
+						if base_v:
+							base_stock = (
+								sum(s.quantity for s in base_v.stocks)
+								if base_v.stocks
+								else 0
+							)
+							total_stock = int(base_stock // units)
+						else:
+							total_stock = 0
+
 					result.append(
 						{
 							'variant_id': v.id,
@@ -92,6 +108,10 @@ class SalesController(BaseController):
 							'is_combo': v.is_combo,
 							'show_on_touch': v.show_on_touch,
 							'btn_color': v.btn_color,
+							# Empaque
+							'units_per_pack': units,
+							'pack_label': getattr(v, 'pack_label', None),
+							'base_variant_id': base_vid,
 						}
 					)
 				return result
@@ -307,6 +327,9 @@ class SalesController(BaseController):
 							if v.is_combo:
 								for ci in v.ingredients:
 									variants_to_deduct.add(ci.ingredient_id)
+							elif getattr(v, 'base_variant_id', None):
+								# Presentacion: stock se descuenta de la variante base
+								variants_to_deduct.add(v.base_variant_id)
 							else:
 								variants_to_deduct.add(v_id)
 
@@ -366,20 +389,31 @@ class SalesController(BaseController):
 									)
 								)
 						else:
-							stock = stocks_db.get(v_id)
-							if not stock or stock.quantity < qty:
+							# Determinar de donde descontar stock
+							base_vid = getattr(variant, 'base_variant_id', None)
+							units = getattr(variant, 'units_per_pack', 1) or 1
+							if base_vid and units > 1:
+								# Presentacion: descontar qty*units de la variante base
+								deduct_vid = base_vid
+								deduct_qty = qty * Decimal(str(units))
+							else:
+								deduct_vid = v_id
+								deduct_qty = qty
+
+							stock = stocks_db.get(deduct_vid)
+							if not stock or stock.quantity < deduct_qty:
 								raise ValueError(
 									f'Stock insuficiente para {variant.article.name}'
 								)
-							stock.quantity -= qty
-							cost_price = variant.cost_price
+							stock.quantity -= deduct_qty
+							cost_price = variant.cost_price / Decimal(str(units))
 							session.add(
 								StockMovement(
 									movement_type='out',
-									quantity=qty,
+									quantity=deduct_qty,
 									reference=f'Venta Ticket #{new_sale.id}',
 									source_warehouse_id=stock.warehouse_id,
-									variant_id=v_id,
+									variant_id=deduct_vid,
 									user_id=user_id,
 								)
 							)
@@ -495,10 +529,5 @@ class SalesController(BaseController):
 			except ValueError as ve:
 				session.rollback()
 				return False, str(ve)
-			except Exception as e:
-				session.rollback()
-				logger.error(f'Error grave al procesar venta: {e}', exc_info=True)
-				return (
-					False,
-					'Ocurrió un error interno al procesar la venta. Intente de nuevo.',
-				)
+			except Exception:
+				session.roll

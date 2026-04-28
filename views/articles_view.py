@@ -17,6 +17,7 @@ from utils.styles import (
 	BORDER,
 	BORDER_ACTIVE,
 	GREEN,
+	GREEN_DIM,
 	GREEN_TEXT,
 	ORANGE,
 	ORANGE_DIM,
@@ -24,6 +25,7 @@ from utils.styles import (
 	RED,
 	RED_DIM,
 	RED_TEXT,
+	SURFACE1,
 	SURFACE2,
 	SURFACE3,
 	SURFACE4,
@@ -384,7 +386,60 @@ class ArticlesView(BaseView):
 			cursor='hand2',
 			command=self.reset_form,
 		)
-		self.btn_cancel.pack(pady=(0, 20), padx=20, fill='x')
+		self.btn_cancel.pack(pady=(0, 6), padx=20, fill='x')
+
+		# ── Panel de Presentaciones (cajón, pallet, etc.) ──
+		# Solo visible al editar un artículo existente
+		sep = ctk.CTkFrame(self.left_panel, height=1, fg_color=BORDER)
+		sep.pack(fill='x', padx=20, pady=(10, 8))
+
+		self.frame_packaging = ctk.CTkFrame(self.left_panel, fg_color='transparent')
+		self.frame_packaging.pack(fill='x', padx=20, pady=(0, 16))
+
+		packaging_header = ctk.CTkFrame(self.frame_packaging, fg_color='transparent')
+		packaging_header.pack(fill='x')
+
+		ctk.CTkLabel(
+			packaging_header,
+			text='Presentaciones',
+			font=('Arial', 12, 'bold'),
+			text_color=TEXT_SECONDARY,
+			anchor='w',
+		).pack(side='left')
+
+		self.btn_add_pack = ctk.CTkButton(
+			packaging_header,
+			text='+ Agregar',
+			width=80,
+			height=26,
+			font=('Arial', 10, 'bold'),
+			fg_color=GREEN_DIM,
+			hover_color=GREEN,
+			text_color=GREEN_TEXT,
+			border_width=1,
+			border_color=GREEN,
+			corner_radius=6,
+			cursor='hand2',
+			command=self._open_add_packaging_dialog,
+		)
+		self.btn_add_pack.pack(side='right')
+
+		self.lbl_pack_hint = ctk.CTkLabel(
+			self.frame_packaging,
+			text='(Guarda el producto primero para agregar presentaciones)',
+			font=('Arial', 10),
+			text_color=TEXT_MUTED,
+			anchor='w',
+			wraplength=230,
+		)
+		self.lbl_pack_hint.pack(anchor='w', pady=(4, 0))
+
+		self.frame_pack_list = ctk.CTkFrame(
+			self.frame_packaging, fg_color='transparent'
+		)
+		self.frame_pack_list.pack(fill='x', pady=(4, 0))
+
+		self.frame_packaging.pack_forget()  # Oculto hasta editar
 
 	def _build_right_panel(self):
 		self.right_panel = ctk.CTkFrame(
@@ -823,6 +878,7 @@ class ArticlesView(BaseView):
 		)
 		self.btn_add.configure(text='💾  Actualizar Precios / Datos')
 		self._update_formula_panel()
+		self._show_packaging_panel(variant['variant_id'])
 
 	def reset_form(self, keep_barcode=False):
 		self.editing_variant_id = None
@@ -845,6 +901,7 @@ class ArticlesView(BaseView):
 		self._set_price_mode('manual')
 		self.lbl_form_title.configure(text='📦 Nuevo Producto', text_color=TEXT_PRIMARY)
 		self.btn_add.configure(text='➕  Agregar al Inventario')
+		self.frame_packaging.pack_forget()
 
 		if not keep_barcode:
 			self.entry_barcode.focus()
@@ -999,3 +1056,303 @@ class ArticlesView(BaseView):
 				message=f'Excepción al generar etiquetas: {e}',
 				icon='cancel',
 			)
+
+	# =========================================================
+	# PRESENTACIONES / EMPAQUE
+	# =========================================================
+	def _show_packaging_panel(self, base_variant_id):
+		"""Muestra y refresca el panel de presentaciones para la variante en edicion."""
+		# Limpiar lista anterior
+		for w in self.frame_pack_list.winfo_children():
+			w.destroy()
+
+		packs = self.controller.get_packaging_variants(base_variant_id)
+
+		if packs:
+			self.lbl_pack_hint.pack_forget()
+			for p in packs:
+				self._build_pack_row(p, base_variant_id)
+		else:
+			self.lbl_pack_hint.configure(
+				text='Sin presentaciones. Usa + Agregar para definir cajon, pallet, etc.'
+			)
+			self.lbl_pack_hint.pack(anchor='w', pady=(4, 0))
+
+		self.btn_add_pack.configure(
+			command=lambda vid=base_variant_id: self._open_add_packaging_dialog(vid)
+		)
+		self.frame_packaging.pack(fill='x', padx=20, pady=(0, 16))
+
+	def _build_pack_row(self, pack, base_variant_id):
+		row = ctk.CTkFrame(
+			self.frame_pack_list,
+			fg_color=SURFACE1,
+			corner_radius=6,
+			border_width=1,
+			border_color=BORDER,
+		)
+		row.pack(fill='x', pady=(0, 4))
+		row.grid_columnconfigure(1, weight=1)
+
+		ctk.CTkLabel(
+			row,
+			text=pack['pack_label'],
+			font=('Arial', 11, 'bold'),
+			text_color=TEXT_PRIMARY,
+			anchor='w',
+		).grid(row=0, column=0, sticky='w', padx=(10, 6), pady=6)
+
+		ctk.CTkLabel(
+			row,
+			text=f'{pack["units_per_pack"]}u  |  ${pack["selling_price"]:,.2f}',
+			font=('Arial', 10),
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).grid(row=0, column=1, sticky='w', pady=6)
+
+		btn_frame = ctk.CTkFrame(row, fg_color='transparent')
+		btn_frame.grid(row=0, column=2, padx=(4, 8), pady=6)
+
+		ctk.CTkButton(
+			btn_frame,
+			text='✏',
+			width=28,
+			height=24,
+			font=('Arial', 11),
+			fg_color=ORANGE_DIM,
+			hover_color=ORANGE,
+			text_color=ORANGE_TEXT,
+			border_width=0,
+			corner_radius=4,
+			command=lambda p=pack, bvid=base_variant_id: (
+				self._open_edit_packaging_dialog(p, bvid)
+			),
+		).pack(side='left', padx=(0, 3))
+
+		ctk.CTkButton(
+			btn_frame,
+			text='X',
+			width=28,
+			height=24,
+			font=('Arial', 10, 'bold'),
+			fg_color=RED_DIM,
+			hover_color=RED,
+			text_color=RED_TEXT,
+			border_width=0,
+			corner_radius=4,
+			command=lambda vid=pack['variant_id'], bvid=base_variant_id: (
+				self._delete_pack(vid, bvid)
+			),
+		).pack(side='left')
+
+	def _delete_pack(self, variant_id, base_variant_id):
+		tenant_id = self.ctx.tenant_id
+		success, msg = self.controller.delete_packaging_variant(tenant_id, variant_id)
+		if success:
+			self._show_packaging_panel(base_variant_id)
+		else:
+			self.show_error(msg)
+
+	def _open_add_packaging_dialog(self, base_variant_id=None):
+		if base_variant_id is None:
+			base_variant_id = self.editing_variant_id
+		if not base_variant_id:
+			self.show_warning(
+				'Guarda el producto primero antes de agregar presentaciones.'
+			)
+			return
+		self._packaging_dialog(
+			title='Nueva Presentacion',
+			base_variant_id=base_variant_id,
+			existing_pack=None,
+		)
+
+	def _open_edit_packaging_dialog(self, pack, base_variant_id):
+		self._packaging_dialog(
+			title='Editar Presentacion',
+			base_variant_id=base_variant_id,
+			existing_pack=pack,
+		)
+
+	def _packaging_dialog(self, title, base_variant_id, existing_pack):
+		"""Dialog reutilizable para crear o editar una presentacion (cajon, caja, pallet, etc.)."""
+		is_edit = existing_pack is not None
+
+		dialog = ctk.CTkToplevel(self)
+		dialog.title(title)
+		dialog.geometry('400x430')
+		dialog.resizable(False, False)
+		dialog.grab_set()
+		dialog.focus()
+		dialog.attributes('-topmost', True)
+
+		ctk.CTkLabel(
+			dialog,
+			text=title,
+			font=('Arial', 18, 'bold'),
+			text_color=TEXT_PRIMARY,
+		).pack(pady=(20, 2))
+
+		ctk.CTkLabel(
+			dialog,
+			text='Definí nombre, cantidad y precio de venta del paquete.',
+			font=('Arial', 11),
+			text_color=TEXT_MUTED,
+		).pack(pady=(0, 12))
+
+		# ── Nombre ──
+		ctk.CTkLabel(
+			dialog,
+			text='NOMBRE  (ej: Cajon 12u, Caja x6, Pallet 200u)',
+			font=('Arial', 9, 'bold'),
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).pack(padx=28, anchor='w', pady=(0, 2))
+		entry_label = ctk.CTkEntry(
+			dialog,
+			placeholder_text='Cajon 12 unidades',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=36,
+		)
+		entry_label.pack(padx=28, fill='x', pady=(0, 10))
+		if is_edit:
+			entry_label.insert(0, existing_pack.get('pack_label', ''))
+		entry_label.focus()
+
+		# ── Unidades por paquete con presets rapidos ──
+		ctk.CTkLabel(
+			dialog,
+			text='UNIDADES POR PAQUETE',
+			font=('Arial', 9, 'bold'),
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).pack(padx=28, anchor='w', pady=(0, 2))
+
+		presets_row = ctk.CTkFrame(dialog, fg_color='transparent')
+		presets_row.pack(padx=28, fill='x', pady=(0, 4))
+		entry_units = ctk.CTkEntry(
+			dialog,
+			placeholder_text='Ej: 6, 12, 24, 200',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=36,
+		)
+
+		def _set_units(val):
+			entry_units.delete(0, 'end')
+			entry_units.insert(0, str(val))
+
+		for qty in [4, 6, 12, 24, 48]:
+			ctk.CTkButton(
+				presets_row,
+				text=str(qty),
+				width=44,
+				height=28,
+				font=('Arial', 11),
+				fg_color=SURFACE3,
+				hover_color=SURFACE4,
+				text_color=TEXT_SECONDARY,
+				border_width=1,
+				border_color=BORDER,
+				corner_radius=6,
+				command=lambda v=qty: _set_units(v),
+			).pack(side='left', padx=(0, 4))
+
+		entry_units.pack(padx=28, fill='x', pady=(0, 10))
+		if is_edit:
+			entry_units.insert(0, str(existing_pack.get('units_per_pack', '')))
+
+		# ── Precio ──
+		ctk.CTkLabel(
+			dialog,
+			text='PRECIO DE VENTA DEL PAQUETE ($)',
+			font=('Arial', 9, 'bold'),
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).pack(padx=28, anchor='w', pady=(0, 2))
+		entry_price = ctk.CTkEntry(
+			dialog,
+			placeholder_text='Ej: 5000',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=36,
+		)
+		entry_price.pack(padx=28, fill='x', pady=(0, 10))
+		if is_edit:
+			entry_price.insert(0, f'{existing_pack.get("selling_price", ""):.2f}')
+
+		# ── Barcode ──
+		ctk.CTkLabel(
+			dialog,
+			text='CODIGO DE BARRAS  (opcional)',
+			font=('Arial', 9, 'bold'),
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).pack(padx=28, anchor='w', pady=(0, 2))
+		entry_barcode = ctk.CTkEntry(
+			dialog,
+			placeholder_text='Dejar vacio si no tiene',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=36,
+		)
+		entry_barcode.pack(padx=28, fill='x', pady=(0, 6))
+		if is_edit and existing_pack.get('barcode'):
+			entry_barcode.insert(0, existing_pack['barcode'])
+
+		lbl_err = ctk.CTkLabel(
+			dialog, text='', font=('Arial', 11, 'bold'), text_color=RED_TEXT
+		)
+		lbl_err.pack(pady=(0, 4))
+
+		def _do_save():
+			label = entry_label.get().strip()
+			units_str = entry_units.get().strip()
+			price_str = entry_price.get().strip().replace(',', '.')
+			barcode = entry_barcode.get().strip() or None
+
+			if not label or not units_str or not price_str:
+				lbl_err.configure(text='Nombre, unidades y precio son obligatorios.')
+				return
+			try:
+				units = int(units_str)
+				price = float(price_str)
+			except ValueError:
+				lbl_err.configure(text='Unidades debe ser entero y precio un numero.')
+				return
+
+			tenant_id = self.ctx.tenant_id
+			if is_edit:
+				success, msg = self.controller.update_packaging_variant(
+					tenant_id, existing_pack['variant_id'], label, units, price, barcode
+				)
+			else:
+				success, msg = self.controller.add_packaging_variant(
+					tenant_id, base_variant_id, label, units, price, barcode
+				)
+
+			if success:
+				dialog.destroy()
+				self._show_packaging_panel(base_variant_id)
+			else:
+				lbl_err.configure(text=msg)
+
+		ctk.CTkButton(
+			dialog,
+			text='Guardar Cambios' if is_edit else 'Agregar Presentacion',
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			border_width=1,
+			border_color=ACCENT,
+			height=40,
+			corner_radius=8,
+			command=_do_save,
+		).pack(padx=28, fill='x')
+
+		entry_barcode.bind('<Return>', lambda e: _do_save())

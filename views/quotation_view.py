@@ -2,7 +2,8 @@
 views/quotation_view.py
 ========================
 Módulo de Cotizaciones / Presupuestos.
-Layout: panel izquierdo (lista + filtros) | panel derecho (formulario o detalle).
+Proporciona la interfaz para crear, visualizar, editar, exportar a PDF y convertir
+cotizaciones en ventas efectivas. Utiliza un layout de doble panel.
 """
 
 import logging
@@ -74,7 +75,7 @@ class QuotationView(ctk.CTkFrame):
 		self.after(100, self._load_list)
 
 	# ─────────────────────────────────────────────────────────────────────────
-	# Layout
+	# Layout Principal
 	# ─────────────────────────────────────────────────────────────────────────
 
 	def _build(self):
@@ -85,6 +86,7 @@ class QuotationView(ctk.CTkFrame):
 		self._build_right()
 
 	def _build_left(self):
+		"""Construye el panel lateral izquierdo con la lista de cotizaciones y filtros."""
 		left = ctk.CTkFrame(self, fg_color=SURFACE0, width=300, corner_radius=0)
 		left.grid(row=0, column=0, sticky='nsew')
 		left.grid_propagate(False)
@@ -146,6 +148,7 @@ class QuotationView(ctk.CTkFrame):
 		self._list_frame.grid_columnconfigure(0, weight=1)
 
 	def _build_right(self):
+		"""Inicializa el contenedor del panel derecho (detalle/formulario)."""
 		self._right = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=0)
 		self._right.grid(row=0, column=1, sticky='nsew')
 		self._right.grid_columnconfigure(0, weight=1)
@@ -153,6 +156,7 @@ class QuotationView(ctk.CTkFrame):
 		self._show_empty_state()
 
 	def _clear_right(self):
+		"""Elimina todos los widgets del panel derecho."""
 		if not self.winfo_exists():
 			return
 		for w in list(self._right.winfo_children()):
@@ -162,6 +166,7 @@ class QuotationView(ctk.CTkFrame):
 				pass
 
 	def _show_empty_state(self):
+		"""Muestra la vista predeterminada cuando no hay ninguna cotización seleccionada."""
 		self._clear_right()
 		f = ctk.CTkFrame(self._right, fg_color='transparent')
 		f.place(relx=0.5, rely=0.5, anchor='center')
@@ -182,16 +187,18 @@ class QuotationView(ctk.CTkFrame):
 		).pack(pady=4)
 
 	# ─────────────────────────────────────────────────────────────────────────
-	# Lista
+	# Lista y Búsqueda
 	# ─────────────────────────────────────────────────────────────────────────
 
 	def _load_list(self):
+		"""Carga la lista completa de cotizaciones desde la base de datos."""
 		if not self.winfo_exists():
 			return
 		self._all_quotes = self._ctrl.list_quotations(self.ctx.tenant_id)
 		self._apply_filter()
 
 	def _apply_filter(self):
+		"""Filtra la lista de cotizaciones según el estado y el texto de búsqueda."""
 		if not self.winfo_exists():
 			return
 		q = self._entry_search.get().lower().strip()
@@ -210,6 +217,7 @@ class QuotationView(ctk.CTkFrame):
 		self._render_list(filtered)
 
 	def _render_list(self, quotes: list[dict]):
+		"""Renderiza las tarjetas de cotización en el panel lateral."""
 		if not self.winfo_exists():
 			return
 		for w in list(self._list_frame.winfo_children()):
@@ -226,10 +234,12 @@ class QuotationView(ctk.CTkFrame):
 				text_color=TEXT_MUTED,
 			).grid(row=0, column=0, pady=20)
 			return
+
 		for i, q in enumerate(quotes):
 			self._list_card(self._list_frame, q, i)
 
 	def _list_card(self, parent, q: dict, row: int):
+		"""Construye una tarjeta individual para la lista de cotizaciones."""
 		is_sel = q['id'] == self._selected_id
 		bg = ACCENT_DIM if is_sel else SURFACE2
 		bd = ACCENT if is_sel else BORDER
@@ -293,10 +303,11 @@ class QuotationView(ctk.CTkFrame):
 		self._show_detail(qid)
 
 	# ─────────────────────────────────────────────────────────────────────────
-	# Detalle
+	# Vista de Detalle
 	# ─────────────────────────────────────────────────────────────────────────
 
 	def _show_detail(self, qid: int):
+		"""Renderiza la información detallada de solo lectura de una cotización."""
 		data = self._ctrl.get_quotation(qid)
 		if not data:
 			return
@@ -394,6 +405,7 @@ class QuotationView(ctk.CTkFrame):
 		ctk.CTkLabel(
 			st_f, text='Estado:', font=FONT_LABEL, text_color=TEXT_SECONDARY
 		).pack(side='left', padx=12, pady=8)
+
 		for s in STATUS_OPTIONS:
 			s_bg2, s_fg2 = STATUS_THEME.get(s, (SURFACE3, TEXT_SECONDARY))
 			active = data['status'] == s
@@ -407,9 +419,7 @@ class QuotationView(ctk.CTkFrame):
 				text_color=s_fg2 if active else TEXT_SECONDARY,
 				font=FONT_LABEL_BOLD if active else FONT_LABEL,
 				border_width=2 if active else 0,
-				border_color=s_fg2
-				if active
-				else SURFACE3,  # CORRECCIÓN 1: Evitar ValueError de transparent
+				border_color=s_fg2 if active else SURFACE3,
 				command=lambda st=s, i=data['id']: self._change_status(i, st),
 			).pack(side='left', padx=3, pady=8)
 
@@ -508,7 +518,7 @@ class QuotationView(ctk.CTkFrame):
 			).pack(anchor='w', padx=14, pady=(0, 12))
 
 	# ─────────────────────────────────────────────────────────────────────────
-	# Formulario
+	# Formulario (Crear/Editar)
 	# ─────────────────────────────────────────────────────────────────────────
 
 	def _open_form_new(self):
@@ -524,6 +534,7 @@ class QuotationView(ctk.CTkFrame):
 		self._render_form(prefill=data)
 
 	def _render_form(self, prefill: dict | None):
+		"""Renderiza el formulario interactivo para crear o modificar cotizaciones."""
 		self._clear_right()
 		self._entry_disc = None
 		self._tot_frame = None
@@ -554,6 +565,7 @@ class QuotationView(ctk.CTkFrame):
 		ctk.CTkLabel(
 			gen, text='Cliente (opcional)', font=FONT_LABEL, text_color=TEXT_SECONDARY
 		).grid(row=1, column=0, sticky='w', padx=14)
+
 		self._customers = self._load_customers()
 		cust_names = ['Consumidor Final'] + [c['name'] for c in self._customers]
 		self._combo_cust = ctk.CTkOptionMenu(
@@ -582,7 +594,7 @@ class QuotationView(ctk.CTkFrame):
 		)
 		self._entry_valid.grid(row=2, column=1, sticky='ew', padx=14, pady=(2, 10))
 		if prefill and prefill.get('valid_until_raw'):
-			days_left = (prefill['valid_until_raw'] - datetime.utcnow().date()).days
+			days_left = (prefill['valid_until_raw'] - datetime.now().date()).days
 			self._entry_valid.insert(0, str(max(days_left, 1)))
 		else:
 			self._entry_valid.insert(0, '15')
@@ -661,6 +673,7 @@ class QuotationView(ctk.CTkFrame):
 		srch_row = ctk.CTkFrame(srch, fg_color='transparent')
 		srch_row.pack(fill='x', padx=10, pady=(0, 4))
 		srch_row.grid_columnconfigure(0, weight=1)
+
 		self._entry_art_search = ctk.CTkEntry(
 			srch_row,
 			height=32,
@@ -717,6 +730,7 @@ class QuotationView(ctk.CTkFrame):
 		).pack(side='left')
 
 	def _load_customers(self) -> list[dict]:
+		"""Realiza una consulta a la DB para popular el combobox de clientes."""
 		try:
 			from sqlalchemy.orm import sessionmaker
 
@@ -731,7 +745,8 @@ class QuotationView(ctk.CTkFrame):
 					.all()
 				)
 				return [{'id': c.id, 'name': c.name} for c in rows]
-		except Exception:
+		except Exception as e:
+			logger.error('Error al cargar clientes en la vista: %s', e)
 			return []
 
 	# ── Búsqueda de artículos ─────────────────────────────────────────────────
@@ -763,9 +778,7 @@ class QuotationView(ctk.CTkFrame):
 		else:
 			for res in results[:10]:
 				f = ctk.CTkFrame(
-					self._art_results_frame,
-					fg_color='transparent',
-					cursor='hand2',
+					self._art_results_frame, fg_color='transparent', cursor='hand2'
 				)
 				f.pack(fill='x', padx=4, pady=1)
 				lbl = ctk.CTkLabel(
@@ -778,7 +791,6 @@ class QuotationView(ctk.CTkFrame):
 				)
 				lbl.pack(fill='x', ipady=4)
 
-				# CORRECCIÓN 3: Validar que el widget exista al dispararse los eventos del mouse
 				for widget in (f, lbl):
 					widget.bind('<Button-1>', lambda e, r=res: self._pick_article(r))
 					widget.bind(
@@ -849,6 +861,7 @@ class QuotationView(ctk.CTkFrame):
 	# ── Tabla de ítems del formulario ─────────────────────────────────────────
 
 	def _rebuild_items_table(self, focus_last=False):
+		"""Reconstruye la cuadrícula interactiva para los productos de la cotización."""
 		if not self.winfo_exists():
 			return
 		for w in list(self._items_table_frame.winfo_children()):
@@ -954,7 +967,10 @@ class QuotationView(ctk.CTkFrame):
 			)
 			btn_del.grid(row=0, column=4)
 
-			# CORRECCIÓN 3: Validar que el Entry exista al momento de recalcular (al cerrar la ventana se disparan KeyRelease sueltos)
+			# Navegación ágil con teclado
+			e_desc.bind('<Return>', lambda e, widget=e_qty: widget.focus_set())
+			e_qty.bind('<Return>', lambda e, widget=e_price: widget.focus_set())
+
 			def _upd(e=None, i=idx, eq=e_qty, ep=e_price, ls=lbl_sub, ed=e_desc):
 				if not eq.winfo_exists():
 					return
@@ -975,9 +991,12 @@ class QuotationView(ctk.CTkFrame):
 		self._update_totals_label()
 
 	def _recalc_item(self, idx, e_qty, e_price, lbl_sub):
+		"""Calcula el subtotal en tiempo real basándose en los inputs numéricos de la fila."""
 		try:
-			qty = Decimal(str(e_qty.get() or '0').replace(',', '.'))
-			price = Decimal(str(e_price.get() or '0').replace(',', '.'))
+			qty_str = e_qty.get().strip().replace(',', '.') or '0'
+			price_str = e_price.get().strip().replace(',', '.') or '0'
+			qty = Decimal(qty_str)
+			price = Decimal(price_str)
 			sub = (qty * price).quantize(Decimal('0.01'))
 			if idx < len(self._items):
 				self._items[idx]['quantity'] = float(qty)
@@ -996,6 +1015,7 @@ class QuotationView(ctk.CTkFrame):
 		self._rebuild_items_table()
 
 	def _update_totals_label(self):
+		"""Suma los subtotales, aplica el descuento y renderiza la tabla de totales."""
 		if self._tot_frame is None or not self.winfo_exists():
 			return
 		for w in list(self._tot_frame.winfo_children()):
@@ -1031,6 +1051,7 @@ class QuotationView(ctk.CTkFrame):
 				font=FONT_LABEL,
 				text_color=ORANGE_TEXT,
 			).pack(anchor='e')
+
 		ctk.CTkLabel(
 			f,
 			text=f'TOTAL: {fmt_price(float(total))}',
@@ -1039,27 +1060,38 @@ class QuotationView(ctk.CTkFrame):
 		).pack(anchor='e')
 
 	def _sync_items_from_widgets(self):
+		"""Consolida la información visual en el diccionario de datos interno, ignorando inputs inválidos."""
 		for idx, (e_desc, e_qty, e_price, lbl_sub) in enumerate(self._item_widgets):
 			if idx >= len(self._items):
 				break
 			try:
 				if e_qty.winfo_exists():
-					qty = float(str(e_qty.get() or '1').replace(',', '.'))
+					qty = float(str(e_qty.get() or '0').replace(',', '.'))
 					price = float(str(e_price.get() or '0').replace(',', '.'))
 					sub = round(qty * price, 2)
 				else:
-					qty, price, sub = 1.0, 0.0, 0.0
-			except Exception:
-				qty, price, sub = 1.0, 0.0, 0.0
+					qty, price, sub = (
+						self._items[idx].get('quantity', 1.0),
+						self._items[idx].get('unit_price', 0.0),
+						self._items[idx].get('subtotal', 0.0),
+					)
+			except ValueError:
+				# Mantiene el último valor válido si el usuario tipea texto por error
+				qty, price, sub = (
+					self._items[idx].get('quantity', 1.0),
+					self._items[idx].get('unit_price', 0.0),
+					self._items[idx].get('subtotal', 0.0),
+				)
 
 			if e_desc.winfo_exists():
 				self._items[idx]['description'] = e_desc.get()
+
 			self._items[idx]['quantity'] = qty
 			self._items[idx]['unit_price'] = price
 			self._items[idx]['subtotal'] = sub
 
 	# ─────────────────────────────────────────────────────────────────────────
-	# Guardar
+	# Guardar Configuración
 	# ─────────────────────────────────────────────────────────────────────────
 
 	def _save_form(self):
@@ -1072,6 +1104,7 @@ class QuotationView(ctk.CTkFrame):
 				icon='warning',
 			)
 			return
+
 		empty_descs = [
 			i + 1
 			for i, it in enumerate(self._items)
@@ -1084,6 +1117,7 @@ class QuotationView(ctk.CTkFrame):
 				icon='warning',
 			)
 			return
+
 		no_price = [
 			i + 1
 			for i, it in enumerate(self._items)
@@ -1117,7 +1151,7 @@ class QuotationView(ctk.CTkFrame):
 
 		if self._edit_id:
 			valid_until = (
-				(datetime.utcnow() + timedelta(days=valid_days)).date()
+				(datetime.now() + timedelta(days=valid_days)).date()
 				if valid_days > 0
 				else None
 			)
@@ -1158,7 +1192,7 @@ class QuotationView(ctk.CTkFrame):
 			self._show_empty_state()
 
 	# ─────────────────────────────────────────────────────────────────────────
-	# Acciones
+	# Acciones Extras
 	# ─────────────────────────────────────────────────────────────────────────
 
 	def _export_pdf(self, qid: int):
@@ -1205,6 +1239,7 @@ class QuotationView(ctk.CTkFrame):
 		)
 		if msg.get() != 'Eliminar':
 			return
+
 		ok, result = self._ctrl.delete_quotation(qid)
 		if ok:
 			self._selected_id = None
@@ -1217,6 +1252,7 @@ class QuotationView(ctk.CTkFrame):
 		data = self._ctrl.get_quotation(qid)
 		if not data:
 			return
+
 		if data['status'] == 'rechazada':
 			CTkMessagebox(
 				title='No permitido',
@@ -1224,6 +1260,7 @@ class QuotationView(ctk.CTkFrame):
 				icon='warning',
 			)
 			return
+
 		if float(data['total_amount']) <= 0:
 			CTkMessagebox(
 				title='Total inválido',
@@ -1245,12 +1282,14 @@ class QuotationView(ctk.CTkFrame):
 			font=FONT_BODY_BOLD,
 			text_color=TEXT_PRIMARY,
 		).pack(pady=(20, 4))
+
 		ctk.CTkLabel(
 			popup,
 			text=fmt_price(data['total_amount']),
 			font=FONT_TITLE,
 			text_color=ACCENT_TEXT,
 		).pack()
+
 		ctk.CTkLabel(
 			popup,
 			text='Esto creará una venta real y cerrará la cotización.',
@@ -1261,6 +1300,7 @@ class QuotationView(ctk.CTkFrame):
 		ctk.CTkLabel(
 			popup, text='Método de pago:', font=FONT_LABEL, text_color=TEXT_SECONDARY
 		).pack(pady=(14, 2))
+
 		pay_var = ctk.StringVar(value='efectivo')
 		ctk.CTkOptionMenu(
 			popup,
