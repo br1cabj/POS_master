@@ -245,6 +245,18 @@ class ArticleController(BaseController):
 				variant.article.name = str(name).strip()
 				variant.article.supplier_id = supplier_id
 
+				if old_cost != cost_price:
+					child_variants = (
+						session.query(ArticleVariant)
+						.filter(
+							ArticleVariant.base_variant_id == variant.id,
+							ArticleVariant.is_active,
+						)
+						.all()
+					)
+					for child in child_variants:
+						child.cost_price = cost_price * child.units_per_pack
+
 				if old_cost != cost_price or old_price != selling_price:
 					if selling_price > old_price or cost_price > old_cost:
 						action_type = 'AUMENTO MANUAL'

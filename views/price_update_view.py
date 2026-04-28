@@ -2,6 +2,7 @@
 views/price_update_view.py
 ==========================
 Vista para la actualización masiva de precios (Inflación/Descuentos).
+Garantiza la sincronización matemática entre productos base y sus presentaciones.
 """
 
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
@@ -24,7 +25,6 @@ from utils.styles import (
 	ORANGE_TEXT,
 	SURFACE2,
 	SURFACE3,
-	SURFACE4,
 	TEXT_MUTED,
 	TEXT_PRIMARY,
 	TEXT_SECONDARY,
@@ -33,12 +33,19 @@ from utils.styles import (
 
 
 class PriceUpdateView(BaseView):
+	"""
+	Vista de interfaz gráfica para aplicar variaciones porcentuales al catálogo.
+	Incluye herramientas de UX para filtrar y visualizar el impacto económico
+	antes de persistir los datos.
+	"""
+
 	def __init__(self, master, ctx: AppContext):
 		super().__init__(master, ctx)
 		self.controller = ArticleController(ctx.db_engine)
 
 		self.catalog = []
 		self.simulation_results = []
+		self._current_preview_data = []  # Almacena los datos visuales para el buscador local
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=3)
@@ -46,7 +53,24 @@ class PriceUpdateView(BaseView):
 
 		apply_treeview_style()
 
-		# ── Panel izquierdo: Controles de inflación ──────────────────────
+		self._build_left_panel()
+		self._build_right_panel()
+
+		# Atajo global para confirmar y aplicar (Perfil de alta velocidad)
+		self.bind(
+			'<Control-g>',
+			lambda e: (
+				self.apply_changes()
+				if self.btn_save.cget('state') == 'normal'
+				else None
+			),
+		)
+
+		self.suppliers_map = {}
+		self.after(100, self.load_data)
+
+	def _build_left_panel(self):
+		"""Construye el panel de controles de parámetros de inflación/descuento."""
 		self.left_panel = ctk.CTkFrame(
 			self,
 			fg_color=SURFACE2,
@@ -63,6 +87,7 @@ class PriceUpdateView(BaseView):
 			text_color=TEXT_PRIMARY,
 		).pack(pady=(22, 16))
 
+		# 1. Filtro Proveedor
 		ctk.CTkLabel(
 			self.left_panel,
 			text='1. FILTRAR POR PROVEEDOR',
@@ -78,15 +103,12 @@ class PriceUpdateView(BaseView):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=36,
-			button_color=SURFACE3,
-			button_hover_color=SURFACE4,
-			dropdown_fg_color=SURFACE2,
-			dropdown_text_color=TEXT_PRIMARY,
 			command=self._invalidate_simulation,
 		)
 		self.combo_supplier.pack(pady=(2, 12), padx=20, fill='x')
 		self.combo_supplier.set('Todos los proveedores')
 
+		# 2. Objetivo de modificación
 		ctk.CTkLabel(
 			self.left_panel,
 			text='2. ¿QUÉ MODIFICAR?',
@@ -102,15 +124,12 @@ class PriceUpdateView(BaseView):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=36,
-			button_color=SURFACE3,
-			button_hover_color=SURFACE4,
-			dropdown_fg_color=SURFACE2,
-			dropdown_text_color=TEXT_PRIMARY,
-			command=self._invalidate_simulation,  # Invalida si se cambia
+			command=self._invalidate_simulation,
 		)
 		self.combo_target.pack(pady=(2, 12), padx=20, fill='x')
 		self.combo_target.set('Costo y Venta')
 
+		# 3. Porcentaje
 		ctk.CTkLabel(
 			self.left_panel,
 			text='3. PORCENTAJE DE AUMENTO (%)',
@@ -128,9 +147,8 @@ class PriceUpdateView(BaseView):
 			height=36,
 		)
 		self.entry_percent.pack(pady=(2, 14), padx=20, fill='x')
-		self.entry_percent.bind(
-			'<KeyRelease>', self._invalidate_simulation
-		)  # Invalida al teclear
+		self.entry_percent.bind('<KeyRelease>', self._invalidate_simulation)
+		self.entry_percent.bind('<Return>', lambda e: self.simulate_prices())
 
 		self.check_round_var = ctk.BooleanVar(value=True)
 		self.check_round = ctk.CTkCheckBox(
@@ -138,7 +156,7 @@ class PriceUpdateView(BaseView):
 			text='Redondear a números enteros',
 			variable=self.check_round_var,
 			text_color=TEXT_SECONDARY,
-			command=self._invalidate_simulation,  # Invalida si se cambia
+			command=self._invalidate_simulation,
 		)
 		self.check_round.pack(pady=(0, 16), padx=20, anchor='w')
 
@@ -156,7 +174,8 @@ class PriceUpdateView(BaseView):
 		)
 		self.btn_simulate.pack(pady=(0, 20), padx=20, fill='x')
 
-		# ── Panel derecho: Vista previa ──────────────────────────────────
+	def _build_right_panel(self):
+		"""Construye el panel de vista previa con herramientas de búsqueda y tabla de impacto."""
 		self.right_panel = ctk.CTkFrame(
 			self,
 			fg_color=SURFACE2,
@@ -176,18 +195,36 @@ class PriceUpdateView(BaseView):
 			anchor='w',
 		).pack(side='left')
 
-		ctk.CTkLabel(
-			self.right_panel,
-			text='Revisá la tabla antes de guardar. Nada se cambiará hasta confirmar.',
-			font=('Arial', 10),
-			text_color=TEXT_MUTED,
-		).pack(anchor='w', padx=16, pady=(0, 10))
+		# ── MEJORA UX/UI: Buscador local de simulaciones ──
+		search_frame = ctk.CTkFrame(self.right_panel, fg_color='transparent')
+		search_frame.pack(fill='x', padx=14, pady=(0, 8))
 
+		self.entry_preview_search = ctk.CTkEntry(
+			search_frame,
+			placeholder_text='🔍 Buscar producto en la simulación para verificar...',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=34,
+		)
+		self.entry_preview_search.pack(side='left', fill='x', expand=True)
+		self.entry_preview_search.bind('<KeyRelease>', self._filter_preview)
+
+		self.lbl_preview_count = ctk.CTkLabel(
+			search_frame,
+			text='0 productos listos',
+			font=('Arial', 11, 'bold'),
+			text_color=TEXT_MUTED,
+		)
+		self.lbl_preview_count.pack(side='right', padx=(10, 0))
+
+		# ── TABLA DE RESULTADOS ──
 		self.table_container = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		self.table_container.pack(fill='both', expand=True, padx=14, pady=(0, 8))
 
 		self.tree_scroll = ttk.Scrollbar(self.table_container, orient='vertical')
 
+		# Agregamos la columna 'Impacto' al final
 		columns = (
 			'Producto',
 			'Proveedor',
@@ -195,6 +232,7 @@ class PriceUpdateView(BaseView):
 			'Costo NUEVO',
 			'Venta Ant.',
 			'Venta NUEVA',
+			'Impacto',
 		)
 		self.tree = ttk.Treeview(
 			self.table_container,
@@ -207,12 +245,19 @@ class PriceUpdateView(BaseView):
 
 		for col in columns:
 			self.tree.heading(col, text=col)
-			width = 220 if col == 'Producto' else 100
-			self.tree.column(
-				col,
-				anchor='center' if 'Costo' in col or 'Venta' in col else 'w',
-				width=width,
+			if col == 'Producto':
+				width = 220
+			elif col == 'Impacto':
+				width = 80
+			else:
+				width = 90
+
+			anchor = (
+				'center'
+				if ('Costo' in col or 'Venta' in col or col == 'Impacto')
+				else 'w'
 			)
+			self.tree.column(col, anchor=anchor, width=width)
 
 		self.tree_scroll.pack(side='right', fill='y')
 		self.tree.pack(side='left', fill='both', expand=True)
@@ -221,7 +266,7 @@ class PriceUpdateView(BaseView):
 
 		self.btn_save = ctk.CTkButton(
 			self.right_panel,
-			text='💾  CONFIRMAR Y APLICAR A LA BASE DE DATOS',
+			text='💾  CONFIRMAR Y APLICAR A TODOS (Ctrl+G)',
 			fg_color=GREEN_DIM,
 			hover_color=GREEN,
 			text_color=GREEN_TEXT,
@@ -235,9 +280,6 @@ class PriceUpdateView(BaseView):
 		)
 		self.btn_save.pack(pady=(4, 16), padx=14, fill='x')
 
-		self.suppliers_map = {}
-		self.after(100, self.load_data)
-
 	def load_data(self):
 		if not self.winfo_exists():
 			return
@@ -245,16 +287,48 @@ class PriceUpdateView(BaseView):
 		self.catalog = self.controller.get_all_variants(tenant_id)
 		suppliers = self.controller.get_suppliers_for_combo(tenant_id)
 		self.suppliers_map = {s['name']: s['id'] for s in suppliers}
+
 		combo_vals = ['Todos los proveedores'] + list(self.suppliers_map.keys())
 		self.combo_supplier.configure(values=combo_vals)
 		self.combo_supplier.set('Todos los proveedores')
 
 	def _invalidate_simulation(self, event=None):
-		"""Desactiva el botón de guardar si el usuario modifica parámetros después de simular."""
+		"""Bloquea el botón de guardar si el usuario altera los parámetros tras simular."""
 		if self.btn_save.cget('state') == 'normal':
 			self.btn_save.configure(state='disabled')
+			self.lbl_preview_count.configure(
+				text='Parámetros cambiados. Volver a simular.', text_color=ORANGE_TEXT
+			)
+
+	def _filter_preview(self, event=None):
+		"""Filtra visualmente la tabla de resultados simulados sin afectar los datos a guardar."""
+		query = self.entry_preview_search.get().lower().strip()
+
+		for item in self.tree.get_children():
+			self.tree.delete(item)
+
+		count = 0
+		for row in self._current_preview_data:
+			# row[0] es Producto, row[1] es Proveedor
+			if not query or query in row[0].lower() or query in row[1].lower():
+				self.tree.insert('', 'end', values=row, tags=('simulated',))
+				count += 1
+
+		total = len(self.simulation_results)
+		if query:
+			self.lbl_preview_count.configure(
+				text=f'Mostrando {count} de {total}', text_color=TEXT_PRIMARY
+			)
+		else:
+			self.lbl_preview_count.configure(
+				text=f'{total} productos listos para actualizar', text_color=GREEN_TEXT
+			)
 
 	def simulate_prices(self):
+		"""
+		Calcula la proyección de precios en dos pasadas (padres e hijos) para no romper
+		el stock unificado. Genera un modelo de datos visual para renderizado rápido.
+		"""
 		percent_str = self.entry_percent.get().strip().replace(',', '.')
 		try:
 			percent = Decimal(percent_str)
@@ -263,7 +337,7 @@ class PriceUpdateView(BaseView):
 		except (ValueError, InvalidOperation):
 			CTkMessagebox(
 				title='Error',
-				message='Ingresá un porcentaje válido (Ej: 15 o -10 para descuento).',
+				message='Ingresá un porcentaje válido (Ej: 15 o -10).',
 				icon='cancel',
 			)
 			return
@@ -272,15 +346,20 @@ class PriceUpdateView(BaseView):
 		target = self.combo_target.get()
 		should_round = self.check_round_var.get()
 
-		# Matemática segura con Decimal
 		multiplier = Decimal('1') + (percent / Decimal('100'))
 
-		for item in self.tree.get_children():
-			self.tree.delete(item)
-
 		self.simulation_results = []
+		self._current_preview_data = []  # Reiniciamos el array visual
 
-		for item in self.catalog:
+		base_articles = [
+			item for item in self.catalog if not item.get('base_variant_id')
+		]
+		pack_articles = [item for item in self.catalog if item.get('base_variant_id')]
+
+		updated_base_costs = {}
+
+		# ── 1. PRIMERA PASADA: Productos Base ──
+		for item in base_articles:
 			if (
 				supplier_filter != 'Todos los proveedores'
 				and item.get('supplier_name') != supplier_filter
@@ -295,29 +374,74 @@ class PriceUpdateView(BaseView):
 
 			if target in ['Costo y Venta', 'Solo Costo']:
 				new_cost = old_cost * multiplier
-				if should_round:
-					new_cost = new_cost.quantize(
-						Decimal('1'),
-						rounding=ROUND_CEILING if percent > 0 else ROUND_HALF_UP,
-					)
-				else:
-					new_cost = new_cost.quantize(
-						Decimal('0.01'), rounding=ROUND_HALF_UP
-					)
+				new_cost = new_cost.quantize(
+					Decimal('1') if should_round else Decimal('0.01'),
+					rounding=ROUND_CEILING
+					if (percent > 0 and should_round)
+					else ROUND_HALF_UP,
+				)
 
 			if target in ['Costo y Venta', 'Solo Precio de Venta']:
 				new_selling = old_selling * multiplier
-				if should_round:
-					new_selling = new_selling.quantize(
-						Decimal('1'),
-						rounding=ROUND_CEILING if percent > 0 else ROUND_HALF_UP,
-					)
+				new_selling = new_selling.quantize(
+					Decimal('1') if should_round else Decimal('0.01'),
+					rounding=ROUND_CEILING
+					if (percent > 0 and should_round)
+					else ROUND_HALF_UP,
+				)
+
+			new_cost = max(Decimal('0'), new_cost)
+			new_selling = max(Decimal('0'), new_selling)
+
+			updated_base_costs[item['variant_id']] = new_cost
+
+			self.simulation_results.append(
+				{
+					'variant_id': item['variant_id'],
+					'new_cost': float(new_cost),
+					'new_selling': float(new_selling),
+				}
+			)
+			self._prepare_visual_row(item, old_cost, new_cost, old_selling, new_selling)
+
+		# ── 2. SEGUNDA PASADA: Presentaciones (Hijos) ──
+		for item in pack_articles:
+			if (
+				supplier_filter != 'Todos los proveedores'
+				and item.get('supplier_name') != supplier_filter
+			):
+				continue
+
+			base_id = item.get('base_variant_id')
+			units = Decimal(str(item.get('units_per_pack') or '1'))
+
+			old_cost = Decimal(str(item.get('cost_price') or '0'))
+			old_selling = Decimal(str(item.get('selling_price') or '0'))
+
+			new_cost = old_cost
+			new_selling = old_selling
+
+			if target in ['Costo y Venta', 'Solo Precio de Venta']:
+				new_selling = old_selling * multiplier
+				new_selling = new_selling.quantize(
+					Decimal('1') if should_round else Decimal('0.01'),
+					rounding=ROUND_CEILING
+					if (percent > 0 and should_round)
+					else ROUND_HALF_UP,
+				)
+
+			if target in ['Costo y Venta', 'Solo Costo']:
+				if base_id in updated_base_costs:
+					new_cost = updated_base_costs[base_id] * units
 				else:
-					new_selling = new_selling.quantize(
-						Decimal('0.01'), rounding=ROUND_HALF_UP
+					new_cost = old_cost * multiplier
+					new_cost = new_cost.quantize(
+						Decimal('1') if should_round else Decimal('0.01'),
+						rounding=ROUND_CEILING
+						if (percent > 0 and should_round)
+						else ROUND_HALF_UP,
 					)
 
-			# Evitar precios negativos
 			new_cost = max(Decimal('0'), new_cost)
 			new_selling = max(Decimal('0'), new_selling)
 
@@ -328,37 +452,56 @@ class PriceUpdateView(BaseView):
 					'new_selling': float(new_selling),
 				}
 			)
+			self._prepare_visual_row(item, old_cost, new_cost, old_selling, new_selling)
 
-			row_id = self.tree.insert(
-				'',
-				'end',
-				values=(
-					item.get('name'),
-					item.get('supplier_name', '-'),
-					f'${old_cost:,.2f}',
-					f'${new_cost:,.2f}',
-					f'${old_selling:,.2f}',
-					f'${new_selling:,.2f}',
-				),
-			)
-			self.tree.item(row_id, tags=('simulated',))
-
+		# ── 3. RENDERIZAR RESULTADOS ──
 		if self.simulation_results:
+			self._filter_preview()  # Renderiza usando la búsqueda actual (si la hay)
 			self.btn_save.configure(state='normal')
+			self.btn_save.focus()
 		else:
+			self._filter_preview()
 			CTkMessagebox(
 				title='Sin resultados',
-				message='No se encontraron productos para ese proveedor.',
+				message='No se encontraron productos para aplicar el filtro.',
 				icon='info',
 			)
 
+	def _prepare_visual_row(self, item, old_cost, new_cost, old_selling, new_selling):
+		"""Genera y almacena la tupla visual de la fila, incluyendo el cálculo del delta (Impacto)."""
+		display_name = item.get('name')
+		if item.get('pack_label'):
+			display_name += f' ({item.get("pack_label")})'
+
+		# Cálculo matemático del impacto
+		diff_venta = new_selling - old_selling
+		if diff_venta > 0:
+			impacto_str = f'+${diff_venta:,.2f}'
+		elif diff_venta < 0:
+			impacto_str = f'-${abs(diff_venta):,.2f}'
+		else:
+			impacto_str = '$0.00'
+
+		row_data = (
+			display_name,
+			item.get('supplier_name', '-'),
+			f'${old_cost:,.2f}',
+			f'${new_cost:,.2f}',
+			f'${old_selling:,.2f}',
+			f'${new_selling:,.2f}',
+			impacto_str,  # <--- Nueva columna
+		)
+		self._current_preview_data.append(row_data)
+
 	def apply_changes(self):
+		"""Confirma y despacha la orden de actualización masiva a la capa de persistencia."""
 		if not self.simulation_results:
 			return
 
+		total_cambios = len(self.simulation_results)
 		msg = CTkMessagebox(
 			title='¡ATENCIÓN!',
-			message=f'Estás a punto de modificar {len(self.simulation_results)} productos de forma permanente.\n¿Deseás continuar?',
+			message=f'Se actualizarán {total_cambios} productos en la base de datos de forma permanente.\n¿Deseás continuar?',
 			icon='warning',
 			option_1='Cancelar',
 			option_2='Sí, Guardar Cambios',
@@ -368,6 +511,8 @@ class PriceUpdateView(BaseView):
 			tenant_id = self.ctx.tenant_id
 			user_id = self.ctx.user_id
 
+			# IMPORTANTE: Se envía self.simulation_results (que contiene todos los productos afectados),
+			# sin importar si el usuario usó la barra de búsqueda visual.
 			success, message = self.controller.apply_bulk_price_changes(
 				tenant_id, user_id, self.simulation_results
 			)
@@ -375,10 +520,11 @@ class PriceUpdateView(BaseView):
 			if success:
 				self.show_success(message)
 				self.btn_save.configure(state='disabled')
-				for item in self.tree.get_children():
-					self.tree.delete(item)
-				self.simulation_results = []
+				self.entry_preview_search.delete(0, 'end')
 				self.entry_percent.delete(0, 'end')
+				self.simulation_results = []
+				self._current_preview_data = []
+				self._filter_preview()  # Limpia la tabla visual
 				self.load_data()
 			else:
 				CTkMessagebox(title='Error', message=message, icon='cancel')
