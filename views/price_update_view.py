@@ -1,4 +1,10 @@
-import math
+"""
+views/price_update_view.py
+==========================
+Vista para la actualización masiva de precios (Inflación/Descuentos).
+"""
+
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
 from tkinter import ttk
 
 import customtkinter as ctk
@@ -64,6 +70,7 @@ class PriceUpdateView(BaseView):
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(padx=20, anchor='w')
+
 		self.combo_supplier = ctk.CTkComboBox(
 			self.left_panel,
 			values=['Todos los proveedores'],
@@ -75,8 +82,10 @@ class PriceUpdateView(BaseView):
 			button_hover_color=SURFACE4,
 			dropdown_fg_color=SURFACE2,
 			dropdown_text_color=TEXT_PRIMARY,
+			command=self._invalidate_simulation,
 		)
 		self.combo_supplier.pack(pady=(2, 12), padx=20, fill='x')
+		self.combo_supplier.set('Todos los proveedores')
 
 		ctk.CTkLabel(
 			self.left_panel,
@@ -85,6 +94,7 @@ class PriceUpdateView(BaseView):
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(padx=20, anchor='w')
+
 		self.combo_target = ctk.CTkComboBox(
 			self.left_panel,
 			values=['Costo y Venta', 'Solo Precio de Venta', 'Solo Costo'],
@@ -96,8 +106,10 @@ class PriceUpdateView(BaseView):
 			button_hover_color=SURFACE4,
 			dropdown_fg_color=SURFACE2,
 			dropdown_text_color=TEXT_PRIMARY,
+			command=self._invalidate_simulation,  # Invalida si se cambia
 		)
 		self.combo_target.pack(pady=(2, 12), padx=20, fill='x')
+		self.combo_target.set('Costo y Venta')
 
 		ctk.CTkLabel(
 			self.left_panel,
@@ -106,6 +118,7 @@ class PriceUpdateView(BaseView):
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(padx=20, anchor='w')
+
 		self.entry_percent = ctk.CTkEntry(
 			self.left_panel,
 			placeholder_text='Ej: 15  (para 15%)',
@@ -115,6 +128,9 @@ class PriceUpdateView(BaseView):
 			height=36,
 		)
 		self.entry_percent.pack(pady=(2, 14), padx=20, fill='x')
+		self.entry_percent.bind(
+			'<KeyRelease>', self._invalidate_simulation
+		)  # Invalida al teclear
 
 		self.check_round_var = ctk.BooleanVar(value=True)
 		self.check_round = ctk.CTkCheckBox(
@@ -122,6 +138,7 @@ class PriceUpdateView(BaseView):
 			text='Redondear a números enteros',
 			variable=self.check_round_var,
 			text_color=TEXT_SECONDARY,
+			command=self._invalidate_simulation,  # Invalida si se cambia
 		)
 		self.check_round.pack(pady=(0, 16), padx=20, anchor='w')
 
@@ -190,7 +207,7 @@ class PriceUpdateView(BaseView):
 
 		for col in columns:
 			self.tree.heading(col, text=col)
-			width = 180 if col == 'Producto' else 90
+			width = 220 if col == 'Producto' else 100
 			self.tree.column(
 				col,
 				anchor='center' if 'Costo' in col or 'Venta' in col else 'w',
@@ -200,7 +217,7 @@ class PriceUpdateView(BaseView):
 		self.tree_scroll.pack(side='right', fill='y')
 		self.tree.pack(side='left', fill='both', expand=True)
 
-		self.tree.tag_configure('simulated', background='#0d2818')
+		self.tree.tag_configure('simulated', background='#14532d', foreground='white')
 
 		self.btn_save = ctk.CTkButton(
 			self.right_panel,
@@ -222,23 +239,31 @@ class PriceUpdateView(BaseView):
 		self.after(100, self.load_data)
 
 	def load_data(self):
+		if not self.winfo_exists():
+			return
 		tenant_id = self.ctx.tenant_id
 		self.catalog = self.controller.get_all_variants(tenant_id)
 		suppliers = self.controller.get_suppliers_for_combo(tenant_id)
 		self.suppliers_map = {s['name']: s['id'] for s in suppliers}
 		combo_vals = ['Todos los proveedores'] + list(self.suppliers_map.keys())
 		self.combo_supplier.configure(values=combo_vals)
+		self.combo_supplier.set('Todos los proveedores')
+
+	def _invalidate_simulation(self, event=None):
+		"""Desactiva el botón de guardar si el usuario modifica parámetros después de simular."""
+		if self.btn_save.cget('state') == 'normal':
+			self.btn_save.configure(state='disabled')
 
 	def simulate_prices(self):
 		percent_str = self.entry_percent.get().strip().replace(',', '.')
 		try:
-			percent = float(percent_str)
-			if percent == 0:
+			percent = Decimal(percent_str)
+			if percent == Decimal('0'):
 				raise ValueError
-		except ValueError:
+		except (ValueError, InvalidOperation):
 			CTkMessagebox(
 				title='Error',
-				message='Ingresá un porcentaje válido (Ej: 15).',
+				message='Ingresá un porcentaje válido (Ej: 15 o -10 para descuento).',
 				icon='cancel',
 			)
 			return
@@ -246,10 +271,13 @@ class PriceUpdateView(BaseView):
 		supplier_filter = self.combo_supplier.get()
 		target = self.combo_target.get()
 		should_round = self.check_round_var.get()
-		multiplier = 1 + (percent / 100)
+
+		# Matemática segura con Decimal
+		multiplier = Decimal('1') + (percent / Decimal('100'))
 
 		for item in self.tree.get_children():
 			self.tree.delete(item)
+
 		self.simulation_results = []
 
 		for item in self.catalog:
@@ -259,26 +287,45 @@ class PriceUpdateView(BaseView):
 			):
 				continue
 
-			old_cost = float(item.get('cost_price', 0))
-			old_selling = float(item.get('selling_price', 0))
+			old_cost = Decimal(str(item.get('cost_price') or '0'))
+			old_selling = Decimal(str(item.get('selling_price') or '0'))
+
 			new_cost = old_cost
 			new_selling = old_selling
 
 			if target in ['Costo y Venta', 'Solo Costo']:
 				new_cost = old_cost * multiplier
 				if should_round:
-					new_cost = math.ceil(new_cost)
+					new_cost = new_cost.quantize(
+						Decimal('1'),
+						rounding=ROUND_CEILING if percent > 0 else ROUND_HALF_UP,
+					)
+				else:
+					new_cost = new_cost.quantize(
+						Decimal('0.01'), rounding=ROUND_HALF_UP
+					)
 
 			if target in ['Costo y Venta', 'Solo Precio de Venta']:
 				new_selling = old_selling * multiplier
 				if should_round:
-					new_selling = math.ceil(new_selling)
+					new_selling = new_selling.quantize(
+						Decimal('1'),
+						rounding=ROUND_CEILING if percent > 0 else ROUND_HALF_UP,
+					)
+				else:
+					new_selling = new_selling.quantize(
+						Decimal('0.01'), rounding=ROUND_HALF_UP
+					)
+
+			# Evitar precios negativos
+			new_cost = max(Decimal('0'), new_cost)
+			new_selling = max(Decimal('0'), new_selling)
 
 			self.simulation_results.append(
 				{
 					'variant_id': item['variant_id'],
-					'new_cost': new_cost,
-					'new_selling': new_selling,
+					'new_cost': float(new_cost),
+					'new_selling': float(new_selling),
 				}
 			)
 
@@ -288,10 +335,10 @@ class PriceUpdateView(BaseView):
 				values=(
 					item.get('name'),
 					item.get('supplier_name', '-'),
-					f'${old_cost:.2f}',
-					f'${new_cost:.2f}',
-					f'${old_selling:.2f}',
-					f'${new_selling:.2f}',
+					f'${old_cost:,.2f}',
+					f'${new_cost:,.2f}',
+					f'${old_selling:,.2f}',
+					f'${new_selling:,.2f}',
 				),
 			)
 			self.tree.item(row_id, tags=('simulated',))
@@ -320,6 +367,7 @@ class PriceUpdateView(BaseView):
 		if msg.get() == 'Sí, Guardar Cambios':
 			tenant_id = self.ctx.tenant_id
 			user_id = self.ctx.user_id
+
 			success, message = self.controller.apply_bulk_price_changes(
 				tenant_id, user_id, self.simulation_results
 			)

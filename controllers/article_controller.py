@@ -8,11 +8,9 @@ from database.models import (
 	Article,
 	ArticleHistory,
 	ArticleVariant,
-	Branch,
 	Stock,
 	StockMovement,
 	Supplier,
-	Warehouse,
 )
 from utils.config import make_engine
 from utils.shared import get_or_create_default_warehouse
@@ -28,7 +26,6 @@ class ArticleController(BaseController):
 		super().__init__(engine)
 
 	def _get_or_create_default_warehouse(self, session, tenant_id):
-		"""Delega en la utilidad compartida. Propaga excepción para que el caller haga rollback."""
 		try:
 			return get_or_create_default_warehouse(session, tenant_id)
 		except Exception as e:
@@ -38,7 +35,6 @@ class ArticleController(BaseController):
 			raise
 
 	def get_suppliers_for_combo(self, tenant_id):
-		"""Retorna proveedores activos formateados para un widget de selección."""
 		with self._Session() as session:
 			try:
 				return [
@@ -52,7 +48,6 @@ class ArticleController(BaseController):
 				return []
 
 	def get_all_variants(self, tenant_id):
-		"""Retorna todas las variantes activas con stock total acumulado y datos del proveedor."""
 		with self._Session() as session:
 			try:
 				variants = (
@@ -103,7 +98,6 @@ class ArticleController(BaseController):
 		initial_stock,
 		supplier_id=None,
 	):
-		"""Crea un artículo con variante única y stock inicial. Registra movimiento de entrada si stock > 0."""
 		if not name or not str(name).strip():
 			return False, 'El nombre es obligatorio.'
 		if not barcode or not str(barcode).strip():
@@ -184,6 +178,7 @@ class ArticleController(BaseController):
 	def update_article(
 		self,
 		tenant_id,
+		user_id,  # ── NUEVO: Requerido para la auditoría ──
 		variant_id,
 		name,
 		barcode,
@@ -191,7 +186,6 @@ class ArticleController(BaseController):
 		selling_price,
 		supplier_id=None,
 	):
-		"""Actualiza nombre, precios, proveedor y código de barras. No modifica stock."""
 		if not name or not str(name).strip():
 			return False, 'El nombre es obligatorio.'
 		if not barcode or not str(barcode).strip():
@@ -237,11 +231,37 @@ class ArticleController(BaseController):
 							'Ese código de barras ya pertenece a otro producto.',
 						)
 
+				old_cost = variant.cost_price
+				old_price = variant.selling_price
+
+				# Actualizamos
 				variant.barcode = str(barcode).strip()
 				variant.cost_price = cost_price
 				variant.selling_price = selling_price
 				variant.article.name = str(name).strip()
 				variant.article.supplier_id = supplier_id
+
+				if old_cost != cost_price or old_price != selling_price:
+					if selling_price > old_price or cost_price > old_cost:
+						action_type = 'AUMENTO MANUAL'
+					elif selling_price < old_price or cost_price < old_cost:
+						action_type = 'REDUCCIÓN MANUAL'
+					else:
+						action_type = 'MODIFICACIÓN MANUAL'
+
+					session.add(
+						ArticleHistory(
+							tenant_id=tenant_id,
+							user_id=user_id,
+							action_type=action_type,
+							article_name=variant.article.name,
+							variant_id=variant.id,
+							old_cost=old_cost,
+							new_cost=cost_price,
+							old_price=old_price,
+							new_price=selling_price,
+						)
+					)
 
 				session.commit()
 				return True, f"Artículo '{name}' actualizado correctamente."
@@ -253,7 +273,6 @@ class ArticleController(BaseController):
 				return False, 'Error interno al actualizar.'
 
 	def delete_variant(self, tenant_id, variant_id):
-		"""Baja lógica de la variante. Emite warning si tiene stock positivo."""
 		with self._Session() as session:
 			try:
 				variant = (
@@ -287,7 +306,6 @@ class ArticleController(BaseController):
 				return False, 'Error interno al intentar eliminar.'
 
 	def apply_bulk_price_changes(self, tenant_id, user_id, changes_list):
-		"""Actualiza precios en lote y registra cada cambio en ArticleHistory para auditoría."""
 		if not changes_list:
 			return False, 'No hay cambios para aplicar.'
 
@@ -353,7 +371,6 @@ class ArticleController(BaseController):
 				return False, 'Error interno al guardar los nuevos precios.'
 
 	def get_price_history(self, tenant_id):
-		"""Retorna las últimas 100 modificaciones de precios ordenadas por fecha descendente."""
 		with self._Session() as session:
 			try:
 				return [

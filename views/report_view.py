@@ -21,10 +21,9 @@ Layout:
 
 import logging
 import threading
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import customtkinter as ctk
-from CTkMessagebox import CTkMessagebox
 
 from controllers.report_controller import ReportController
 from core.base_view import BaseView
@@ -166,6 +165,7 @@ class ReportView(BaseView):
 			font=('Arial', 11),
 		)
 		self._entry_from.grid(row=0, column=7, padx=(0, 8))
+		self._entry_from.bind('<Return>', lambda e: self._on_generate_click())
 
 		ctk.CTkLabel(bar, text='Hasta', font=FONT_LABEL, text_color=TEXT_MUTED).grid(
 			row=0, column=8, padx=(0, 2)
@@ -180,6 +180,7 @@ class ReportView(BaseView):
 			font=('Arial', 11),
 		)
 		self._entry_to.grid(row=0, column=9, padx=(0, 8))
+		self._entry_to.bind('<Return>', lambda e: self._on_generate_click())
 
 		self._btn_generate = ctk.CTkButton(
 			bar,
@@ -195,7 +196,6 @@ class ReportView(BaseView):
 		)
 		self._btn_generate.grid(row=0, column=10, padx=(0, 16))
 
-		# Sincronizar entradas con fecha actual
 		self._sync_date_entries()
 
 	def _sync_date_entries(self):
@@ -242,26 +242,27 @@ class ReportView(BaseView):
 		self._load_report()
 
 	def _on_generate_click(self):
-		"""Parsea las fechas ingresadas manualmente y genera el reporte."""
+		"""Parsea las fechas ingresadas manualmente (más flexible) y genera el reporte."""
 		try:
-			df = self._entry_from.get().strip()
-			dt = self._entry_to.get().strip()
-			self._date_from = date(int(df[6:]), int(df[3:5]), int(df[:2]))
-			self._date_to = date(int(dt[6:]), int(dt[3:5]), int(dt[:2]))
-		except Exception:
-			CTkMessagebox(
+			df_str = self._entry_from.get().strip().replace('-', '/')
+			dt_str = self._entry_to.get().strip().replace('-', '/')
+
+			self._date_from = datetime.strptime(df_str, '%d/%m/%Y').date()
+			self._date_to = datetime.strptime(dt_str, '%d/%m/%Y').date()
+		except ValueError:
+			self.show_warning(
+				'Ingresá las fechas en formato válido: dd/mm/aaaa',
 				title='Fecha inválida',
-				message='Ingresá las fechas en formato  dd/mm/aaaa',
-				icon='warning',
 			)
 			return
+
 		if self._date_from > self._date_to:
-			CTkMessagebox(
+			self.show_warning(
+				'La fecha "Desde" no puede ser mayor que "Hasta".',
 				title='Fecha inválida',
-				message='La fecha "Desde" no puede ser mayor que "Hasta".',
-				icon='warning',
 			)
 			return
+
 		self._highlight_quick_btn('')
 		self._load_report()
 
@@ -278,7 +279,6 @@ class ReportView(BaseView):
 		self._scroll.grid(row=1, column=0, sticky='nsew', padx=0, pady=0)
 		self._scroll.grid_columnconfigure(0, weight=1)
 
-		# Spinner / placeholder inicial
 		self._lbl_spinner = ctk.CTkLabel(
 			self._scroll,
 			text='⏳  Generando reporte…',
@@ -286,13 +286,6 @@ class ReportView(BaseView):
 			text_color=TEXT_MUTED,
 		)
 		self._lbl_spinner.grid(row=0, column=0, pady=80)
-
-		# Contenedores que se crean luego (vacíos al inicio)
-		self._frame_summary = None
-		self._frame_kpis = None
-		self._frame_mid = None
-		self._frame_top = None
-		self._frame_movs = None
 
 	# =========================================================
 	# BARRA INFERIOR (exportar)
@@ -344,9 +337,12 @@ class ReportView(BaseView):
 		self._lbl_status.pack(side='left', padx=16)
 
 	# =========================================================
-	# CARGA DE DATOS (hilo secundario para no freezar la UI)
+	# CARGA DE DATOS (hilos seguros)
 	# =========================================================
 	def _load_report(self, show_spinner=False):
+		if not self.winfo_exists():
+			return
+
 		if show_spinner:
 			self._clear_body()
 			self._lbl_spinner = ctk.CTkLabel(
@@ -367,7 +363,9 @@ class ReportView(BaseView):
 
 		def worker():
 			data = self.controller.get_report_data(tenant_id, date_from, date_to)
-			self.after(0, lambda: self._render_report(data))
+			self.after(
+				0, lambda: self._render_report(data) if self.winfo_exists() else None
+			)
 
 		threading.Thread(target=worker, daemon=True).start()
 
@@ -383,32 +381,24 @@ class ReportView(BaseView):
 		period = data['period']
 
 		row = 0
-
-		# ── 1. Frase resumen (50yo UX) ───────────────────────────────────────
 		row = self._build_summary_phrase(row, cur, period)
-
-		# ── 2. KPI cards ─────────────────────────────────────────────────────
 		row = self._build_kpi_cards(row, cur, prev)
-
-		# ── 3. Desglose pago + Cancelaciones ─────────────────────────────────
 		row = self._build_mid_section(row, cur, cancels)
-
-		# ── 4. Top productos ──────────────────────────────────────────────────
 		if top:
 			row = self._build_top_products(row, top)
-
-		# ── 5. Movimientos de caja ────────────────────────────────────────────
 		if movs['gastos'] or movs['ingresos']:
 			row = self._build_movements(row, movs)
 
-		# Habilitar botones
 		self._btn_generate.configure(state='normal', text='Generar')
 		self._btn_pdf.configure(state='normal')
 		self._btn_csv.configure(state='normal')
 
 	def _clear_body(self):
 		for widget in self._scroll.winfo_children():
-			widget.destroy()
+			try:
+				widget.destroy()
+			except Exception:
+				pass
 
 	# =========================================================
 	# SECCIÓN: FRASE RESUMEN
@@ -500,7 +490,6 @@ class ReportView(BaseView):
 		]
 
 		for i, (title, value, curr_val, prev_val, color) in enumerate(kpi_defs):
-			# Tarjeta
 			card = ctk.CTkFrame(
 				frame,
 				fg_color=SURFACE2,
@@ -510,7 +499,6 @@ class ReportView(BaseView):
 			)
 			card.grid(row=0, column=i, sticky='nsew', padx=5, pady=4)
 
-			# Barra de acento (izquierda)
 			ctk.CTkFrame(card, fg_color=color, width=4, corner_radius=0).pack(
 				side='left', fill='y'
 			)
@@ -551,7 +539,7 @@ class ReportView(BaseView):
 		frame.grid_columnconfigure(0, weight=3)
 		frame.grid_columnconfigure(1, weight=1)
 
-		# ── Desglose por pago ────────────────────────────────────────────────
+		# ── Desglose por pago ──
 		left = ctk.CTkFrame(
 			frame,
 			fg_color=SURFACE2,
@@ -569,7 +557,7 @@ class ReportView(BaseView):
 		).pack(anchor='w', padx=16, pady=(14, 8))
 
 		methods = cur['by_method']
-		total_revenue = cur['revenue'] or 1  # evita división por cero
+		total_revenue = cur['revenue'] or 1
 
 		if not methods:
 			ctk.CTkLabel(
@@ -583,11 +571,10 @@ class ReportView(BaseView):
 				methods.items(), key=lambda x: x[1]['total'], reverse=True
 			):
 				pct = (info['total'] / total_revenue) * 100
-				_, txt_color, dim_color = _method_colors(method)
+				_, txt_color, _ = _method_colors(method)
 				row_f = ctk.CTkFrame(left, fg_color='transparent')
 				row_f.pack(fill='x', padx=16, pady=3)
 
-				# Etiqueta método
 				ctk.CTkLabel(
 					row_f,
 					text=method.capitalize(),
@@ -597,7 +584,6 @@ class ReportView(BaseView):
 					anchor='w',
 				).pack(side='left')
 
-				# Barra de progreso
 				pb = ctk.CTkProgressBar(
 					row_f,
 					height=8,
@@ -608,7 +594,6 @@ class ReportView(BaseView):
 				pb.set(pct / 100)
 				pb.pack(side='left', fill='x', expand=True, padx=8)
 
-				# Monto + tickets
 				ctk.CTkLabel(
 					row_f,
 					text=f'${info["total"]:,.0f}  ({info["count"]} t.)',
@@ -618,9 +603,9 @@ class ReportView(BaseView):
 					anchor='e',
 				).pack(side='right')
 
-			ctk.CTkLabel(left, text='', height=6).pack()  # padding bottom
+			ctk.CTkLabel(left, text='', height=6).pack()
 
-		# ── Cancelaciones ─────────────────────────────────────────────────────
+		# ── Cancelaciones ──
 		right = ctk.CTkFrame(
 			frame,
 			fg_color=SURFACE2,
@@ -704,7 +689,6 @@ class ReportView(BaseView):
 			row_f.grid(row=i + 1, column=0, sticky='ew', padx=16, pady=3)
 			row_f.grid_columnconfigure(1, weight=1)
 
-			# Posición
 			ctk.CTkLabel(
 				row_f,
 				text=f'{i + 1:2d}.',
@@ -714,7 +698,6 @@ class ReportView(BaseView):
 				anchor='e',
 			).grid(row=0, column=0, padx=(0, 8))
 
-			# Nombre
 			name = product['description'][:40]
 			ctk.CTkLabel(
 				row_f,
@@ -725,7 +708,6 @@ class ReportView(BaseView):
 				width=220,
 			).grid(row=0, column=1, sticky='w')
 
-			# Barra de progreso
 			pb = ctk.CTkProgressBar(
 				row_f,
 				height=8,
@@ -737,7 +719,6 @@ class ReportView(BaseView):
 			pb.grid(row=0, column=2, sticky='ew', padx=8)
 			row_f.grid_columnconfigure(2, weight=1)
 
-			# Cantidad + revenue
 			ctk.CTkLabel(
 				row_f,
 				text=f'{qty_str} u  ·  ${product["revenue"]:,.0f}',
@@ -747,10 +728,7 @@ class ReportView(BaseView):
 				anchor='e',
 			).grid(row=0, column=3, padx=(8, 0))
 
-		ctk.CTkLabel(frame, text='', height=6).grid(
-			row=len(top) + 1, column=0
-		)  # padding bottom
-
+		ctk.CTkLabel(frame, text='', height=6).grid(row=len(top) + 1, column=0)
 		return row + 1
 
 	# =========================================================
@@ -775,7 +753,7 @@ class ReportView(BaseView):
 			text_color=TEXT_MUTED,
 		).grid(row=0, column=0, columnspan=2, sticky='w', padx=16, pady=(14, 8))
 
-		# ── Ingresos ──────────────────────────────────────────────────────────
+		# ── Ingresos ──
 		ing_frame = ctk.CTkFrame(frame, fg_color='transparent')
 		ing_frame.grid(row=1, column=0, sticky='nsew', padx=16, pady=(0, 14))
 
@@ -799,11 +777,7 @@ class ReportView(BaseView):
 				row_f = ctk.CTkFrame(ing_frame, fg_color='transparent')
 				row_f.pack(fill='x', pady=1)
 				ctk.CTkLabel(
-					row_f,
-					text=t,
-					font=('Arial', 10),
-					text_color=TEXT_MUTED,
-					width=40,
+					row_f, text=t, font=('Arial', 10), text_color=TEXT_MUTED, width=40
 				).pack(side='left')
 				ctk.CTkLabel(
 					row_f,
@@ -818,7 +792,7 @@ class ReportView(BaseView):
 					text_color=GREEN_TEXT,
 				).pack(side='right')
 
-		# ── Gastos ────────────────────────────────────────────────────────────
+		# ── Gastos ──
 		gas_frame = ctk.CTkFrame(frame, fg_color='transparent')
 		gas_frame.grid(row=1, column=1, sticky='nsew', padx=16, pady=(0, 14))
 
@@ -842,11 +816,7 @@ class ReportView(BaseView):
 				row_f = ctk.CTkFrame(gas_frame, fg_color='transparent')
 				row_f.pack(fill='x', pady=1)
 				ctk.CTkLabel(
-					row_f,
-					text=t,
-					font=('Arial', 10),
-					text_color=TEXT_MUTED,
-					width=40,
+					row_f, text=t, font=('Arial', 10), text_color=TEXT_MUTED, width=40
 				).pack(side='left')
 				ctk.CTkLabel(
 					row_f,
@@ -864,7 +834,7 @@ class ReportView(BaseView):
 		return row + 1
 
 	# =========================================================
-	# EXPORTACIONES
+	# EXPORTACIONES (Hilos seguros)
 	# =========================================================
 	def _export_pdf(self):
 		if not self._data:
@@ -872,7 +842,6 @@ class ReportView(BaseView):
 		self._lbl_status.configure(text='Generando PDF…', text_color=TEXT_MUTED)
 		self._btn_pdf.configure(state='disabled')
 
-		# Leer nombre de empresa desde settings
 		try:
 			from utils.settings_manager import get as settings_get
 
@@ -881,25 +850,30 @@ class ReportView(BaseView):
 			company = 'Mi Negocio'
 
 		data = self._data
-		data['_tenant_id'] = self.ctx.tenant_id
 
 		def worker():
 			try:
 				path = self.controller.export_pdf(data, company_name=company)
 				self.after(
 					0,
-					lambda: self._on_export_done(f'PDF guardado: {path}', success=True),
+					lambda p=path: (
+						self._on_export_done(f'PDF guardado: {p}', True)
+						if self.winfo_exists()
+						else None
+					),
 				)
 			except Exception as e:
 				logger.error(f'Error exportando PDF: {e}', exc_info=True)
+				err_msg = str(e)
 				self.after(
 					0,
-					lambda: self._on_export_done(
-						f'Error al generar PDF: {e}', success=False
+					lambda msg=err_msg: (
+						self._on_export_done(f'Error: {msg}', False)
+						if self.winfo_exists()
+						else None
 					),
 				)
 
-		self._btn_pdf.configure(state='disabled')
 		threading.Thread(target=worker, daemon=True).start()
 
 	def _export_csv(self):
@@ -909,25 +883,30 @@ class ReportView(BaseView):
 		self._btn_csv.configure(state='disabled')
 
 		data = self._data
-		data['_tenant_id'] = self.ctx.tenant_id
 
 		def worker():
 			try:
 				path = self.controller.export_csv(data)
 				self.after(
 					0,
-					lambda: self._on_export_done(f'CSV guardado: {path}', success=True),
+					lambda p=path: (
+						self._on_export_done(f'CSV guardado: {p}', True)
+						if self.winfo_exists()
+						else None
+					),
 				)
 			except Exception as e:
 				logger.error(f'Error exportando CSV: {e}', exc_info=True)
+				err_msg = str(e)
 				self.after(
 					0,
-					lambda: self._on_export_done(
-						f'Error al exportar CSV: {e}', success=False
+					lambda msg=err_msg: (
+						self._on_export_done(f'Error: {msg}', False)
+						if self.winfo_exists()
+						else None
 					),
 				)
 
-		self._btn_csv.configure(state='disabled')
 		threading.Thread(target=worker, daemon=True).start()
 
 	def _on_export_done(self, message: str, success: bool):
@@ -935,5 +914,4 @@ class ReportView(BaseView):
 		self._lbl_status.configure(text=message, text_color=color)
 		self._btn_pdf.configure(state='normal')
 		self._btn_csv.configure(state='normal')
-		# Limpiar mensaje después de 6 segundos
-		self.after(6000, lambda: self._lbl_status.configure(text=''))
+		self.schedule(6000, lambda: self._lbl_status.configure(text=''))

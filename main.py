@@ -8,9 +8,10 @@ from controllers.license_controller import LicenseController
 from core.context import AppContext
 from database.migrations import run_migrations
 from utils.config import make_engine
-from utils.settings_manager import SettingsManager
+from utils.settings_manager import SettingsManager, get as settings_get
 from views.login_view import LoginView
 from views.main_dashboard import MainDashboard
+from views.onboarding_view import OnboardingView
 from views.setup_wizard_view import SetupWizard
 
 logger = logging.getLogger(__name__)
@@ -18,11 +19,30 @@ logger = logging.getLogger(__name__)
 ctk.set_appearance_mode('Dark')
 ctk.set_default_color_theme('blue')
 
+# Mapa seccion -> clase de vista (para navegar desde el onboarding)
+_SECTION_VIEW_MAP = {}
+
+
+def _load_section_map():
+	"""Importa las clases de vista solo cuando hace falta."""
+	global _SECTION_VIEW_MAP
+	if _SECTION_VIEW_MAP:
+		return
+	from views.articles_view import ArticlesView
+	from views.cash_view import CashView
+	from views.suppliers_view import SuppliersView
+
+	_SECTION_VIEW_MAP = {
+		'articles': ArticlesView,
+		'suppliers': SuppliersView,
+		'cash': CashView,
+	}
+
 
 class PosApp(ctk.CTk):
 	def __init__(self):
 		super().__init__()
-		self.title('CloudPOS - Sistema de Gestión')
+		self.title('CloudPOS - Sistema de Gestion')
 		self.geometry('1000x600')
 
 		try:
@@ -52,6 +72,9 @@ class PosApp(ctk.CTk):
 			run_migrations(self.db_engine)
 		return self.db_engine
 
+	# =========================================================
+	# FLUJO PRINCIPAL
+	# =========================================================
 	def check_system_state(self):
 		self._clear_window()
 
@@ -79,18 +102,56 @@ class PosApp(ctk.CTk):
 		).pack(fill='both', expand=True)
 
 	def start_dashboard(self, current_user):
+		"""
+		Decide si mostrar el onboarding (primer login) o el dashboard directamente.
+		El flag 'onboarding_shown' se escribe en settings.json desde OnboardingView._done().
+		"""
 		self._clear_window()
 		ctx = AppContext(
 			db_engine=self._get_or_create_engine(),
 			current_user=current_user,
 			settings=SettingsManager(),
 		)
-		MainDashboard(
+
+		onboarding_shown = settings_get('onboarding_shown', False)
+
+		if not onboarding_shown and current_user.get('role') == 'admin':
+			self._show_onboarding(ctx)
+		else:
+			self._show_dashboard(ctx)
+
+	def _show_onboarding(self, ctx):
+		"""Muestra el onboarding post-primer-login."""
+		self._clear_window()
+		OnboardingView(
+			self,
+			ctx=ctx,
+			on_done=lambda section: self._after_onboarding(ctx, section),
+		).pack(fill='both', expand=True)
+
+	def _after_onboarding(self, ctx, section):
+		"""Callback de OnboardingView: muestra el dashboard y navega a la seccion si aplica."""
+		self._show_dashboard(ctx, navigate_to=section)
+
+	def _show_dashboard(self, ctx, navigate_to=None):
+		self._clear_window()
+		dashboard = MainDashboard(
 			self,
 			ctx=ctx,
 			logout_command=self.show_login,
-		).pack(fill='both', expand=True)
+		)
+		dashboard.pack(fill='both', expand=True)
 
+		# Navegar a seccion solicitada desde el onboarding
+		if navigate_to:
+			_load_section_map()
+			view_class = _SECTION_VIEW_MAP.get(navigate_to)
+			if view_class:
+				self.after(150, lambda vc=view_class: dashboard.safe_switch_view(vc))
+
+	# =========================================================
+	# BLOQUEO DE LICENCIA
+	# =========================================================
 	def show_license_lock(self, error_type):
 		self._clear_window()
 		frame = ctk.CTkFrame(self)
@@ -98,24 +159,24 @@ class PosApp(ctk.CTk):
 
 		ctk.CTkLabel(
 			frame,
-			text='⚠️ SISTEMA BLOQUEADO',
+			text='SISTEMA BLOQUEADO',
 			font=('Arial', 24, 'bold'),
 			text_color='red',
 		).pack(pady=20)
 
 		motivo = (
-			'Tu período de prueba o licencia ha expirado.'
+			'Tu periodo de prueba o licencia ha expirado.'
 			if error_type == 'EXPIRED'
 			else 'Licencia alterada o no encontrada.'
 		)
 		ctk.CTkLabel(frame, text=motivo).pack(pady=10)
 		ctk.CTkLabel(
 			frame,
-			text='Contacta a tu proveedor para renovar y obtén tu nuevo código de activación.',
+			text='Contacta a tu proveedor para renovar y obtene tu nuevo codigo de activacion.',
 		).pack(pady=20)
 
 		entry_renewal = ctk.CTkEntry(
-			frame, width=300, placeholder_text='Ingresa el nuevo código de licencia'
+			frame, width=300, placeholder_text='Ingresa el nuevo codigo de licencia'
 		)
 		entry_renewal.pack(pady=10)
 		ctk.CTkButton(
@@ -129,7 +190,7 @@ class PosApp(ctk.CTk):
 		success, msg = self.license_ctrl.activate_license(key)
 		if success:
 			CTkMessagebox(
-				title='¡Gracias!',
+				title='Gracias!',
 				message='Sistema desbloqueado. Gracias por tu pago.',
 				icon='check',
 			)

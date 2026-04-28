@@ -1,7 +1,5 @@
-import os
-import platform
 import random
-import subprocess
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from tkinter import ttk
 
 import customtkinter as ctk
@@ -9,9 +7,9 @@ from CTkMessagebox import CTkMessagebox
 
 import utils.settings_manager as cfg
 from controllers.article_controller import ArticleController
+from controllers.label_controller import LabelController
 from core.base_view import BaseView
 from core.context import AppContext
-from utils.label_printer import LabelPrinter
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
@@ -44,33 +42,42 @@ class ArticlesView(BaseView):
 		self.editing_variant_id = None
 		self.current_variants = []
 		self.suppliers_map = {}
+		self._search_timer = None
 
 		# ── Leer IVA desde configuración ─────────────────────────────────────
-		# tax_rate se guarda como porcentaje (ej: 21.0); lo convertimos a decimal
 		tax_pct = cfg.get('tax_rate', 0.0)
-		self._iva_rate = float(tax_pct) / 100  # ej: 0.21
-		self._iva_pct_str = f'{float(tax_pct):.4g}%'  # ej: "21%"
-		self._iva_enabled = self._iva_rate > 0  # False si no hay IVA configurado
+		self._iva_rate = Decimal(str(tax_pct)) / Decimal('100')
+		self._iva_pct_str = f'{float(tax_pct):.4g}%'
+		self._iva_enabled = self._iva_rate > 0
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=2)
 		self.grid_rowconfigure(0, weight=1)
 
 		apply_treeview_style()
+		ttk.Style().map('Treeview.Heading', background=[('active', SURFACE4)])
 
 		# ── Estado de la calculadora ─────────────────────────────────────────
-		self._var_iva_included = ctk.BooleanVar(value=False)  # ¿el costo YA tiene IVA?
-		self._var_price_mode = ctk.StringVar(value='manual')  # 'manual' | 'margen'
+		self._var_iva_included = ctk.BooleanVar(value=False)
+		self._var_price_mode = ctk.StringVar(value='manual')
 		self._var_margin = ctk.StringVar(value='')
 		self._var_cost_str = ctk.StringVar(value='')
 		self._var_price_str = ctk.StringVar(value='')
 
-		# Trazas para recalcular live
 		self._var_cost_str.trace_add('write', self._on_calc_change)
 		self._var_margin.trace_add('write', self._on_calc_change)
 		self._var_iva_included.trace_add('write', self._on_calc_change)
 
-		# ── Panel izquierdo: Formulario ──────────────────────────────────────
+		self._build_left_panel()
+		self._build_right_panel()
+
+		self.after(100, self.load_data)
+		self.entry_barcode.focus()
+
+	# =========================================================
+	# CONSTRUCCIÓN DE UI
+	# =========================================================
+	def _build_left_panel(self):
 		self.left_panel = ctk.CTkScrollableFrame(
 			self,
 			fg_color=SURFACE2,
@@ -90,7 +97,7 @@ class ArticlesView(BaseView):
 		)
 		self.lbl_form_title.pack(pady=(22, 6))
 
-		# ── Barcode ──────────────────────────────────────────────────────────
+		# ── Barcode ──
 		ctk.CTkLabel(
 			self.left_panel,
 			text='CÓDIGO DE BARRAS',
@@ -109,7 +116,7 @@ class ArticlesView(BaseView):
 		self.entry_barcode.pack(pady=(0, 4), padx=20, fill='x')
 		self.entry_barcode.bind('<Return>', self.on_barcode_scanned)
 
-		# ── Nombre ───────────────────────────────────────────────────────────
+		# ── Nombre ──
 		ctk.CTkLabel(
 			self.left_panel,
 			text='NOMBRE DEL PRODUCTO',
@@ -127,7 +134,7 @@ class ArticlesView(BaseView):
 		)
 		self.entry_name.pack(pady=(0, 4), padx=20, fill='x')
 
-		# ── Proveedor ────────────────────────────────────────────────────────
+		# ── Proveedor ──
 		ctk.CTkLabel(
 			self.left_panel,
 			text='PROVEEDOR ASOCIADO',
@@ -149,7 +156,7 @@ class ArticlesView(BaseView):
 		)
 		self.combo_supplier.pack(pady=(0, 8), padx=20, fill='x')
 
-		# ── Precio de costo ──────────────────────────────────────────────────
+		# ── Precio de costo ──
 		ctk.CTkLabel(
 			self.left_panel,
 			text='PRECIO DE COSTO ($)',
@@ -168,17 +175,17 @@ class ArticlesView(BaseView):
 		)
 		self.entry_cost.pack(pady=(0, 4), padx=20, fill='x')
 
-		# ── Toggle IVA ───────────────────────────────────────────────────────
-		if self._iva_enabled:
-			iva_bg = ORANGE_DIM
-			iva_border = ORANGE
-			iva_txt = ORANGE_TEXT
-			chk_text = f'El precio del proveedor ya incluye IVA ({self._iva_pct_str})'
-		else:
-			iva_bg = SURFACE3
-			iva_border = BORDER
-			iva_txt = TEXT_MUTED
-			chk_text = 'IVA no configurado  (ver Configuración → Ventas)'
+		# ── Toggle IVA ──
+		iva_bg, iva_border, iva_txt = (
+			(ORANGE_DIM, ORANGE, ORANGE_TEXT)
+			if self._iva_enabled
+			else (SURFACE3, BORDER, TEXT_MUTED)
+		)
+		chk_text = (
+			f'El precio del proveedor ya incluye IVA ({self._iva_pct_str})'
+			if self._iva_enabled
+			else 'IVA no configurado  (ver Configuración → Ventas)'
+		)
 
 		iva_frame = ctk.CTkFrame(
 			self.left_panel,
@@ -207,17 +214,15 @@ class ArticlesView(BaseView):
 
 		self._lbl_iva_hint = ctk.CTkLabel(
 			iva_frame,
-			text=(
-				'→ Se usará el costo tal cual para calcular el margen'
-				if self._iva_enabled
-				else '→ Configurá el IVA en ⚙ Configuración → Ventas y Alertas'
-			),
+			text='→ Se usará el costo tal cual para calcular el margen'
+			if self._iva_enabled
+			else '→ Configurá el IVA en ⚙ Configuración → Ventas y Alertas',
 			font=('Arial', 9),
 			text_color=iva_txt,
 		)
 		self._lbl_iva_hint.pack(padx=12, pady=(0, 8), anchor='w')
 
-		# ── Modo de precio ───────────────────────────────────────────────────
+		# ── Modo de precio ──
 		ctk.CTkLabel(
 			self.left_panel,
 			text='PRECIO DE VENTA',
@@ -255,7 +260,6 @@ class ArticlesView(BaseView):
 		)
 		self._btn_mode_margen.pack(side='left', fill='x', expand=True, padx=(4, 0))
 
-		# Entry precio fijo
 		self.entry_price = ctk.CTkEntry(
 			self.left_panel,
 			placeholder_text='0.00',
@@ -267,7 +271,6 @@ class ArticlesView(BaseView):
 		)
 		self.entry_price.pack(pady=(0, 4), padx=20, fill='x')
 
-		# Entry margen (oculto por defecto)
 		self._frame_margen = ctk.CTkFrame(self.left_panel, fg_color='transparent')
 		ctk.CTkLabel(
 			self._frame_margen,
@@ -286,9 +289,8 @@ class ArticlesView(BaseView):
 			textvariable=self._var_margin,
 		)
 		self.entry_margin.pack(fill='x')
-		# _frame_margen se muestra/oculta con _set_price_mode
 
-		# ── Panel fórmula live ───────────────────────────────────────────────
+		# ── Panel fórmula live ──
 		self._formula_frame = ctk.CTkFrame(
 			self.left_panel,
 			fg_color=ACCENT_DIM,
@@ -312,11 +314,9 @@ class ArticlesView(BaseView):
 		self._lbl_f_iva = self._formula_row(_iva_row_label)
 		self._lbl_f_costo_real = self._formula_row('= Costo real')
 
-		ctk.CTkFrame(
-			self._formula_frame,
-			height=1,
-			fg_color=ACCENT,
-		).pack(fill='x', padx=12, pady=4)
+		ctk.CTkFrame(self._formula_frame, height=1, fg_color=ACCENT).pack(
+			fill='x', padx=12, pady=4
+		)
 
 		self._lbl_f_margen = self._formula_row('+ Ganancia')
 		self._lbl_f_precio = self._formula_row(
@@ -324,10 +324,7 @@ class ArticlesView(BaseView):
 		)
 
 		ctk.CTkLabel(
-			self._formula_frame,
-			text='',
-			font=('Arial', 9),
-			text_color=TEXT_MUTED,
+			self._formula_frame, text='', font=('Arial', 9), text_color=TEXT_MUTED
 		).pack(padx=12, pady=(0, 2))
 
 		self._lbl_formula_expr = ctk.CTkLabel(
@@ -340,7 +337,7 @@ class ArticlesView(BaseView):
 		)
 		self._lbl_formula_expr.pack(anchor='w', padx=12, pady=(0, 10))
 
-		# ── Stock inicial ────────────────────────────────────────────────────
+		# ── Stock inicial ──
 		ctk.CTkLabel(
 			self.left_panel,
 			text='STOCK INICIAL',
@@ -358,7 +355,7 @@ class ArticlesView(BaseView):
 		)
 		self.entry_stock.pack(pady=(0, 10), padx=20, fill='x')
 
-		# ── Botones ──────────────────────────────────────────────────────────
+		# ── Botones ──
 		self.btn_add = ctk.CTkButton(
 			self.left_panel,
 			text='➕  Agregar al Inventario',
@@ -389,7 +386,7 @@ class ArticlesView(BaseView):
 		)
 		self.btn_cancel.pack(pady=(0, 20), padx=20, fill='x')
 
-		# ── Panel derecho: Catálogo ──────────────────────────────────────────
+	def _build_right_panel(self):
 		self.right_panel = ctk.CTkFrame(
 			self,
 			fg_color=SURFACE2,
@@ -419,17 +416,17 @@ class ArticlesView(BaseView):
 		search_row = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		search_row.pack(fill='x', padx=14, pady=(0, 6))
 
-		self._search_var = ctk.StringVar()
-		self._search_var.trace_add('write', self._filter_tree)
-		ctk.CTkEntry(
+		self.entry_search = ctk.CTkEntry(
 			search_row,
-			textvariable=self._search_var,
 			placeholder_text='🔍 Buscar por nombre, código o proveedor...',
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=34,
-		).pack(side='left', fill='x', expand=True)
+		)
+		self.entry_search.pack(side='left', fill='x', expand=True)
+		# MEJORA: Debounce en la búsqueda
+		self.entry_search.bind('<KeyRelease>', self._debounced_search)
 
 		self.lbl_count = ctk.CTkLabel(
 			search_row,
@@ -514,18 +511,10 @@ class ArticlesView(BaseView):
 		)
 		self.btn_print_labels.pack(side='left', expand=True, fill='x')
 
-		# Estado inicial
-		self._set_price_mode('manual')
-		self._update_formula_panel()
-
-		self.after(100, self.load_data)
-		self.entry_barcode.focus()
-
 	# =========================================================
-	# CALCULADORA DE PRECIOS
+	# CALCULADORA DE PRECIOS (Optimizada con Decimal)
 	# =========================================================
 	def _formula_row(self, label: str, bold=False, color=None):
-		"""Crea una fila en el panel de fórmula y devuelve el label de valor."""
 		row = ctk.CTkFrame(self._formula_frame, fg_color='transparent')
 		row.pack(fill='x', padx=12, pady=1)
 		ctk.CTkLabel(
@@ -575,56 +564,51 @@ class ArticlesView(BaseView):
 		if self._var_price_mode.get() == 'margen':
 			self._apply_margin_to_price()
 
-	def _get_cost_real(self) -> float | None:
-		"""Costo efectivo (sin o con IVA, según toggle). None si no es válido."""
+	def _get_cost_real(self) -> Decimal | None:
 		try:
-			cost = float(self._var_cost_str.get().replace(',', '.'))
-		except ValueError:
+			cost = Decimal(self._var_cost_str.get().replace(',', '.'))
+		except (ValueError, InvalidOperation):
 			return None
-		if not self._iva_enabled:
-			# Sin IVA configurado: el costo real = costo ingresado
-			return cost
-		if self._var_iva_included.get():
-			# Ya incluye IVA: el costo real es ese mismo
+
+		if not self._iva_enabled or self._var_iva_included.get():
 			return cost
 		else:
-			# No incluye IVA: el costo real = costo × (1 + rate)
-			return cost * (1 + self._iva_rate)
+			return cost * (Decimal('1') + self._iva_rate)
 
 	def _apply_margin_to_price(self):
-		"""Calcula el precio de venta y lo pone en el entry (modo margen)."""
 		cost_real = self._get_cost_real()
 		try:
-			margin_pct = float(self._var_margin.get().replace(',', '.'))
-		except ValueError:
+			margin_pct = Decimal(self._var_margin.get().replace(',', '.'))
+		except (ValueError, InvalidOperation):
 			self._var_price_str.set('')
 			return
+
 		if cost_real is None or cost_real <= 0:
 			self._var_price_str.set('')
 			return
-		price = cost_real * (1 + margin_pct / 100)
-		self._var_price_str.set(f'{price:.2f}')
+
+		price = (cost_real * (Decimal('1') + margin_pct / Decimal('100'))).quantize(
+			Decimal('0.01'), ROUND_HALF_UP
+		)
+		self._var_price_str.set(str(price))
 
 	def _update_formula_panel(self):
-		"""Actualiza todas las etiquetas del panel de fórmula live."""
 		try:
-			cost_raw = float(self._var_cost_str.get().replace(',', '.'))
-		except ValueError:
+			cost_raw = Decimal(self._var_cost_str.get().replace(',', '.'))
+		except (ValueError, InvalidOperation):
 			cost_raw = None
 
 		iva_included = self._var_iva_included.get()
 
-		# Actualizar hint de IVA
-		if not self._iva_enabled:
-			pass  # el hint ya fue puesto en __init__ como texto fijo
-		elif iva_included:
-			self._lbl_iva_hint.configure(
-				text='→ Se usará el costo tal cual para calcular el margen'
-			)
-		else:
-			self._lbl_iva_hint.configure(
-				text=f'→ Se sumará {self._iva_pct_str} al costo para calcular el margen'
-			)
+		if self._iva_enabled:
+			if iva_included:
+				self._lbl_iva_hint.configure(
+					text='→ Se usará el costo tal cual para calcular el margen'
+				)
+			else:
+				self._lbl_iva_hint.configure(
+					text=f'→ Se sumará {self._iva_pct_str} al costo para calcular el margen'
+				)
 
 		if cost_raw is None:
 			for lbl in (
@@ -638,13 +622,12 @@ class ArticlesView(BaseView):
 			return
 
 		if not self._iva_enabled:
-			# Sin IVA configurado: sin ajuste
 			cost_real = cost_raw
 			self._lbl_f_costo_neto.configure(text=f'${cost_raw:.2f}')
 			self._lbl_f_iva.configure(text='Sin IVA configurado')
 			self._lbl_f_costo_real.configure(text=f'${cost_real:.2f}')
 		elif iva_included:
-			cost_sin_iva = cost_raw / (1 + self._iva_rate)
+			cost_sin_iva = cost_raw / (Decimal('1') + self._iva_rate)
 			iva_amount = cost_raw - cost_sin_iva
 			cost_real = cost_raw
 			self._lbl_f_costo_neto.configure(
@@ -653,21 +636,20 @@ class ArticlesView(BaseView):
 			self._lbl_f_iva.configure(text=f'+${iva_amount:.2f}')
 			self._lbl_f_costo_real.configure(text=f'${cost_real:.2f}')
 		else:
-			cost_sin_iva = cost_raw
 			iva_amount = cost_raw * self._iva_rate
 			cost_real = cost_raw + iva_amount
-			self._lbl_f_costo_neto.configure(text=f'${cost_sin_iva:.2f}')
+			self._lbl_f_costo_neto.configure(text=f'${cost_raw:.2f}')
 			self._lbl_f_iva.configure(text=f'+${iva_amount:.2f}')
 			self._lbl_f_costo_real.configure(text=f'${cost_real:.2f}')
 
 		mode = self._var_price_mode.get()
 		try:
-			margin_pct = float(self._var_margin.get().replace(',', '.'))
-		except ValueError:
+			margin_pct = Decimal(self._var_margin.get().replace(',', '.'))
+		except (ValueError, InvalidOperation):
 			margin_pct = None
 
 		if mode == 'margen' and margin_pct is not None:
-			ganancia = cost_real * (margin_pct / 100)
+			ganancia = cost_real * (margin_pct / Decimal('100'))
 			precio = cost_real + ganancia
 			self._lbl_f_margen.configure(text=f'+${ganancia:.2f}  ({margin_pct:.1f}%)')
 			self._lbl_f_precio.configure(text=f'${precio:.2f}')
@@ -676,9 +658,9 @@ class ArticlesView(BaseView):
 			)
 		elif mode == 'manual':
 			try:
-				precio = float(self._var_price_str.get().replace(',', '.'))
+				precio = Decimal(self._var_price_str.get().replace(',', '.'))
 				if cost_real > 0:
-					real_margin = (precio - cost_real) / cost_real * 100
+					real_margin = (precio - cost_real) / cost_real * Decimal('100')
 					ganancia = precio - cost_real
 					self._lbl_f_margen.configure(
 						text=f'+${ganancia:.2f}  ({real_margin:.1f}%)'
@@ -690,7 +672,7 @@ class ArticlesView(BaseView):
 				else:
 					self._lbl_f_margen.configure(text='—')
 					self._lbl_f_precio.configure(text='—')
-			except ValueError:
+			except (ValueError, InvalidOperation):
 				self._lbl_f_margen.configure(text='—')
 				self._lbl_f_precio.configure(text='—')
 				self._lbl_formula_expr.configure(
@@ -704,11 +686,10 @@ class ArticlesView(BaseView):
 			)
 
 	# =========================================================
-	# DATOS
+	# DATOS Y EVENTOS
 	# =========================================================
 	def load_data(self):
 		tenant_id = self.ctx.tenant_id
-
 		suppliers = self.controller.get_suppliers_for_combo(tenant_id)
 		self.suppliers_map = {s['name']: s['id'] for s in suppliers}
 
@@ -722,8 +703,16 @@ class ArticlesView(BaseView):
 		self.current_variants = self.controller.get_all_variants(tenant_id)
 		self._filter_tree()
 
-	def _filter_tree(self, *args):
-		q = self._search_var.get().lower()
+	def _debounced_search(self, event=None):
+		if self._search_timer:
+			self.after_cancel(self._search_timer)
+		self._search_timer = self.after(300, self._filter_tree)
+
+	def _filter_tree(self):
+		if not self.winfo_exists():
+			return
+
+		q = self.entry_search.get().lower().strip()
 		if q:
 			matches = [
 				v
@@ -752,7 +741,7 @@ class ArticlesView(BaseView):
 					variant.get('variant_id'),
 					variant.get('barcode') or 'N/A',
 					variant.get('name'),
-					variant.get('supplier_name'),
+					variant.get('supplier_name') or '-',
 					f'${variant.get("cost_price", 0):.2f}',
 					f'${variant.get("selling_price", 0):.2f}',
 					stock_format,
@@ -761,18 +750,16 @@ class ArticlesView(BaseView):
 
 		total = len(self.current_variants)
 		shown = len(matches)
-		if hasattr(self, 'lbl_count'):
+		if hasattr(self, 'lbl_count') and self.lbl_count.winfo_exists():
 			self.lbl_count.configure(
 				text=f'{shown} de {total}' if q else f'{total} productos'
 			)
 
-	# =========================================================
-	# EVENTOS
-	# =========================================================
 	def on_barcode_scanned(self, event):
 		barcode = self.entry_barcode.get().strip().lstrip('0') or '0'
 		if not barcode:
 			return
+
 		found = next(
 			(v for v in self.current_variants if str(v.get('barcode')) == barcode), None
 		)
@@ -781,7 +768,7 @@ class ArticlesView(BaseView):
 			self.entry_price.focus()
 		else:
 			self.reset_form(keep_barcode=True)
-			self.entry_name.focus()
+			self.entry_name.focus()  # Salto inteligente para cargar rápido
 
 	def on_tree_double_click(self, event):
 		selected = self.tree.selection()
@@ -807,7 +794,6 @@ class ArticlesView(BaseView):
 		self.entry_name.insert(0, variant.get('name', ''))
 		self._var_cost_str.set(f'{variant.get("cost_price", 0):.2f}')
 
-		# Forzar modo manual al editar
 		self._set_price_mode('manual')
 		self.entry_price.configure(state='normal')
 		self._var_price_str.set(f'{variant.get("selling_price", 0):.2f}')
@@ -826,6 +812,7 @@ class ArticlesView(BaseView):
 			)
 		except (TypeError, ValueError):
 			stock_str = str(stock_val)
+
 		self.entry_stock.insert(
 			0, f'Stock actual: {stock_str} u  ·  Ajustar desde Compras'
 		)
@@ -858,11 +845,12 @@ class ArticlesView(BaseView):
 		self._set_price_mode('manual')
 		self.lbl_form_title.configure(text='📦 Nuevo Producto', text_color=TEXT_PRIMARY)
 		self.btn_add.configure(text='➕  Agregar al Inventario')
+
 		if not keep_barcode:
 			self.entry_barcode.focus()
 
 	# =========================================================
-	# GUARDAR
+	# GUARDAR Y ELIMINAR
 	# =========================================================
 	def save_article(self):
 		name = self.entry_name.get().strip()
@@ -872,6 +860,7 @@ class ArticlesView(BaseView):
 			if raw_barcode
 			else f'99{random.randint(1000000000, 9999999999)}'
 		)
+
 		cost_str = self._var_cost_str.get().strip().replace(',', '.')
 		price_str = self._var_price_str.get().strip().replace(',', '.')
 		supplier_name = self.combo_supplier.get()
@@ -903,8 +892,10 @@ class ArticlesView(BaseView):
 		tenant_id = self.ctx.tenant_id
 
 		if self.editing_variant_id:
+			user_id = self.ctx.user_id
 			success, msg = self.controller.update_article(
 				tenant_id,
+				user_id,
 				self.editing_variant_id,
 				name,
 				barcode,
@@ -932,9 +923,6 @@ class ArticlesView(BaseView):
 		else:
 			self.show_error(msg)
 
-	# =========================================================
-	# ELIMINAR
-	# =========================================================
 	def delete_article(self):
 		selected = self.tree.selection()
 		if not selected:
@@ -956,12 +944,12 @@ class ArticlesView(BaseView):
 			if success:
 				self.load_data()
 				self.reset_form()
-				CTkMessagebox(title='Eliminado', message=msg_response, icon='check')
+				self.show_success(msg_response)
 			else:
-				CTkMessagebox(title='Error', message=msg_response, icon='cancel')
+				self.show_error(msg_response)
 
 	# =========================================================
-	# ETIQUETAS PDF
+	# ETIQUETAS PDF (Delegado al nuevo LabelController)
 	# =========================================================
 	def print_labels(self):
 		selected_items = self.tree.selection()
@@ -976,31 +964,38 @@ class ArticlesView(BaseView):
 		products_to_print = []
 		for item_id in selected_items:
 			values = self.tree.item(item_id, 'values')
-			barcode = values[1] if values[1] != 'N/A' else '000000000000'
-			price_str = values[5].replace('$', '')
+			barcode = values[1] if values[1] != 'N/A' else ''
+			price_str = values[5].replace('$', '').replace(',', '.')
 			products_to_print.append(
-				{'name': values[2], 'barcode': barcode, 'price': float(price_str)}
+				{
+					'name': values[2],
+					'barcode': barcode,
+					'price': float(price_str),
+					'copies': 1,
+				}
 			)
 
 		try:
-			printer = LabelPrinter()
-			filename = f'etiquetas_{self.ctx.tenant_id}.pdf'
-			printer.generate_labels_pdf(products_to_print, filename)
-			CTkMessagebox(
-				title='¡Éxito!',
-				message=f'PDF generado:\n{filename}',
-				icon='check',
+			lbl_ctrl = LabelController()
+			# Genera etiquetas usando el template "supermercado" por defecto
+			ok, result = lbl_ctrl.generate_pdf(
+				products_to_print, template_key='supermercado'
 			)
-			try:
-				if platform.system() == 'Windows':
-					os.startfile(filename)
-				elif platform.system() == 'Darwin':
-					subprocess.call(['open', filename], capture_output=True)
-				else:
-					subprocess.call(['xdg-open', filename], capture_output=True)
-			except Exception:
-				pass
+			if ok:
+				CTkMessagebox(
+					title='¡Éxito!',
+					message='Etiquetas generadas correctamente.',
+					icon='check',
+				)
+			else:
+				CTkMessagebox(
+					title='Error',
+					message=f'No se pudo generar el PDF: {result}',
+					icon='cancel',
+				)
 		except Exception as e:
 			CTkMessagebox(
-				title='Error', message=f'No se pudo generar el PDF: {e}', icon='cancel'
+				title='Error',
+				message=f'Excepción al generar etiquetas: {e}',
+				icon='cancel',
 			)

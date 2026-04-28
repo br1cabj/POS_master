@@ -12,12 +12,13 @@ Incluye:
   - Conteo de anulaciones y devoluciones
   - Top 8 productos del período (cantidad + revenue)
   - Movimientos manuales de caja (gastos / ingresos)
-  - Exportación a PDF (fpdf2) y CSV
+  - Exportación a PDF (fpdf 1.7.x) y CSV
 """
 
 import csv
 import logging
 import os
+import unicodedata
 from datetime import date, datetime, timedelta
 
 from fpdf import FPDF
@@ -36,8 +37,18 @@ from utils.config import make_engine
 logger = logging.getLogger(__name__)
 _default_engine = make_engine()
 
-# Estados que cuentan como "venta real"
 _SOLD_STATUSES = ('completada', 'parcial')
+
+
+def _sanitize(text: str) -> str:
+	"""Elimina caracteres especiales problemáticos para FPDF (latin-1)."""
+	if not text:
+		return ''
+	return (
+		unicodedata.normalize('NFKD', str(text))
+		.encode('latin-1', 'ignore')
+		.decode('latin-1')
+	)
 
 
 class ReportController(BaseController):
@@ -74,6 +85,7 @@ class ReportController(BaseController):
 				cancels = self._query_cancellations(session, tenant_id, dt_from, dt_to)
 
 				return {
+					'_tenant_id': tenant_id,
 					'period': {'from': date_from, 'to': date_to},
 					'current': current,
 					'previous': previous,
@@ -83,14 +95,13 @@ class ReportController(BaseController):
 				}
 			except Exception as e:
 				logger.error(f'Error al generar reporte: {e}', exc_info=True)
-				return self._empty_report(date_from, date_to)
+				return self._empty_report(tenant_id, date_from, date_to)
 
 	# =========================================================
 	# QUERIES INTERNAS
 	# =========================================================
 	def _query_period(self, session, tenant_id, dt_from, dt_to) -> dict:
 		"""KPIs + desglose por método de pago para un rango de fechas."""
-		# Totales generales
 		row = (
 			session.query(
 				func.coalesce(func.sum(Sale.total_amount), 0),
@@ -110,7 +121,6 @@ class ReportController(BaseController):
 		margin = (profit / revenue * 100) if revenue > 0 else 0.0
 		avg = revenue / tickets if tickets > 0 else 0.0
 
-		# Desglose por método de pago
 		by_method = {}
 		for pm, total, count in (
 			session.query(
@@ -176,7 +186,9 @@ class ReportController(BaseController):
 			.filter(
 				Sale.tenant_id == tenant_id,
 				Sale.date.between(dt_from, dt_to),
-				Sale.status.in_(('anulada', 'devuelta', 'parcial')),
+				Sale.status.in_(
+					('anulada', 'devuelta')
+				),  # CORRECCIÓN: Removido 'parcial'
 			)
 			.first()
 		)
@@ -239,21 +251,21 @@ class ReportController(BaseController):
 		pdf = FPDF('P', 'mm', 'A4')
 		pdf.set_auto_page_break(auto=True, margin=15)
 		pdf.add_page()
-		W = 190  # ancho útil
+		W = 190
 
 		# ── Encabezado ────────────────────────────────────────
 		pdf.set_font('Arial', 'B', 20)
-		pdf.cell(W, 10, company_name.upper(), ln=True, align='C')
+		pdf.cell(W, 10, _sanitize(company_name.upper()), ln=1, align='C')
 		pdf.set_font('Arial', '', 11)
-		pdf.cell(W, 6, 'REPORTE DE CIERRE', ln=True, align='C')
+		pdf.cell(W, 6, 'REPORTE DE CIERRE', ln=1, align='C')
 		pdf.set_font('Arial', 'B', 13)
-		pdf.cell(W, 8, f'Período: {period_label}', ln=True, align='C')
+		pdf.cell(W, 8, _sanitize(f'Periodo: {period_label}'), ln=1, align='C')
 		pdf.set_font('Arial', '', 9)
 		pdf.cell(
 			W,
 			5,
 			f'Generado: {datetime.now().strftime("%d/%m/%Y %H:%M")}',
-			ln=True,
+			ln=1,
 			align='C',
 		)
 		pdf.ln(4)
@@ -265,10 +277,11 @@ class ReportController(BaseController):
 
 		def _pct_change(curr, prev):
 			if prev == 0:
-				return '— vs anterior'
+				return '- vs anterior'
 			pct = (curr - prev) / prev * 100
-			arrow = '▲' if pct >= 0 else '▼'
-			return f'{arrow} {abs(pct):.1f}% vs período anterior'
+			# CORRECCIÓN: Caracteres seguros para FPDF 1.7.2
+			arrow = '(+)' if pct >= 0 else '(-)'
+			return f'{arrow} {abs(pct):.1f}% vs periodo anterior'
 
 		kpis = [
 			(
@@ -299,22 +312,22 @@ class ReportController(BaseController):
 		]
 		for label, value, comp in kpis:
 			pdf.set_font('Arial', '', 11)
-			pdf.cell(80, 7, label + ':')
+			pdf.cell(80, 7, _sanitize(label + ':'))
 			pdf.set_font('Arial', 'B', 11)
 			pdf.cell(40, 7, value)
 			pdf.set_font('Arial', 'I', 9)
-			pdf.cell(0, 7, comp, ln=True)
+			pdf.cell(0, 7, _sanitize(comp), ln=1)
 		pdf.ln(4)
 
 		# ── Por método de pago ────────────────────────────────
-		self._pdf_section(pdf, 'DESGLOSE POR MÉTODO DE PAGO')
+		self._pdf_section(pdf, 'DESGLOSE POR METODO DE PAGO')
 		for method, info in current['by_method'].items():
 			pdf.set_font('Arial', '', 11)
-			pdf.cell(60, 7, method.capitalize() + ':')
+			pdf.cell(60, 7, _sanitize(method.capitalize() + ':'))
 			pdf.set_font('Arial', 'B', 11)
 			pdf.cell(50, 7, f'${info["total"]:,.0f}')
 			pdf.set_font('Arial', '', 10)
-			pdf.cell(0, 7, f'({info["count"]} tickets)', ln=True)
+			pdf.cell(0, 7, f'({info["count"]} tickets)', ln=1)
 		pdf.ln(4)
 
 		# ── Anulaciones ───────────────────────────────────────
@@ -322,22 +335,22 @@ class ReportController(BaseController):
 		pdf.set_font('Arial', '', 11)
 		pdf.cell(80, 7, 'Tickets anulados/devueltos:')
 		pdf.set_font('Arial', 'B', 11)
-		pdf.cell(0, 7, f'{cancels["count"]}  (${cancels["total"]:,.0f})', ln=True)
+		pdf.cell(0, 7, f'{cancels["count"]}  (${cancels["total"]:,.0f})', ln=1)
 		pdf.ln(4)
 
 		# ── Top productos ────────────────────────────────────
 		if top:
-			self._pdf_section(pdf, f'TOP {len(top)} PRODUCTOS DEL PERÍODO')
+			self._pdf_section(pdf, f'TOP {len(top)} PRODUCTOS DEL PERIOD0')
 			for i, item in enumerate(top, 1):
 				qty = item['quantity']
 				qty_str = f'{int(qty)}' if qty == int(qty) else f'{qty:.2f}'
 				pdf.set_font('Arial', '', 10)
-				desc = item['description'][:35]
+				desc = _sanitize(item['description'])[:35]
 				pdf.cell(10, 6, f'{i}.')
 				pdf.cell(90, 6, desc)
 				pdf.set_font('Arial', 'B', 10)
 				pdf.cell(25, 6, f'{qty_str} u', align='R')
-				pdf.cell(0, 6, f'${item["revenue"]:,.0f}', ln=True, align='R')
+				pdf.cell(0, 6, f'${item["revenue"]:,.0f}', ln=1, align='R')
 			pdf.ln(4)
 
 		# ── Movimientos de caja ───────────────────────────────
@@ -346,33 +359,31 @@ class ReportController(BaseController):
 			if movs['ingresos']:
 				pdf.set_font('Arial', 'BI', 10)
 				pdf.cell(
-					W, 6, f'Ingresos  (Total: ${movs["total_ingresos"]:,.0f})', ln=True
+					W, 6, f'Ingresos  (Total: ${movs["total_ingresos"]:,.0f})', ln=1
 				)
 				for m in movs['ingresos']:
 					pdf.set_font('Arial', '', 10)
 					t = m['time'].strftime('%H:%M') if m['time'] else ''
 					pdf.cell(20, 5, t)
-					pdf.cell(120, 5, (m['desc'] or '')[:50])
-					pdf.cell(0, 5, f'${m["amount"]:,.0f}', ln=True, align='R')
+					pdf.cell(120, 5, _sanitize(m['desc'] or '')[:50])
+					pdf.cell(0, 5, f'${m["amount"]:,.0f}', ln=1, align='R')
 				pdf.ln(2)
 			if movs['gastos']:
 				pdf.set_font('Arial', 'BI', 10)
-				pdf.cell(
-					W, 6, f'Gastos  (Total: ${movs["total_gastos"]:,.0f})', ln=True
-				)
+				pdf.cell(W, 6, f'Gastos  (Total: ${movs["total_gastos"]:,.0f})', ln=1)
 				for m in movs['gastos']:
 					pdf.set_font('Arial', '', 10)
 					t = m['time'].strftime('%H:%M') if m['time'] else ''
 					pdf.cell(20, 5, t)
-					pdf.cell(120, 5, (m['desc'] or '')[:50])
-					pdf.cell(0, 5, f'${m["amount"]:,.0f}', ln=True, align='R')
-			pdf.ln(4)
+					pdf.cell(120, 5, _sanitize(m['desc'] or '')[:50])
+					pdf.cell(0, 5, f'${m["amount"]:,.0f}', ln=1, align='R')
+				pdf.ln(4)
 
 		# ── Firma ────────────────────────────────────────────
 		pdf.ln(10)
 		pdf.set_font('Arial', '', 10)
-		pdf.cell(W, 5, '___________________________', ln=True, align='C')
-		pdf.cell(W, 5, 'Firma del responsable', ln=True, align='C')
+		pdf.cell(W, 5, '___________________________', ln=1, align='C')
+		pdf.cell(W, 5, 'Firma del responsable', ln=1, align='C')
 
 		# Guardar
 		desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
@@ -386,8 +397,9 @@ class ReportController(BaseController):
 	def _pdf_section(self, pdf, title: str):
 		pdf.set_font('Arial', 'B', 12)
 		pdf.set_fill_color(40, 40, 40)
-		pdf.cell(190, 8, f'  {title}', ln=True, fill=True)
-		pdf.set_text_color(0, 0, 0)
+		pdf.set_text_color(255, 255, 255)  # CORRECCIÓN: Letra blanca para fondo oscuro
+		pdf.cell(190, 8, f'  {_sanitize(title)}', ln=1, fill=True)
+		pdf.set_text_color(0, 0, 0)  # Vuelve a negro
 		pdf.ln(2)
 
 	# =========================================================
@@ -449,7 +461,7 @@ class ReportController(BaseController):
 	# HELPER
 	# =========================================================
 	@staticmethod
-	def _empty_report(date_from, date_to) -> dict:
+	def _empty_report(tenant_id, date_from, date_to) -> dict:
 		_empty = {
 			'revenue': 0,
 			'profit': 0,
@@ -459,6 +471,7 @@ class ReportController(BaseController):
 			'by_method': {},
 		}
 		return {
+			'_tenant_id': tenant_id,
 			'period': {'from': date_from, 'to': date_to},
 			'current': _empty,
 			'previous': _empty,
