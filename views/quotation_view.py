@@ -66,7 +66,6 @@ class QuotationView(ctk.CTkFrame):
 		self._edit_id: int | None = None
 		self._items: list[dict] = []
 		self._item_widgets: list[tuple] = []
-		# placeholders for form widgets (set in _render_form)
 		self._entry_disc = None
 		self._tot_frame = None
 		self._customers: list[dict] = []
@@ -85,8 +84,6 @@ class QuotationView(ctk.CTkFrame):
 		self._build_left()
 		self._build_right()
 
-	# ── Panel izquierdo ───────────────────────────────────────────────────────
-
 	def _build_left(self):
 		left = ctk.CTkFrame(self, fg_color=SURFACE0, width=300, corner_radius=0)
 		left.grid(row=0, column=0, sticky='nsew')
@@ -94,7 +91,6 @@ class QuotationView(ctk.CTkFrame):
 		left.grid_rowconfigure(2, weight=1)
 		left.grid_columnconfigure(0, weight=1)
 
-		# Header
 		hdr = ctk.CTkFrame(left, fg_color='transparent')
 		hdr.grid(row=0, column=0, sticky='ew', padx=12, pady=(14, 6))
 		hdr.grid_columnconfigure(0, weight=1)
@@ -112,7 +108,6 @@ class QuotationView(ctk.CTkFrame):
 			command=self._open_form_new,
 		).grid(row=0, column=1, padx=(6, 0))
 
-		# Filtros
 		flt = ctk.CTkFrame(left, fg_color='transparent')
 		flt.grid(row=1, column=0, sticky='ew', padx=12, pady=(0, 6))
 		flt.grid_columnconfigure(0, weight=1)
@@ -142,7 +137,6 @@ class QuotationView(ctk.CTkFrame):
 		)
 		self._combo_filter.grid(row=1, column=0, sticky='ew')
 
-		# Lista
 		self._list_frame = ctk.CTkScrollableFrame(
 			left,
 			fg_color='transparent',
@@ -150,8 +144,6 @@ class QuotationView(ctk.CTkFrame):
 		)
 		self._list_frame.grid(row=2, column=0, sticky='nsew', padx=8, pady=(4, 8))
 		self._list_frame.grid_columnconfigure(0, weight=1)
-
-	# ── Panel derecho ─────────────────────────────────────────────────────────
 
 	def _build_right(self):
 		self._right = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=0)
@@ -161,8 +153,13 @@ class QuotationView(ctk.CTkFrame):
 		self._show_empty_state()
 
 	def _clear_right(self):
-		for w in self._right.winfo_children():
-			w.destroy()
+		if not self.winfo_exists():
+			return
+		for w in list(self._right.winfo_children()):
+			try:
+				w.destroy()
+			except Exception:
+				pass
 
 	def _show_empty_state(self):
 		self._clear_right()
@@ -189,10 +186,14 @@ class QuotationView(ctk.CTkFrame):
 	# ─────────────────────────────────────────────────────────────────────────
 
 	def _load_list(self):
+		if not self.winfo_exists():
+			return
 		self._all_quotes = self._ctrl.list_quotations(self.ctx.tenant_id)
 		self._apply_filter()
 
 	def _apply_filter(self):
+		if not self.winfo_exists():
+			return
 		q = self._entry_search.get().lower().strip()
 		status = self._filter_var.get()
 		filtered = [
@@ -202,15 +203,21 @@ class QuotationView(ctk.CTkFrame):
 			and (
 				not q
 				or q in row['number'].lower()
-				or q in row['customer_name'].lower()
+				or q in (row['customer_name'] or '').lower()
 				or q in row['date'].lower()
 			)
 		]
 		self._render_list(filtered)
 
 	def _render_list(self, quotes: list[dict]):
-		for w in self._list_frame.winfo_children():
-			w.destroy()
+		if not self.winfo_exists():
+			return
+		for w in list(self._list_frame.winfo_children()):
+			try:
+				w.destroy()
+			except Exception:
+				pass
+
 		if not quotes:
 			ctk.CTkLabel(
 				self._list_frame,
@@ -238,7 +245,6 @@ class QuotationView(ctk.CTkFrame):
 		card.grid(row=row, column=0, sticky='ew', pady=3)
 		card.grid_columnconfigure(0, weight=1)
 
-		# Fila 1: número + badge
 		r1 = ctk.CTkFrame(card, fg_color='transparent')
 		r1.pack(fill='x', padx=10, pady=(8, 2))
 
@@ -253,7 +259,6 @@ class QuotationView(ctk.CTkFrame):
 			badge, text=q['status_label'], font=('Arial', 8), text_color=s_fg
 		).pack(padx=6, pady=2)
 
-		# Fila 2: cliente + fecha
 		r2 = ctk.CTkFrame(card, fg_color='transparent')
 		r2.pack(fill='x', padx=10, pady=(0, 4))
 		cname = q['customer_name'] or 'Consumidor Final'
@@ -264,10 +269,8 @@ class QuotationView(ctk.CTkFrame):
 			r2, text=q['date'][:10], font=FONT_LABEL, text_color=TEXT_MUTED
 		).pack(side='right')
 
-		# Fila 3: total + items
 		r3 = ctk.CTkFrame(card, fg_color='transparent')
 		r3.pack(fill='x', padx=10, pady=(0, 8))
-		n_items = len(q.get('items', []))  # normalmente 0 en list view, pero ok
 		ctk.CTkLabel(
 			r3,
 			text=fmt_price(q['total_amount']),
@@ -275,7 +278,6 @@ class QuotationView(ctk.CTkFrame):
 			text_color=ACCENT_TEXT,
 		).pack(side='left')
 
-		# Bind click en toda la card recursivamente
 		qid = q['id']
 
 		def _bind_all(widget, qid=qid):
@@ -308,7 +310,6 @@ class QuotationView(ctk.CTkFrame):
 
 		r = 0
 
-		# ── Cabecera ─────────────────────────────────────────────────────────
 		hdr = ctk.CTkFrame(scroll, fg_color=SURFACE2, corner_radius=10)
 		hdr.grid(row=r, column=0, sticky='ew', pady=(0, 10))
 		r += 1
@@ -343,7 +344,6 @@ class QuotationView(ctk.CTkFrame):
 				f, text=val, font=FONT_LABEL_BOLD, text_color=TEXT_PRIMARY
 			).pack(anchor='w')
 
-		# ── Acciones ─────────────────────────────────────────────────────────
 		acts = ctk.CTkFrame(scroll, fg_color='transparent')
 		acts.grid(row=r, column=0, sticky='ew', pady=(0, 10))
 		r += 1
@@ -388,7 +388,6 @@ class QuotationView(ctk.CTkFrame):
 				font=FONT_LABEL,
 			).grid(row=0, column=col, padx=(0, 6))
 
-		# ── Estado rápido ─────────────────────────────────────────────────────
 		st_f = ctk.CTkFrame(scroll, fg_color=SURFACE2, corner_radius=8)
 		st_f.grid(row=r, column=0, sticky='ew', pady=(0, 10))
 		r += 1
@@ -408,11 +407,12 @@ class QuotationView(ctk.CTkFrame):
 				text_color=s_fg2 if active else TEXT_SECONDARY,
 				font=FONT_LABEL_BOLD if active else FONT_LABEL,
 				border_width=2 if active else 0,
-				border_color=s_fg2 if active else 'transparent',
+				border_color=s_fg2
+				if active
+				else SURFACE3,  # CORRECCIÓN 1: Evitar ValueError de transparent
 				command=lambda st=s, i=data['id']: self._change_status(i, st),
 			).pack(side='left', padx=3, pady=8)
 
-		# ── Tabla de ítems ────────────────────────────────────────────────────
 		tbl = ctk.CTkFrame(scroll, fg_color=SURFACE2, corner_radius=10)
 		tbl.grid(row=r, column=0, sticky='ew', pady=(0, 10))
 		r += 1
@@ -425,7 +425,6 @@ class QuotationView(ctk.CTkFrame):
 			text_color=TEXT_PRIMARY,
 		).grid(row=0, column=0, sticky='w', padx=14, pady=(10, 6))
 
-		# Header tabla — columnas con pesos fijos
 		hd = ctk.CTkFrame(tbl, fg_color=SURFACE3, corner_radius=0)
 		hd.grid(row=1, column=0, sticky='ew')
 		hd.grid_columnconfigure(0, weight=1)
@@ -464,7 +463,6 @@ class QuotationView(ctk.CTkFrame):
 					row_f, text=txt, font=FONT_LABEL, text_color=TEXT_PRIMARY
 				).grid(row=0, column=ci, padx=12, pady=6, sticky=anc)
 
-		# Totales
 		tot_f = ctk.CTkFrame(tbl, fg_color='transparent')
 		tot_f.grid(
 			row=len(data['items']) + 2, column=0, sticky='e', padx=16, pady=(8, 14)
@@ -490,7 +488,6 @@ class QuotationView(ctk.CTkFrame):
 			_tot_row('Descuento:', f'-{fmt_price(disc)}', color=ORANGE_TEXT)
 		_tot_row('TOTAL:', fmt_price(data['total_amount']), bold=True)
 
-		# ── Notas ─────────────────────────────────────────────────────────────
 		if data['notes']:
 			nf = ctk.CTkFrame(scroll, fg_color=SURFACE2, corner_radius=10)
 			nf.grid(row=r, column=0, sticky='ew', pady=(0, 10))
@@ -528,7 +525,6 @@ class QuotationView(ctk.CTkFrame):
 
 	def _render_form(self, prefill: dict | None):
 		self._clear_right()
-		# Reset form widget refs
 		self._entry_disc = None
 		self._tot_frame = None
 
@@ -540,14 +536,12 @@ class QuotationView(ctk.CTkFrame):
 
 		r = 0
 
-		# Título
 		title_txt = 'Editar Cotización' if self._edit_id else 'Nueva Cotización'
 		ctk.CTkLabel(
 			scroll, text=title_txt, font=FONT_TITLE, text_color=TEXT_PRIMARY
 		).grid(row=r, column=0, sticky='w', pady=(0, 12))
 		r += 1
 
-		# ── Datos generales ───────────────────────────────────────────────────
 		gen = ctk.CTkFrame(scroll, fg_color=SURFACE2, corner_radius=10)
 		gen.grid(row=r, column=0, sticky='ew', pady=(0, 10))
 		r += 1
@@ -557,7 +551,6 @@ class QuotationView(ctk.CTkFrame):
 			gen, text='Datos generales', font=FONT_LABEL_BOLD, text_color=TEXT_SECONDARY
 		).grid(row=0, column=0, columnspan=3, sticky='w', padx=14, pady=(10, 6))
 
-		# Cliente
 		ctk.CTkLabel(
 			gen, text='Cliente (opcional)', font=FONT_LABEL, text_color=TEXT_SECONDARY
 		).grid(row=1, column=0, sticky='w', padx=14)
@@ -577,7 +570,6 @@ class QuotationView(ctk.CTkFrame):
 		if prefill and prefill.get('customer_name'):
 			self._combo_cust.set(prefill['customer_name'])
 
-		# Días validez
 		ctk.CTkLabel(
 			gen, text='Días de validez', font=FONT_LABEL, text_color=TEXT_SECONDARY
 		).grid(row=1, column=1, sticky='w', padx=14)
@@ -595,7 +587,6 @@ class QuotationView(ctk.CTkFrame):
 		else:
 			self._entry_valid.insert(0, '15')
 
-		# Descuento
 		ctk.CTkLabel(
 			gen, text='Descuento ($)', font=FONT_LABEL, text_color=TEXT_SECONDARY
 		).grid(row=1, column=2, sticky='w', padx=14)
@@ -608,13 +599,11 @@ class QuotationView(ctk.CTkFrame):
 		)
 		self._entry_disc.grid(row=2, column=2, sticky='ew', padx=14, pady=(2, 10))
 		disc_prefill = str(prefill['discount_amount']) if prefill else '0'
-		# Remove trailing .0 for cleanliness
 		if disc_prefill.endswith('.0'):
 			disc_prefill = disc_prefill[:-2]
 		self._entry_disc.insert(0, disc_prefill)
 		self._entry_disc.bind('<KeyRelease>', lambda e: self._update_totals_label())
 
-		# Notas
 		ctk.CTkLabel(
 			gen, text='Notas / Condiciones', font=FONT_LABEL, text_color=TEXT_SECONDARY
 		).grid(row=3, column=0, columnspan=3, sticky='w', padx=14)
@@ -631,19 +620,16 @@ class QuotationView(ctk.CTkFrame):
 		if prefill and prefill.get('notes'):
 			self._entry_notes.insert('1.0', prefill['notes'])
 
-		# ── Totales (ANTES de los ítems para que existan cuando _rebuild los necesite) ──
 		self._tot_frame = ctk.CTkFrame(scroll, fg_color=SURFACE2, corner_radius=10)
 		self._tot_frame.grid(row=r, column=0, sticky='ew', pady=(0, 10))
 		r += 1
 		self._update_totals_label()
 
-		# ── Sección ítems ─────────────────────────────────────────────────────
 		items_outer = ctk.CTkFrame(scroll, fg_color=SURFACE2, corner_radius=10)
 		items_outer.grid(row=r, column=0, sticky='ew', pady=(0, 10))
 		r += 1
 		items_outer.grid_columnconfigure(0, weight=1)
 
-		# Barra superior: título + botones
 		bar = ctk.CTkFrame(items_outer, fg_color='transparent')
 		bar.pack(fill='x', padx=14, pady=(10, 6))
 		bar.grid_columnconfigure(0, weight=1)
@@ -664,7 +650,6 @@ class QuotationView(ctk.CTkFrame):
 			command=self._add_item_row,
 		).grid(row=0, column=1, padx=(4, 0))
 
-		# Buscador de artículos
 		srch = ctk.CTkFrame(items_outer, fg_color=SURFACE3, corner_radius=8)
 		srch.pack(fill='x', padx=14, pady=(0, 6))
 		ctk.CTkLabel(
@@ -686,26 +671,28 @@ class QuotationView(ctk.CTkFrame):
 		)
 		self._entry_art_search.grid(row=0, column=0, sticky='ew', padx=(0, 6))
 		ctk.CTkButton(
-			srch_row, text='Agregar', width=80, height=32,
-			fg_color=ACCENT, hover_color='#1d4ed8', font=FONT_LABEL,
+			srch_row,
+			text='Agregar',
+			width=80,
+			height=32,
+			fg_color=ACCENT,
+			hover_color='#1d4ed8',
+			font=FONT_LABEL,
 			command=self._art_pick_first,
 		).grid(row=0, column=1)
 		self._entry_art_search.bind('<KeyRelease>', self._on_art_search)
 		self._entry_art_search.bind('<Return>', lambda e: self._art_pick_first())
 		self._entry_art_search.bind('<Escape>', lambda e: self._close_art_results())
 
-		# Panel de resultados — siempre presente, oculto cuando vacío
 		self._art_results_frame = ctk.CTkFrame(srch, fg_color=SURFACE2, corner_radius=6)
 		self._art_results_visible = False
 		self._last_art_results = []
 
-		# Frame de ítems
 		self._items_outer_ref = items_outer
 		self._items_table_frame = ctk.CTkFrame(items_outer, fg_color='transparent')
 		self._items_table_frame.pack(fill='x', padx=14, pady=(4, 14))
 		self._rebuild_items_table()
 
-		# ── Guardar / Cancelar ────────────────────────────────────────────────
 		footer = ctk.CTkFrame(scroll, fg_color='transparent')
 		footer.grid(row=r, column=0, sticky='ew', pady=(0, 20))
 		r += 1
@@ -750,6 +737,8 @@ class QuotationView(ctk.CTkFrame):
 	# ── Búsqueda de artículos ─────────────────────────────────────────────────
 
 	def _on_art_search(self, event=None):
+		if not self.winfo_exists():
+			return
 		query = self._entry_art_search.get().strip()
 		if not query:
 			self._close_art_results()
@@ -757,14 +746,19 @@ class QuotationView(ctk.CTkFrame):
 		results = self._ctrl.search_variants(self.ctx.tenant_id, query)
 		self._last_art_results = results
 
-		for w in self._art_results_frame.winfo_children():
-			w.destroy()
+		for w in list(self._art_results_frame.winfo_children()):
+			try:
+				w.destroy()
+			except Exception:
+				pass
 
 		if not results:
 			ctk.CTkLabel(
 				self._art_results_frame,
 				text=f'  Sin resultados para "{query}"',
-				font=FONT_LABEL, text_color=TEXT_MUTED, anchor='w',
+				font=FONT_LABEL,
+				text_color=TEXT_MUTED,
+				anchor='w',
 			).pack(fill='x', padx=8, pady=6)
 		else:
 			for res in results[:10]:
@@ -776,21 +770,39 @@ class QuotationView(ctk.CTkFrame):
 				f.pack(fill='x', padx=4, pady=1)
 				lbl = ctk.CTkLabel(
 					f,
-					text=f"  {res['label']}   {fmt_price(res['selling_price'])}",
-					font=FONT_LABEL, text_color=TEXT_PRIMARY, anchor='w', cursor='hand2',
+					text=f'  {res["label"]}   {fmt_price(res["selling_price"])}',
+					font=FONT_LABEL,
+					text_color=TEXT_PRIMARY,
+					anchor='w',
+					cursor='hand2',
 				)
 				lbl.pack(fill='x', ipady=4)
+
+				# CORRECCIÓN 3: Validar que el widget exista al dispararse los eventos del mouse
 				for widget in (f, lbl):
 					widget.bind('<Button-1>', lambda e, r=res: self._pick_article(r))
-					widget.bind('<Enter>', lambda e, w=f: w.configure(fg_color=SURFACE3))
-					widget.bind('<Leave>', lambda e, w=f: w.configure(fg_color='transparent'))
+					widget.bind(
+						'<Enter>',
+						lambda e, w=f: (
+							w.configure(fg_color=SURFACE3) if w.winfo_exists() else None
+						),
+					)
+					widget.bind(
+						'<Leave>',
+						lambda e, w=f: (
+							w.configure(fg_color='transparent')
+							if w.winfo_exists()
+							else None
+						),
+					)
 
 		if not self._art_results_visible:
 			self._art_results_frame.pack(fill='x', padx=10, pady=(0, 8))
 			self._art_results_visible = True
 
 	def _art_pick_first(self):
-		"""Agrega el primer resultado. Si no hay búsqueda aún, la dispara."""
+		if not self.winfo_exists():
+			return
 		query = self._entry_art_search.get().strip()
 		if not query:
 			return
@@ -800,7 +812,8 @@ class QuotationView(ctk.CTkFrame):
 			self._pick_article(self._last_art_results[0])
 
 	def _close_art_results(self):
-		self._art_results_frame.pack_forget()
+		if self._art_results_frame.winfo_exists():
+			self._art_results_frame.pack_forget()
 		self._art_results_visible = False
 		self._last_art_results = []
 
@@ -816,7 +829,8 @@ class QuotationView(ctk.CTkFrame):
 			}
 		)
 		self._close_art_results()
-		self._entry_art_search.delete(0, 'end')
+		if self._entry_art_search.winfo_exists():
+			self._entry_art_search.delete(0, 'end')
 		self._rebuild_items_table()
 
 	def _add_item_row(self):
@@ -835,8 +849,14 @@ class QuotationView(ctk.CTkFrame):
 	# ── Tabla de ítems del formulario ─────────────────────────────────────────
 
 	def _rebuild_items_table(self, focus_last=False):
-		for w in self._items_table_frame.winfo_children():
-			w.destroy()
+		if not self.winfo_exists():
+			return
+		for w in list(self._items_table_frame.winfo_children()):
+			try:
+				w.destroy()
+			except Exception:
+				pass
+
 		self._item_widgets = []
 
 		if not self._items:
@@ -849,7 +869,6 @@ class QuotationView(ctk.CTkFrame):
 			self._update_totals_label()
 			return
 
-		# Cabecera
 		hrow = ctk.CTkFrame(self._items_table_frame, fg_color=SURFACE3, corner_radius=4)
 		hrow.pack(fill='x', pady=(0, 2))
 		hrow.grid_columnconfigure(0, weight=1)
@@ -935,21 +954,21 @@ class QuotationView(ctk.CTkFrame):
 			)
 			btn_del.grid(row=0, column=4)
 
-			# Callbacks con referencias capturadas
+			# CORRECCIÓN 3: Validar que el Entry exista al momento de recalcular (al cerrar la ventana se disparan KeyRelease sueltos)
 			def _upd(e=None, i=idx, eq=e_qty, ep=e_price, ls=lbl_sub, ed=e_desc):
+				if not eq.winfo_exists():
+					return
 				self._recalc_item(i, eq, ep, ls)
-				# También sincroniza la descripción en tiempo real
 				if i < len(self._items):
 					self._items[i]['description'] = ed.get()
 
 			e_qty.bind('<KeyRelease>', _upd)
 			e_price.bind('<KeyRelease>', _upd)
 			e_desc.bind('<KeyRelease>', _upd)
-			_upd()  # render inicial
+			_upd()
 
 			self._item_widgets.append((e_desc, e_qty, e_price, lbl_sub))
 
-		# Auto-focus en el último ítem si se acaba de agregar
 		if focus_last and self._item_widgets:
 			self._item_widgets[-1][0].focus_set()
 
@@ -957,14 +976,15 @@ class QuotationView(ctk.CTkFrame):
 
 	def _recalc_item(self, idx, e_qty, e_price, lbl_sub):
 		try:
-			qty = Decimal(str(e_qty.get() or '0'))
-			price = Decimal(str(e_price.get() or '0'))
+			qty = Decimal(str(e_qty.get() or '0').replace(',', '.'))
+			price = Decimal(str(e_price.get() or '0').replace(',', '.'))
 			sub = (qty * price).quantize(Decimal('0.01'))
 			if idx < len(self._items):
 				self._items[idx]['quantity'] = float(qty)
 				self._items[idx]['unit_price'] = float(price)
 				self._items[idx]['subtotal'] = float(sub)
-			lbl_sub.configure(text=fmt_price(float(sub)))
+			if lbl_sub.winfo_exists():
+				lbl_sub.configure(text=fmt_price(float(sub)))
 		except (InvalidOperation, Exception):
 			pass
 		self._update_totals_label()
@@ -976,18 +996,23 @@ class QuotationView(ctk.CTkFrame):
 		self._rebuild_items_table()
 
 	def _update_totals_label(self):
-		if self._tot_frame is None:
+		if self._tot_frame is None or not self.winfo_exists():
 			return
-		for w in self._tot_frame.winfo_children():
-			w.destroy()
+		for w in list(self._tot_frame.winfo_children()):
+			try:
+				w.destroy()
+			except Exception:
+				pass
+
 		try:
 			disc = (
-				Decimal(str(self._entry_disc.get() or '0'))
-				if self._entry_disc
+				Decimal(str(self._entry_disc.get() or '0').replace(',', '.'))
+				if self._entry_disc and self._entry_disc.winfo_exists()
 				else Decimal('0')
 			)
 		except (InvalidOperation, Exception):
 			disc = Decimal('0')
+
 		subtotal = sum(Decimal(str(it.get('subtotal', 0))) for it in self._items)
 		total = max(subtotal - disc, Decimal('0'))
 
@@ -1014,17 +1039,21 @@ class QuotationView(ctk.CTkFrame):
 		).pack(anchor='e')
 
 	def _sync_items_from_widgets(self):
-		"""Vuelca los valores actuales de los Entry a self._items."""
 		for idx, (e_desc, e_qty, e_price, lbl_sub) in enumerate(self._item_widgets):
 			if idx >= len(self._items):
 				break
 			try:
-				qty = float(e_qty.get() or '1')
-				price = float(e_price.get() or '0')
-				sub = round(qty * price, 2)
+				if e_qty.winfo_exists():
+					qty = float(str(e_qty.get() or '1').replace(',', '.'))
+					price = float(str(e_price.get() or '0').replace(',', '.'))
+					sub = round(qty * price, 2)
+				else:
+					qty, price, sub = 1.0, 0.0, 0.0
 			except Exception:
 				qty, price, sub = 1.0, 0.0, 0.0
-			self._items[idx]['description'] = e_desc.get()
+
+			if e_desc.winfo_exists():
+				self._items[idx]['description'] = e_desc.get()
 			self._items[idx]['quantity'] = qty
 			self._items[idx]['unit_price'] = price
 			self._items[idx]['subtotal'] = sub
@@ -1036,7 +1065,6 @@ class QuotationView(ctk.CTkFrame):
 	def _save_form(self):
 		self._sync_items_from_widgets()
 
-		# Validaciones
 		if not self._items:
 			CTkMessagebox(
 				title='Falta información',
@@ -1069,7 +1097,6 @@ class QuotationView(ctk.CTkFrame):
 			)
 			return
 
-		# Resolver cliente
 		cust_name = self._combo_cust.get()
 		cust_id = next(
 			(c['id'] for c in self._customers if c['name'] == cust_name), None
@@ -1082,7 +1109,7 @@ class QuotationView(ctk.CTkFrame):
 			valid_days = 15
 
 		try:
-			disc = float(self._entry_disc.get() or '0')
+			disc = float(str(self._entry_disc.get() or '0').replace(',', '.'))
 		except Exception:
 			disc = 0.0
 
