@@ -4,15 +4,28 @@ from tkinter import ttk
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
+from controllers.sales_controller import SalesController
 from core.base_view import BaseView
 from core.context import AppContext
-from controllers.sales_controller import SalesController
 from utils.styles import (
-    ACCENT, ACCENT_DIM, ACCENT_TEXT, BORDER,
-    GREEN, GREEN_TEXT, ORANGE, ORANGE_DIM, ORANGE_TEXT,
-    RED, RED_DIM, RED_TEXT, SURFACE1, SURFACE2, SURFACE3, SURFACE4,
-    TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
-    FONT_HEADING, FONT_BODY, FONT_BODY_BOLD, FONT_LABEL_BOLD,
+    ACCENT,
+    ACCENT_DIM,
+    ACCENT_TEXT,
+    BORDER,
+    GREEN,
+    GREEN_TEXT,
+    ORANGE,
+    ORANGE_DIM,
+    ORANGE_TEXT,
+    RED,
+    RED_DIM,
+    RED_TEXT,
+    SURFACE2,
+    SURFACE3,
+    SURFACE4,
+    TEXT_MUTED,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
     apply_treeview_style,
 )
 

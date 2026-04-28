@@ -6,8 +6,8 @@ from CTkMessagebox import CTkMessagebox
 
 from controllers.license_controller import LicenseController
 from core.context import AppContext
-from utils.config import make_engine
 from database.migrations import run_migrations
+from utils.config import make_engine
 from utils.settings_manager import SettingsManager
 from views.login_view import LoginView
 from views.main_dashboard import MainDashboard

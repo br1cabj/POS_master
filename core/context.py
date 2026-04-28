@@ -1,47 +1,49 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
-    from utils.settings_manager import SettingsManager
+	from sqlalchemy.engine import Engine
+
+	from utils.settings_manager import SettingsManager
 
 
 @dataclass
 class AppContext:
-    """Holds shared application state for the lifetime of a user session."""
+	"""Holds shared application state for the lifetime of a user session."""
 
-    db_engine: "Engine"
-    current_user: dict
-    settings: "SettingsManager"
+	db_engine: 'Engine'
+	current_user: dict
+	settings: 'SettingsManager'
 
-    @property
-    def tenant_id(self) -> int:
-        if isinstance(self.current_user, dict):
-            return int(self.current_user.get('tenant_id', 1))
-        return int(self.current_user.tenant_id)
+	@property
+	def tenant_id(self) -> int:
+		if isinstance(self.current_user, dict):
+			return int(self.current_user.get('tenant_id', 1))
+		return int(self.current_user.tenant_id)
 
-    @property
-    def user_id(self) -> int:
-        if isinstance(self.current_user, dict):
-            return int(self.current_user.get('id', 1))
-        return int(self.current_user.id)
+	@property
+	def user_id(self) -> int:
+		if isinstance(self.current_user, dict):
+			return int(self.current_user.get('id', 1))
+		return int(self.current_user.id)
 
-    @property
-    def username(self) -> str:
-        if isinstance(self.current_user, dict):
-            return self.current_user.get('username', 'Usuario')
-        return getattr(self.current_user, 'username', 'Usuario')
+	@property
+	def username(self) -> str:
+		if isinstance(self.current_user, dict):
+			return self.current_user.get('username', 'Usuario')
+		return getattr(self.current_user, 'username', 'Usuario')
 
-    @property
-    def role(self) -> str:
-        if isinstance(self.current_user, dict):
-            return self.current_user.get('role', 'user')
-        return getattr(self.current_user, 'role', 'user')
+	@property
+	def role(self) -> str:
+		if isinstance(self.current_user, dict):
+			return self.current_user.get('role', 'user')
+		return getattr(self.current_user, 'role', 'user')
 
-    @property
-    def is_admin(self) -> bool:
-        return (
-            str(self.role).strip().lower() in ('admin', 'gerente')
-            or str(self.username).strip().lower() == 'admin'
-        )
+	@property
+	def is_admin(self) -> bool:
+		return (
+			str(self.role).strip().lower() in ('admin', 'gerente')
+			or str(self.username).strip().lower() == 'admin'
+		)

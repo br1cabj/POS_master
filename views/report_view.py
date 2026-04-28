@@ -18,6 +18,7 @@ Layout:
   │  Ingresos totales / Gastos totales                     │
   └──────────────────── Botones export ─────────────────────┘
 """
+
 import logging
 import threading
 from datetime import date, timedelta
@@ -29,705 +30,910 @@ from controllers.report_controller import ReportController
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.styles import (
-    ACCENT, ACCENT_DIM, ACCENT_TEXT, BORDER, BORDER_ACTIVE,
-    GREEN, GREEN_TEXT, GREEN_DIM,
-    ORANGE, ORANGE_TEXT, ORANGE_DIM,
-    RED, RED_TEXT, RED_DIM,
-    SURFACE1, SURFACE2, SURFACE3, SURFACE4,
-    TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
-    FONT_HEADING, FONT_LABEL, FONT_LABEL_BOLD,
-    make_stat_card,
+	ACCENT,
+	ACCENT_DIM,
+	ACCENT_TEXT,
+	BORDER,
+	BORDER_ACTIVE,
+	FONT_HEADING,
+	FONT_LABEL,
+	GREEN,
+	GREEN_DIM,
+	GREEN_TEXT,
+	ORANGE,
+	ORANGE_DIM,
+	ORANGE_TEXT,
+	RED,
+	RED_TEXT,
+	SURFACE1,
+	SURFACE2,
+	SURFACE3,
+	SURFACE4,
+	TEXT_MUTED,
+	TEXT_PRIMARY,
+	TEXT_SECONDARY,
 )
 
 logger = logging.getLogger(__name__)
 
 # ─── Colores para métodos de pago ─────────────────────────────────────────────
 _METHOD_COLORS = {
-    'efectivo':  (GREEN,       GREEN_TEXT,  GREEN_DIM),
-    'débito':    (ACCENT,      ACCENT_TEXT, ACCENT_DIM),
-    'debito':    (ACCENT,      ACCENT_TEXT, ACCENT_DIM),
-    'tarjeta':   (ACCENT,      ACCENT_TEXT, ACCENT_DIM),
-    'fiado':     (ORANGE,      ORANGE_TEXT, ORANGE_DIM),
-    'otro':      ('#7c3aed',   '#a78bfa',   '#1e0a3c'),
+	'efectivo': (GREEN, GREEN_TEXT, GREEN_DIM),
+	'débito': (ACCENT, ACCENT_TEXT, ACCENT_DIM),
+	'debito': (ACCENT, ACCENT_TEXT, ACCENT_DIM),
+	'tarjeta': (ACCENT, ACCENT_TEXT, ACCENT_DIM),
+	'fiado': (ORANGE, ORANGE_TEXT, ORANGE_DIM),
+	'otro': ('#7c3aed', '#a78bfa', '#1e0a3c'),
 }
 _DEFAULT_METHOD = (ACCENT, ACCENT_TEXT, ACCENT_DIM)
 
 
 def _method_colors(method: str):
-    return _METHOD_COLORS.get((method or '').lower(), _DEFAULT_METHOD)
+	return _METHOD_COLORS.get((method or '').lower(), _DEFAULT_METHOD)
 
 
 def _pct_badge(curr, prev) -> tuple[str, str]:
-    """Devuelve (texto_badge, color). Verde si subió, rojo si bajó."""
-    if prev == 0:
-        return ('Sin datos ant.', TEXT_MUTED)
-    pct = (curr - prev) / prev * 100
-    if pct >= 0:
-        return (f'▲ {pct:.1f}% vs anterior', GREEN_TEXT)
-    return (f'▼ {abs(pct):.1f}% vs anterior', RED_TEXT)
+	"""Devuelve (texto_badge, color). Verde si subió, rojo si bajó."""
+	if prev == 0:
+		return ('Sin datos ant.', TEXT_MUTED)
+	pct = (curr - prev) / prev * 100
+	if pct >= 0:
+		return (f'▲ {pct:.1f}% vs anterior', GREEN_TEXT)
+	return (f'▼ {abs(pct):.1f}% vs anterior', RED_TEXT)
 
 
 class ReportView(BaseView):
-    def __init__(self, master, ctx: AppContext, navigate=None):
-        super().__init__(master, ctx)
-        self.controller = ReportController(ctx.db_engine)
-        self._navigate = navigate
-        self._data = None           # último reporte cargado
-
-        # Fechas por defecto: hoy
-        self._date_from = date.today()
-        self._date_to   = date.today()
-
-        self.configure(fg_color=SURFACE1)
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)   # scrollable area crece
-
-        self._build_toolbar()
-        self._build_scrollable_body()
-        self._build_export_bar()
-
-        # Carga inicial
-        self.after(200, lambda: self._load_report(show_spinner=True))
-
-    # =========================================================
-    # BARRA SUPERIOR (período)
-    # =========================================================
-    def _build_toolbar(self):
-        bar = ctk.CTkFrame(self, fg_color=SURFACE2, corner_radius=0,
-                           border_width=1, border_color=BORDER)
-        bar.grid(row=0, column=0, sticky='ew', padx=0, pady=(0, 1))
-        bar.grid_columnconfigure(5, weight=1)  # spacer
-
-        # Título
-        ctk.CTkLabel(bar, text='📊 Reporte de Cierre',
-                     font=FONT_HEADING, text_color=TEXT_PRIMARY
-                     ).grid(row=0, column=0, padx=(16, 24), pady=10)
-
-        # Botones rápidos
-        quick_btns = [
-            ('Hoy',         self._set_today),
-            ('Ayer',        self._set_yesterday),
-            ('Esta Semana', self._set_this_week),
-            ('Este Mes',    self._set_this_month),
-        ]
-        self._quick_buttons = {}
-        for i, (label, cmd) in enumerate(quick_btns):
-            btn = ctk.CTkButton(
-                bar, text=label, width=90, height=30,
-                fg_color=SURFACE3, hover_color=SURFACE4,
-                text_color=TEXT_SECONDARY, font=('Arial', 11),
-                corner_radius=6, command=cmd,
-            )
-            btn.grid(row=0, column=i + 1, padx=4, pady=10)
-            self._quick_buttons[label] = btn
-
-        # Spacer
-        ctk.CTkLabel(bar, text='', fg_color='transparent').grid(
-            row=0, column=5, sticky='ew')
-
-        # Entradas de fecha manual
-        ctk.CTkLabel(bar, text='Desde', font=FONT_LABEL,
-                     text_color=TEXT_MUTED).grid(row=0, column=6, padx=(8, 2))
-        self._entry_from = ctk.CTkEntry(
-            bar, width=95, placeholder_text='dd/mm/aaaa',
-            fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-            text_color=TEXT_PRIMARY, font=('Arial', 11),
-        )
-        self._entry_from.grid(row=0, column=7, padx=(0, 8))
-
-        ctk.CTkLabel(bar, text='Hasta', font=FONT_LABEL,
-                     text_color=TEXT_MUTED).grid(row=0, column=8, padx=(0, 2))
-        self._entry_to = ctk.CTkEntry(
-            bar, width=95, placeholder_text='dd/mm/aaaa',
-            fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-            text_color=TEXT_PRIMARY, font=('Arial', 11),
-        )
-        self._entry_to.grid(row=0, column=9, padx=(0, 8))
-
-        self._btn_generate = ctk.CTkButton(
-            bar, text='Generar', width=90, height=30,
-            fg_color=ACCENT, hover_color='#1d4ed8',
-            text_color='white', font=('Arial', 11, 'bold'),
-            corner_radius=6, command=self._on_generate_click,
-        )
-        self._btn_generate.grid(row=0, column=10, padx=(0, 16))
-
-        # Sincronizar entradas con fecha actual
-        self._sync_date_entries()
-
-    def _sync_date_entries(self):
-        self._entry_from.delete(0, 'end')
-        self._entry_from.insert(0, self._date_from.strftime('%d/%m/%Y'))
-        self._entry_to.delete(0, 'end')
-        self._entry_to.insert(0, self._date_to.strftime('%d/%m/%Y'))
-
-    def _highlight_quick_btn(self, active_label: str):
-        for label, btn in self._quick_buttons.items():
-            if label == active_label:
-                btn.configure(fg_color=ACCENT_DIM, text_color=ACCENT_TEXT)
-            else:
-                btn.configure(fg_color=SURFACE3, text_color=TEXT_SECONDARY)
-
-    # ─── Acciones rápidas ────────────────────────────────────────────────────
-    def _set_today(self):
-        self._date_from = self._date_to = date.today()
-        self._sync_date_entries()
-        self._highlight_quick_btn('Hoy')
-        self._load_report()
-
-    def _set_yesterday(self):
-        yesterday = date.today() - timedelta(days=1)
-        self._date_from = self._date_to = yesterday
-        self._sync_date_entries()
-        self._highlight_quick_btn('Ayer')
-        self._load_report()
-
-    def _set_this_week(self):
-        today = date.today()
-        self._date_from = today - timedelta(days=today.weekday())
-        self._date_to   = today
-        self._sync_date_entries()
-        self._highlight_quick_btn('Esta Semana')
-        self._load_report()
-
-    def _set_this_month(self):
-        today = date.today()
-        self._date_from = today.replace(day=1)
-        self._date_to   = today
-        self._sync_date_entries()
-        self._highlight_quick_btn('Este Mes')
-        self._load_report()
-
-    def _on_generate_click(self):
-        """Parsea las fechas ingresadas manualmente y genera el reporte."""
-        try:
-            df = self._entry_from.get().strip()
-            dt = self._entry_to.get().strip()
-            self._date_from = date(int(df[6:]), int(df[3:5]), int(df[:2]))
-            self._date_to   = date(int(dt[6:]), int(dt[3:5]), int(dt[:2]))
-        except Exception:
-            CTkMessagebox(
-                title='Fecha inválida',
-                message='Ingresá las fechas en formato  dd/mm/aaaa',
-                icon='warning',
-            )
-            return
-        if self._date_from > self._date_to:
-            CTkMessagebox(
-                title='Fecha inválida',
-                message='La fecha "Desde" no puede ser mayor que "Hasta".',
-                icon='warning',
-            )
-            return
-        self._highlight_quick_btn('')
-        self._load_report()
-
-    # =========================================================
-    # CUERPO SCROLLABLE
-    # =========================================================
-    def _build_scrollable_body(self):
-        self._scroll = ctk.CTkScrollableFrame(
-            self, fg_color=SURFACE1, scrollbar_button_color=SURFACE3,
-            scrollbar_button_hover_color=SURFACE4,
-        )
-        self._scroll.grid(row=1, column=0, sticky='nsew', padx=0, pady=0)
-        self._scroll.grid_columnconfigure(0, weight=1)
-
-        # Spinner / placeholder inicial
-        self._lbl_spinner = ctk.CTkLabel(
-            self._scroll, text='⏳  Generando reporte…',
-            font=('Arial', 14), text_color=TEXT_MUTED,
-        )
-        self._lbl_spinner.grid(row=0, column=0, pady=80)
-
-        # Contenedores que se crean luego (vacíos al inicio)
-        self._frame_summary  = None
-        self._frame_kpis     = None
-        self._frame_mid      = None
-        self._frame_top      = None
-        self._frame_movs     = None
-
-    # =========================================================
-    # BARRA INFERIOR (exportar)
-    # =========================================================
-    def _build_export_bar(self):
-        bar = ctk.CTkFrame(self, fg_color=SURFACE2, corner_radius=0,
-                           border_width=1, border_color=BORDER)
-        bar.grid(row=2, column=0, sticky='ew')
-
-        self._btn_pdf = ctk.CTkButton(
-            bar, text='📄  Exportar PDF', width=160, height=34,
-            fg_color=RED, hover_color='#b91c1c',
-            text_color='white', font=('Arial', 12, 'bold'),
-            corner_radius=6, command=self._export_pdf,
-        )
-        self._btn_pdf.pack(side='left', padx=16, pady=10)
-
-        self._btn_csv = ctk.CTkButton(
-            bar, text='📊  Exportar CSV', width=160, height=34,
-            fg_color=GREEN, hover_color='#15803d',
-            text_color='white', font=('Arial', 12, 'bold'),
-            corner_radius=6, command=self._export_csv,
-        )
-        self._btn_csv.pack(side='left', padx=4, pady=10)
-
-        self._lbl_status = ctk.CTkLabel(
-            bar, text='', font=('Arial', 11), text_color=TEXT_MUTED,
-        )
-        self._lbl_status.pack(side='left', padx=16)
-
-    # =========================================================
-    # CARGA DE DATOS (hilo secundario para no freezar la UI)
-    # =========================================================
-    def _load_report(self, show_spinner=False):
-        if show_spinner:
-            self._clear_body()
-            self._lbl_spinner = ctk.CTkLabel(
-                self._scroll, text='⏳  Generando reporte…',
-                font=('Arial', 14), text_color=TEXT_MUTED,
-            )
-            self._lbl_spinner.grid(row=0, column=0, pady=80)
-
-        self._btn_generate.configure(state='disabled', text='Cargando…')
-        self._btn_pdf.configure(state='disabled')
-        self._btn_csv.configure(state='disabled')
-
-        tenant_id = self.ctx.tenant_id
-        date_from = self._date_from
-        date_to   = self._date_to
-
-        def worker():
-            data = self.controller.get_report_data(tenant_id, date_from, date_to)
-            self.after(0, lambda: self._render_report(data))
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _render_report(self, data: dict):
-        self._data = data
-        self._clear_body()
-
-        cur  = data['current']
-        prev = data['previous']
-        top  = data['top_products']
-        movs = data['movements']
-        cancels = data['cancellations']
-        period  = data['period']
-
-        row = 0
-
-        # ── 1. Frase resumen (50yo UX) ───────────────────────────────────────
-        row = self._build_summary_phrase(row, cur, period)
-
-        # ── 2. KPI cards ─────────────────────────────────────────────────────
-        row = self._build_kpi_cards(row, cur, prev)
-
-        # ── 3. Desglose pago + Cancelaciones ─────────────────────────────────
-        row = self._build_mid_section(row, cur, cancels)
-
-        # ── 4. Top productos ──────────────────────────────────────────────────
-        if top:
-            row = self._build_top_products(row, top)
-
-        # ── 5. Movimientos de caja ────────────────────────────────────────────
-        if movs['gastos'] or movs['ingresos']:
-            row = self._build_movements(row, movs)
-
-        # Habilitar botones
-        self._btn_generate.configure(state='normal', text='Generar')
-        self._btn_pdf.configure(state='normal')
-        self._btn_csv.configure(state='normal')
-
-    def _clear_body(self):
-        for widget in self._scroll.winfo_children():
-            widget.destroy()
-
-    # =========================================================
-    # SECCIÓN: FRASE RESUMEN
-    # =========================================================
-    def _build_summary_phrase(self, row: int, cur: dict, period: dict) -> int:
-        df = period['from'].strftime('%d/%m/%Y')
-        dt = period['to'].strftime('%d/%m/%Y')
-        period_label = 'hoy' if df == dt else f'del {df} al {dt}'
-
-        revenue  = cur['revenue']
-        profit   = cur['profit']
-        tickets  = cur['tickets']
-        margin   = cur['margin']
-
-        if tickets == 0:
-            phrase = f'No se registraron ventas {period_label}.'
-        else:
-            phrase = (
-                f'Se realizaron  {tickets} venta{"s" if tickets != 1 else ""}  '
-                f'{period_label},  totalizando  ${revenue:,.0f}  en ventas  '
-                f'con  ${profit:,.0f}  de ganancia  ({margin:.1f}% de margen).'
-            )
-
-        frame = ctk.CTkFrame(self._scroll, fg_color=ACCENT_DIM,
-                             corner_radius=10, border_width=1,
-                             border_color=ACCENT)
-        frame.grid(row=row, column=0, sticky='ew', padx=16, pady=(16, 8))
-
-        ctk.CTkLabel(
-            frame, text=phrase,
-            font=('Arial', 13), text_color=ACCENT_TEXT,
-            wraplength=900, justify='left',
-        ).pack(anchor='w', padx=20, pady=14)
-
-        return row + 1
-
-    # =========================================================
-    # SECCIÓN: KPI CARDS
-    # =========================================================
-    def _build_kpi_cards(self, row: int, cur: dict, prev: dict) -> int:
-        frame = ctk.CTkFrame(self._scroll, fg_color='transparent')
-        frame.grid(row=row, column=0, sticky='ew', padx=16, pady=8)
-        for i in range(5):
-            frame.grid_columnconfigure(i, weight=1)
-
-        kpi_defs = [
-            ('Total Ventas',    f'${cur["revenue"]:,.0f}',      cur['revenue'],    prev['revenue'],    ACCENT_TEXT),
-            ('Ganancia Neta',   f'${cur["profit"]:,.0f}',       cur['profit'],     prev['profit'],     GREEN_TEXT),
-            ('Margen (%)',      f'{cur["margin"]:.1f}%',        cur['margin'],     prev['margin'],     ORANGE_TEXT),
-            ('Tickets',         str(cur['tickets']),             cur['tickets'],    prev['tickets'],    ACCENT_TEXT),
-            ('Ticket Promedio', f'${cur["avg_ticket"]:,.0f}',   cur['avg_ticket'], prev['avg_ticket'], GREEN_TEXT),
-        ]
-
-        for i, (title, value, curr_val, prev_val, color) in enumerate(kpi_defs):
-            # Tarjeta
-            card = ctk.CTkFrame(
-                frame, fg_color=SURFACE2, corner_radius=12,
-                border_width=1, border_color=BORDER,
-            )
-            card.grid(row=0, column=i, sticky='nsew', padx=5, pady=4)
-
-            # Barra de acento (izquierda)
-            ctk.CTkFrame(card, fg_color=color, width=4, corner_radius=0
-                         ).pack(side='left', fill='y')
-
-            body = ctk.CTkFrame(card, fg_color='transparent')
-            body.pack(side='left', fill='both', expand=True, padx=14, pady=12)
-
-            ctk.CTkLabel(
-                body, text=title.upper(),
-                font=('Arial', 9, 'bold'), text_color=TEXT_MUTED,
-            ).pack(anchor='w')
-
-            ctk.CTkLabel(
-                body, text=value,
-                font=('Arial', 26, 'bold'), text_color=color,
-            ).pack(anchor='w', pady=(4, 0))
-
-            badge_text, badge_color = _pct_badge(curr_val, prev_val)
-            ctk.CTkLabel(
-                body, text=badge_text,
-                font=('Arial', 9), text_color=badge_color,
-            ).pack(anchor='w')
-
-        return row + 1
-
-    # =========================================================
-    # SECCIÓN: DESGLOSE PAGO + CANCELACIONES
-    # =========================================================
-    def _build_mid_section(self, row: int, cur: dict, cancels: dict) -> int:
-        frame = ctk.CTkFrame(self._scroll, fg_color='transparent')
-        frame.grid(row=row, column=0, sticky='ew', padx=16, pady=8)
-        frame.grid_columnconfigure(0, weight=3)
-        frame.grid_columnconfigure(1, weight=1)
-
-        # ── Desglose por pago ────────────────────────────────────────────────
-        left = ctk.CTkFrame(frame, fg_color=SURFACE2, corner_radius=12,
-                            border_width=1, border_color=BORDER)
-        left.grid(row=0, column=0, sticky='nsew', padx=(0, 6), pady=4)
-
-        ctk.CTkLabel(
-            left, text='DESGLOSE POR MÉTODO DE PAGO',
-            font=('Arial', 10, 'bold'), text_color=TEXT_MUTED,
-        ).pack(anchor='w', padx=16, pady=(14, 8))
-
-        methods = cur['by_method']
-        total_revenue = cur['revenue'] or 1  # evita división por cero
-
-        if not methods:
-            ctk.CTkLabel(
-                left, text='Sin ventas en el período.',
-                font=('Arial', 11), text_color=TEXT_MUTED,
-            ).pack(padx=16, pady=(0, 14))
-        else:
-            for method, info in sorted(methods.items(),
-                                       key=lambda x: x[1]['total'], reverse=True):
-                pct = (info['total'] / total_revenue) * 100
-                _, txt_color, dim_color = _method_colors(method)
-                row_f = ctk.CTkFrame(left, fg_color='transparent')
-                row_f.pack(fill='x', padx=16, pady=3)
-
-                # Etiqueta método
-                ctk.CTkLabel(
-                    row_f, text=method.capitalize(),
-                    font=('Arial', 11, 'bold'), text_color=TEXT_PRIMARY,
-                    width=90, anchor='w',
-                ).pack(side='left')
-
-                # Barra de progreso
-                pb = ctk.CTkProgressBar(
-                    row_f, height=8, corner_radius=4,
-                    fg_color=SURFACE3, progress_color=txt_color,
-                )
-                pb.set(pct / 100)
-                pb.pack(side='left', fill='x', expand=True, padx=8)
-
-                # Monto + tickets
-                ctk.CTkLabel(
-                    row_f,
-                    text=f'${info["total"]:,.0f}  ({info["count"]} t.)',
-                    font=('Arial', 11), text_color=txt_color,
-                    width=150, anchor='e',
-                ).pack(side='right')
-
-            ctk.CTkLabel(left, text='', height=6).pack()  # padding bottom
-
-        # ── Cancelaciones ─────────────────────────────────────────────────────
-        right = ctk.CTkFrame(frame, fg_color=SURFACE2, corner_radius=12,
-                             border_width=1, border_color=BORDER)
-        right.grid(row=0, column=1, sticky='nsew', padx=(6, 0), pady=4)
-
-        ctk.CTkLabel(
-            right, text='ANULACIONES Y DEVOLUCIONES',
-            font=('Arial', 10, 'bold'), text_color=TEXT_MUTED,
-        ).pack(anchor='w', padx=16, pady=(14, 8))
-
-        count = cancels['count']
-        total = cancels['total']
-        color = RED_TEXT if count > 0 else GREEN_TEXT
-        icon  = '⚠' if count > 0 else '✓'
-
-        ctk.CTkLabel(
-            right, text=f'{icon}  {count}',
-            font=('Arial', 32, 'bold'), text_color=color,
-        ).pack(padx=16, pady=(4, 0))
-
-        ctk.CTkLabel(
-            right, text='tickets cancelados / devueltos',
-            font=('Arial', 10), text_color=TEXT_MUTED,
-        ).pack(padx=16)
-
-        ctk.CTkLabel(
-            right, text=f'${total:,.0f}',
-            font=('Arial', 18, 'bold'), text_color=color,
-        ).pack(padx=16, pady=(6, 2))
-
-        ctk.CTkLabel(
-            right, text='monto total involucrado',
-            font=('Arial', 10), text_color=TEXT_MUTED,
-        ).pack(padx=16, pady=(0, 14))
-
-        return row + 1
-
-    # =========================================================
-    # SECCIÓN: TOP PRODUCTOS
-    # =========================================================
-    def _build_top_products(self, row: int, top: list) -> int:
-        frame = ctk.CTkFrame(self._scroll, fg_color=SURFACE2,
-                             corner_radius=12, border_width=1,
-                             border_color=BORDER)
-        frame.grid(row=row, column=0, sticky='ew', padx=16, pady=8)
-        frame.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(
-            frame, text=f'TOP {len(top)} PRODUCTOS DEL PERÍODO',
-            font=('Arial', 10, 'bold'), text_color=TEXT_MUTED,
-        ).grid(row=0, column=0, sticky='w', padx=16, pady=(14, 6))
-
-        max_qty = max((p['quantity'] for p in top), default=1) or 1
-
-        for i, product in enumerate(top):
-            pct = product['quantity'] / max_qty
-            qty = product['quantity']
-            qty_str = f'{int(qty)}' if qty == int(qty) else f'{qty:.1f}'
-
-            row_f = ctk.CTkFrame(frame, fg_color='transparent')
-            row_f.grid(row=i + 1, column=0, sticky='ew', padx=16, pady=3)
-            row_f.grid_columnconfigure(1, weight=1)
-
-            # Posición
-            ctk.CTkLabel(
-                row_f, text=f'{i + 1:2d}.',
-                font=('Arial', 11, 'bold'), text_color=TEXT_MUTED,
-                width=26, anchor='e',
-            ).grid(row=0, column=0, padx=(0, 8))
-
-            # Nombre
-            name = product['description'][:40]
-            ctk.CTkLabel(
-                row_f, text=name,
-                font=('Arial', 11), text_color=TEXT_PRIMARY,
-                anchor='w', width=220,
-            ).grid(row=0, column=1, sticky='w')
-
-            # Barra de progreso
-            pb = ctk.CTkProgressBar(
-                row_f, height=8, corner_radius=4,
-                fg_color=SURFACE3, progress_color=ACCENT,
-            )
-            pb.set(pct)
-            pb.grid(row=0, column=2, sticky='ew', padx=8)
-            row_f.grid_columnconfigure(2, weight=1)
-
-            # Cantidad + revenue
-            ctk.CTkLabel(
-                row_f,
-                text=f'{qty_str} u  ·  ${product["revenue"]:,.0f}',
-                font=('Arial', 11), text_color=ACCENT_TEXT,
-                width=160, anchor='e',
-            ).grid(row=0, column=3, padx=(8, 0))
-
-        ctk.CTkLabel(frame, text='', height=6).grid(
-            row=len(top) + 1, column=0)  # padding bottom
-
-        return row + 1
-
-    # =========================================================
-    # SECCIÓN: MOVIMIENTOS MANUALES
-    # =========================================================
-    def _build_movements(self, row: int, movs: dict) -> int:
-        frame = ctk.CTkFrame(self._scroll, fg_color=SURFACE2,
-                             corner_radius=12, border_width=1,
-                             border_color=BORDER)
-        frame.grid(row=row, column=0, sticky='ew', padx=16, pady=(8, 16))
-        frame.grid_columnconfigure(0, weight=1)
-        frame.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(
-            frame, text='MOVIMIENTOS MANUALES DE CAJA',
-            font=('Arial', 10, 'bold'), text_color=TEXT_MUTED,
-        ).grid(row=0, column=0, columnspan=2, sticky='w', padx=16, pady=(14, 8))
-
-        # ── Ingresos ──────────────────────────────────────────────────────────
-        ing_frame = ctk.CTkFrame(frame, fg_color='transparent')
-        ing_frame.grid(row=1, column=0, sticky='nsew', padx=16, pady=(0, 14))
-
-        ctk.CTkLabel(
-            ing_frame,
-            text=f'▲ INGRESOS  ${movs["total_ingresos"]:,.0f}',
-            font=('Arial', 12, 'bold'), text_color=GREEN_TEXT,
-        ).pack(anchor='w', pady=(0, 4))
-
-        if not movs['ingresos']:
-            ctk.CTkLabel(
-                ing_frame, text='Sin ingresos manuales.',
-                font=('Arial', 10), text_color=TEXT_MUTED,
-            ).pack(anchor='w')
-        else:
-            for m in movs['ingresos']:
-                t = m['time'].strftime('%H:%M') if m['time'] else '--:--'
-                row_f = ctk.CTkFrame(ing_frame, fg_color='transparent')
-                row_f.pack(fill='x', pady=1)
-                ctk.CTkLabel(
-                    row_f, text=t, font=('Arial', 10), text_color=TEXT_MUTED,
-                    width=40,
-                ).pack(side='left')
-                ctk.CTkLabel(
-                    row_f, text=(m['desc'] or '—')[:45],
-                    font=('Arial', 10), text_color=TEXT_SECONDARY,
-                ).pack(side='left', padx=6)
-                ctk.CTkLabel(
-                    row_f, text=f'${m["amount"]:,.0f}',
-                    font=('Arial', 10, 'bold'), text_color=GREEN_TEXT,
-                ).pack(side='right')
-
-        # ── Gastos ────────────────────────────────────────────────────────────
-        gas_frame = ctk.CTkFrame(frame, fg_color='transparent')
-        gas_frame.grid(row=1, column=1, sticky='nsew', padx=16, pady=(0, 14))
-
-        ctk.CTkLabel(
-            gas_frame,
-            text=f'▼ GASTOS  ${movs["total_gastos"]:,.0f}',
-            font=('Arial', 12, 'bold'), text_color=RED_TEXT,
-        ).pack(anchor='w', pady=(0, 4))
-
-        if not movs['gastos']:
-            ctk.CTkLabel(
-                gas_frame, text='Sin gastos manuales.',
-                font=('Arial', 10), text_color=TEXT_MUTED,
-            ).pack(anchor='w')
-        else:
-            for m in movs['gastos']:
-                t = m['time'].strftime('%H:%M') if m['time'] else '--:--'
-                row_f = ctk.CTkFrame(gas_frame, fg_color='transparent')
-                row_f.pack(fill='x', pady=1)
-                ctk.CTkLabel(
-                    row_f, text=t, font=('Arial', 10), text_color=TEXT_MUTED,
-                    width=40,
-                ).pack(side='left')
-                ctk.CTkLabel(
-                    row_f, text=(m['desc'] or '—')[:45],
-                    font=('Arial', 10), text_color=TEXT_SECONDARY,
-                ).pack(side='left', padx=6)
-                ctk.CTkLabel(
-                    row_f, text=f'${m["amount"]:,.0f}',
-                    font=('Arial', 10, 'bold'), text_color=RED_TEXT,
-                ).pack(side='right')
-
-        return row + 1
-
-    # =========================================================
-    # EXPORTACIONES
-    # =========================================================
-    def _export_pdf(self):
-        if not self._data:
-            return
-        self._lbl_status.configure(text='Generando PDF…', text_color=TEXT_MUTED)
-        self._btn_pdf.configure(state='disabled')
-
-        # Leer nombre de empresa desde settings
-        try:
-            from utils.settings_manager import get as settings_get
-            company = settings_get('company_name', 'Mi Negocio')
-        except Exception:
-            company = 'Mi Negocio'
-
-        data = self._data
-        data['_tenant_id'] = self.ctx.tenant_id
-
-        def worker():
-            try:
-                path = self.controller.export_pdf(data, company_name=company)
-                self.after(0, lambda: self._on_export_done(
-                    f'PDF guardado: {path}', success=True))
-            except Exception as e:
-                logger.error(f'Error exportando PDF: {e}', exc_info=True)
-                self.after(0, lambda: self._on_export_done(
-                    f'Error al generar PDF: {e}', success=False))
-
-        self._btn_pdf.configure(state='disabled')
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _export_csv(self):
-        if not self._data:
-            return
-        self._lbl_status.configure(text='Exportando CSV…', text_color=TEXT_MUTED)
-        self._btn_csv.configure(state='disabled')
-
-        data = self._data
-        data['_tenant_id'] = self.ctx.tenant_id
-
-        def worker():
-            try:
-                path = self.controller.export_csv(data)
-                self.after(0, lambda: self._on_export_done(
-                    f'CSV guardado: {path}', success=True))
-            except Exception as e:
-                logger.error(f'Error exportando CSV: {e}', exc_info=True)
-                self.after(0, lambda: self._on_export_done(
-                    f'Error al exportar CSV: {e}', success=False))
-
-        self._btn_csv.configure(state='disabled')
-        threading.Thread(target=worker, daemon=True).start()
-
-    def _on_export_done(self, message: str, success: bool):
-        color = GREEN_TEXT if success else RED_TEXT
-        self._lbl_status.configure(text=message, text_color=color)
-        self._btn_pdf.configure(state='normal')
-        self._btn_csv.configure(state='normal')
-        # Limpiar mensaje después de 6 segundos
-        self.after(6000, lambda: self._lbl_status.configure(text=''))
+	def __init__(self, master, ctx: AppContext, navigate=None):
+		super().__init__(master, ctx)
+		self.controller = ReportController(ctx.db_engine)
+		self._navigate = navigate
+		self._data = None  # último reporte cargado
+
+		# Fechas por defecto: hoy
+		self._date_from = date.today()
+		self._date_to = date.today()
+
+		self.configure(fg_color=SURFACE1)
+		self.grid_columnconfigure(0, weight=1)
+		self.grid_rowconfigure(1, weight=1)  # scrollable area crece
+
+		self._build_toolbar()
+		self._build_scrollable_body()
+		self._build_export_bar()
+
+		# Carga inicial
+		self.after(200, lambda: self._load_report(show_spinner=True))
+
+	# =========================================================
+	# BARRA SUPERIOR (período)
+	# =========================================================
+	def _build_toolbar(self):
+		bar = ctk.CTkFrame(
+			self,
+			fg_color=SURFACE2,
+			corner_radius=0,
+			border_width=1,
+			border_color=BORDER,
+		)
+		bar.grid(row=0, column=0, sticky='ew', padx=0, pady=(0, 1))
+		bar.grid_columnconfigure(5, weight=1)  # spacer
+
+		# Título
+		ctk.CTkLabel(
+			bar, text='📊 Reporte de Cierre', font=FONT_HEADING, text_color=TEXT_PRIMARY
+		).grid(row=0, column=0, padx=(16, 24), pady=10)
+
+		# Botones rápidos
+		quick_btns = [
+			('Hoy', self._set_today),
+			('Ayer', self._set_yesterday),
+			('Esta Semana', self._set_this_week),
+			('Este Mes', self._set_this_month),
+		]
+		self._quick_buttons = {}
+		for i, (label, cmd) in enumerate(quick_btns):
+			btn = ctk.CTkButton(
+				bar,
+				text=label,
+				width=90,
+				height=30,
+				fg_color=SURFACE3,
+				hover_color=SURFACE4,
+				text_color=TEXT_SECONDARY,
+				font=('Arial', 11),
+				corner_radius=6,
+				command=cmd,
+			)
+			btn.grid(row=0, column=i + 1, padx=4, pady=10)
+			self._quick_buttons[label] = btn
+
+		# Spacer
+		ctk.CTkLabel(bar, text='', fg_color='transparent').grid(
+			row=0, column=5, sticky='ew'
+		)
+
+		# Entradas de fecha manual
+		ctk.CTkLabel(bar, text='Desde', font=FONT_LABEL, text_color=TEXT_MUTED).grid(
+			row=0, column=6, padx=(8, 2)
+		)
+		self._entry_from = ctk.CTkEntry(
+			bar,
+			width=95,
+			placeholder_text='dd/mm/aaaa',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			font=('Arial', 11),
+		)
+		self._entry_from.grid(row=0, column=7, padx=(0, 8))
+
+		ctk.CTkLabel(bar, text='Hasta', font=FONT_LABEL, text_color=TEXT_MUTED).grid(
+			row=0, column=8, padx=(0, 2)
+		)
+		self._entry_to = ctk.CTkEntry(
+			bar,
+			width=95,
+			placeholder_text='dd/mm/aaaa',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			font=('Arial', 11),
+		)
+		self._entry_to.grid(row=0, column=9, padx=(0, 8))
+
+		self._btn_generate = ctk.CTkButton(
+			bar,
+			text='Generar',
+			width=90,
+			height=30,
+			fg_color=ACCENT,
+			hover_color='#1d4ed8',
+			text_color='white',
+			font=('Arial', 11, 'bold'),
+			corner_radius=6,
+			command=self._on_generate_click,
+		)
+		self._btn_generate.grid(row=0, column=10, padx=(0, 16))
+
+		# Sincronizar entradas con fecha actual
+		self._sync_date_entries()
+
+	def _sync_date_entries(self):
+		self._entry_from.delete(0, 'end')
+		self._entry_from.insert(0, self._date_from.strftime('%d/%m/%Y'))
+		self._entry_to.delete(0, 'end')
+		self._entry_to.insert(0, self._date_to.strftime('%d/%m/%Y'))
+
+	def _highlight_quick_btn(self, active_label: str):
+		for label, btn in self._quick_buttons.items():
+			if label == active_label:
+				btn.configure(fg_color=ACCENT_DIM, text_color=ACCENT_TEXT)
+			else:
+				btn.configure(fg_color=SURFACE3, text_color=TEXT_SECONDARY)
+
+	# ─── Acciones rápidas ────────────────────────────────────────────────────
+	def _set_today(self):
+		self._date_from = self._date_to = date.today()
+		self._sync_date_entries()
+		self._highlight_quick_btn('Hoy')
+		self._load_report()
+
+	def _set_yesterday(self):
+		yesterday = date.today() - timedelta(days=1)
+		self._date_from = self._date_to = yesterday
+		self._sync_date_entries()
+		self._highlight_quick_btn('Ayer')
+		self._load_report()
+
+	def _set_this_week(self):
+		today = date.today()
+		self._date_from = today - timedelta(days=today.weekday())
+		self._date_to = today
+		self._sync_date_entries()
+		self._highlight_quick_btn('Esta Semana')
+		self._load_report()
+
+	def _set_this_month(self):
+		today = date.today()
+		self._date_from = today.replace(day=1)
+		self._date_to = today
+		self._sync_date_entries()
+		self._highlight_quick_btn('Este Mes')
+		self._load_report()
+
+	def _on_generate_click(self):
+		"""Parsea las fechas ingresadas manualmente y genera el reporte."""
+		try:
+			df = self._entry_from.get().strip()
+			dt = self._entry_to.get().strip()
+			self._date_from = date(int(df[6:]), int(df[3:5]), int(df[:2]))
+			self._date_to = date(int(dt[6:]), int(dt[3:5]), int(dt[:2]))
+		except Exception:
+			CTkMessagebox(
+				title='Fecha inválida',
+				message='Ingresá las fechas en formato  dd/mm/aaaa',
+				icon='warning',
+			)
+			return
+		if self._date_from > self._date_to:
+			CTkMessagebox(
+				title='Fecha inválida',
+				message='La fecha "Desde" no puede ser mayor que "Hasta".',
+				icon='warning',
+			)
+			return
+		self._highlight_quick_btn('')
+		self._load_report()
+
+	# =========================================================
+	# CUERPO SCROLLABLE
+	# =========================================================
+	def _build_scrollable_body(self):
+		self._scroll = ctk.CTkScrollableFrame(
+			self,
+			fg_color=SURFACE1,
+			scrollbar_button_color=SURFACE3,
+			scrollbar_button_hover_color=SURFACE4,
+		)
+		self._scroll.grid(row=1, column=0, sticky='nsew', padx=0, pady=0)
+		self._scroll.grid_columnconfigure(0, weight=1)
+
+		# Spinner / placeholder inicial
+		self._lbl_spinner = ctk.CTkLabel(
+			self._scroll,
+			text='⏳  Generando reporte…',
+			font=('Arial', 14),
+			text_color=TEXT_MUTED,
+		)
+		self._lbl_spinner.grid(row=0, column=0, pady=80)
+
+		# Contenedores que se crean luego (vacíos al inicio)
+		self._frame_summary = None
+		self._frame_kpis = None
+		self._frame_mid = None
+		self._frame_top = None
+		self._frame_movs = None
+
+	# =========================================================
+	# BARRA INFERIOR (exportar)
+	# =========================================================
+	def _build_export_bar(self):
+		bar = ctk.CTkFrame(
+			self,
+			fg_color=SURFACE2,
+			corner_radius=0,
+			border_width=1,
+			border_color=BORDER,
+		)
+		bar.grid(row=2, column=0, sticky='ew')
+
+		self._btn_pdf = ctk.CTkButton(
+			bar,
+			text='📄  Exportar PDF',
+			width=160,
+			height=34,
+			fg_color=RED,
+			hover_color='#b91c1c',
+			text_color='white',
+			font=('Arial', 12, 'bold'),
+			corner_radius=6,
+			command=self._export_pdf,
+		)
+		self._btn_pdf.pack(side='left', padx=16, pady=10)
+
+		self._btn_csv = ctk.CTkButton(
+			bar,
+			text='📊  Exportar CSV',
+			width=160,
+			height=34,
+			fg_color=GREEN,
+			hover_color='#15803d',
+			text_color='white',
+			font=('Arial', 12, 'bold'),
+			corner_radius=6,
+			command=self._export_csv,
+		)
+		self._btn_csv.pack(side='left', padx=4, pady=10)
+
+		self._lbl_status = ctk.CTkLabel(
+			bar,
+			text='',
+			font=('Arial', 11),
+			text_color=TEXT_MUTED,
+		)
+		self._lbl_status.pack(side='left', padx=16)
+
+	# =========================================================
+	# CARGA DE DATOS (hilo secundario para no freezar la UI)
+	# =========================================================
+	def _load_report(self, show_spinner=False):
+		if show_spinner:
+			self._clear_body()
+			self._lbl_spinner = ctk.CTkLabel(
+				self._scroll,
+				text='⏳  Generando reporte…',
+				font=('Arial', 14),
+				text_color=TEXT_MUTED,
+			)
+			self._lbl_spinner.grid(row=0, column=0, pady=80)
+
+		self._btn_generate.configure(state='disabled', text='Cargando…')
+		self._btn_pdf.configure(state='disabled')
+		self._btn_csv.configure(state='disabled')
+
+		tenant_id = self.ctx.tenant_id
+		date_from = self._date_from
+		date_to = self._date_to
+
+		def worker():
+			data = self.controller.get_report_data(tenant_id, date_from, date_to)
+			self.after(0, lambda: self._render_report(data))
+
+		threading.Thread(target=worker, daemon=True).start()
+
+	def _render_report(self, data: dict):
+		self._data = data
+		self._clear_body()
+
+		cur = data['current']
+		prev = data['previous']
+		top = data['top_products']
+		movs = data['movements']
+		cancels = data['cancellations']
+		period = data['period']
+
+		row = 0
+
+		# ── 1. Frase resumen (50yo UX) ───────────────────────────────────────
+		row = self._build_summary_phrase(row, cur, period)
+
+		# ── 2. KPI cards ─────────────────────────────────────────────────────
+		row = self._build_kpi_cards(row, cur, prev)
+
+		# ── 3. Desglose pago + Cancelaciones ─────────────────────────────────
+		row = self._build_mid_section(row, cur, cancels)
+
+		# ── 4. Top productos ──────────────────────────────────────────────────
+		if top:
+			row = self._build_top_products(row, top)
+
+		# ── 5. Movimientos de caja ────────────────────────────────────────────
+		if movs['gastos'] or movs['ingresos']:
+			row = self._build_movements(row, movs)
+
+		# Habilitar botones
+		self._btn_generate.configure(state='normal', text='Generar')
+		self._btn_pdf.configure(state='normal')
+		self._btn_csv.configure(state='normal')
+
+	def _clear_body(self):
+		for widget in self._scroll.winfo_children():
+			widget.destroy()
+
+	# =========================================================
+	# SECCIÓN: FRASE RESUMEN
+	# =========================================================
+	def _build_summary_phrase(self, row: int, cur: dict, period: dict) -> int:
+		df = period['from'].strftime('%d/%m/%Y')
+		dt = period['to'].strftime('%d/%m/%Y')
+		period_label = 'hoy' if df == dt else f'del {df} al {dt}'
+
+		revenue = cur['revenue']
+		profit = cur['profit']
+		tickets = cur['tickets']
+		margin = cur['margin']
+
+		if tickets == 0:
+			phrase = f'No se registraron ventas {period_label}.'
+		else:
+			phrase = (
+				f'Se realizaron  {tickets} venta{"s" if tickets != 1 else ""}  '
+				f'{period_label},  totalizando  ${revenue:,.0f}  en ventas  '
+				f'con  ${profit:,.0f}  de ganancia  ({margin:.1f}% de margen).'
+			)
+
+		frame = ctk.CTkFrame(
+			self._scroll,
+			fg_color=ACCENT_DIM,
+			corner_radius=10,
+			border_width=1,
+			border_color=ACCENT,
+		)
+		frame.grid(row=row, column=0, sticky='ew', padx=16, pady=(16, 8))
+
+		ctk.CTkLabel(
+			frame,
+			text=phrase,
+			font=('Arial', 13),
+			text_color=ACCENT_TEXT,
+			wraplength=900,
+			justify='left',
+		).pack(anchor='w', padx=20, pady=14)
+
+		return row + 1
+
+	# =========================================================
+	# SECCIÓN: KPI CARDS
+	# =========================================================
+	def _build_kpi_cards(self, row: int, cur: dict, prev: dict) -> int:
+		frame = ctk.CTkFrame(self._scroll, fg_color='transparent')
+		frame.grid(row=row, column=0, sticky='ew', padx=16, pady=8)
+		for i in range(5):
+			frame.grid_columnconfigure(i, weight=1)
+
+		kpi_defs = [
+			(
+				'Total Ventas',
+				f'${cur["revenue"]:,.0f}',
+				cur['revenue'],
+				prev['revenue'],
+				ACCENT_TEXT,
+			),
+			(
+				'Ganancia Neta',
+				f'${cur["profit"]:,.0f}',
+				cur['profit'],
+				prev['profit'],
+				GREEN_TEXT,
+			),
+			(
+				'Margen (%)',
+				f'{cur["margin"]:.1f}%',
+				cur['margin'],
+				prev['margin'],
+				ORANGE_TEXT,
+			),
+			(
+				'Tickets',
+				str(cur['tickets']),
+				cur['tickets'],
+				prev['tickets'],
+				ACCENT_TEXT,
+			),
+			(
+				'Ticket Promedio',
+				f'${cur["avg_ticket"]:,.0f}',
+				cur['avg_ticket'],
+				prev['avg_ticket'],
+				GREEN_TEXT,
+			),
+		]
+
+		for i, (title, value, curr_val, prev_val, color) in enumerate(kpi_defs):
+			# Tarjeta
+			card = ctk.CTkFrame(
+				frame,
+				fg_color=SURFACE2,
+				corner_radius=12,
+				border_width=1,
+				border_color=BORDER,
+			)
+			card.grid(row=0, column=i, sticky='nsew', padx=5, pady=4)
+
+			# Barra de acento (izquierda)
+			ctk.CTkFrame(card, fg_color=color, width=4, corner_radius=0).pack(
+				side='left', fill='y'
+			)
+
+			body = ctk.CTkFrame(card, fg_color='transparent')
+			body.pack(side='left', fill='both', expand=True, padx=14, pady=12)
+
+			ctk.CTkLabel(
+				body,
+				text=title.upper(),
+				font=('Arial', 9, 'bold'),
+				text_color=TEXT_MUTED,
+			).pack(anchor='w')
+
+			ctk.CTkLabel(
+				body,
+				text=value,
+				font=('Arial', 26, 'bold'),
+				text_color=color,
+			).pack(anchor='w', pady=(4, 0))
+
+			badge_text, badge_color = _pct_badge(curr_val, prev_val)
+			ctk.CTkLabel(
+				body,
+				text=badge_text,
+				font=('Arial', 9),
+				text_color=badge_color,
+			).pack(anchor='w')
+
+		return row + 1
+
+	# =========================================================
+	# SECCIÓN: DESGLOSE PAGO + CANCELACIONES
+	# =========================================================
+	def _build_mid_section(self, row: int, cur: dict, cancels: dict) -> int:
+		frame = ctk.CTkFrame(self._scroll, fg_color='transparent')
+		frame.grid(row=row, column=0, sticky='ew', padx=16, pady=8)
+		frame.grid_columnconfigure(0, weight=3)
+		frame.grid_columnconfigure(1, weight=1)
+
+		# ── Desglose por pago ────────────────────────────────────────────────
+		left = ctk.CTkFrame(
+			frame,
+			fg_color=SURFACE2,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
+		)
+		left.grid(row=0, column=0, sticky='nsew', padx=(0, 6), pady=4)
+
+		ctk.CTkLabel(
+			left,
+			text='DESGLOSE POR MÉTODO DE PAGO',
+			font=('Arial', 10, 'bold'),
+			text_color=TEXT_MUTED,
+		).pack(anchor='w', padx=16, pady=(14, 8))
+
+		methods = cur['by_method']
+		total_revenue = cur['revenue'] or 1  # evita división por cero
+
+		if not methods:
+			ctk.CTkLabel(
+				left,
+				text='Sin ventas en el período.',
+				font=('Arial', 11),
+				text_color=TEXT_MUTED,
+			).pack(padx=16, pady=(0, 14))
+		else:
+			for method, info in sorted(
+				methods.items(), key=lambda x: x[1]['total'], reverse=True
+			):
+				pct = (info['total'] / total_revenue) * 100
+				_, txt_color, dim_color = _method_colors(method)
+				row_f = ctk.CTkFrame(left, fg_color='transparent')
+				row_f.pack(fill='x', padx=16, pady=3)
+
+				# Etiqueta método
+				ctk.CTkLabel(
+					row_f,
+					text=method.capitalize(),
+					font=('Arial', 11, 'bold'),
+					text_color=TEXT_PRIMARY,
+					width=90,
+					anchor='w',
+				).pack(side='left')
+
+				# Barra de progreso
+				pb = ctk.CTkProgressBar(
+					row_f,
+					height=8,
+					corner_radius=4,
+					fg_color=SURFACE3,
+					progress_color=txt_color,
+				)
+				pb.set(pct / 100)
+				pb.pack(side='left', fill='x', expand=True, padx=8)
+
+				# Monto + tickets
+				ctk.CTkLabel(
+					row_f,
+					text=f'${info["total"]:,.0f}  ({info["count"]} t.)',
+					font=('Arial', 11),
+					text_color=txt_color,
+					width=150,
+					anchor='e',
+				).pack(side='right')
+
+			ctk.CTkLabel(left, text='', height=6).pack()  # padding bottom
+
+		# ── Cancelaciones ─────────────────────────────────────────────────────
+		right = ctk.CTkFrame(
+			frame,
+			fg_color=SURFACE2,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
+		)
+		right.grid(row=0, column=1, sticky='nsew', padx=(6, 0), pady=4)
+
+		ctk.CTkLabel(
+			right,
+			text='ANULACIONES Y DEVOLUCIONES',
+			font=('Arial', 10, 'bold'),
+			text_color=TEXT_MUTED,
+		).pack(anchor='w', padx=16, pady=(14, 8))
+
+		count = cancels['count']
+		total = cancels['total']
+		color = RED_TEXT if count > 0 else GREEN_TEXT
+		icon = '⚠' if count > 0 else '✓'
+
+		ctk.CTkLabel(
+			right,
+			text=f'{icon}  {count}',
+			font=('Arial', 32, 'bold'),
+			text_color=color,
+		).pack(padx=16, pady=(4, 0))
+
+		ctk.CTkLabel(
+			right,
+			text='tickets cancelados / devueltos',
+			font=('Arial', 10),
+			text_color=TEXT_MUTED,
+		).pack(padx=16)
+
+		ctk.CTkLabel(
+			right,
+			text=f'${total:,.0f}',
+			font=('Arial', 18, 'bold'),
+			text_color=color,
+		).pack(padx=16, pady=(6, 2))
+
+		ctk.CTkLabel(
+			right,
+			text='monto total involucrado',
+			font=('Arial', 10),
+			text_color=TEXT_MUTED,
+		).pack(padx=16, pady=(0, 14))
+
+		return row + 1
+
+	# =========================================================
+	# SECCIÓN: TOP PRODUCTOS
+	# =========================================================
+	def _build_top_products(self, row: int, top: list) -> int:
+		frame = ctk.CTkFrame(
+			self._scroll,
+			fg_color=SURFACE2,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
+		)
+		frame.grid(row=row, column=0, sticky='ew', padx=16, pady=8)
+		frame.grid_columnconfigure(0, weight=1)
+
+		ctk.CTkLabel(
+			frame,
+			text=f'TOP {len(top)} PRODUCTOS DEL PERÍODO',
+			font=('Arial', 10, 'bold'),
+			text_color=TEXT_MUTED,
+		).grid(row=0, column=0, sticky='w', padx=16, pady=(14, 6))
+
+		max_qty = max((p['quantity'] for p in top), default=1) or 1
+
+		for i, product in enumerate(top):
+			pct = product['quantity'] / max_qty
+			qty = product['quantity']
+			qty_str = f'{int(qty)}' if qty == int(qty) else f'{qty:.1f}'
+
+			row_f = ctk.CTkFrame(frame, fg_color='transparent')
+			row_f.grid(row=i + 1, column=0, sticky='ew', padx=16, pady=3)
+			row_f.grid_columnconfigure(1, weight=1)
+
+			# Posición
+			ctk.CTkLabel(
+				row_f,
+				text=f'{i + 1:2d}.',
+				font=('Arial', 11, 'bold'),
+				text_color=TEXT_MUTED,
+				width=26,
+				anchor='e',
+			).grid(row=0, column=0, padx=(0, 8))
+
+			# Nombre
+			name = product['description'][:40]
+			ctk.CTkLabel(
+				row_f,
+				text=name,
+				font=('Arial', 11),
+				text_color=TEXT_PRIMARY,
+				anchor='w',
+				width=220,
+			).grid(row=0, column=1, sticky='w')
+
+			# Barra de progreso
+			pb = ctk.CTkProgressBar(
+				row_f,
+				height=8,
+				corner_radius=4,
+				fg_color=SURFACE3,
+				progress_color=ACCENT,
+			)
+			pb.set(pct)
+			pb.grid(row=0, column=2, sticky='ew', padx=8)
+			row_f.grid_columnconfigure(2, weight=1)
+
+			# Cantidad + revenue
+			ctk.CTkLabel(
+				row_f,
+				text=f'{qty_str} u  ·  ${product["revenue"]:,.0f}',
+				font=('Arial', 11),
+				text_color=ACCENT_TEXT,
+				width=160,
+				anchor='e',
+			).grid(row=0, column=3, padx=(8, 0))
+
+		ctk.CTkLabel(frame, text='', height=6).grid(
+			row=len(top) + 1, column=0
+		)  # padding bottom
+
+		return row + 1
+
+	# =========================================================
+	# SECCIÓN: MOVIMIENTOS MANUALES
+	# =========================================================
+	def _build_movements(self, row: int, movs: dict) -> int:
+		frame = ctk.CTkFrame(
+			self._scroll,
+			fg_color=SURFACE2,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
+		)
+		frame.grid(row=row, column=0, sticky='ew', padx=16, pady=(8, 16))
+		frame.grid_columnconfigure(0, weight=1)
+		frame.grid_columnconfigure(1, weight=1)
+
+		ctk.CTkLabel(
+			frame,
+			text='MOVIMIENTOS MANUALES DE CAJA',
+			font=('Arial', 10, 'bold'),
+			text_color=TEXT_MUTED,
+		).grid(row=0, column=0, columnspan=2, sticky='w', padx=16, pady=(14, 8))
+
+		# ── Ingresos ──────────────────────────────────────────────────────────
+		ing_frame = ctk.CTkFrame(frame, fg_color='transparent')
+		ing_frame.grid(row=1, column=0, sticky='nsew', padx=16, pady=(0, 14))
+
+		ctk.CTkLabel(
+			ing_frame,
+			text=f'▲ INGRESOS  ${movs["total_ingresos"]:,.0f}',
+			font=('Arial', 12, 'bold'),
+			text_color=GREEN_TEXT,
+		).pack(anchor='w', pady=(0, 4))
+
+		if not movs['ingresos']:
+			ctk.CTkLabel(
+				ing_frame,
+				text='Sin ingresos manuales.',
+				font=('Arial', 10),
+				text_color=TEXT_MUTED,
+			).pack(anchor='w')
+		else:
+			for m in movs['ingresos']:
+				t = m['time'].strftime('%H:%M') if m['time'] else '--:--'
+				row_f = ctk.CTkFrame(ing_frame, fg_color='transparent')
+				row_f.pack(fill='x', pady=1)
+				ctk.CTkLabel(
+					row_f,
+					text=t,
+					font=('Arial', 10),
+					text_color=TEXT_MUTED,
+					width=40,
+				).pack(side='left')
+				ctk.CTkLabel(
+					row_f,
+					text=(m['desc'] or '—')[:45],
+					font=('Arial', 10),
+					text_color=TEXT_SECONDARY,
+				).pack(side='left', padx=6)
+				ctk.CTkLabel(
+					row_f,
+					text=f'${m["amount"]:,.0f}',
+					font=('Arial', 10, 'bold'),
+					text_color=GREEN_TEXT,
+				).pack(side='right')
+
+		# ── Gastos ────────────────────────────────────────────────────────────
+		gas_frame = ctk.CTkFrame(frame, fg_color='transparent')
+		gas_frame.grid(row=1, column=1, sticky='nsew', padx=16, pady=(0, 14))
+
+		ctk.CTkLabel(
+			gas_frame,
+			text=f'▼ GASTOS  ${movs["total_gastos"]:,.0f}',
+			font=('Arial', 12, 'bold'),
+			text_color=RED_TEXT,
+		).pack(anchor='w', pady=(0, 4))
+
+		if not movs['gastos']:
+			ctk.CTkLabel(
+				gas_frame,
+				text='Sin gastos manuales.',
+				font=('Arial', 10),
+				text_color=TEXT_MUTED,
+			).pack(anchor='w')
+		else:
+			for m in movs['gastos']:
+				t = m['time'].strftime('%H:%M') if m['time'] else '--:--'
+				row_f = ctk.CTkFrame(gas_frame, fg_color='transparent')
+				row_f.pack(fill='x', pady=1)
+				ctk.CTkLabel(
+					row_f,
+					text=t,
+					font=('Arial', 10),
+					text_color=TEXT_MUTED,
+					width=40,
+				).pack(side='left')
+				ctk.CTkLabel(
+					row_f,
+					text=(m['desc'] or '—')[:45],
+					font=('Arial', 10),
+					text_color=TEXT_SECONDARY,
+				).pack(side='left', padx=6)
+				ctk.CTkLabel(
+					row_f,
+					text=f'${m["amount"]:,.0f}',
+					font=('Arial', 10, 'bold'),
+					text_color=RED_TEXT,
+				).pack(side='right')
+
+		return row + 1
+
+	# =========================================================
+	# EXPORTACIONES
+	# =========================================================
+	def _export_pdf(self):
+		if not self._data:
+			return
+		self._lbl_status.configure(text='Generando PDF…', text_color=TEXT_MUTED)
+		self._btn_pdf.configure(state='disabled')
+
+		# Leer nombre de empresa desde settings
+		try:
+			from utils.settings_manager import get as settings_get
+
+			company = settings_get('company_name', 'Mi Negocio')
+		except Exception:
+			company = 'Mi Negocio'
+
+		data = self._data
+		data['_tenant_id'] = self.ctx.tenant_id
+
+		def worker():
+			try:
+				path = self.controller.export_pdf(data, company_name=company)
+				self.after(
+					0,
+					lambda: self._on_export_done(f'PDF guardado: {path}', success=True),
+				)
+			except Exception as e:
+				logger.error(f'Error exportando PDF: {e}', exc_info=True)
+				self.after(
+					0,
+					lambda: self._on_export_done(
+						f'Error al generar PDF: {e}', success=False
+					),
+				)
+
+		self._btn_pdf.configure(state='disabled')
+		threading.Thread(target=worker, daemon=True).start()
+
+	def _export_csv(self):
+		if not self._data:
+			return
+		self._lbl_status.configure(text='Exportando CSV…', text_color=TEXT_MUTED)
+		self._btn_csv.configure(state='disabled')
+
+		data = self._data
+		data['_tenant_id'] = self.ctx.tenant_id
+
+		def worker():
+			try:
+				path = self.controller.export_csv(data)
+				self.after(
+					0,
+					lambda: self._on_export_done(f'CSV guardado: {path}', success=True),
+				)
+			except Exception as e:
+				logger.error(f'Error exportando CSV: {e}', exc_info=True)
+				self.after(
+					0,
+					lambda: self._on_export_done(
+						f'Error al exportar CSV: {e}', success=False
+					),
+				)
+
+		self._btn_csv.configure(state='disabled')
+		threading.Thread(target=worker, daemon=True).start()
+
+	def _on_export_done(self, message: str, success: bool):
+		color = GREEN_TEXT if success else RED_TEXT
+		self._lbl_status.configure(text=message, text_color=color)
+		self._btn_pdf.configure(state='normal')
+		self._btn_csv.configure(state='normal')
+		# Limpiar mensaje después de 6 segundos
+		self.after(6000, lambda: self._lbl_status.configure(text=''))

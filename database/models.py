@@ -38,7 +38,7 @@ class User(Base):
 
 	username = Column(String, nullable=False)
 	password_hash = Column(String, nullable=False)
-	recovery_pin_hash = Column(String, nullable=True)   # PIN de recuperación (opcional)
+	recovery_pin_hash = Column(String, nullable=True)  # PIN de recuperación (opcional)
 	role = Column(String, default='cajero')
 	is_active = Column(Boolean, default=True)
 
@@ -247,9 +247,11 @@ class Sale(Base):
 	id = Column(Integer, primary_key=True)
 	date = Column(DateTime, default=datetime.utcnow, index=True)
 	total_amount = Column(Numeric(10, 2), nullable=False)
-	discount_amount  = Column(Numeric(10, 2), default=0.0)   # descuento aplicado en la venta
-	payment_method_2 = Column(String, nullable=True)          # segundo método en pago mixto
-	amount_method_2  = Column(Numeric(10, 2), nullable=True)  # monto del segundo método
+	discount_amount = Column(
+		Numeric(10, 2), default=0.0
+	)  # descuento aplicado en la venta
+	payment_method_2 = Column(String, nullable=True)  # segundo método en pago mixto
+	amount_method_2 = Column(Numeric(10, 2), nullable=True)  # monto del segundo método
 	profit = Column(Numeric(10, 2), nullable=False)
 	payment_method = Column(String, default='efectivo')
 	status = Column(String, default='completada')
@@ -382,43 +384,49 @@ def init_db(database_url='sqlite:///pos_system.db'):
 # 7. COTIZACIONES / PRESUPUESTOS
 # ==========================================
 class Quotation(Base):
-    __tablename__ = 'quotations'
-    id = Column(Integer, primary_key=True)
+	__tablename__ = 'quotations'
+	id = Column(Integer, primary_key=True)
 
-    number = Column(String, nullable=False)          # e.g. "COT-0001"
-    date = Column(DateTime, default=datetime.utcnow, index=True)
-    valid_until = Column(Date, nullable=True)         # fecha de vencimiento
+	number = Column(String, nullable=False)  # e.g. "COT-0001"
+	date = Column(DateTime, default=datetime.utcnow, index=True)
+	valid_until = Column(Date, nullable=True)  # fecha de vencimiento
 
-    status = Column(String, default='borrador')       # borrador | enviada | aceptada | rechazada | vencida
+	status = Column(
+		String, default='borrador'
+	)  # borrador | enviada | aceptada | rechazada | vencida
 
-    total_amount = Column(Numeric(10, 2), nullable=False, default=0)
-    discount_amount = Column(Numeric(10, 2), default=0)
-    notes = Column(String, nullable=True)             # nota/condiciones al pie
+	total_amount = Column(Numeric(10, 2), nullable=False, default=0)
+	discount_amount = Column(Numeric(10, 2), default=0)
+	notes = Column(String, nullable=True)  # nota/condiciones al pie
 
-    tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
-    customer_id = Column(Integer, ForeignKey('customers.id'), nullable=True, index=True)
+	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+	user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+	customer_id = Column(Integer, ForeignKey('customers.id'), nullable=True, index=True)
 
-    user = relationship('User')
-    customer = relationship('Customer')
-    items = relationship('QuotationItem', back_populates='quotation', cascade='all, delete-orphan')
+	user = relationship('User')
+	customer = relationship('Customer')
+	items = relationship(
+		'QuotationItem', back_populates='quotation', cascade='all, delete-orphan'
+	)
 
-    __table_args__ = (
-        UniqueConstraint('tenant_id', 'number', name='uix_tenant_quotation_number'),
-    )
+	__table_args__ = (
+		UniqueConstraint('tenant_id', 'number', name='uix_tenant_quotation_number'),
+	)
 
 
 class QuotationItem(Base):
-    __tablename__ = 'quotation_items'
-    id = Column(Integer, primary_key=True)
+	__tablename__ = 'quotation_items'
+	id = Column(Integer, primary_key=True)
 
-    description = Column(String, nullable=False)
-    quantity = Column(Numeric(12, 4), nullable=False)
-    unit_price = Column(Numeric(10, 2), nullable=False)
-    subtotal = Column(Numeric(10, 2), nullable=False)
+	description = Column(String, nullable=False)
+	quantity = Column(Numeric(12, 4), nullable=False)
+	unit_price = Column(Numeric(10, 2), nullable=False)
+	subtotal = Column(Numeric(10, 2), nullable=False)
 
-    quotation_id = Column(Integer, ForeignKey('quotations.id'), nullable=False, index=True)
-    quotation = relationship('Quotation', back_populates='items')
+	quotation_id = Column(
+		Integer, ForeignKey('quotations.id'), nullable=False, index=True
+	)
+	quotation = relationship('Quotation', back_populates='items')
 
-    variant_id = Column(Integer, ForeignKey('article_variants.id'), nullable=True)
-    variant = relationship('ArticleVariant')
+	variant_id = Column(Integer, ForeignKey('article_variants.id'), nullable=True)
+	variant = relationship('ArticleVariant')

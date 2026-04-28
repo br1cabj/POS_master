@@ -4,6 +4,7 @@ utils/migrations.py
 Aplica migraciones de esquema SQLite de forma segura al inicio del sistema.
 Cada migración es idempotente: si la columna ya existe, simplemente se omite.
 """
+
 import logging
 
 from sqlalchemy import text
@@ -12,92 +13,103 @@ logger = logging.getLogger(__name__)
 
 
 def run_migrations(engine) -> None:
-    """
-    Ejecuta todas las migraciones pendientes.
-    Llamar una vez al inicio de la aplicación, después de crear el motor.
-    """
-    _v1_add_cost_price_usd(engine)
-    _v2_add_recovery_pin_hash(engine)
-    _v3_add_discount_amount(engine)
-    _v4_add_mixto_fields(engine)
-    _v5_create_quotations(engine)
+	"""
+	Ejecuta todas las migraciones pendientes.
+	Llamar una vez al inicio de la aplicación, después de crear el motor.
+	"""
+	_v1_add_cost_price_usd(engine)
+	_v2_add_recovery_pin_hash(engine)
+	_v3_add_discount_amount(engine)
+	_v4_add_mixto_fields(engine)
+	_v5_create_quotations(engine)
 
 
 def _v1_add_cost_price_usd(engine) -> None:
-    """
-    v1: Agrega la columna cost_price_usd a article_variants.
-    """
-    with engine.connect() as conn:
-        try:
-            conn.execute(text(
-                'ALTER TABLE article_variants '
-                'ADD COLUMN cost_price_usd NUMERIC(10, 4) DEFAULT NULL'
-            ))
-            conn.commit()
-            logger.info('Migracion v1 aplicada: cost_price_usd agregado a article_variants.')
-        except Exception:
-            pass
+	"""
+	v1: Agrega la columna cost_price_usd a article_variants.
+	"""
+	with engine.connect() as conn:
+		try:
+			conn.execute(
+				text(
+					'ALTER TABLE article_variants '
+					'ADD COLUMN cost_price_usd NUMERIC(10, 4) DEFAULT NULL'
+				)
+			)
+			conn.commit()
+			logger.info(
+				'Migracion v1 aplicada: cost_price_usd agregado a article_variants.'
+			)
+		except Exception:
+			pass
 
 
 def _v2_add_recovery_pin_hash(engine) -> None:
-    """
-    v2: Agrega la columna recovery_pin_hash a users.
-    Almacena (hasheado con bcrypt) el PIN de recuperacion de contrasena.
-    Es nullable: usuarios existentes no tienen PIN hasta que lo configuren.
-    """
-    with engine.connect() as conn:
-        try:
-            conn.execute(text(
-                'ALTER TABLE users ADD COLUMN recovery_pin_hash VARCHAR DEFAULT NULL'
-            ))
-            conn.commit()
-            logger.info('Migracion v2 aplicada: recovery_pin_hash agregado a users.')
-        except Exception:
-            pass
+	"""
+	v2: Agrega la columna recovery_pin_hash a users.
+	Almacena (hasheado con bcrypt) el PIN de recuperacion de contrasena.
+	Es nullable: usuarios existentes no tienen PIN hasta que lo configuren.
+	"""
+	with engine.connect() as conn:
+		try:
+			conn.execute(
+				text(
+					'ALTER TABLE users ADD COLUMN recovery_pin_hash VARCHAR DEFAULT NULL'
+				)
+			)
+			conn.commit()
+			logger.info('Migracion v2 aplicada: recovery_pin_hash agregado a users.')
+		except Exception:
+			pass
 
 
 def _v3_add_discount_amount(engine) -> None:
-    """
-    v3: Agrega la columna discount_amount a sales.
-    Guarda el monto total de descuento aplicado en la venta.
-    Es nullable/default 0: ventas existentes se tratan como sin descuento.
-    """
-    with engine.connect() as conn:
-        try:
-            conn.execute(text(
-                'ALTER TABLE sales ADD COLUMN discount_amount NUMERIC(10, 2) DEFAULT 0.0'
-            ))
-            conn.commit()
-            logger.info('Migracion v3 aplicada: discount_amount agregado a sales.')
-        except Exception:
-            pass
+	"""
+	v3: Agrega la columna discount_amount a sales.
+	Guarda el monto total de descuento aplicado en la venta.
+	Es nullable/default 0: ventas existentes se tratan como sin descuento.
+	"""
+	with engine.connect() as conn:
+		try:
+			conn.execute(
+				text(
+					'ALTER TABLE sales ADD COLUMN discount_amount NUMERIC(10, 2) DEFAULT 0.0'
+				)
+			)
+			conn.commit()
+			logger.info('Migracion v3 aplicada: discount_amount agregado a sales.')
+		except Exception:
+			pass
 
 
 def _v4_add_mixto_fields(engine) -> None:
-    """
-    v4: Agrega payment_method_2 y amount_method_2 a sales.
-    Permiten registrar ventas con dos metodos de pago (pago mixto).
-    Nullable: ventas existentes se tratan como pago simple.
-    """
-    with engine.connect() as conn:
-        for sql in [
-            'ALTER TABLE sales ADD COLUMN payment_method_2 VARCHAR DEFAULT NULL',
-            'ALTER TABLE sales ADD COLUMN amount_method_2 NUMERIC(10, 2) DEFAULT NULL',
-        ]:
-            try:
-                conn.execute(text(sql))
-                conn.commit()
-            except Exception:
-                pass
-        logger.info('Migracion v4 aplicada: payment_method_2 y amount_method_2 en sales.')
+	"""
+	v4: Agrega payment_method_2 y amount_method_2 a sales.
+	Permiten registrar ventas con dos metodos de pago (pago mixto).
+	Nullable: ventas existentes se tratan como pago simple.
+	"""
+	with engine.connect() as conn:
+		for sql in [
+			'ALTER TABLE sales ADD COLUMN payment_method_2 VARCHAR DEFAULT NULL',
+			'ALTER TABLE sales ADD COLUMN amount_method_2 NUMERIC(10, 2) DEFAULT NULL',
+		]:
+			try:
+				conn.execute(text(sql))
+				conn.commit()
+			except Exception:
+				pass
+		logger.info(
+			'Migracion v4 aplicada: payment_method_2 y amount_method_2 en sales.'
+		)
 
 
 def _v5_create_quotations(engine) -> None:
-    """
-    v5: Crea las tablas quotations y quotation_items si no existen.
-    """
-    with engine.connect() as conn:
-        conn.execute(text("""
+	"""
+	v5: Crea las tablas quotations y quotation_items si no existen.
+	"""
+	with engine.connect() as conn:
+		conn.execute(
+			text("""
             CREATE TABLE IF NOT EXISTS quotations (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 number          VARCHAR NOT NULL,
@@ -112,8 +124,10 @@ def _v5_create_quotations(engine) -> None:
                 customer_id     INTEGER REFERENCES customers(id),
                 UNIQUE(tenant_id, number)
             )
-        """))
-        conn.execute(text("""
+        """)
+		)
+		conn.execute(
+			text("""
             CREATE TABLE IF NOT EXISTS quotation_items (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 description   VARCHAR NOT NULL,
@@ -123,15 +137,22 @@ def _v5_create_quotations(engine) -> None:
                 quotation_id  INTEGER NOT NULL REFERENCES quotations(id),
                 variant_id    INTEGER REFERENCES article_variants(id)
             )
-        """))
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_quotations_tenant_id ON quotations(tenant_id)"
-        ))
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_quotations_date ON quotations(date)"
-        ))
-        conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_quotation_items_quotation_id ON quotation_items(quotation_id)"
-        ))
-        conn.commit()
-        logger.info('Migracion v5 aplicada: tablas quotations y quotation_items creadas.')
+        """)
+		)
+		conn.execute(
+			text(
+				'CREATE INDEX IF NOT EXISTS ix_quotations_tenant_id ON quotations(tenant_id)'
+			)
+		)
+		conn.execute(
+			text('CREATE INDEX IF NOT EXISTS ix_quotations_date ON quotations(date)')
+		)
+		conn.execute(
+			text(
+				'CREATE INDEX IF NOT EXISTS ix_quotation_items_quotation_id ON quotation_items(quotation_id)'
+			)
+		)
+		conn.commit()
+		logger.info(
+			'Migracion v5 aplicada: tablas quotations y quotation_items creadas.'
+		)

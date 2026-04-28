@@ -4,7 +4,7 @@ import platform
 import subprocess
 import tempfile
 import unicodedata
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 
 from fpdf import FPDF
 
@@ -31,12 +31,18 @@ class ReceiptController:
 		pdf.cell(W, h, '', ln=True)
 
 	def generate_pdf(
-		self, tenant_id, sale_id, date_str, items_list, total, customer_name,
+		self,
+		tenant_id,
+		sale_id,
+		date_str,
+		items_list,
+		total,
+		customer_name,
 		discount_amount=0,
 	):
 		try:
 			try:
-				safe_sale_id   = int(sale_id)
+				safe_sale_id = int(sale_id)
 				safe_tenant_id = int(tenant_id)
 			except (ValueError, TypeError):
 				logger.error(f'ID de venta invalido: {sale_id}')
@@ -67,8 +73,7 @@ class ReceiptController:
 
 			# Altura dinamica
 			item_lines = sum(
-				1 if Decimal(str(i.get('qty', 1))) % 1 == 0 else 2
-				for i in items_list
+				1 if Decimal(str(i.get('qty', 1))) % 1 == 0 else 2 for i in items_list
 			)
 			disc_section = (len(items_list) + 2) if has_discount else 0
 			page_height = 60 + (item_lines * 5) + 12 + (disc_section * 5) + 20
@@ -84,7 +89,7 @@ class ReceiptController:
 				settings_manager.get('company_name', 'Mi Negocio')
 			)
 			address = self._sanitize(settings_manager.get('company_address', ''))
-			phone   = self._sanitize(settings_manager.get('company_phone', ''))
+			phone = self._sanitize(settings_manager.get('company_phone', ''))
 
 			pdf.set_font('Arial', 'B', 15)
 			pdf.cell(W, 9, business_name, ln=True, align='C')
@@ -97,15 +102,21 @@ class ReceiptController:
 
 			self._space(pdf, W, 2)
 			pdf.cell(W, 4, f'Ticket N {safe_sale_id}   {date_str}', ln=True, align='C')
-			pdf.cell(W, 4, f'Cliente: {self._sanitize(customer_name[:28])}', ln=True, align='C')
+			pdf.cell(
+				W,
+				4,
+				f'Cliente: {self._sanitize(customer_name[:28])}',
+				ln=True,
+				align='C',
+			)
 			self._space(pdf, W, 5)
 
 			# ── PRODUCTOS ─────────────────────────────────────────────────────
 			for item in items_list:
-				desc  = self._sanitize(item.get('desc', ''))[:24]
-				qty   = Decimal(str(item.get('qty', 1)))
+				desc = self._sanitize(item.get('desc', ''))[:24]
+				qty = Decimal(str(item.get('qty', 1)))
 				price = Decimal(str(item.get('price', 0)))
-				sub   = Decimal(str(item.get('subtotal', '0.0')))
+				sub = Decimal(str(item.get('subtotal', '0.0')))
 
 				pdf.set_font('Arial', '', 9)
 				if qty % 1 == 0:
@@ -114,7 +125,7 @@ class ReceiptController:
 					pdf.cell(24, 5, f'${sub:.2f}', ln=True, align='R')
 				else:
 					pdf.cell(W, 5, desc, ln=True, align='L')
-					pdf.cell(5,  5, '', align='L')
+					pdf.cell(5, 5, '', align='L')
 					pdf.cell(41, 5, f'{qty:.3f} kg x ${price:.2f}', align='L')
 					pdf.cell(24, 5, f'${sub:.2f}', ln=True, align='R')
 
@@ -139,7 +150,7 @@ class ReceiptController:
 					d = item_discounts.get(idx, Decimal('0'))
 					if d > 0:
 						desc = self._sanitize(item.get('desc', ''))[:24]
-						qty  = Decimal(str(item.get('qty', 1)))
+						qty = Decimal(str(item.get('qty', 1)))
 						pdf.set_font('Arial', '', 9)
 						pdf.set_text_color(180, 100, 0)
 						if qty % 1 == 0:
@@ -173,7 +184,9 @@ class ReceiptController:
 			return True, filepath
 
 		except Exception as e:
-			logger.error(f'Error generando PDF del ticket {sale_id}: {e}', exc_info=True)
+			logger.error(
+				f'Error generando PDF del ticket {sale_id}: {e}', exc_info=True
+			)
 			return False, 'Error interno al generar el recibo.'
 
 	def print_receipt(self, filepath):
@@ -184,8 +197,13 @@ class ReceiptController:
 
 			abs_path = os.path.abspath(filepath)
 			allowed_dir = os.path.abspath(self.receipts_dir)
-			if not abs_path.startswith(allowed_dir + os.sep) and abs_path != allowed_dir:
-				logger.error(f'Acceso denegado fuera del directorio de recibos: {filepath}')
+			if (
+				not abs_path.startswith(allowed_dir + os.sep)
+				and abs_path != allowed_dir
+			):
+				logger.error(
+					f'Acceso denegado fuera del directorio de recibos: {filepath}'
+				)
 				return False
 
 			os_name = platform.system()

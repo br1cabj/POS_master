@@ -6,14 +6,19 @@ from CTkMessagebox import CTkMessagebox
 from sqlalchemy.orm import sessionmaker
 
 from controllers.license_controller import LicenseController
-from utils.styles import (
-    ACCENT, ACCENT_DIM, ACCENT_TEXT, BORDER, BORDER_ACTIVE,
-    GREEN, GREEN_DIM, GREEN_TEXT, ORANGE, ORANGE_DIM, ORANGE_TEXT,
-    SURFACE1, SURFACE2, SURFACE3, SURFACE4,
-    TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY,
-)
 from database.models import Base, Branch, Tenant, User, Warehouse
 from utils.config import make_engine
+from utils.styles import (
+	ACCENT_TEXT,
+	BORDER_ACTIVE,
+	GREEN,
+	GREEN_DIM,
+	ORANGE,
+	ORANGE_DIM,
+	SURFACE3,
+	TEXT_MUTED,
+	TEXT_PRIMARY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,31 +39,51 @@ class SetupWizard(ctk.CTkFrame):
 			text_color=ACCENT_TEXT,
 		).pack(pady=10)
 		ctk.CTkLabel(
-			self, text='Vamos a configurar tu local por primera vez.', text_color=TEXT_MUTED
+			self,
+			text='Vamos a configurar tu local por primera vez.',
+			text_color=TEXT_MUTED,
 		).pack(pady=(0, 20))
 
 		# --- DATOS DEL LOCAL ---
 		ctk.CTkLabel(
-			self, text='1. Nombre de tu Comercio:', font=('Arial', 14, 'bold'), text_color=TEXT_PRIMARY
+			self,
+			text='1. Nombre de tu Comercio:',
+			font=('Arial', 14, 'bold'),
+			text_color=TEXT_PRIMARY,
 		).pack(pady=(10, 5))
 		self.entry_store = ctk.CTkEntry(
-			self, width=300, placeholder_text='Ej: Kiosco Carlitos',
-			fg_color=SURFACE3, border_color=BORDER_ACTIVE, text_color=TEXT_PRIMARY,
+			self,
+			width=300,
+			placeholder_text='Ej: Kiosco Carlitos',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
 		)
 		self.entry_store.pack()
 
 		ctk.CTkLabel(
-			self, text='2. Contraseña del Administrador:', font=('Arial', 14, 'bold'), text_color=TEXT_PRIMARY
+			self,
+			text='2. Contraseña del Administrador:',
+			font=('Arial', 14, 'bold'),
+			text_color=TEXT_PRIMARY,
 		).pack(pady=(20, 5))
 		self.entry_pass = ctk.CTkEntry(
-			self, width=300, show='*', placeholder_text='Tu clave secreta',
-			fg_color=SURFACE3, border_color=BORDER_ACTIVE, text_color=TEXT_PRIMARY,
+			self,
+			width=300,
+			show='*',
+			placeholder_text='Tu clave secreta',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
 		)
 		self.entry_pass.pack()
 
 		# --- LICENCIA ---
 		ctk.CTkLabel(
-			self, text='3. Activación del Sistema:', font=('Arial', 14, 'bold'), text_color=TEXT_PRIMARY
+			self,
+			text='3. Activación del Sistema:',
+			font=('Arial', 14, 'bold'),
+			text_color=TEXT_PRIMARY,
 		).pack(pady=(30, 5))
 
 		self.btn_demo = ctk.CTkButton(
@@ -70,11 +95,17 @@ class SetupWizard(ctk.CTkFrame):
 		)
 		self.btn_demo.pack(pady=10)
 
-		ctk.CTkLabel(self, text='— O ingresá tu código de compra —', text_color=TEXT_MUTED).pack()
+		ctk.CTkLabel(
+			self, text='— O ingresá tu código de compra —', text_color=TEXT_MUTED
+		).pack()
 
 		self.entry_license = ctk.CTkEntry(
-			self, width=300, placeholder_text='XXXX-XXXX-XXXX',
-			fg_color=SURFACE3, border_color=BORDER_ACTIVE, text_color=TEXT_PRIMARY,
+			self,
+			width=300,
+			placeholder_text='XXXX-XXXX-XXXX',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
 		)
 		self.entry_license.pack(pady=5)
 		self.btn_activate = ctk.CTkButton(

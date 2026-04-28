@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from sqlalchemy.orm import joinedload
 
@@ -178,7 +178,14 @@ class SalesController(BaseController):
 				logger.error(
 					f'Error al leer detalle de venta {sale_id}: {e}', exc_info=True
 				)
-				return {'items': [], 'discount_amount': 0.0, 'payment_method': '', 'payment_method_2': '', 'amount_method_2': 0.0, 'total_amount': 0.0}
+				return {
+					'items': [],
+					'discount_amount': 0.0,
+					'payment_method': '',
+					'payment_method_2': '',
+					'amount_method_2': 0.0,
+					'total_amount': 0.0,
+				}
 
 	def process_sale(
 		self,
@@ -200,7 +207,11 @@ class SalesController(BaseController):
 		if not cart_items:
 			return False, 'El carrito está vacío.'
 
-		discount_amount = self._parse_decimal(discount_amount) if discount_amount is not None else Decimal('0.0')
+		discount_amount = (
+			self._parse_decimal(discount_amount)
+			if discount_amount is not None
+			else Decimal('0.0')
+		)
 		if discount_amount < Decimal('0.0'):
 			discount_amount = Decimal('0.0')
 
@@ -404,37 +415,48 @@ class SalesController(BaseController):
 				if is_fiado and customer_obj:
 					customer_obj.current_balance += final_total
 				else:
-					disc_str = f' (Desc: ${discount_amount:.2f})' if discount_amount > 0 else ''
+					disc_str = (
+						f' (Desc: ${discount_amount:.2f})'
+						if discount_amount > 0
+						else ''
+					)
 					if payment_method_2_lower and amount_m2 > 0:
 						# Pago mixto: dos movimientos de caja
 						amount_m1 = final_total - amount_m2
 						new_sale.payment_method_2 = payment_method_2_lower
 						new_sale.amount_method_2 = amount_m2
-						session.add(CashMovement(
-							session_id=active_cash.id,
-							movement_type='venta',
-							amount=amount_m1 if amount_m1 > 0 else Decimal('0.01'),
-							description=f'Ticket #{new_sale.id} - {payment_method.capitalize()} (Mixto){disc_str}',
-						))
-						session.add(CashMovement(
-							session_id=active_cash.id,
-							movement_type='venta',
-							amount=amount_m2,
-							description=f'Ticket #{new_sale.id} - {payment_method_2_lower.capitalize()} (Mixto)',
-						))
+						session.add(
+							CashMovement(
+								session_id=active_cash.id,
+								movement_type='venta',
+								amount=amount_m1 if amount_m1 > 0 else Decimal('0.01'),
+								description=f'Ticket #{new_sale.id} - {payment_method.capitalize()} (Mixto){disc_str}',
+							)
+						)
+						session.add(
+							CashMovement(
+								session_id=active_cash.id,
+								movement_type='venta',
+								amount=amount_m2,
+								description=f'Ticket #{new_sale.id} - {payment_method_2_lower.capitalize()} (Mixto)',
+							)
+						)
 					else:
-						session.add(CashMovement(
-							session_id=active_cash.id,
-							movement_type='venta',
-							amount=final_total if final_total > Decimal('0.0') else Decimal('0.01'),
-							description=f'Ticket #{new_sale.id} - Pago: {payment_method.capitalize()}{disc_str}',
-						))
+						session.add(
+							CashMovement(
+								session_id=active_cash.id,
+								movement_type='venta',
+								amount=final_total
+								if final_total > Decimal('0.0')
+								else Decimal('0.01'),
+								description=f'Ticket #{new_sale.id} - Pago: {payment_method.capitalize()}{disc_str}',
+							)
+						)
 
 				session.commit()
 
 				try:
 					from controllers.receipt_controller import ReceiptController
-
 
 					ReceiptController().generate_pdf(
 						tenant_id=tenant_id,
@@ -450,14 +472,21 @@ class SalesController(BaseController):
 						f'Venta guardada, pero falló la generación del ticket: {pdf_err}'
 					)
 
-				disc_msg = f' · Descuento: ${discount_amount:.2f}' if discount_amount > 0 else ''
+				disc_msg = (
+					f' · Descuento: ${discount_amount:.2f}'
+					if discount_amount > 0
+					else ''
+				)
 				if payment_method_2_lower and amount_m2 > 0:
 					amt_m1 = final_total - amount_m2
-					return (True, (
-						f'Venta registrada (Mixto: {payment_method.capitalize()} ${amt_m1:.2f} + '
-						f'{payment_method_2_lower.capitalize()} ${amount_m2:.2f}).'
-						f' Total: ${final_total:.2f}{disc_msg}'
-					))
+					return (
+						True,
+						(
+							f'Venta registrada (Mixto: {payment_method.capitalize()} ${amt_m1:.2f} + '
+							f'{payment_method_2_lower.capitalize()} ${amount_m2:.2f}).'
+							f' Total: ${final_total:.2f}{disc_msg}'
+						),
+					)
 				return (
 					True,
 					f'Venta registrada ({metodo_final.capitalize()}). Total: ${final_total:.2f}{disc_msg}',

@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from sqlalchemy.orm import joinedload
 
