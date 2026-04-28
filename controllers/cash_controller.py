@@ -1,14 +1,21 @@
+"""
+controllers/cash_controller.py
+==============================
+Controlador de sesiones de caja, arqueos y reportes Z.
+"""
+
 import logging
 import os
+import unicodedata
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from fpdf import FPDF
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
-from database.models import CashMovement, CashSession
+from database.models import CashMovement, CashSession, Sale
 from utils.config import make_engine
 from utils.shared import parse_decimal
 
@@ -17,18 +24,28 @@ logger = logging.getLogger(__name__)
 _default_engine = make_engine()
 
 
+def _sanitize(text: str) -> str:
+	"""Elimina caracteres especiales problemáticos para la codificación latin-1 de FPDF."""
+	if not text:
+		return ''
+	return (
+		unicodedata.normalize('NFKD', str(text))
+		.encode('latin-1', 'ignore')
+		.decode('latin-1')
+	)
+
+
 class CashController(BaseController):
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
 		super().__init__(engine)
-		self.reports_dir = 'reportes_caja'
-		os.makedirs(self.reports_dir, exist_ok=True)
 
 	def _parse_decimal(self, value):
+		"""Convierte un valor a Decimal de forma segura."""
 		return parse_decimal(value, default=None)
 
 	def get_active_session(self, tenant_id, user_id):
-		"""Retorna la sesión de caja abierta del usuario, o None si no hay ninguna."""
+		"""Retorna un diccionario con los datos de la sesión activa del usuario, o None si no existe."""
 		with self._Session() as session:
 			try:
 				active = (
@@ -47,22 +64,18 @@ class CashController(BaseController):
 				}
 			except Exception as e:
 				logger.error(
-					f'Error al buscar sesión activa de caja: {e}', exc_info=True
+					'Error al buscar sesión activa de caja: %s', e, exc_info=True
 				)
 				return None
 
 	def open_session(self, tenant_id, user_id, opening_balance):
-		"""Abre una nueva sesión de caja. Falla si ya existe una activa para el usuario."""
+		"""Abre una nueva sesión de caja. Retorna una tupla (bool, str) con el resultado de la operación."""
 		parsed = self._parse_decimal(opening_balance)
 		if parsed is None or parsed < Decimal('0.0'):
-			return (
-				False,
-				'El monto de apertura debe ser un número válido y no negativo.',
-			)
+			return False, 'El monto de apertura debe ser numérico y no negativo.'
 
 		with self._Session() as session:
 			try:
-				# with_for_update() evita race condition si dos procesos abren caja simultáneamente
 				existing = (
 					session.query(CashSession)
 					.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
@@ -70,7 +83,7 @@ class CashController(BaseController):
 					.first()
 				)
 				if existing:
-					return False, 'Ya tienes una caja abierta.'
+					return False, 'El usuario ya posee una caja abierta.'
 
 				session.add(
 					CashSession(
@@ -85,18 +98,14 @@ class CashController(BaseController):
 				return True, 'Caja abierta exitosamente.'
 			except Exception as e:
 				session.rollback()
-				logger.error(f'Error al abrir caja: {e}', exc_info=True)
-				return False, 'Error interno al intentar abrir la caja.'
+				logger.error('Error al abrir caja: %s', e, exc_info=True)
+				return False, 'Error interno del servidor al abrir la caja.'
 
 	def close_session(self, tenant_id, session_id, declared_amount):
-		"""
-		Cierra la caja realizando el arqueo blind close: calcula el monto esperado,
-		compara con el declarado, persiste la diferencia y genera el Reporte Z en PDF.
-		El PDF se genera post-commit para no bloquear la transacción.
-		"""
+		"""Ejecuta el cierre ciego de caja, calcula diferencias, persiste el estado y genera el Reporte Z."""
 		parsed_declared = self._parse_decimal(declared_amount)
 		if parsed_declared is None or parsed_declared < Decimal('0.0'):
-			return False, 'El monto declarado debe ser un número válido y no negativo.'
+			return False, 'El monto declarado debe ser numérico y no negativo.'
 
 		with self._Session() as session:
 			try:
@@ -107,13 +116,17 @@ class CashController(BaseController):
 					.first()
 				)
 				if not cash_session:
-					return False, 'Turno de caja no encontrado o no tienes permiso.'
+					return False, 'Turno de caja inexistente o acceso denegado.'
 				if not cash_session.is_open:
-					return False, 'Esta caja ya se encuentra cerrada.'
+					return (
+						False,
+						'La sesión de caja seleccionada ya se encuentra cerrada.',
+					)
 
 				ventas, ingresos, gastos = self.get_session_summary(
-					tenant_id, session_id
+					tenant_id, session_id, db_session=session
 				)
+
 				opening = cash_session.opening_balance or Decimal('0.0')
 				expected = opening + ventas + ingresos - gastos
 				difference = parsed_declared - expected
@@ -123,6 +136,7 @@ class CashController(BaseController):
 				cash_session.difference = difference
 				cash_session.closed_at = datetime.now()
 				cash_session.is_open = False
+
 				if hasattr(cash_session, 'closing_balance'):
 					cash_session.closing_balance = parsed_declared
 
@@ -150,19 +164,100 @@ class CashController(BaseController):
 					if difference < 0
 					else 'CUADRE PERFECTO'
 				)
+
 				return True, (
 					f'Caja cerrada correctamente.\n\n'
 					f'Resultado del Arqueo: {estado}\n'
-					f'Diferencia: ${abs(difference):.2f}\n\n'
+					f'Diferencia: ${abs(difference):,.2f}\n\n'
 					f'Reporte Z guardado en: {pdf_path}'
 				)
 			except Exception as e:
 				session.rollback()
-				logger.error(f'Error al cerrar caja {session_id}: {e}', exc_info=True)
-				return False, 'Error interno al intentar cerrar la caja.'
+				logger.error(
+					'Error al cerrar caja %s: %s', session_id, e, exc_info=True
+				)
+				return False, 'Error interno del servidor al cerrar la caja.'
 
-	def get_session_summary(self, tenant_id, session_id):
-		"""Retorna (ventas, ingresos, gastos) como Decimals para la sesión indicada."""
+	def get_session_summary(self, tenant_id, session_id, db_session=None):
+		"""
+		Calcula los totales de ventas en efectivo, ingresos y egresos de la sesión.
+		Acepta una sesión de SQLAlchemy existente para prevenir deadlocks.
+		"""
+		session = db_session if db_session else self._Session()
+		try:
+			cash_session = (
+				session.query(CashSession)
+				.filter_by(id=session_id, tenant_id=tenant_id)
+				.first()
+			)
+			if not cash_session:
+				return Decimal('0.0'), Decimal('0.0'), Decimal('0.0')
+
+			totals = {
+				'ingreso': Decimal('0.0'),
+				'gasto': Decimal('0.0'),
+			}
+
+			for mov_type, amount in (
+				session.query(CashMovement.movement_type, func.sum(CashMovement.amount))
+				.filter_by(session_id=session_id)
+				.group_by(CashMovement.movement_type)
+				.all()
+			):
+				if mov_type in totals:
+					totals[mov_type] = (
+						Decimal(str(amount)) if amount else Decimal('0.0')
+					)
+
+			opened_at = cash_session.opened_at
+			sales = (
+				session.query(Sale)
+				.filter(
+					Sale.tenant_id == tenant_id,
+					Sale.date >= opened_at,
+					Sale.status.in_(['completada', 'parcial']),
+				)
+				.all()
+			)
+
+			total_ventas = Decimal('0.0')
+			for sale in sales:
+				method1 = (sale.payment_method or '').lower()
+				method2 = (sale.payment_method_2 or '').lower()
+				amt2 = (
+					Decimal(str(sale.amount_method_2))
+					if sale.amount_method_2
+					else Decimal('0.0')
+				)
+
+				monto_base = (
+					Decimal(str(getattr(sale, 'paid_amount', sale.total_amount)))
+					if sale.status == 'parcial'
+					else Decimal(str(sale.total_amount))
+				)
+
+				if method1 == 'efectivo' and not method2:
+					total_ventas += monto_base
+				elif method1 == 'efectivo' and method2 == 'efectivo':
+					total_ventas += monto_base
+				elif method1 == 'efectivo' and method2:
+					total_ventas += max(Decimal('0.0'), monto_base - amt2)
+				elif method2 == 'efectivo':
+					total_ventas += amt2
+
+			return total_ventas, totals['ingreso'], totals['gasto']
+
+		except Exception as e:
+			logger.error(
+				'Error al generar resumen de caja %s: %s', session_id, e, exc_info=True
+			)
+			return Decimal('0.0'), Decimal('0.0'), Decimal('0.0')
+		finally:
+			if not db_session:
+				session.close()
+
+	def get_movements_list(self, tenant_id, session_id):
+		"""Recupera el historial de movimientos manuales asociados a una sesión específica."""
 		with self._Session() as session:
 			try:
 				if (
@@ -170,40 +265,40 @@ class CashController(BaseController):
 					.filter_by(id=session_id, tenant_id=tenant_id)
 					.first()
 				):
-					return Decimal('0.0'), Decimal('0.0'), Decimal('0.0')
+					return []
 
-				totals = {
-					'venta': Decimal('0.0'),
-					'ingreso': Decimal('0.0'),
-					'gasto': Decimal('0.0'),
-				}
-				for mov_type, amount in (
-					session.query(
-						CashMovement.movement_type, func.sum(CashMovement.amount)
-					)
+				movements = (
+					session.query(CashMovement)
 					.filter_by(session_id=session_id)
-					.group_by(CashMovement.movement_type)
+					.order_by(CashMovement.time.desc())
 					.all()
-				):
-					if mov_type in totals:
-						totals[mov_type] = (
-							Decimal(str(amount)) if amount else Decimal('0.0')
-						)
-
-				return totals['venta'], totals['ingreso'], totals['gasto']
+				)
+				return [
+					{
+						'id': m.id,
+						'type': m.movement_type,
+						'amount': float(m.amount),
+						'description': m.description or '',
+						'time': m.time.strftime('%H:%M') if m.time else '--:--',
+					}
+					for m in movements
+				]
 			except Exception as e:
 				logger.error(
-					f'Error al generar resumen de caja {session_id}: {e}', exc_info=True
+					'Error al obtener movimientos de caja %s: %s',
+					session_id,
+					e,
+					exc_info=True,
 				)
-				return Decimal('0.0'), Decimal('0.0'), Decimal('0.0')
+				return []
 
 	def add_manual_movement(self, tenant_id, session_id, mov_type, amount, description):
-		"""Registra un movimiento manual. Solo opera sobre sesiones activas del tenant."""
+		"""Inserta un nuevo movimiento de caja manual (ingreso o gasto) en la base de datos."""
 		parsed = self._parse_decimal(amount)
 		if parsed is None or parsed <= Decimal('0.0'):
-			return False, 'El monto debe ser un número válido y mayor a cero.'
+			return False, 'El monto debe ser numérico y mayor a cero.'
 		if mov_type not in ['ingreso', 'gasto', 'venta']:
-			return False, 'Tipo de movimiento no válido.'
+			return False, 'Tipo de movimiento no soportado.'
 		if not description or not str(description).strip():
 			return False, 'La descripción del movimiento es obligatoria.'
 
@@ -215,7 +310,7 @@ class CashController(BaseController):
 					.first()
 				)
 				if not cash_session or not cash_session.is_open:
-					return False, 'Sesión de caja no encontrada o ya está cerrada.'
+					return False, 'Sesión de caja inexistente o inactiva.'
 
 				session.add(
 					CashMovement(
@@ -230,10 +325,12 @@ class CashController(BaseController):
 			except Exception as e:
 				session.rollback()
 				logger.error(
-					f'Error al registrar movimiento en caja {session_id}: {e}',
+					'Error al registrar movimiento en caja %s: %s',
+					session_id,
+					e,
 					exc_info=True,
 				)
-				return False, 'Error interno al registrar el movimiento.'
+				return False, 'Error interno del servidor al procesar el movimiento.'
 
 	def _generate_z_report_pdf(
 		self,
@@ -247,7 +344,7 @@ class CashController(BaseController):
 		declared,
 		difference,
 	):
-		"""Genera el Reporte Z en formato A5. Retorna la ruta del archivo creado."""
+		"""Crea el documento PDF del Reporte Z y lo almacena en el directorio del usuario."""
 		pdf = FPDF(format='A5')
 		pdf.add_page()
 		pdf.set_auto_page_break(auto=True, margin=15)
@@ -258,14 +355,16 @@ class CashController(BaseController):
 		pdf.cell(
 			0,
 			5,
-			f'Fecha de Cierre: {datetime.now().strftime("%d/%m/%Y %H:%M")}',
+			'Fecha de Cierre: ' + datetime.now().strftime('%d/%m/%Y %H:%M'),
 			ln=True,
 			align='C',
 		)
 		pdf.cell(
 			0,
 			5,
-			f'Turno Nro: {session_id} | Cajero: {username.capitalize()}',
+			_sanitize(
+				'Turno Nro: ' + str(session_id) + ' | Cajero: ' + username.capitalize()
+			),
 			ln=True,
 			align='C',
 		)
@@ -275,14 +374,15 @@ class CashController(BaseController):
 		pdf.set_font('Arial', 'B', 12)
 		pdf.cell(0, 8, 'RESUMEN DE MOVIMIENTOS', ln=True)
 		pdf.set_font('Arial', '', 12)
+
 		for label, value in [
 			('Monto de Apertura (+):', opening),
-			('Total Ventas (+):', ventas),
+			('Total Ventas en Efvo (+):', ventas),
 			('Ingresos Manuales (+):', ingresos),
 			('Retiros / Gastos (-):', gastos),
 		]:
 			pdf.cell(80, 8, label)
-			pdf.cell(0, 8, f'${value:.2f}', ln=True, align='R')
+			pdf.cell(0, 8, f'${float(value):,.2f}', ln=True, align='R')
 
 		pdf.line(10, pdf.get_y() + 2, 138, pdf.get_y() + 2)
 		pdf.ln(5)
@@ -291,9 +391,9 @@ class CashController(BaseController):
 		pdf.cell(0, 8, 'ARQUEO DE CAJA (BLIND CLOSE)', ln=True)
 		pdf.set_font('Arial', '', 12)
 		pdf.cell(80, 8, 'Monto Esperado (Sistema):')
-		pdf.cell(0, 8, f'${expected:.2f}', ln=True, align='R')
+		pdf.cell(0, 8, f'${float(expected):,.2f}', ln=True, align='R')
 		pdf.cell(80, 8, 'Monto Declarado (Cajero):')
-		pdf.cell(0, 8, f'${declared:.2f}', ln=True, align='R')
+		pdf.cell(0, 8, f'${float(declared):,.2f}', ln=True, align='R')
 
 		if difference < 0:
 			pdf.set_text_color(200, 0, 0)
@@ -305,9 +405,10 @@ class CashController(BaseController):
 			if difference < 0
 			else 'CUADRE PERFECTO'
 		)
+
 		pdf.set_font('Arial', 'B', 14)
 		pdf.cell(80, 10, f'DIFERENCIA ({estado}):')
-		pdf.cell(0, 10, f'${difference:.2f}', ln=True, align='R')
+		pdf.cell(0, 10, f'${float(difference):,.2f}', ln=True, align='R')
 		pdf.set_text_color(0, 0, 0)
 
 		pdf.ln(20)
@@ -315,9 +416,15 @@ class CashController(BaseController):
 		pdf.cell(0, 5, '_______________________', ln=True, align='C')
 		pdf.cell(0, 5, 'Firma del Cajero', ln=True, align='C')
 
+		desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
+		if not os.path.isdir(desktop):
+			desktop = os.path.join(os.path.expanduser('~'), 'Escritorio')
+			if not os.path.isdir(desktop):
+				desktop = os.path.expanduser('~')
+
 		filename = os.path.join(
-			self.reports_dir,
-			f'ReporteZ_Turno{session_id}_{datetime.now().strftime("%Y%m%d")}.pdf',
+			desktop,
+			f'ReporteZ_Turno{session_id}_{datetime.now().strftime("%Y%m%d_%H%M")}.pdf',
 		)
 		pdf.output(filename)
 		return filename
