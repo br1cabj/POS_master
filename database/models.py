@@ -76,6 +76,9 @@ class Warehouse(Base):
 	name = Column(String, nullable=False)
 	is_active = Column(Boolean, default=True)
 
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
+	tenant = relationship('Tenant')
+
 	branch_id = Column(
 		String(36), ForeignKey('branches.id'), nullable=False, index=True
 	)
