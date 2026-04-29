@@ -25,6 +25,14 @@ from utils.styles import (
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
+	FONT_BODY,
+	FONT_BODY_BOLD,
+	FONT_HEADING,
+	FONT_LABEL,
+	FONT_LABEL_BOLD,
+	FONT_NAV_BOLD,
+	FONT_SMALL,
+	FONT_TITLE,
 	GREEN,
 	GREEN_DIM,
 	GREEN_TEXT,
@@ -97,7 +105,7 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			scroll,
 			text='Exportar Datos',
-			font=('Arial', 18, 'bold'),
+			font=FONT_TITLE,
 			text_color=ACCENT_TEXT,
 			anchor='w',
 		).pack(padx=24, pady=(24, 2), anchor='w')
@@ -105,7 +113,7 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			scroll,
 			text='Descarga tus datos como Excel para editarlos\no compartirlos con tu contador.',
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 			justify='left',
 			anchor='w',
@@ -153,7 +161,7 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			scroll,
 			text='Mapa de Referencia - Artículos',
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
 		).pack(padx=24, anchor='w', pady=(0, 4))
@@ -161,7 +169,7 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			scroll,
 			text='El sistema acepta estas columnas al importar.\nLos nombres alternativos (alias) también funcionan.',
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 			justify='left',
 			anchor='w',
@@ -177,7 +185,7 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			scroll,
 			text='Alias aceptados por columna',
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			text_color=TEXT_SECONDARY,
 			anchor='w',
 		).pack(padx=24, anchor='w', pady=(0, 8))
@@ -205,7 +213,7 @@ class DataSyncView(BaseView):
 			ctk.CTkLabel(
 				row,
 				text=aliases,
-				font=('Arial', 10),
+				font=FONT_LABEL,
 				text_color=TEXT_MUTED,
 				anchor='w',
 			).pack(side='left', padx=(4, 0))
@@ -258,7 +266,7 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			header,
 			text=f'  {spec["type"]}',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).pack(side='left', padx=(8, 0))
 
@@ -268,14 +276,14 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			detail,
 			text=spec['description'],
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_SECONDARY,
 		).pack(side='left')
 
 		ctk.CTkLabel(
 			detail,
 			text=f'  Ej: {spec["example"]}',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).pack(side='left')
 
@@ -302,7 +310,7 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			header,
 			text='Importar Datos',
-			font=('Arial', 18, 'bold'),
+			font=FONT_TITLE,
 			text_color=GREEN_TEXT,
 			anchor='w',
 		).grid(row=0, column=0, sticky='w')
@@ -310,7 +318,7 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			header,
 			text='Sube tu Excel con productos. Si el código de barras ya existe se\nactualiza el precio. Si no existe, se crea el artículo nuevo.',
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 			justify='left',
 			anchor='w',
@@ -358,7 +366,7 @@ class DataSyncView(BaseView):
 		self.lbl_file_path = ctk.CTkLabel(
 			form,
 			text='Ningún archivo seleccionado',
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 			anchor='w',
 		)
@@ -378,7 +386,7 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			self.frame_preview,
 			text='Selecciona un archivo para ver la detección de columnas.',
-			font=('Arial', 12),
+			font=FONT_BODY,
 			text_color=TEXT_MUTED,
 		).pack(pady=32)
 
@@ -391,7 +399,7 @@ class DataSyncView(BaseView):
 			border_width=1,
 			border_color=GREEN,
 			height=52,
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 			corner_radius=8,
 			state='disabled',
 			command=self.handle_import,
@@ -413,7 +421,7 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			self.frame_preview,
 			text=f'Modo cambiado a {choice}. Selecciona un nuevo archivo.',
-			font=('Arial', 12),
+			font=FONT_BODY,
 			text_color=TEXT_MUTED,
 		).pack(pady=32)
 
@@ -439,7 +447,7 @@ class DataSyncView(BaseView):
 			ctk.CTkLabel(
 				self.frame_preview,
 				text='Vista previa no disponible para Clientes.',
-				font=('Arial', 12),
+				font=FONT_BODY,
 				text_color=TEXT_MUTED,
 			).pack(pady=32)
 			self.btn_import.configure(state='normal')
@@ -458,7 +466,7 @@ class DataSyncView(BaseView):
 			ctk.CTkLabel(
 				self.frame_preview,
 				text=f'Error al leer el archivo:\n{error}',
-				font=('Arial', 12),
+				font=FONT_BODY,
 				text_color=RED_TEXT,
 				wraplength=400,
 			).pack(pady=24)
@@ -468,7 +476,7 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			self.frame_preview,
 			text='Detección de columnas',
-			font=('Arial', 13, 'bold'),
+			font=FONT_NAV_BOLD,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
 		).pack(anchor='w', padx=12, pady=(12, 6))
@@ -486,7 +494,7 @@ class DataSyncView(BaseView):
 			ctk.CTkLabel(
 				self.frame_preview,
 				text=f'Primeras {len(rows)} filas detectadas',
-				font=('Arial', 13, 'bold'),
+				font=FONT_NAV_BOLD,
 				text_color=TEXT_PRIMARY,
 				anchor='w',
 			).pack(anchor='w', padx=12, pady=(0, 6))
@@ -501,7 +509,7 @@ class DataSyncView(BaseView):
 			ctk.CTkLabel(
 				self.frame_preview,
 				text='Faltan columnas obligatorias. Revisa el Mapa de Referencia.',
-				font=('Arial', 12, 'bold'),
+				font=FONT_BODY_BOLD,
 				text_color=RED_TEXT,
 			).pack(pady=(12, 4))
 		else:
@@ -529,7 +537,7 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			row,
 			text=icon,
-			font=('Arial', 10, 'bold'),
+			font=FONT_LABEL_BOLD,
 			text_color=icon_color,
 			fg_color=fg,
 			corner_radius=4,
@@ -550,28 +558,28 @@ class DataSyncView(BaseView):
 			ctk.CTkLabel(
 				row,
 				text=f'detectada como "{cs["original_col"]}"',
-				font=('Arial', 10),
+				font=FONT_LABEL,
 				text_color=ORANGE_TEXT,
 			).pack(side='left', padx=(4, 0))
 		elif found:
 			ctk.CTkLabel(
 				row,
 				text='nombre exacto',
-				font=('Arial', 10),
+				font=FONT_LABEL,
 				text_color=TEXT_MUTED,
 			).pack(side='left', padx=(4, 0))
 		elif not required:
 			ctk.CTkLabel(
 				row,
 				text='opcional, no encontrada',
-				font=('Arial', 10),
+				font=FONT_LABEL,
 				text_color=TEXT_MUTED,
 			).pack(side='left', padx=(4, 0))
 		else:
 			ctk.CTkLabel(
 				row,
 				text='OBLIGATORIA - no encontrada',
-				font=('Arial', 10, 'bold'),
+				font=FONT_LABEL_BOLD,
 				text_color=RED_TEXT,
 			).pack(side='left', padx=(4, 0))
 
@@ -589,7 +597,7 @@ class DataSyncView(BaseView):
 		ctk.CTkLabel(
 			card,
 			text=f'#{num}',
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 			width=28,
 		).pack(side='left', padx=(8, 4), pady=6)

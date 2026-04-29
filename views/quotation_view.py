@@ -11,6 +11,7 @@ from utils.settings_manager import fmt_price
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
+	ACCENT_HOVER,
 	ACCENT_TEXT,
 	BORDER,
 	FONT_BODY,
@@ -107,7 +108,7 @@ class QuotationView(ctk.CTkFrame):
 			width=80,
 			height=28,
 			fg_color=ACCENT,
-			hover_color='#1d4ed8',
+			hover_color=ACCENT_HOVER,
 			font=FONT_LABEL_BOLD,
 			command=self._open_form_new,
 		).grid(row=0, column=1, padx=(PAD_SM, 0))
@@ -190,7 +191,7 @@ class QuotationView(ctk.CTkFrame):
 			text='+ Nueva cotización',
 			command=self._open_form_new,
 			fg_color=ACCENT,
-			hover_color='#1d4ed8',
+			hover_color=ACCENT_HOVER,
 		).pack(pady=PAD_XS)
 
 	# ─────────────────────────────────────────────────────────────────────────
@@ -377,7 +378,7 @@ class QuotationView(ctk.CTkFrame):
 				(
 					'📄  PDF',
 					ACCENT,
-					'#1d4ed8',
+					ACCENT_HOVER,
 					lambda i=data['id']: self._export_pdf(i),
 				),
 				(
@@ -735,7 +736,7 @@ class QuotationView(ctk.CTkFrame):
 			width=80,
 			height=36,
 			fg_color=ACCENT,
-			hover_color='#1d4ed8',
+			hover_color=ACCENT_HOVER,
 			font=FONT_BODY_BOLD,
 			command=self._art_pick_first,
 		).grid(row=0, column=1)
@@ -762,7 +763,7 @@ class QuotationView(ctk.CTkFrame):
 			text='💾  Guardar cotización',
 			height=40,
 			fg_color=ACCENT,
-			hover_color='#1d4ed8',
+			hover_color=ACCENT_HOVER,
 			font=FONT_BODY_BOLD,
 			command=self._save_form,
 		).pack(side='left', padx=(0, PAD_SM))

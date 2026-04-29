@@ -6,6 +6,10 @@ import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
 from utils.styles import BORDER, SURFACE1, setup_treeview_tags
+from utils.styles import (
+	FONT_NAV,
+	RED_TEXT,
+)
 
 if TYPE_CHECKING:
 	from tkinter import ttk
@@ -76,7 +80,7 @@ class BaseView(ctk.CTkFrame):
 
 	def mark_field_error(self, entry: ctk.CTkEntry, message: str | None = None) -> None:
 		"""Resalta un input con error de validación."""
-		entry.configure(border_color='#f87171')
+		entry.configure(border_color=RED_TEXT)
 		entry.focus()
 
 	def clear_field_errors(self, *entries: ctk.CTkEntry) -> None:
@@ -97,7 +101,7 @@ class BaseView(ctk.CTkFrame):
 		lbl = ctk.CTkLabel(
 			container,
 			text=f'{icon}\n{message}',
-			font=('Arial', 13),
+			font=FONT_NAV,
 			text_color='#64748b',
 			justify='center',
 		)

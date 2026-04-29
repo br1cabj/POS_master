@@ -10,6 +10,7 @@ from utils.styles import (
 	ACCENT_DIM,
 	ACCENT_TEXT,
 	BORDER,
+	FONT_NAV_BOLD,
 	GREEN_TEXT,
 	ORANGE_TEXT,
 	RED_TEXT,
@@ -65,7 +66,7 @@ class KardexView(BaseView):
 		self.lbl_page = ctk.CTkLabel(
 			controls_frame,
 			text=f'Página {self.current_page}',
-			font=('Arial', 13, 'bold'),
+			font=FONT_NAV_BOLD,
 			text_color=TEXT_PRIMARY,
 		)
 		self.lbl_page.pack(side='left', padx=10)

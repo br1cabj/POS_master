@@ -27,6 +27,12 @@ from database.models import (
 	Stock,
 )
 from utils.quotation_pdf import QuotationPDF
+from utils.styles import (
+	ACCENT,
+	GREEN,
+	ORANGE,
+	RED,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +59,10 @@ class QuotationController(BaseController):
 
 	STATUS_COLORS = {
 		'borrador': '#6b7280',
-		'enviada': '#2563eb',
-		'aceptada': '#16a34a',
-		'rechazada': '#dc2626',
-		'vencida': '#d97706',
+		'enviada': ACCENT,
+		'aceptada': GREEN,
+		'rechazada': RED,
+		'vencida': ORANGE,
 	}
 
 	def __init__(self, db_engine):

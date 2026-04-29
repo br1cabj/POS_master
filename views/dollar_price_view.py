@@ -30,6 +30,16 @@ from utils.styles import (
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
+	FONT_BODY,
+	FONT_BODY_BOLD,
+	FONT_HEADING,
+	FONT_LABEL,
+	FONT_LABEL_BOLD,
+	FONT_NAV_BOLD,
+	FONT_SMALL,
+	FONT_SMALL_BOLD,
+	FONT_SUBHEADING,
+	FONT_TITLE,
 	GREEN,
 	GREEN_DIM,
 	GREEN_TEXT,
@@ -136,7 +146,7 @@ class DollarPriceView(BaseView):
 		self.lbl_header_sub = ctk.CTkLabel(
 			left,
 			text='Actualizá todos tus precios con un solo clic cuando sube el dólar.',
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 			anchor='w',
 		)
@@ -165,7 +175,7 @@ class DollarPriceView(BaseView):
 			height=32,
 			width=100,
 			corner_radius=8,
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			command=self._load_data,
 		).pack(side='left')
 
@@ -173,7 +183,7 @@ class DollarPriceView(BaseView):
 		return ctk.CTkLabel(
 			parent,
 			text=text,
-			font=('Arial', 10, 'bold'),
+			font=FONT_LABEL_BOLD,
 			fg_color=bg,
 			text_color=fg,
 			corner_radius=6,
@@ -232,7 +242,7 @@ class DollarPriceView(BaseView):
 			btn = ctk.CTkButton(
 				type_row,
 				text=dtype,
-				font=('Arial', 11, 'bold'),
+				font=FONT_SMALL_BOLD,
 				height=34,
 				corner_radius=8,
 				border_width=1,
@@ -294,7 +304,7 @@ class DollarPriceView(BaseView):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=38,
-			font=('Arial', 14),
+			font=FONT_SUBHEADING,
 		)
 		self.entry_margin.insert(0, str(int(float(saved_margin))))
 		self.entry_margin.pack(side='left', fill='x', expand=True, padx=(0, 8))
@@ -327,7 +337,7 @@ class DollarPriceView(BaseView):
 		self.lbl_formula = ctk.CTkLabel(
 			preview,
 			text='Ingresá la cotización',
-			font=('Arial', 13, 'bold'),
+			font=FONT_NAV_BOLD,
 			text_color=TEXT_PRIMARY,
 			wraplength=230,
 			justify='left',
@@ -337,7 +347,7 @@ class DollarPriceView(BaseView):
 		self.lbl_example = ctk.CTkLabel(
 			preview,
 			text='',
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=ACCENT_TEXT,
 			wraplength=230,
 			justify='left',
@@ -357,7 +367,7 @@ class DollarPriceView(BaseView):
 		self.lbl_ready_main = ctk.CTkLabel(
 			summary,
 			text='Cargando productos...',
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			text_color=TEXT_MUTED,
 			wraplength=230,
 			justify='center',
@@ -367,7 +377,7 @@ class DollarPriceView(BaseView):
 		self.lbl_ready_sub = ctk.CTkLabel(
 			summary,
 			text='',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 			wraplength=230,
 			justify='center',
@@ -378,7 +388,7 @@ class DollarPriceView(BaseView):
 		self.btn_update = ctk.CTkButton(
 			scroll,
 			text='ACTUALIZAR PRECIOS',
-			font=('Arial', 13, 'bold'),
+			font=FONT_NAV_BOLD,
 			fg_color=GREEN_DIM,
 			hover_color=GREEN,
 			text_color=GREEN_TEXT,
@@ -450,14 +460,14 @@ class DollarPriceView(BaseView):
 			ctk.CTkLabel(
 				legend,
 				text=text,
-				font=('Arial', 10),
+				font=FONT_LABEL,
 				text_color=dot_color,
 			).pack(side='left', padx=(0, 16))
 
 		self.lbl_count = ctk.CTkLabel(
 			legend,
 			text='',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		)
 		self.lbl_count.pack(side='right')
@@ -518,7 +528,7 @@ class DollarPriceView(BaseView):
 			border_color=ACCENT,
 			height=38,
 			corner_radius=8,
-			font=('Arial', 12),
+			font=FONT_BODY,
 			command=self._assign_usd_dialog,
 		).pack(side='left', expand=True, fill='x', padx=(0, 6))
 
@@ -793,7 +803,7 @@ class DollarPriceView(BaseView):
 		ctk.CTkLabel(
 			hdr,
 			text='💲  Asignar precio en dólares',
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
 		).pack(padx=20, pady=14, anchor='w')
 
@@ -803,14 +813,14 @@ class DollarPriceView(BaseView):
 		ctk.CTkLabel(
 			body,
 			text='Producto:',
-			font=('Arial', 10, 'bold'),
+			font=FONT_LABEL_BOLD,
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(anchor='w')
 		ctk.CTkLabel(
 			body,
 			text=variant.get('name', ''),
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
 		).pack(anchor='w', pady=(2, 16))
@@ -846,7 +856,7 @@ class DollarPriceView(BaseView):
 			fg_color='transparent',
 			border_width=0,
 			text_color=TEXT_PRIMARY,
-			font=('Arial', 18, 'bold'),
+			font=FONT_TITLE,
 		)
 		if existing_str:
 			entry.insert(0, existing_str)
@@ -877,7 +887,7 @@ class DollarPriceView(BaseView):
 			border_color=ACCENT,
 			height=40,
 			corner_radius=8,
-			font=('Arial', 13, 'bold'),
+			font=FONT_NAV_BOLD,
 			command=_save,
 		).pack(side='left', expand=True, fill='x', padx=(0, 8))
 

@@ -18,6 +18,15 @@ from utils.styles import (
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
+	FONT_BODY,
+	FONT_BODY_BOLD,
+	FONT_HEADING,
+	FONT_LABEL,
+	FONT_LABEL_BOLD,
+	FONT_NAV,
+	FONT_NAV_BOLD,
+	FONT_SMALL,
+	FONT_TITLE,
 	GREEN,
 	GREEN_DIM,
 	GREEN_TEXT,
@@ -77,7 +86,7 @@ class CashView(BaseView):
 		self.lbl_status.grid(row=1, column=0, pady=(0, 2), padx=24)
 
 		self.lbl_session_info = ctk.CTkLabel(
-			self.left_panel, text='', font=('Arial', 11), text_color=TEXT_MUTED
+			self.left_panel, text='', font=FONT_SMALL, text_color=TEXT_MUTED
 		)
 		self.lbl_session_info.grid(row=2, column=0, pady=(0, 12), padx=24)
 
@@ -99,14 +108,14 @@ class CashView(BaseView):
 			ctk.CTkLabel(
 				self.frame_totals,
 				text=label,
-				font=('Arial', 12),
+				font=FONT_BODY,
 				text_color=TEXT_MUTED,
 				anchor='w',
 			).grid(row=i, column=0, sticky='w', pady=4)
 			lbl_val = ctk.CTkLabel(
 				self.frame_totals,
 				text='$0.00',
-				font=('Arial', 12, 'bold'),
+				font=FONT_BODY_BOLD,
 				text_color=color,
 				anchor='e',
 			)
@@ -116,7 +125,7 @@ class CashView(BaseView):
 		self.lbl_blind_note = ctk.CTkLabel(
 			self.left_panel,
 			text='',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 			wraplength=220,
 			justify='center',
@@ -142,7 +151,7 @@ class CashView(BaseView):
 				text='$0' if amount == 0 else f'${amount:,}',
 				width=56,
 				height=30,
-				font=('Arial', 11),
+				font=FONT_SMALL,
 				fg_color=SURFACE3,
 				hover_color=SURFACE4,
 				text_color=TEXT_SECONDARY,
@@ -171,7 +180,7 @@ class CashView(BaseView):
 		self.btn_action = ctk.CTkButton(
 			self.left_panel,
 			text='',
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 			height=48,
 			corner_radius=8,
 			cursor='hand2',
@@ -199,7 +208,7 @@ class CashView(BaseView):
 		ctk.CTkLabel(
 			form_frame,
 			text='Registrar Gasto / Ingreso',
-			font=('Arial', 18, 'bold'),
+			font=FONT_TITLE,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
 		).grid(row=0, column=0, sticky='w', pady=(0, 2))
@@ -207,7 +216,7 @@ class CashView(BaseView):
 		ctk.CTkLabel(
 			form_frame,
 			text='Registra movimientos manuales de efectivo durante el turno.',
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).grid(row=1, column=0, sticky='w', pady=(0, 10))
@@ -226,7 +235,7 @@ class CashView(BaseView):
 			border_color=RED,
 			height=40,
 			corner_radius=8,
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			cursor='hand2',
 			command=lambda: self._select_mov_type('gasto'),
 		)
@@ -242,7 +251,7 @@ class CashView(BaseView):
 			border_color=BORDER,
 			height=40,
 			corner_radius=8,
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			cursor='hand2',
 			command=lambda: self._select_mov_type('ingreso'),
 		)
@@ -255,7 +264,7 @@ class CashView(BaseView):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=40,
-			font=('Arial', 12),
+			font=FONT_BODY,
 		)
 		self.entry_mov_desc.grid(row=4, column=0, sticky='ew', pady=(0, 8))
 		self.entry_mov_desc.bind('<Return>', lambda e: self.entry_mov_amount.focus())
@@ -267,7 +276,7 @@ class CashView(BaseView):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=40,
-			font=('Arial', 12),
+			font=FONT_BODY,
 		)
 		self.entry_mov_amount.grid(row=5, column=0, sticky='ew', pady=(0, 10))
 		self.entry_mov_amount.bind('<Return>', lambda e: self.save_movement())
@@ -282,7 +291,7 @@ class CashView(BaseView):
 			border_color=ACCENT,
 			height=44,
 			corner_radius=8,
-			font=('Arial', 13, 'bold'),
+			font=FONT_NAV_BOLD,
 			cursor='hand2',
 			command=self.save_movement,
 		)
@@ -300,7 +309,7 @@ class CashView(BaseView):
 		ctk.CTkLabel(
 			history_frame,
 			text='Historial del Turno',
-			font=('Arial', 13, 'bold'),
+			font=FONT_NAV_BOLD,
 			text_color=TEXT_SECONDARY,
 			anchor='w',
 		).grid(row=0, column=0, sticky='w', pady=(12, 6))
@@ -404,7 +413,7 @@ class CashView(BaseView):
 			ctk.CTkLabel(
 				self.history_scroll,
 				text='No hay movimientos registrados en este turno.',
-				font=('Arial', 12),
+				font=FONT_BODY,
 				text_color=TEXT_MUTED,
 			).pack(pady=24)
 			return
@@ -442,7 +451,7 @@ class CashView(BaseView):
 		ctk.CTkLabel(
 			row,
 			text=type_label,
-			font=('Arial', 10, 'bold'),
+			font=FONT_LABEL_BOLD,
 			text_color=amount_color,
 			anchor='w',
 		).grid(row=0, column=1, sticky='w', padx=(10, 4), pady=(6, 0))
@@ -450,7 +459,7 @@ class CashView(BaseView):
 		ctk.CTkLabel(
 			row,
 			text=mov['description'],
-			font=('Arial', 12),
+			font=FONT_BODY,
 			text_color=TEXT_SECONDARY,
 			anchor='w',
 		).grid(row=1, column=1, sticky='w', padx=(10, 4), pady=(0, 6))
@@ -458,13 +467,13 @@ class CashView(BaseView):
 		ctk.CTkLabel(
 			row,
 			text=f'{prefix}${mov["amount"]:,.2f}',
-			font=('Arial', 13, 'bold'),
+			font=FONT_NAV_BOLD,
 			text_color=amount_color,
 			anchor='e',
 		).grid(row=0, column=2, padx=(4, 12), pady=(6, 0), sticky='e')
 
 		ctk.CTkLabel(
-			row, text=mov['time'], font=('Arial', 10), text_color=TEXT_MUTED, anchor='e'
+			row, text=mov['time'], font=FONT_LABEL, text_color=TEXT_MUTED, anchor='e'
 		).grid(row=1, column=2, padx=(4, 12), pady=(0, 6), sticky='e')
 
 	def _set_preset_amount(self, amount):
@@ -607,7 +616,7 @@ class CashView(BaseView):
 			self.popup,
 			text='Ingresá la cantidad de cada billete y moneda que tenés en caja.\n'
 			'El sistema comparará con el total esperado al confirmar.',
-			font=('Arial', 12),
+			font=FONT_BODY,
 			text_color=TEXT_MUTED,
 			wraplength=360,
 			justify='center',
@@ -624,7 +633,7 @@ class CashView(BaseView):
 			ctk.CTkLabel(
 				grid_frame,
 				text=f'Billetes de ${denom:,}:',
-				font=('Arial', 13),
+				font=FONT_NAV,
 				text_color=TEXT_SECONDARY,
 				anchor='e',
 			).grid(row=i, column=0, sticky='e', pady=5, padx=10)
@@ -633,7 +642,7 @@ class CashView(BaseView):
 				grid_frame,
 				width=90,
 				height=36,
-				font=('Arial', 14, 'bold'),
+				font=FONT_HEADING,
 				justify='center',
 				fg_color=SURFACE3,
 				border_color=BORDER_ACTIVE,
@@ -653,7 +662,7 @@ class CashView(BaseView):
 		ctk.CTkLabel(
 			grid_frame,
 			text='Monedas / Otros ($):',
-			font=('Arial', 13),
+			font=FONT_NAV,
 			text_color=TEXT_SECONDARY,
 			anchor='e',
 		).grid(row=len(denominations), column=0, sticky='e', pady=10, padx=10)
@@ -662,7 +671,7 @@ class CashView(BaseView):
 			grid_frame,
 			width=90,
 			height=36,
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 			justify='center',
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
@@ -710,7 +719,7 @@ class CashView(BaseView):
 			border_width=1,
 			border_color=RED,
 			height=50,
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 			corner_radius=8,
 			command=self._confirm_blind_close,
 		).pack(pady=(0, 8), padx=30, fill='x')
@@ -778,4 +787,4 @@ class CashView(BaseView):
 			self.show_success(msg, title='Turno Finalizado')
 			self.refresh_view()
 		else:
-			self.show_error(msg)
+			self.show_

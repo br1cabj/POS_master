@@ -9,8 +9,14 @@ from utils.styles import (
 	ACCENT_DIM,
 	ACCENT_TEXT,
 	BORDER,
+	FONT_HEADING,
+	FONT_LABEL,
+	FONT_LABEL_BOLD,
 	FONT_NAV,
 	FONT_NAV_BOLD,
+	FONT_SMALL,
+	FONT_TITLE,
+	RED_TEXT,
 	SURFACE0,
 	SURFACE1,
 	SURFACE2,
@@ -121,7 +127,7 @@ class MainDashboard(ctk.CTkFrame):
 		ctk.CTkLabel(
 			logo_frame,
 			text='☁ CloudPOS',
-			font=('Arial', 18, 'bold'),
+			font=FONT_TITLE,
 			text_color=ACCENT_TEXT,
 			anchor='w',
 		).pack(side='left')
@@ -130,14 +136,14 @@ class MainDashboard(ctk.CTkFrame):
 			logo_frame,
 			text='● Cerrada',
 			font=('Arial', 9, 'bold'),
-			text_color='#f87171',
+			text_color=RED_TEXT,
 		)
 		self.lbl_dot.pack(side='right', padx=(0, 4))
 
 		ctk.CTkLabel(
 			self.sidebar,
 			text='Sistema de Gestión',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(fill='x', padx=18, pady=(2, 16))
@@ -200,7 +206,7 @@ class MainDashboard(ctk.CTkFrame):
 		avatar = ctk.CTkLabel(
 			inner,
 			text=self.username[0].upper(),
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 			width=34,
 			height=34,
 			fg_color=ACCENT_DIM,
@@ -238,7 +244,7 @@ class MainDashboard(ctk.CTkFrame):
 			fg_color='transparent',
 			hover_color=SURFACE3,
 			text_color=TEXT_MUTED,
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			height=30,
 			border_width=0,
 			command=self.handle_logout,
@@ -299,7 +305,7 @@ class MainDashboard(ctk.CTkFrame):
 			).pack(side='left', pady=2)
 
 		self.lbl_clock = ctk.CTkLabel(
-			bar, text='', font=('Arial', 10, 'bold'), text_color=TEXT_MUTED
+			bar, text='', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
 		)
 		self.lbl_clock.pack(side='right', padx=16)
 		self.update_clock()
@@ -399,10 +405,10 @@ class MainDashboard(ctk.CTkFrame):
 
 			ctrl = CashController(self.ctx.db_engine)
 			session = ctrl.get_active_session(self.ctx.tenant_id, self.ctx.user_id)
-			color = '#22c55e' if session else '#f87171'
+			color = '#22c55e' if session else RED_TEXT
 			label = '● Abierta' if session else '● Cerrada'
 		except Exception:
-			color = '#888888'
+			color = TEXT_SECONDARY
 			label = '●'
 
 		if hasattr(self, 'lbl_dot') and self.lbl_dot.winfo_exists():

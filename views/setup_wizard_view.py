@@ -28,6 +28,7 @@ from utils.styles import (
 	FONT_HEADING,
 	FONT_LABEL,
 	FONT_LABEL_BOLD,
+	FONT_MONO,
 	FONT_TITLE,
 	GREEN,
 	GREEN_DIM,
@@ -608,7 +609,7 @@ class SetupWizard(ctk.CTkFrame):
 		self._lbl_reports_path = ctk.CTkLabel(
 			reports_row,
 			text=self._d_reports_path or get_reports_path(),
-			font=('Consolas', 11),
+			font=FONT_MONO,
 			text_color=TEXT_SECONDARY,
 			anchor='w',
 			wraplength=420,

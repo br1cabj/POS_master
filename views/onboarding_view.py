@@ -16,6 +16,9 @@ from utils.styles import (
 	ACCENT_DIM,
 	ACCENT_TEXT,
 	BORDER,
+	FONT_BODY_BOLD,
+	FONT_NAV,
+	FONT_SMALL,
 	GREEN,
 	GREEN_DIM,
 	GREEN_TEXT,
@@ -108,7 +111,7 @@ class OnboardingView(BaseView):
 				'Tu sistema está configurado y listo para usar. '
 				'Completá estos pasos iniciales para sacarle el máximo provecho.'
 			),
-			font=('Arial', 13),
+			font=FONT_NAV,
 			text_color=ACCENT_TEXT,
 			wraplength=700,
 			justify='left',
@@ -179,7 +182,7 @@ class OnboardingView(BaseView):
 		lbl_desc = ctk.CTkLabel(
 			text_frame,
 			text=desc,
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 			wraplength=520,
 			justify='left',
@@ -191,7 +194,7 @@ class OnboardingView(BaseView):
 			lbl_done = ctk.CTkLabel(
 				card,
 				text='✓  Completado',
-				font=('Arial', 12, 'bold'),
+				font=FONT_BODY_BOLD,
 				text_color=GREEN_TEXT,
 			)
 			lbl_done.grid(row=0, column=3, rowspan=2, padx=(0, 24), pady=20)
@@ -201,7 +204,7 @@ class OnboardingView(BaseView):
 				text='Ir ahora →',
 				width=120,
 				height=36,
-				font=('Arial', 12, 'bold'),
+				font=FONT_BODY_BOLD,
 				fg_color=ORANGE_DIM,
 				hover_color=ORANGE,
 				text_color=ORANGE_TEXT,

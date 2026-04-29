@@ -28,6 +28,14 @@ from utils.styles import (
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
+	FONT_BODY,
+	FONT_BODY_BOLD,
+	FONT_HEADING,
+	FONT_LABEL,
+	FONT_LABEL_BOLD,
+	FONT_NAV_BOLD,
+	FONT_SMALL,
+	FONT_TITLE,
 	GREEN,
 	GREEN_DIM,
 	GREEN_TEXT,
@@ -44,7 +52,6 @@ from utils.styles import (
 	TEXT_MUTED,
 	TEXT_PRIMARY,
 	TEXT_SECONDARY,
-	apply_treeview_style,
 )
 
 logger = logging.getLogger(__name__)
@@ -124,7 +131,7 @@ class ReturnsView(BaseView):
 			fg_color=SURFACE3,
 			hover_color=SURFACE4,
 			text_color=TEXT_SECONDARY,
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 			command=self.load_sales,
 		).pack(side='right')
 
@@ -159,7 +166,7 @@ class ReturnsView(BaseView):
 				text=flabel,
 				height=26,
 				corner_radius=5,
-				font=('Arial', 10, 'bold') if is_active else ('Arial', 10),
+				font=FONT_LABEL_BOLD if is_active else FONT_LABEL,
 				fg_color=ACCENT_DIM if is_active else SURFACE3,
 				hover_color=ACCENT if is_active else SURFACE4,
 				text_color=ACCENT_TEXT if is_active else TEXT_SECONDARY,
@@ -282,7 +289,7 @@ class ReturnsView(BaseView):
 		self.lbl_discount_info = ctk.CTkLabel(
 			bottom,
 			text='',
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=ORANGE_TEXT,
 			anchor='e',
 		)
@@ -293,7 +300,7 @@ class ReturnsView(BaseView):
 		self.lbl_total = ctk.CTkLabel(
 			bottom,
 			text='Total: —',
-			font=('Arial', 18, 'bold'),
+			font=FONT_TITLE,
 			text_color=TEXT_PRIMARY,
 			anchor='e',
 		)
@@ -309,7 +316,7 @@ class ReturnsView(BaseView):
 			border_color=RED,
 			height=40,
 			corner_radius=8,
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			state='disabled',
 			command=self._confirm_cancel,
 		)
@@ -325,7 +332,7 @@ class ReturnsView(BaseView):
 			border_color=ORANGE,
 			height=40,
 			corner_radius=8,
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			state='disabled',
 			command=self._open_return_popup,
 		)
@@ -341,7 +348,7 @@ class ReturnsView(BaseView):
 			border_color=ACCENT,
 			height=40,
 			corner_radius=8,
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			state='disabled',
 			command=self._confirm_modify,
 		)
@@ -360,7 +367,7 @@ class ReturnsView(BaseView):
 		lbl = ctk.CTkLabel(
 			frame,
 			text=value,
-			font=('Arial', 13, 'bold'),
+			font=FONT_NAV_BOLD,
 			text_color=TEXT_PRIMARY,
 			anchor='center',
 		)
@@ -385,7 +392,7 @@ class ReturnsView(BaseView):
 				hover_color=ACCENT if active else SURFACE4,
 				text_color=ACCENT_TEXT if active else TEXT_SECONDARY,
 				border_color=ACCENT if active else BORDER,
-				font=('Arial', 10, 'bold') if active else ('Arial', 10),
+				font=FONT_LABEL_BOLD if active else FONT_LABEL,
 			)
 		self.load_sales()
 
@@ -587,7 +594,7 @@ class ReturnsView(BaseView):
 		ctk.CTkLabel(
 			popup,
 			text='Marcá el ítem y escribí la cantidad a devolver (máx = cantidad original)',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).pack(pady=(0, 12))
 
@@ -622,7 +629,7 @@ class ReturnsView(BaseView):
 			ctk.CTkLabel(
 				row,
 				text=f'{item["description"][:28]}',
-				font=('Arial', 12),
+				font=FONT_BODY,
 				text_color=TEXT_PRIMARY,
 				anchor='w',
 			).grid(row=0, column=1, sticky='w', padx=4)
@@ -630,7 +637,7 @@ class ReturnsView(BaseView):
 			ctk.CTkLabel(
 				row,
 				text=f'x{qty_str}  ·  ${item["unit_price"]:.2f}',
-				font=('Arial', 10),
+				font=FONT_LABEL,
 				text_color=TEXT_MUTED,
 				anchor='e',
 			).grid(row=0, column=2, padx=6)
@@ -732,7 +739,7 @@ class ReturnsView(BaseView):
 			border_width=1,
 			border_color=GREEN,
 			height=42,
-			font=('Arial', 13, 'bold'),
+			font=FONT_NAV_BOLD,
 			corner_radius=8,
 			command=_confirm_return,
 		).pack(pady=(8, 6), padx=24, fill='x')

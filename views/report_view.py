@@ -31,17 +31,27 @@ from core.context import AppContext
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
+	ACCENT_HOVER,
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
+	FONT_BODY_BOLD,
 	FONT_HEADING,
 	FONT_LABEL,
+	FONT_LABEL_BOLD,
+	FONT_NAV,
+	FONT_SMALL,
+	FONT_SMALL_BOLD,
+	FONT_STAT,
+	FONT_SUBHEADING,
+	FONT_TITLE,
 	GREEN,
 	GREEN_DIM,
 	GREEN_TEXT,
 	ORANGE,
 	ORANGE_DIM,
 	ORANGE_TEXT,
+	PURPLE_TEXT,
 	RED,
 	RED_TEXT,
 	SURFACE1,
@@ -62,7 +72,7 @@ _METHOD_COLORS = {
 	'debito': (ACCENT, ACCENT_TEXT, ACCENT_DIM),
 	'tarjeta': (ACCENT, ACCENT_TEXT, ACCENT_DIM),
 	'fiado': (ORANGE, ORANGE_TEXT, ORANGE_DIM),
-	'otro': ('#7c3aed', '#a78bfa', '#1e0a3c'),
+	'otro': ('#7c3aed', PURPLE_TEXT, '#1e0a3c'),
 }
 _DEFAULT_METHOD = (ACCENT, ACCENT_TEXT, ACCENT_DIM)
 
@@ -139,7 +149,7 @@ class ReportView(BaseView):
 				fg_color=SURFACE3,
 				hover_color=SURFACE4,
 				text_color=TEXT_SECONDARY,
-				font=('Arial', 11),
+				font=FONT_SMALL,
 				corner_radius=6,
 				command=cmd,
 			)
@@ -162,7 +172,7 @@ class ReportView(BaseView):
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
-			font=('Arial', 11),
+			font=FONT_SMALL,
 		)
 		self._entry_from.grid(row=0, column=7, padx=(0, 8))
 		self._entry_from.bind('<Return>', lambda e: self._on_generate_click())
@@ -177,7 +187,7 @@ class ReportView(BaseView):
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
-			font=('Arial', 11),
+			font=FONT_SMALL,
 		)
 		self._entry_to.grid(row=0, column=9, padx=(0, 8))
 		self._entry_to.bind('<Return>', lambda e: self._on_generate_click())
@@ -188,9 +198,9 @@ class ReportView(BaseView):
 			width=90,
 			height=30,
 			fg_color=ACCENT,
-			hover_color='#1d4ed8',
+			hover_color=ACCENT_HOVER,
 			text_color='white',
-			font=('Arial', 11, 'bold'),
+			font=FONT_SMALL_BOLD,
 			corner_radius=6,
 			command=self._on_generate_click,
 		)
@@ -282,7 +292,7 @@ class ReportView(BaseView):
 		self._lbl_spinner = ctk.CTkLabel(
 			self._scroll,
 			text='⏳  Generando reporte…',
-			font=('Arial', 14),
+			font=FONT_SUBHEADING,
 			text_color=TEXT_MUTED,
 		)
 		self._lbl_spinner.grid(row=0, column=0, pady=80)
@@ -308,7 +318,7 @@ class ReportView(BaseView):
 			fg_color=RED,
 			hover_color='#b91c1c',
 			text_color='white',
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			corner_radius=6,
 			command=self._export_pdf,
 		)
@@ -322,7 +332,7 @@ class ReportView(BaseView):
 			fg_color=GREEN,
 			hover_color='#15803d',
 			text_color='white',
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			corner_radius=6,
 			command=self._export_csv,
 		)
@@ -331,7 +341,7 @@ class ReportView(BaseView):
 		self._lbl_status = ctk.CTkLabel(
 			bar,
 			text='',
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 		)
 		self._lbl_status.pack(side='left', padx=16)
@@ -348,7 +358,7 @@ class ReportView(BaseView):
 			self._lbl_spinner = ctk.CTkLabel(
 				self._scroll,
 				text='⏳  Generando reporte…',
-				font=('Arial', 14),
+				font=FONT_SUBHEADING,
 				text_color=TEXT_MUTED,
 			)
 			self._lbl_spinner.grid(row=0, column=0, pady=80)
@@ -434,7 +444,7 @@ class ReportView(BaseView):
 		ctk.CTkLabel(
 			frame,
 			text=phrase,
-			font=('Arial', 13),
+			font=FONT_NAV,
 			text_color=ACCENT_TEXT,
 			wraplength=900,
 			justify='left',
@@ -552,7 +562,7 @@ class ReportView(BaseView):
 		ctk.CTkLabel(
 			left,
 			text='DESGLOSE POR MÉTODO DE PAGO',
-			font=('Arial', 10, 'bold'),
+			font=FONT_LABEL_BOLD,
 			text_color=TEXT_MUTED,
 		).pack(anchor='w', padx=16, pady=(14, 8))
 
@@ -563,7 +573,7 @@ class ReportView(BaseView):
 			ctk.CTkLabel(
 				left,
 				text='Sin ventas en el período.',
-				font=('Arial', 11),
+				font=FONT_SMALL,
 				text_color=TEXT_MUTED,
 			).pack(padx=16, pady=(0, 14))
 		else:
@@ -578,7 +588,7 @@ class ReportView(BaseView):
 				ctk.CTkLabel(
 					row_f,
 					text=method.capitalize(),
-					font=('Arial', 11, 'bold'),
+					font=FONT_SMALL_BOLD,
 					text_color=TEXT_PRIMARY,
 					width=90,
 					anchor='w',
@@ -597,7 +607,7 @@ class ReportView(BaseView):
 				ctk.CTkLabel(
 					row_f,
 					text=f'${info["total"]:,.0f}  ({info["count"]} t.)',
-					font=('Arial', 11),
+					font=FONT_SMALL,
 					text_color=txt_color,
 					width=150,
 					anchor='e',
@@ -618,7 +628,7 @@ class ReportView(BaseView):
 		ctk.CTkLabel(
 			right,
 			text='ANULACIONES Y DEVOLUCIONES',
-			font=('Arial', 10, 'bold'),
+			font=FONT_LABEL_BOLD,
 			text_color=TEXT_MUTED,
 		).pack(anchor='w', padx=16, pady=(14, 8))
 
@@ -630,28 +640,28 @@ class ReportView(BaseView):
 		ctk.CTkLabel(
 			right,
 			text=f'{icon}  {count}',
-			font=('Arial', 32, 'bold'),
+			font=FONT_STAT,
 			text_color=color,
 		).pack(padx=16, pady=(4, 0))
 
 		ctk.CTkLabel(
 			right,
 			text='tickets cancelados / devueltos',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).pack(padx=16)
 
 		ctk.CTkLabel(
 			right,
 			text=f'${total:,.0f}',
-			font=('Arial', 18, 'bold'),
+			font=FONT_TITLE,
 			text_color=color,
 		).pack(padx=16, pady=(6, 2))
 
 		ctk.CTkLabel(
 			right,
 			text='monto total involucrado',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).pack(padx=16, pady=(0, 14))
 
@@ -674,7 +684,7 @@ class ReportView(BaseView):
 		ctk.CTkLabel(
 			frame,
 			text=f'TOP {len(top)} PRODUCTOS DEL PERÍODO',
-			font=('Arial', 10, 'bold'),
+			font=FONT_LABEL_BOLD,
 			text_color=TEXT_MUTED,
 		).grid(row=0, column=0, sticky='w', padx=16, pady=(14, 6))
 
@@ -692,7 +702,7 @@ class ReportView(BaseView):
 			ctk.CTkLabel(
 				row_f,
 				text=f'{i + 1:2d}.',
-				font=('Arial', 11, 'bold'),
+				font=FONT_SMALL_BOLD,
 				text_color=TEXT_MUTED,
 				width=26,
 				anchor='e',
@@ -702,7 +712,7 @@ class ReportView(BaseView):
 			ctk.CTkLabel(
 				row_f,
 				text=name,
-				font=('Arial', 11),
+				font=FONT_SMALL,
 				text_color=TEXT_PRIMARY,
 				anchor='w',
 				width=220,
@@ -722,7 +732,7 @@ class ReportView(BaseView):
 			ctk.CTkLabel(
 				row_f,
 				text=f'{qty_str} u  ·  ${product["revenue"]:,.0f}',
-				font=('Arial', 11),
+				font=FONT_SMALL,
 				text_color=ACCENT_TEXT,
 				width=160,
 				anchor='e',
@@ -749,7 +759,7 @@ class ReportView(BaseView):
 		ctk.CTkLabel(
 			frame,
 			text='MOVIMIENTOS MANUALES DE CAJA',
-			font=('Arial', 10, 'bold'),
+			font=FONT_LABEL_BOLD,
 			text_color=TEXT_MUTED,
 		).grid(row=0, column=0, columnspan=2, sticky='w', padx=16, pady=(14, 8))
 
@@ -760,7 +770,7 @@ class ReportView(BaseView):
 		ctk.CTkLabel(
 			ing_frame,
 			text=f'▲ INGRESOS  ${movs["total_ingresos"]:,.0f}',
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			text_color=GREEN_TEXT,
 		).pack(anchor='w', pady=(0, 4))
 
@@ -768,7 +778,7 @@ class ReportView(BaseView):
 			ctk.CTkLabel(
 				ing_frame,
 				text='Sin ingresos manuales.',
-				font=('Arial', 10),
+				font=FONT_LABEL,
 				text_color=TEXT_MUTED,
 			).pack(anchor='w')
 		else:
@@ -777,18 +787,18 @@ class ReportView(BaseView):
 				row_f = ctk.CTkFrame(ing_frame, fg_color='transparent')
 				row_f.pack(fill='x', pady=1)
 				ctk.CTkLabel(
-					row_f, text=t, font=('Arial', 10), text_color=TEXT_MUTED, width=40
+					row_f, text=t, font=FONT_LABEL, text_color=TEXT_MUTED, width=40
 				).pack(side='left')
 				ctk.CTkLabel(
 					row_f,
 					text=(m['desc'] or '—')[:45],
-					font=('Arial', 10),
+					font=FONT_LABEL,
 					text_color=TEXT_SECONDARY,
 				).pack(side='left', padx=6)
 				ctk.CTkLabel(
 					row_f,
 					text=f'${m["amount"]:,.0f}',
-					font=('Arial', 10, 'bold'),
+					font=FONT_LABEL_BOLD,
 					text_color=GREEN_TEXT,
 				).pack(side='right')
 
@@ -799,7 +809,7 @@ class ReportView(BaseView):
 		ctk.CTkLabel(
 			gas_frame,
 			text=f'▼ GASTOS  ${movs["total_gastos"]:,.0f}',
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			text_color=RED_TEXT,
 		).pack(anchor='w', pady=(0, 4))
 
@@ -807,7 +817,7 @@ class ReportView(BaseView):
 			ctk.CTkLabel(
 				gas_frame,
 				text='Sin gastos manuales.',
-				font=('Arial', 10),
+				font=FONT_LABEL,
 				text_color=TEXT_MUTED,
 			).pack(anchor='w')
 		else:
@@ -816,18 +826,18 @@ class ReportView(BaseView):
 				row_f = ctk.CTkFrame(gas_frame, fg_color='transparent')
 				row_f.pack(fill='x', pady=1)
 				ctk.CTkLabel(
-					row_f, text=t, font=('Arial', 10), text_color=TEXT_MUTED, width=40
+					row_f, text=t, font=FONT_LABEL, text_color=TEXT_MUTED, width=40
 				).pack(side='left')
 				ctk.CTkLabel(
 					row_f,
 					text=(m['desc'] or '—')[:45],
-					font=('Arial', 10),
+					font=FONT_LABEL,
 					text_color=TEXT_SECONDARY,
 				).pack(side='left', padx=6)
 				ctk.CTkLabel(
 					row_f,
 					text=f'${m["amount"]:,.0f}',
-					font=('Arial', 10, 'bold'),
+					font=FONT_LABEL_BOLD,
 					text_color=RED_TEXT,
 				).pack(side='right')
 

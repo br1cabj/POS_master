@@ -20,6 +20,7 @@ from utils.styles import (
 	FONT_HEADING,
 	FONT_LABEL,
 	FONT_LABEL_BOLD,
+	FONT_MONO,
 	FONT_TITLE,
 	GREEN,
 	GREEN_DIM,
@@ -514,7 +515,7 @@ class SettingsView(BaseView):
 		self._lbl_reports_path = ctk.CTkLabel(
 			card,
 			text=current_path,
-			font=('Consolas', 11),
+			font=FONT_MONO,
 			text_color=TEXT_SECONDARY,
 			wraplength=340,
 			anchor='w',
@@ -577,7 +578,7 @@ class SettingsView(BaseView):
 		ctk.CTkLabel(
 			card,
 			text=f'Archivo: {db_path.name}',
-			font=('Consolas', 11),
+			font=FONT_MONO,
 			text_color=TEXT_MUTED,
 		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_XS))
 		ctk.CTkLabel(
@@ -624,28 +625,4 @@ class SettingsView(BaseView):
 
 	def _save_all(self):
 		self._settings['company_name'] = self.entry_company_name.get().strip()
-		self._settings['company_address'] = self.entry_company_address.get().strip()
-		self._settings['company_phone'] = self.entry_company_phone.get().strip()
-		self._settings['currency_symbol'] = self._sym_var.get()
-		self._settings['currency_decimals'] = self._dec_var.get()
-
-		try:
-			self._settings['tax_rate'] = float(self.entry_tax.get().replace(',', '.'))
-			self._settings['low_stock_threshold'] = int(self.entry_low_stock.get())
-		except ValueError:
-			self.show_error(
-				'El IVA y el Umbral de Stock Crítico deben ser números válidos.'
-			)
-			return
-
-		self._settings['require_customer'] = self._req_customer_var.get()
-		self._settings['show_shortcuts_bar'] = self._show_bar_var.get()
-
-		if cfg.save(self._settings):
-			self._saved = True
-			self.btn_save.configure(fg_color=GREEN_DIM, text_color=GREEN_TEXT)
-			self.show_success('Configuración actualizada correctamente.')
-			if hasattr(self.ctx, 'navigate'):
-				pass
-		else:
-			self.show_error('No se pudo guardar la configuración en el disco.')
+		self._setti

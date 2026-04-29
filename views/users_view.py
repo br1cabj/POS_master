@@ -6,9 +6,9 @@ from controllers.user_controller import UserController
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.styles import (
-	apply_treeview_style,
 	ACCENT,
 	ACCENT_DIM,
+	ACCENT_HOVER,
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
@@ -33,6 +33,7 @@ from utils.styles import (
 	SURFACE4,
 	TEXT_MUTED,
 	TEXT_PRIMARY,
+	apply_treeview_style,
 	make_form_label,
 )
 
@@ -555,7 +556,7 @@ class UsersView(BaseView):
 			popup,
 			text='Guardar PIN',
 			fg_color=ACCENT,
-			hover_color='#1d4ed8',
+			hover_color=ACCENT_HOVER,
 			text_color='white',
 			height=38,
 			corner_radius=8,

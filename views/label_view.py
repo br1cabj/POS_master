@@ -10,6 +10,7 @@ from utils.settings_manager import fmt_price
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
+	ACCENT_HOVER,
 	ACCENT_TEXT,
 	BORDER,
 	FONT_BODY,
@@ -110,7 +111,7 @@ class LabelView(ctk.CTkFrame):
 			height=30,
 			font=FONT_LABEL_BOLD,
 			fg_color=ACCENT,
-			hover_color='#1d4ed8',
+			hover_color=ACCENT_HOVER,
 			command=self._add_selected_to_queue,
 		).grid(row=0, column=0, sticky='ew', padx=(0, 3))
 
@@ -340,7 +341,7 @@ class LabelView(ctk.CTkFrame):
 				x0 + 6, y0 + 4, x0 + lw_px - 6, y0 + 10, fill='#475569', outline=''
 			)
 			cv.create_text(
-				cx, y0 + 20, text='$0000', fill='#0f172a', font=('Arial', 12, 'bold')
+				cx, y0 + 20, text='$0000', fill='#0f172a', font=FONT_BODY_BOLD
 			)
 			for i in range(8):
 				bx = x0 + 12 + i * ((lw_px - 24) / 8)
@@ -498,7 +499,7 @@ class LabelView(ctk.CTkFrame):
 				width=24,
 				height=24,
 				fg_color=ACCENT,
-				hover_color='#1d4ed8',
+				hover_color=ACCENT_HOVER,
 				border_color=SURFACE4,
 				checkmark_color='white',
 			).grid(row=0, column=0, padx=(PAD_SM, PAD_XS), pady=PAD_XS)

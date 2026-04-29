@@ -12,6 +12,13 @@ from utils.styles import (
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
+	FONT_BODY,
+	FONT_LABEL,
+	FONT_NAV,
+	FONT_SMALL,
+	FONT_SMALL_BOLD,
+	GREEN_TEXT,
+	ORANGE_TEXT,
 	SURFACE1,
 	SURFACE2,
 	SURFACE3,
@@ -19,7 +26,6 @@ from utils.styles import (
 	TEXT_MUTED,
 	TEXT_PRIMARY,
 	TEXT_SECONDARY,
-	make_toggle_button,
 )
 
 
@@ -83,7 +89,7 @@ class HistoryView(BaseView):
 		self.lbl_count = ctk.CTkLabel(
 			search_row,
 			text='',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 			width=110,
 			anchor='e',
@@ -118,7 +124,7 @@ class HistoryView(BaseView):
 			text='📄  Exportar CSV',
 			height=28,
 			corner_radius=6,
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			fg_color=SURFACE2,
 			hover_color=SURFACE3,
 			text_color=TEXT_SECONDARY,
@@ -184,15 +190,15 @@ class HistoryView(BaseView):
 		self.lbl_empty_history = ctk.CTkLabel(
 			inner,
 			text='📋\nNo hay ventas para el período seleccionado.',
-			font=('Arial', 13),
+			font=FONT_NAV,
 			text_color=TEXT_MUTED,
 			justify='center',
 		)
 
 		self.tree.tag_configure('fiado', foreground='#fb923c')
 		self.tree.tag_configure('pendiente', foreground='#facc15')
-		self.tree.tag_configure('completada', foreground='#4ade80')
-		self.tree.tag_configure('has_disc', foreground='#fbbf24')
+		self.tree.tag_configure('completada', foreground=GREEN_TEXT)
+		self.tree.tag_configure('has_disc', foreground=ORANGE_TEXT)
 
 		# ── Botón Ver Detalle ──────────────────────────────────────────────
 		btn_row = ctk.CTkFrame(self, fg_color='transparent')
@@ -203,7 +209,7 @@ class HistoryView(BaseView):
 			text='🔍  Ver Detalle de Venta Seleccionada',
 			height=34,
 			corner_radius=8,
-			font=('Arial', 12),
+			font=FONT_BODY,
 			fg_color=SURFACE2,
 			hover_color=SURFACE3,
 			text_color=TEXT_SECONDARY,
@@ -419,16 +425,16 @@ class HistoryView(BaseView):
 		header.pack(fill='x', padx=10, pady=(10, 5))
 
 		ctk.CTkLabel(
-			header, text='Descripción', font=('Arial', 11, 'bold'), anchor='w'
+			header, text='Descripción', font=FONT_SMALL_BOLD, anchor='w'
 		).pack(side='left', fill='x', expand=True)
-		ctk.CTkLabel(header, text='Cant', font=('Arial', 11, 'bold'), width=50).pack(
+		ctk.CTkLabel(header, text='Cant', font=FONT_SMALL_BOLD, width=50).pack(
 			side='left'
 		)
-		ctk.CTkLabel(header, text='P. Unit', font=('Arial', 11, 'bold'), width=80).pack(
+		ctk.CTkLabel(header, text='P. Unit', font=FONT_SMALL_BOLD, width=80).pack(
 			side='left'
 		)
 		ctk.CTkLabel(
-			header, text='Subtotal', font=('Arial', 11, 'bold'), width=80
+			header, text='Subtotal', font=FONT_SMALL_BOLD, width=80
 		).pack(side='left')
 
 		# Items de la venta
@@ -447,28 +453,28 @@ class HistoryView(BaseView):
 			ctk.CTkLabel(
 				row,
 				text=desc,
-				font=('Arial', 11),
+				font=FONT_SMALL,
 				text_color=TEXT_SECONDARY,
 				anchor='w',
 			).pack(side='left', fill='x', expand=True)
 			ctk.CTkLabel(
 				row,
 				text=f'x{qty}',
-				font=('Arial', 11),
+				font=FONT_SMALL,
 				text_color=TEXT_PRIMARY,
 				width=50,
 			).pack(side='left')
 			ctk.CTkLabel(
 				row,
 				text=f'${price:.2f}',
-				font=('Arial', 11),
+				font=FONT_SMALL,
 				text_color=TEXT_PRIMARY,
 				width=80,
 			).pack(side='left')
 			ctk.CTkLabel(
 				row,
 				text=f'${subtotal:.2f}',
-				font=('Arial', 11, 'bold'),
+				font=FONT_SMALL_BOLD,
 				text_color=TEXT_PRIMARY,
 				width=80,
 			).pack(side='left')
@@ -484,88 +490,18 @@ class HistoryView(BaseView):
 			ctk.CTkLabel(
 				summary,
 				text='Subtotal:',
-				font=('Arial', 11),
+				font=FONT_SMALL,
 				text_color=TEXT_SECONDARY,
 				anchor='e',
 			).pack(side='left', fill='x', expand=True)
 			ctk.CTkLabel(
 				summary,
 				text=f'${subtotal_items:.2f}',
-				font=('Arial', 11),
+				font=FONT_SMALL,
 				width=80,
 				anchor='e',
 			).pack(side='right')
 
 			summary2 = ctk.CTkFrame(scroll_container, fg_color='transparent')
 			summary2.pack(fill='x', padx=10, pady=2)
-			ctk.CTkLabel(
-				summary2,
-				text='Descuento aplicado:',
-				font=('Arial', 11),
-				text_color=TEXT_SECONDARY,
-				anchor='e',
-			).pack(side='left', fill='x', expand=True)
-			ctk.CTkLabel(
-				summary2,
-				text=f'-${discount_amount:.2f}',
-				font=('Arial', 11),
-				text_color='#fbbf24',
-				width=80,
-				anchor='e',
-			).pack(side='right')
-
-		total_row = ctk.CTkFrame(scroll_container, fg_color='transparent')
-		total_row.pack(fill='x', padx=10, pady=5)
-		ctk.CTkLabel(
-			total_row,
-			text='TOTAL COBRADO:',
-			font=('Arial', 13, 'bold'),
-			text_color=TEXT_PRIMARY,
-			anchor='e',
-		).pack(side='left', fill='x', expand=True)
-		ctk.CTkLabel(
-			total_row,
-			text=f'${(subtotal_items - discount_amount):.2f}',
-			font=('Arial', 14, 'bold'),
-			text_color=ACCENT_TEXT,
-			width=80,
-			anchor='e',
-		).pack(side='right')
-
-		if pay_method_2 and pay_amount_2 > 0:
-			pay_amount_1 = sale_total - pay_amount_2
-			ctk.CTkFrame(scroll_container, height=1, fg_color=BORDER).pack(
-				fill='x', padx=10, pady=10
-			)
-			ctk.CTkLabel(
-				scroll_container,
-				text='Pago Mixto:',
-				font=('Arial', 11, 'bold'),
-				anchor='w',
-			).pack(fill='x', padx=10)
-
-			p1 = ctk.CTkFrame(scroll_container, fg_color='transparent')
-			p1.pack(fill='x', padx=10, pady=2)
-			ctk.CTkLabel(
-				p1,
-				text=pay_method.capitalize(),
-				font=('Arial', 11),
-				text_color=TEXT_SECONDARY,
-				anchor='w',
-			).pack(side='left')
-			ctk.CTkLabel(
-				p1, text=f'${pay_amount_1:.2f}', font=('Arial', 11), anchor='e'
-			).pack(side='right')
-
-			p2 = ctk.CTkFrame(scroll_container, fg_color='transparent')
-			p2.pack(fill='x', padx=10, pady=2)
-			ctk.CTkLabel(
-				p2,
-				text=pay_method_2.capitalize(),
-				font=('Arial', 11),
-				text_color=TEXT_SECONDARY,
-				anchor='w',
-			).pack(side='left')
-			ctk.CTkLabel(
-				p2, text=f'${pay_amount_2:.2f}', font=('Arial', 11), anchor='e'
-			).pack(side='right')
+		

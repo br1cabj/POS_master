@@ -23,6 +23,7 @@ from utils.styles import (
 	ACCENT_DIM,
 	ACCENT_TEXT,
 	BORDER,
+	FONT_SMALL,
 	GREEN,
 	GREEN_TEXT,
 	ORANGE_TEXT,
@@ -31,7 +32,6 @@ from utils.styles import (
 	SURFACE3,
 	TEXT_MUTED,
 	TEXT_PRIMARY,
-	apply_treeview_style,
 )
 
 
@@ -73,7 +73,7 @@ class ArticleHistoryView(BaseView):
 		self.lbl_count = ctk.CTkLabel(
 			title_box,
 			text='Cargando registros...',
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 		)
 		self.lbl_count.pack(anchor='w')

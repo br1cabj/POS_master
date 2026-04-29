@@ -12,6 +12,8 @@ from utils.styles import (
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
+	FONT_LABEL,
+	FONT_NAV,
 	GREEN,
 	GREEN_DIM,
 	GREEN_TEXT,
@@ -22,7 +24,6 @@ from utils.styles import (
 	SURFACE4,
 	TEXT_MUTED,
 	TEXT_PRIMARY,
-	apply_treeview_style,
 )
 
 
@@ -185,7 +186,7 @@ class CustomersView(BaseView):
 		ctk.CTkLabel(
 			self.right_panel,
 			text='El saldo indica la deuda acumulada total del cliente.',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).pack(anchor='w', padx=16, pady=(0, 6))
 
@@ -208,7 +209,7 @@ class CustomersView(BaseView):
 		self.lbl_count = ctk.CTkLabel(
 			search_row,
 			text='',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 			width=100,
 			anchor='e',
@@ -247,7 +248,7 @@ class CustomersView(BaseView):
 		self.lbl_empty_customers = ctk.CTkLabel(
 			self.table_container,
 			text='👤\nNo hay clientes registrados.\nAgregá el primero con el formulario.',
-			font=('Arial', 13),
+			font=FONT_NAV,
 			text_color=TEXT_MUTED,
 			justify='center',
 		)

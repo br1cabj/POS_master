@@ -12,6 +12,7 @@ from utils.styles import (
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
+	FONT_LABEL,
 	RED,
 	RED_DIM,
 	RED_TEXT,
@@ -125,7 +126,7 @@ class SuppliersView(BaseView):
 		ctk.CTkLabel(
 			self.right_panel,
 			text='Doble clic para editar',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).pack(anchor='w', padx=16, pady=(0, 10))
 

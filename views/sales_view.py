@@ -19,6 +19,16 @@ from utils.styles import (
 	ACCENT_DIM,
 	ACCENT_TEXT,
 	BORDER,
+	FONT_BODY,
+	FONT_BODY_BOLD,
+	FONT_HEADING,
+	FONT_LABEL,
+	FONT_LABEL_BOLD,
+	FONT_NAV,
+	FONT_SMALL,
+	FONT_SMALL_BOLD,
+	FONT_SUBHEADING,
+	FONT_TITLE,
 	GREEN,
 	GREEN_TEXT,
 	ORANGE,
@@ -58,7 +68,7 @@ class SalesView(BaseView):
 		apply_treeview_style()
 		ttk.Style().map('Treeview.Heading', background=[('active', SURFACE4)])
 		# Aumentamos tamaño de fuente en la grilla para mejor legibilidad
-		ttk.Style().configure('Treeview', font=('Arial', 11))
+		ttk.Style().configure('Treeview', font=FONT_SMALL)
 
 		self._build_left_panel()
 		self._build_center_panel()
@@ -98,7 +108,7 @@ class SalesView(BaseView):
 		ctk.CTkLabel(
 			self.left_panel,
 			text='F6 → foco lector  ·  F5 → cobrar',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).pack(pady=(2, 10))
 
@@ -113,7 +123,7 @@ class SalesView(BaseView):
 			text_color=TEXT_PRIMARY,
 			placeholder_text_color=TEXT_MUTED,
 			height=38,
-			font=('Arial', 13),
+			font=FONT_NAV,
 		)
 		self.entry_barcode.pack(fill='x', padx=14, pady=(4, 10))
 		self.entry_barcode.bind('<Return>', self._barcode_on_enter)
@@ -138,7 +148,7 @@ class SalesView(BaseView):
 		qty_row.pack(fill='x', padx=14, pady=(0, 6))
 
 		ctk.CTkLabel(
-			qty_row, text='Cantidad:', font=('Arial', 11), text_color=TEXT_SECONDARY
+			qty_row, text='Cantidad:', font=FONT_SMALL, text_color=TEXT_SECONDARY
 		).pack(side='left', padx=(0, 8))
 		self.qty_entry = ctk.CTkEntry(
 			qty_row,
@@ -158,7 +168,7 @@ class SalesView(BaseView):
 			fg_color=ACCENT_DIM,
 			hover_color=ACCENT,
 			text_color=ACCENT_TEXT,
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			height=34,
 			corner_radius=8,
 			command=self._manual_search_on_enter,
@@ -217,7 +227,7 @@ class SalesView(BaseView):
 			fg_color=SURFACE3,
 			hover_color=SURFACE4,
 			text_color=ORANGE_TEXT,
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			border_width=1,
 			border_color=ORANGE,
 			height=34,
@@ -227,7 +237,7 @@ class SalesView(BaseView):
 		self.btn_add_fast.pack(fill='x', padx=14, pady=(0, 10))
 
 		self.lbl_msg = ctk.CTkLabel(
-			self.left_panel, text='', font=('Arial', 12, 'bold'), text_color=GREEN_TEXT
+			self.left_panel, text='', font=FONT_BODY_BOLD, text_color=GREEN_TEXT
 		)
 		self.lbl_msg.pack(pady=2)
 
@@ -256,9 +266,9 @@ class SalesView(BaseView):
 			anchor='w',
 		).pack(side='left')
 
-		ctk.CTkLabel(
-			hdr, text='Cliente:', font=('Arial', 12), text_color=TEXT_MUTED
-		).pack(side='left', padx=(20, 4))
+		ctk.CTkLabel(hdr, text='Cliente:', font=FONT_BODY, text_color=TEXT_MUTED).pack(
+			side='left', padx=(20, 4)
+		)
 
 		self.customers_combo = ctk.CTkComboBox(
 			hdr,
@@ -279,7 +289,7 @@ class SalesView(BaseView):
 			fg_color='transparent',
 			hover_color=SURFACE3,
 			text_color=TEXT_MUTED,
-			font=('Arial', 12),
+			font=FONT_BODY,
 			width=70,
 			height=28,
 			corner_radius=6,
@@ -301,7 +311,7 @@ class SalesView(BaseView):
 		ctk.CTkLabel(
 			self.banner_caja,
 			text='⚠  No hay caja abierta · Las ventas no podrán procesarse',
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			text_color=ORANGE_TEXT,
 		).pack(pady=8, padx=12)
 
@@ -350,7 +360,7 @@ class SalesView(BaseView):
 			border_color=BORDER,
 			height=32,
 			corner_radius=8,
-			font=('Arial', 12),
+			font=FONT_BODY,
 			command=self.remove_from_cart,
 		)
 		self.btn_remove.pack(side='left')
@@ -392,7 +402,7 @@ class SalesView(BaseView):
 		ctk.CTkLabel(
 			inner,
 			text='🏷  DESCUENTO',
-			font=('Arial', 11, 'bold'),
+			font=FONT_SMALL_BOLD,
 			text_color=TEXT_MUTED,
 		).pack(side='left', padx=(0, 8))
 
@@ -403,7 +413,7 @@ class SalesView(BaseView):
 				text=f'{pct}%',
 				width=42,
 				height=28,
-				font=('Arial', 12, 'bold'),
+				font=FONT_BODY_BOLD,
 				fg_color='transparent',
 				hover_color=SURFACE4,
 				text_color=TEXT_SECONDARY,
@@ -423,7 +433,7 @@ class SalesView(BaseView):
 			inner,
 			width=60,
 			height=28,
-			font=('Arial', 12),
+			font=FONT_BODY,
 			fg_color=SURFACE2,
 			border_color=BORDER,
 			text_color=TEXT_PRIMARY,
@@ -440,7 +450,7 @@ class SalesView(BaseView):
 			text='Aplicar',
 			width=60,
 			height=28,
-			font=('Arial', 11, 'bold'),
+			font=FONT_SMALL_BOLD,
 			fg_color=ACCENT_DIM,
 			hover_color=ACCENT,
 			text_color=ACCENT_TEXT,
@@ -455,7 +465,7 @@ class SalesView(BaseView):
 			text='× Sin desc.',
 			width=80,
 			height=28,
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			fg_color='transparent',
 			hover_color=RED_DIM,
 			text_color=TEXT_MUTED,
@@ -482,12 +492,12 @@ class SalesView(BaseView):
 		ctk.CTkLabel(
 			sub_row,
 			text='SUBTOTAL',
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(side='left')
 		self._lbl_subtotal = ctk.CTkLabel(
-			sub_row, text='$0', font=('Arial', 14), text_color=TEXT_MUTED, anchor='e'
+			sub_row, text='$0', font=FONT_SUBHEADING, text_color=TEXT_MUTED, anchor='e'
 		)
 		self._lbl_subtotal.pack(side='right')
 
@@ -495,7 +505,7 @@ class SalesView(BaseView):
 		self._lbl_disc_label = ctk.CTkLabel(
 			self._disc_row,
 			text='',
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			text_color=RED_TEXT,
 			anchor='w',
 		)
@@ -503,7 +513,7 @@ class SalesView(BaseView):
 		self._lbl_disc_value = ctk.CTkLabel(
 			self._disc_row,
 			text='',
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 			text_color=RED_TEXT,
 			anchor='e',
 		)
@@ -514,7 +524,7 @@ class SalesView(BaseView):
 		ctk.CTkLabel(
 			inner,
 			text='TOTAL',
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(anchor='w', pady=(6, 0))
@@ -546,7 +556,7 @@ class SalesView(BaseView):
 		ctk.CTkLabel(
 			hdr,
 			text='Accesos Rápidos',
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
 		).pack(side='left')
@@ -554,7 +564,7 @@ class SalesView(BaseView):
 		ctk.CTkLabel(
 			self.right_panel,
 			text='Combos y productos fijos',
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 		).pack(pady=(0, 8))
 
@@ -626,7 +636,7 @@ class SalesView(BaseView):
 		ctk.CTkLabel(
 			wrapper,
 			text=text.upper(),
-			font=('Arial', 10, 'bold'),
+			font=FONT_LABEL_BOLD,
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(anchor='w')
@@ -719,7 +729,7 @@ class SalesView(BaseView):
 				lbl_name = ctk.CTkLabel(
 					inner,
 					text=name,
-					font=('Arial', 12, 'bold'),
+					font=FONT_BODY_BOLD,
 					text_color=TEXT_MUTED if is_disabled else ACCENT_TEXT,
 					wraplength=108,
 					justify='center',
@@ -728,14 +738,14 @@ class SalesView(BaseView):
 				lbl_price = ctk.CTkLabel(
 					inner,
 					text=f'${price:.2f}',
-					font=('Arial', 11),
+					font=FONT_SMALL,
 					text_color=TEXT_MUTED if is_disabled else ACCENT_TEXT,
 				)
 				lbl_price.pack()
 				lbl_stock = ctk.CTkLabel(
 					inner,
 					text=stock_label,
-					font=('Arial', 10),
+					font=FONT_LABEL,
 					text_color=stock_color,
 				)
 				lbl_stock.pack()
@@ -761,7 +771,7 @@ class SalesView(BaseView):
 			ctk.CTkLabel(
 				self.touch_scroll,
 				text='Sin combos\nasignados',
-				font=('Arial', 12),
+				font=FONT_BODY,
 				text_color=TEXT_MUTED,
 				justify='center',
 			).pack(pady=40)
@@ -798,7 +808,7 @@ class SalesView(BaseView):
 		elif len(matches) > 1:
 			self._show_search_results_popup(matches)
 		else:
-			self._set_msg('⚠ No se encontraron artículos', '#f87171')
+			self._set_msg('⚠ No se encontraron artículos', RED_TEXT)
 
 	def _show_search_results_popup(self, matches):
 		"""Muestra un modal rápido con los resultados de la búsqueda manual."""
@@ -809,9 +819,9 @@ class SalesView(BaseView):
 		popup.grab_set()
 		popup.bind('<Escape>', lambda e: popup.destroy())
 
-		ctk.CTkLabel(
-			popup, text='Seleccione el artículo', font=('Arial', 14, 'bold')
-		).pack(pady=10)
+		ctk.CTkLabel(popup, text='Seleccione el artículo', font=FONT_HEADING).pack(
+			pady=10
+		)
 
 		scroll = ctk.CTkScrollableFrame(popup, fg_color='transparent')
 		scroll.pack(fill='both', expand=True, padx=15, pady=5)
@@ -824,7 +834,7 @@ class SalesView(BaseView):
 			btn = ctk.CTkButton(
 				scroll,
 				text=f'{name}  |  ${price:.2f}  |  Stock: {stock}',
-				font=('Arial', 12),
+				font=FONT_BODY,
 				height=36,
 				fg_color=SURFACE3,
 				hover_color=ACCENT_DIM,
@@ -844,7 +854,7 @@ class SalesView(BaseView):
 			if qty_to_add <= Decimal('0.0'):
 				raise ValueError
 		except (ValueError, InvalidOperation):
-			self._set_msg('⚠ Cantidad inválida', '#f87171')
+			self._set_msg('⚠ Cantidad inválida', RED_TEXT)
 			return
 
 		variant_id = variant.get('variant_id')
@@ -854,9 +864,7 @@ class SalesView(BaseView):
 		current_cart_qty = Decimal(str(self._get_qty_in_cart(variant_id)))
 
 		if (current_cart_qty + qty_to_add) > total_stock:
-			self._set_msg(
-				f'⚠ Stock insuficiente. Disponibles: {total_stock}', '#f87171'
-			)
+			self._set_msg(f'⚠ Stock insuficiente. Disponibles: {total_stock}', RED_TEXT)
 			return
 
 		subtotal = price * qty_to_add
@@ -957,7 +965,7 @@ class SalesView(BaseView):
 				return
 
 		if not found_variant:
-			self._set_msg(f'⚠ Código no encontrado: {raw_code}', '#f87171')
+			self._set_msg(f'⚠ Código no encontrado: {raw_code}', RED_TEXT)
 			self.entry_barcode.delete(0, 'end')
 			return
 
@@ -968,7 +976,7 @@ class SalesView(BaseView):
 
 		if is_scale_barcode:
 			if unit_price == 0:
-				self._set_msg('⚠ Producto de balanza con precio $0', '#f87171')
+				self._set_msg('⚠ Producto de balanza con precio $0', RED_TEXT)
 				self.entry_barcode.delete(0, 'end')
 				return
 			qty_to_add = scale_price / unit_price
@@ -981,7 +989,7 @@ class SalesView(BaseView):
 		if (current_cart_qty + qty_to_add) > total_stock:
 			self._set_msg(
 				f'⚠ Stock insuficiente — en carrito: {current_cart_qty:.0f}, disponible: {total_stock:.0f}',
-				'#f87171',
+				RED_TEXT,
 			)
 			self.entry_barcode.delete(0, 'end')
 			return
@@ -1025,7 +1033,7 @@ class SalesView(BaseView):
 		current_cart_qty = Decimal(str(self._get_qty_in_cart(variant_id)))
 
 		if (current_cart_qty + qty_to_add) > total_stock:
-			self._set_msg('⚠ No hay stock suficiente.', '#f87171')
+			self._set_msg('⚠ No hay stock suficiente.', RED_TEXT)
 			return
 
 		price = Decimal(str(found.get('selling_price', 0.0)))
@@ -1071,7 +1079,7 @@ class SalesView(BaseView):
 			if price < Decimal('0.0') or qty <= Decimal('0.0'):
 				raise ValueError
 		except (ValueError, InvalidOperation):
-			self._set_msg('⚠ Ingresá números válidos', '#f87171')
+			self._set_msg('⚠ Ingresá números válidos', RED_TEXT)
 			return
 
 		subtotal = price * qty
@@ -1177,7 +1185,7 @@ class SalesView(BaseView):
 				self.tree.delete(item)
 			self._set_discount_pct(Decimal('0'))
 			self.update_total()
-			self._set_msg('Venta anulada.', '#f87171')
+			self._set_msg('Venta anulada.', RED_TEXT)
 			self.entry_barcode.focus()
 
 	# =========================================================
@@ -1185,7 +1193,7 @@ class SalesView(BaseView):
 	# =========================================================
 	def process_sale(self):
 		if not self.cart:
-			self._set_msg('⚠ Agregá productos antes de cobrar', '#f87171')
+			self._set_msg('⚠ Agregá productos antes de cobrar', RED_TEXT)
 			return
 
 		raw_total = sum(
@@ -1219,7 +1227,7 @@ class SalesView(BaseView):
 		ctk.CTkLabel(
 			self.popup,
 			text='Resumen de Venta',
-			font=('Arial', 14),
+			font=FONT_SUBHEADING,
 			text_color=TEXT_MUTED,
 		).pack(pady=(16, 4))
 
@@ -1241,14 +1249,14 @@ class SalesView(BaseView):
 			ctk.CTkLabel(
 				row_sub,
 				text='Subtotal',
-				font=('Arial', 12),
+				font=FONT_BODY,
 				text_color=TEXT_MUTED,
 				anchor='w',
 			).pack(side='left')
 			ctk.CTkLabel(
 				row_sub,
 				text=f'${raw_total:,.2f}',
-				font=('Arial', 12),
+				font=FONT_BODY,
 				text_color=TEXT_MUTED,
 				anchor='e',
 			).pack(side='right')
@@ -1259,14 +1267,14 @@ class SalesView(BaseView):
 			ctk.CTkLabel(
 				row_disc,
 				text=f'Descuento ({pct_str})',
-				font=('Arial', 12, 'bold'),
+				font=FONT_BODY_BOLD,
 				text_color=RED_TEXT,
 				anchor='w',
 			).pack(side='left')
 			ctk.CTkLabel(
 				row_disc,
 				text=f'-${self._discount_amount:,.2f}',
-				font=('Arial', 12, 'bold'),
+				font=FONT_BODY_BOLD,
 				text_color=RED_TEXT,
 				anchor='e',
 			).pack(side='right')
@@ -1278,14 +1286,14 @@ class SalesView(BaseView):
 			ctk.CTkLabel(
 				row_total,
 				text='TOTAL A COBRAR',
-				font=('Arial', 12, 'bold'),
+				font=FONT_BODY_BOLD,
 				text_color=TEXT_PRIMARY,
 				anchor='w',
 			).pack(side='left')
 			ctk.CTkLabel(
 				row_total,
 				text=f'${self.current_total:,.2f}',
-				font=('Arial', 18, 'bold'),
+				font=FONT_TITLE,
 				text_color=GREEN_TEXT,
 				anchor='e',
 			).pack(side='right')
@@ -1302,7 +1310,7 @@ class SalesView(BaseView):
 			ctk.CTkLabel(
 				self.popup,
 				text=f'📋  Cliente: {self.customer_name}',
-				font=('Arial', 14, 'bold'),
+				font=FONT_HEADING,
 				text_color=ACCENT_TEXT,
 			).pack(pady=(0, 4))
 
@@ -1314,7 +1322,7 @@ class SalesView(BaseView):
 		ctk.CTkLabel(
 			self.popup,
 			text='MÉTODO DE PAGO',
-			font=('Arial', 11, 'bold'),
+			font=FONT_SMALL_BOLD,
 			text_color=TEXT_MUTED,
 		).pack(padx=24, anchor='w')
 		self.combo_payment = ctk.CTkComboBox(
@@ -1325,7 +1333,7 @@ class SalesView(BaseView):
 			button_color=SURFACE4,
 			button_hover_color=ACCENT,
 			text_color=TEXT_PRIMARY,
-			font=('Arial', 14),
+			font=FONT_SUBHEADING,
 			width=300,
 			height=36,
 			command=self._on_payment_change,
@@ -1341,7 +1349,7 @@ class SalesView(BaseView):
 			mixto_row,
 			text='💰  Pago Mixto (dos métodos)',
 			variable=self._mixto_var,
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			text_color=TEXT_SECONDARY,
 			fg_color=SURFACE3,
 			progress_color=ACCENT,
@@ -1361,7 +1369,7 @@ class SalesView(BaseView):
 		ctk.CTkLabel(
 			_mx,
 			text='Segundo método:',
-			font=('Arial', 11, 'bold'),
+			font=FONT_SMALL_BOLD,
 			text_color=TEXT_MUTED,
 		).pack(anchor='w')
 		self.combo_payment_2 = ctk.CTkComboBox(
@@ -1372,7 +1380,7 @@ class SalesView(BaseView):
 			button_color=SURFACE4,
 			button_hover_color=ACCENT,
 			text_color=TEXT_PRIMARY,
-			font=('Arial', 13),
+			font=FONT_NAV,
 			height=34,
 		)
 		self.combo_payment_2.set('Transferencia')
@@ -1380,12 +1388,12 @@ class SalesView(BaseView):
 		ctk.CTkLabel(
 			_mx,
 			text='Monto del segundo método ($):',
-			font=('Arial', 11, 'bold'),
+			font=FONT_SMALL_BOLD,
 			text_color=TEXT_MUTED,
 		).pack(anchor='w')
 		self.entry_amount_2 = ctk.CTkEntry(
 			_mx,
-			font=('Arial', 18),
+			font=FONT_TITLE,
 			justify='center',
 			fg_color=SURFACE2,
 			border_color=BORDER,
@@ -1395,7 +1403,7 @@ class SalesView(BaseView):
 		self.entry_amount_2.pack(fill='x', pady=(4, 6))
 		self.entry_amount_2.bind('<KeyRelease>', self._on_amount2_change)
 		self._lbl_amount_1_auto = ctk.CTkLabel(
-			_mx, text='', font=('Arial', 12, 'bold'), text_color=GREEN_TEXT, anchor='e'
+			_mx, text='', font=FONT_BODY_BOLD, text_color=GREEN_TEXT, anchor='e'
 		)
 		self._lbl_amount_1_auto.pack(fill='x')
 
@@ -1403,7 +1411,7 @@ class SalesView(BaseView):
 		self._lbl_cash = ctk.CTkLabel(
 			self.popup,
 			text='EL CLIENTE ABONA (efectivo) - Presione Enter',
-			font=('Arial', 11, 'bold'),
+			font=FONT_SMALL_BOLD,
 			text_color=TEXT_MUTED,
 		)
 		self._lbl_cash.pack(padx=24, anchor='w')
@@ -1432,7 +1440,7 @@ class SalesView(BaseView):
 		)
 		self.lbl_change.pack(pady=8)
 		self.lbl_error_popup = ctk.CTkLabel(
-			self.popup, text='', text_color='#f87171', font=('Arial', 13)
+			self.popup, text='', text_color=RED_TEXT, font=FONT_NAV
 		)
 		self.lbl_error_popup.pack()
 
@@ -1455,7 +1463,7 @@ class SalesView(BaseView):
 				fg_color=SURFACE3,
 				hover_color=SURFACE4,
 				text_color=ORANGE_TEXT,
-				font=('Arial', 14, 'bold'),
+				font=FONT_HEADING,
 				border_width=1,
 				border_color=ORANGE,
 				height=42,
@@ -1469,7 +1477,7 @@ class SalesView(BaseView):
 			fg_color='transparent',
 			hover_color=SURFACE3,
 			text_color=TEXT_MUTED,
-			font=('Arial', 13),
+			font=FONT_NAV,
 			height=36,
 			corner_radius=8,
 			command=self.popup.destroy,
@@ -1497,13 +1505,13 @@ class SalesView(BaseView):
 			paid = Decimal(paid_str)
 			change = paid - self.current_total
 			if change < Decimal('0.0'):
-				self.lbl_change.configure(text='⚠ Falta dinero', text_color='#f87171')
+				self.lbl_change.configure(text='⚠ Falta dinero', text_color=RED_TEXT)
 			else:
 				self.lbl_change.configure(
 					text=f'Vuelto: ${change:,.2f}', text_color=ACCENT_TEXT
 				)
 		except (ValueError, InvalidOperation):
-			self.lbl_change.configure(text='Monto inválido', text_color='#f87171')
+			self.lbl_change.configure(text='Monto inválido', text_color=RED_TEXT)
 
 	def _toggle_mixto(self):
 		is_on = self._mixto_var.get()
@@ -1531,7 +1539,7 @@ class SalesView(BaseView):
 			method1 = self.combo_payment.get()
 			if amt1 < 0:
 				self._lbl_amount_1_auto.configure(
-					text='⚠ El monto excede el total', text_color='#f87171'
+					text='⚠ El monto excede el total', text_color=RED_TEXT
 				)
 			else:
 				self._lbl_amount_1_auto.configure(

@@ -11,6 +11,14 @@ from utils.styles import (
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
+	FONT_BODY,
+	FONT_BODY_BOLD,
+	FONT_HEADING,
+	FONT_LOGO,
+	FONT_SMALL,
+	FONT_SMALL_BOLD,
+	FONT_SUBHEADING,
+	FONT_TITLE,
 	ORANGE,
 	ORANGE_DIM,
 	ORANGE_TEXT,
@@ -53,14 +61,14 @@ class LoginView(ctk.CTkFrame):
 		ctk.CTkLabel(
 			self.login_frame,
 			text='CloudPOS',
-			font=('Arial', 38, 'bold'),
+			font=FONT_LOGO,
 			text_color=ACCENT_TEXT,
 		).pack(pady=(24, 0))
 
 		ctk.CTkLabel(
 			self.login_frame,
 			text='Sistema de Gestión',
-			font=('Arial', 14),
+			font=FONT_SUBHEADING,
 			text_color=TEXT_MUTED,
 		).pack(pady=(2, 28))
 
@@ -90,7 +98,7 @@ class LoginView(ctk.CTkFrame):
 		self.check_show_pass = ctk.CTkCheckBox(
 			self.login_frame,
 			text='Mostrar contraseña',
-			font=('Arial', 12),
+			font=FONT_BODY,
 			text_color=TEXT_MUTED,
 			command=self.toggle_password,
 		)
@@ -101,7 +109,7 @@ class LoginView(ctk.CTkFrame):
 			text='INICIAR SESIÓN',
 			width=300,
 			height=46,
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 			fg_color=ACCENT_DIM,
 			hover_color=ACCENT,
 			text_color=ACCENT_TEXT,
@@ -117,7 +125,7 @@ class LoginView(ctk.CTkFrame):
 			text='Olvidé mi contraseña',
 			width=300,
 			height=28,
-			font=('Arial', 11),
+			font=FONT_SMALL,
 			fg_color='transparent',
 			hover_color=SURFACE3,
 			text_color=TEXT_MUTED,
@@ -130,7 +138,7 @@ class LoginView(ctk.CTkFrame):
 			self.login_frame,
 			text='',
 			text_color=RED_TEXT,
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 		)
 		self.lbl_error.pack(pady=(0, 18))
 
@@ -166,13 +174,18 @@ class LoginView(ctk.CTkFrame):
 			user_dict = self.auth_ctrl.login(username, pwd, tenant_id=tenant_id)
 			if user_dict:
 				self.on_login_success(user_dict)
-			else:
-				self.show_error('Usuario o contraseña incorrectos.')
+				return  # LoginView puede destruirse aquí — no tocar widgets
+			if not self.winfo_exists():
+				return
+			self.show_error('Usuario o contraseña incorrectos.')
 		except Exception as e:
 			logger.error(f'Error inesperado durante el login: {e}', exc_info=True)
-			self.show_error('Error de conexión a la base de datos.')
+			if self.winfo_exists():
+				self.show_error('Error de conexión a la base de datos.')
 
 	def show_error(self, message):
+		if not self.winfo_exists():
+			return
 		self.lbl_error.configure(text=message)
 		self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
 
@@ -192,14 +205,14 @@ class LoginView(ctk.CTkFrame):
 		ctk.CTkLabel(
 			container,
 			text='Recuperar Contraseña',
-			font=('Arial', 18, 'bold'),
+			font=FONT_TITLE,
 			text_color=TEXT_PRIMARY,
 		).pack(pady=(28, 4))
 
 		ctk.CTkLabel(
 			container,
 			text='Ingresá tu usuario y el PIN de recuperación\nque configuraste al crear tu cuenta.',
-			font=('Arial', 12),
+			font=FONT_BODY,
 			text_color=TEXT_SECONDARY,
 			justify='center',
 		).pack(pady=(0, 16))
@@ -265,7 +278,7 @@ class LoginView(ctk.CTkFrame):
 		entry_confirm.pack(padx=32, fill='x', pady=(0, 16))
 
 		lbl_err = ctk.CTkLabel(
-			container, text='', font=('Arial', 11, 'bold'), text_color=RED_TEXT
+			container, text='', font=FONT_SMALL_BOLD, text_color=RED_TEXT
 		)
 		lbl_err.pack(pady=(0, 4))
 
@@ -320,16 +333,3 @@ class LoginView(ctk.CTkFrame):
 			command=_do_recovery,
 		)
 		btn_recover.pack(padx=32, fill='x', pady=(0, 6))
-
-		ctk.CTkButton(
-			container,
-			text='Cancelar',
-			fg_color='transparent',
-			hover_color=SURFACE3,
-			text_color=TEXT_MUTED,
-			height=32,
-			corner_radius=8,
-			command=dialog.destroy,
-		).pack(padx=32, fill='x', pady=(0, 20))
-
-		entry_confirm.bind('<Return>', lambda e: _do_recovery())

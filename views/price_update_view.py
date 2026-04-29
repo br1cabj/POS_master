@@ -17,6 +17,8 @@ from core.context import AppContext
 from utils.styles import (
 	BORDER,
 	BORDER_ACTIVE,
+	FONT_HEADING,
+	FONT_SMALL_BOLD,
 	GREEN,
 	GREEN_DIM,
 	GREEN_TEXT,
@@ -213,7 +215,7 @@ class PriceUpdateView(BaseView):
 		self.lbl_preview_count = ctk.CTkLabel(
 			search_frame,
 			text='0 productos listos',
-			font=('Arial', 11, 'bold'),
+			font=FONT_SMALL_BOLD,
 			text_color=TEXT_MUTED,
 		)
 		self.lbl_preview_count.pack(side='right', padx=(10, 0))
@@ -273,7 +275,7 @@ class PriceUpdateView(BaseView):
 			border_width=1,
 			border_color=GREEN,
 			height=52,
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 			corner_radius=8,
 			state='disabled',
 			command=self.apply_changes,
