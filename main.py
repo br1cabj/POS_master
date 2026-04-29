@@ -8,7 +8,8 @@ from controllers.license_controller import LicenseController
 from core.context import AppContext
 from database.migrations import run_migrations
 from utils.config import make_engine
-from utils.settings_manager import SettingsManager, get as settings_get
+from utils.settings_manager import SettingsManager
+from utils.settings_manager import get as settings_get
 from views.login_view import LoginView
 from views.main_dashboard import MainDashboard
 from views.onboarding_view import OnboardingView
@@ -19,7 +20,6 @@ logger = logging.getLogger(__name__)
 ctk.set_appearance_mode('Dark')
 ctk.set_default_color_theme('blue')
 
-# Mapa seccion -> clase de vista (para navegar desde el onboarding)
 _SECTION_VIEW_MAP = {}
 
 
