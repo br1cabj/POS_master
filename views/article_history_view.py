@@ -17,6 +17,7 @@ from CTkMessagebox import CTkMessagebox
 from controllers.article_controller import ArticleController
 from core.base_view import BaseView
 from core.context import AppContext
+from utils.settings_manager import get_reports_path
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
@@ -266,25 +267,11 @@ class ArticleHistoryView(BaseView):
 			)
 			return
 
-		desktop_path = os.path.join(os.path.expanduser('~'), 'Desktop')
-		if not os.path.exists(desktop_path):
-			desktop_path = os.path.join(
-				os.path.expanduser('~'), 'Escritorio'
-			)  # Fallback
-
-		default_filename = (
-			f'auditoria_precios_{datetime.now().strftime("%Y%m%d_%H%M")}.csv'
+		import os
+		filepath = os.path.join(
+			get_reports_path(),
+			f'auditoria_precios_{datetime.now().strftime("%Y%m%d_%H%M")}.csv',
 		)
-		filepath = filedialog.asksaveasfilename(
-			initialdir=desktop_path,
-			defaultextension='.csv',
-			initialfile=default_filename,
-			title='Guardar auditoría como...',
-			filetypes=[('Archivos CSV', '*.csv'), ('Todos los archivos', '*.*')],
-		)
-
-		if not filepath:
-			return
 
 		try:
 			with open(filepath, mode='w', newline='', encoding='utf-8') as file:

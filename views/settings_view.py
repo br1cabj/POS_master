@@ -1,10 +1,3 @@
-"""
-views/settings_view.py
-======================
-Página de configuración del negocio — Design System Dark Pro 2026.
-Secciones: Empresa · Moneda · Ventas · Base de Datos
-"""
-
 import logging
 import os
 import shutil
@@ -12,7 +5,6 @@ from datetime import datetime
 from pathlib import Path
 
 import customtkinter as ctk
-from CTkMessagebox import CTkMessagebox
 
 import utils.settings_manager as cfg
 from core.base_view import BaseView
@@ -23,80 +15,34 @@ from utils.styles import (
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
+	FONT_BODY,
+	FONT_BODY_BOLD,
+	FONT_HEADING,
+	FONT_LABEL,
+	FONT_LABEL_BOLD,
+	FONT_TITLE,
 	GREEN,
 	GREEN_DIM,
 	GREEN_TEXT,
 	ORANGE,
 	ORANGE_DIM,
 	ORANGE_TEXT,
+	PAD_LG,
+	PAD_MD,
+	PAD_SM,
+	PAD_XS,
 	SURFACE2,
 	SURFACE3,
 	SURFACE4,
 	TEXT_MUTED,
 	TEXT_PRIMARY,
 	TEXT_SECONDARY,
+	make_form_label,
 )
 
 logger = logging.getLogger(__name__)
 
-# Símbolos de moneda rápidos
 CURRENCY_SYMBOLS = ['$', '€', 'S/.', '£', 'R$', '₱', '¥', '₩']
-
-
-def _section_card(parent, title: str, icon: str) -> ctk.CTkFrame:
-	"""Crea una card con header de sección."""
-	card = ctk.CTkFrame(
-		parent, fg_color=SURFACE2, corner_radius=12, border_width=1, border_color=BORDER
-	)
-
-	hdr = ctk.CTkFrame(card, fg_color='transparent')
-	hdr.pack(fill='x', padx=16, pady=(14, 4))
-	ctk.CTkLabel(
-		hdr,
-		text=f'{icon}  {title}',
-		font=('Arial', 13, 'bold'),
-		text_color=TEXT_PRIMARY,
-		anchor='w',
-	).pack(side='left')
-
-	ctk.CTkFrame(card, height=1, fg_color=BORDER, corner_radius=0).pack(
-		fill='x', padx=14, pady=(0, 10)
-	)
-	return card
-
-
-def _field_row(parent, label: str, widget_factory):
-	"""Fila label + widget dentro de una card."""
-	row = ctk.CTkFrame(parent, fg_color='transparent')
-	row.pack(fill='x', padx=16, pady=(0, 10))
-	row.grid_columnconfigure(1, weight=1)
-
-	ctk.CTkLabel(
-		row,
-		text=label,
-		font=('Arial', 11),
-		text_color=TEXT_SECONDARY,
-		anchor='w',
-		width=180,
-	).grid(row=0, column=0, sticky='w')
-
-	widget = widget_factory(row)
-	widget.grid(row=0, column=1, sticky='ew', padx=(8, 0))
-	return widget
-
-
-def _make_entry(parent, value='', placeholder=''):
-	e = ctk.CTkEntry(
-		parent,
-		placeholder_text=placeholder,
-		fg_color=SURFACE3,
-		border_color=BORDER_ACTIVE,
-		text_color=TEXT_PRIMARY,
-		height=34,
-	)
-	if value:
-		e.insert(0, str(value))
-	return e
 
 
 class SettingsView(BaseView):
@@ -104,19 +50,19 @@ class SettingsView(BaseView):
 		super().__init__(master, ctx)
 		self.db_engine = ctx.db_engine
 		self._settings = cfg.load()
-		self._saved = True  # False cuando hay cambios sin guardar
+		self._saved = True
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_rowconfigure(1, weight=1)
 
 		# ── Header ────────────────────────────────────────────────────────
 		hdr = ctk.CTkFrame(self, fg_color='transparent')
-		hdr.grid(row=0, column=0, sticky='ew', padx=20, pady=(20, 0))
+		hdr.grid(row=0, column=0, sticky='ew', padx=PAD_LG, pady=(PAD_LG, 0))
 
 		ctk.CTkLabel(
 			hdr,
 			text='⚙  Configuración',
-			font=('Arial', 22, 'bold'),
+			font=FONT_TITLE,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
 		).pack(side='left')
@@ -124,11 +70,11 @@ class SettingsView(BaseView):
 		ctk.CTkLabel(
 			hdr,
 			text='Los cambios se aplican al guardar',
-			font=('Arial', 11),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
-		).pack(side='left', padx=14)
+		).pack(side='left', padx=PAD_MD)
 
-		ctk.CTkButton(
+		self.btn_save = ctk.CTkButton(
 			hdr,
 			text='💾  Guardar Cambios',
 			fg_color=GREEN_DIM,
@@ -139,8 +85,10 @@ class SettingsView(BaseView):
 			width=160,
 			height=36,
 			corner_radius=8,
+			font=FONT_BODY_BOLD,
 			command=self._save_all,
-		).pack(side='right')
+		)
+		self.btn_save.pack(side='right')
 
 		# ── Cuerpo scrollable ─────────────────────────────────────────────
 		scroll = ctk.CTkScrollableFrame(
@@ -148,25 +96,24 @@ class SettingsView(BaseView):
 			fg_color='transparent',
 			scrollbar_button_color=SURFACE3,
 		)
-		scroll.grid(row=1, column=0, sticky='nsew', padx=20, pady=14)
+		scroll.grid(row=1, column=0, sticky='nsew', padx=PAD_MD, pady=PAD_MD)
 		scroll.grid_columnconfigure(0, weight=1)
 		scroll.grid_columnconfigure(1, weight=1)
 
-		# ── Columna izquierda ─────────────────────────────────────────────
 		left = ctk.CTkFrame(scroll, fg_color='transparent')
-		left.grid(row=0, column=0, sticky='nsew', padx=(0, 8))
+		left.grid(row=0, column=0, sticky='nsew', padx=(0, PAD_SM))
 
 		self._build_empresa(left)
+		self._build_reportes(left)
 		self._build_datos(left)
 
-		# ── Columna derecha ───────────────────────────────────────────────
 		right = ctk.CTkFrame(scroll, fg_color='transparent')
-		right.grid(row=0, column=1, sticky='nsew', padx=(8, 0))
+		right.grid(row=0, column=1, sticky='nsew', padx=(PAD_SM, 0))
 
 		self._build_moneda(right)
 		self._build_ventas(right)
 
-		# Marcar dirty al editar cualquier campo
+		# CORRECCIÓN: Eventos de teclado bindeados correctamente
 		for entry in (
 			self.entry_company_name,
 			self.entry_company_address,
@@ -176,56 +123,107 @@ class SettingsView(BaseView):
 		):
 			entry.bind('<KeyRelease>', self._mark_dirty)
 
+	# ── Helpers internos de la clase ──────────────────────────────────
+	def _section_card(self, parent, title: str, icon: str) -> ctk.CTkFrame:
+		card = ctk.CTkFrame(
+			parent,
+			fg_color=SURFACE2,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
+		)
+		hdr = ctk.CTkFrame(card, fg_color='transparent')
+		hdr.pack(fill='x', padx=PAD_MD, pady=(PAD_MD, PAD_XS))
+		ctk.CTkLabel(
+			hdr,
+			text=f'{icon}  {title}',
+			font=FONT_HEADING,
+			text_color=TEXT_PRIMARY,
+			anchor='w',
+		).pack(side='left')
+		ctk.CTkFrame(card, height=1, fg_color=BORDER, corner_radius=0).pack(
+			fill='x', padx=PAD_MD, pady=(0, PAD_SM)
+		)
+		return card
+
+	def _mark_dirty(self, event=None):
+		"""Marca que hay cambios sin guardar y activa visualmente el botón de guardado."""
+		if self._saved:
+			self._saved = False
+			self.btn_save.configure(fg_color=GREEN, text_color='white')
+
+	def has_unsaved_changes(self) -> bool:
+		"""Notifica a BaseView / Dashboard si el usuario intenta salir sin guardar."""
+		return not self._saved
+
 	# =========================================================
 	# SECCIÓN: EMPRESA
 	# =========================================================
 	def _build_empresa(self, parent):
-		card = _section_card(parent, 'EMPRESA', '🏪')
-		card.pack(fill='x', pady=(0, 12))
+		card = self._section_card(parent, 'EMPRESA', '🏪')
+		card.pack(fill='x', pady=(0, PAD_MD))
 
-		self.entry_company_name = _field_row(
-			card,
-			'Nombre del negocio',
-			lambda p: _make_entry(p, self._settings.get('company_name', '')),
+		make_form_label(card, 'Nombre del negocio').pack(
+			anchor='w', padx=PAD_MD, pady=(0, PAD_XS)
 		)
-		self.entry_company_address = _field_row(
+		self.entry_company_name = ctk.CTkEntry(
 			card,
-			'Dirección',
-			lambda p: _make_entry(
-				p, self._settings.get('company_address', ''), 'Calle, número, ciudad'
-			),
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=34,
+			font=FONT_BODY,
 		)
-		self.entry_company_phone = _field_row(
+		self.entry_company_name.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
+		self.entry_company_name.insert(0, self._settings.get('company_name', ''))
+
+		make_form_label(card, 'Dirección').pack(
+			anchor='w', padx=PAD_MD, pady=(PAD_XS, PAD_XS)
+		)
+		self.entry_company_address = ctk.CTkEntry(
 			card,
-			'Teléfono / WhatsApp',
-			lambda p: _make_entry(
-				p, self._settings.get('company_phone', ''), '+54 11 ...'
-			),
+			placeholder_text='Calle, número, ciudad',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=34,
+			font=FONT_BODY,
 		)
+		self.entry_company_address.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
+		self.entry_company_address.insert(0, self._settings.get('company_address', ''))
+
+		make_form_label(card, 'Teléfono / WhatsApp').pack(
+			anchor='w', padx=PAD_MD, pady=(PAD_XS, PAD_XS)
+		)
+		self.entry_company_phone = ctk.CTkEntry(
+			card,
+			placeholder_text='+54 11 ...',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=34,
+			font=FONT_BODY,
+		)
+		self.entry_company_phone.pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
+		self.entry_company_phone.insert(0, self._settings.get('company_phone', ''))
 
 		# ── Logo del negocio ──────────────────────────────────────────
-		logo_row = ctk.CTkFrame(card, fg_color='transparent')
-		logo_row.pack(fill='x', padx=16, pady=(0, 10))
-		logo_row.grid_columnconfigure(1, weight=1)
-		ctk.CTkLabel(
-			logo_row,
-			text='Logo del negocio',
-			font=('Arial', 11),
-			text_color=TEXT_SECONDARY,
-			anchor='w',
-			width=180,
-		).grid(row=0, column=0, sticky='w')
+		ctk.CTkFrame(card, height=1, fg_color=BORDER).pack(
+			fill='x', padx=PAD_MD, pady=(0, PAD_SM)
+		)
+		make_form_label(card, 'Logo del negocio').pack(
+			anchor='w', padx=PAD_MD, pady=(0, PAD_XS)
+		)
 
-		logo_inner = ctk.CTkFrame(logo_row, fg_color='transparent')
-		logo_inner.grid(row=0, column=1, sticky='ew', padx=(8, 0))
-		logo_inner.grid_columnconfigure(0, weight=1)
+		logo_inner = ctk.CTkFrame(card, fg_color='transparent')
+		logo_inner.pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
 
 		current_logo = self._settings.get('company_logo_path', '')
 		logo_name = os.path.basename(current_logo) if current_logo else 'Sin logo'
 		self._lbl_logo_name = ctk.CTkLabel(
 			logo_inner,
 			text=logo_name,
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 			anchor='w',
 		)
@@ -233,11 +231,12 @@ class SettingsView(BaseView):
 
 		btn_row = ctk.CTkFrame(logo_inner, fg_color='transparent')
 		btn_row.grid(row=1, column=0, sticky='w', pady=(4, 0))
+
 		ctk.CTkButton(
 			btn_row,
 			text='📁  Seleccionar imagen',
 			height=30,
-			font=('Arial', 11),
+			font=FONT_LABEL_BOLD,
 			corner_radius=6,
 			fg_color=SURFACE3,
 			hover_color=SURFACE4,
@@ -245,12 +244,13 @@ class SettingsView(BaseView):
 			border_width=1,
 			border_color=BORDER,
 			command=self._pick_logo,
-		).pack(side='left', padx=(0, 6))
+		).pack(side='left', padx=(0, PAD_XS))
+
 		ctk.CTkButton(
 			btn_row,
 			text='✕ Quitar',
 			height=30,
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			corner_radius=6,
 			fg_color='transparent',
 			hover_color=SURFACE3,
@@ -259,15 +259,13 @@ class SettingsView(BaseView):
 			border_color=BORDER,
 			command=self._remove_logo,
 		).pack(side='left')
+
 		ctk.CTkLabel(
 			logo_inner,
 			text='PNG / JPG recomendado · tamaño máx. 2 MB',
-			font=('Arial', 9),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
-		).grid(row=2, column=0, sticky='w', pady=(2, 0))
-
-		# Spacer bottom
-		ctk.CTkFrame(card, height=4, fg_color='transparent').pack()
+		).grid(row=2, column=0, sticky='w', pady=(PAD_XS, 0))
 
 	def _pick_logo(self):
 		from tkinter import filedialog
@@ -282,13 +280,9 @@ class SettingsView(BaseView):
 		if not path:
 			return
 		if os.path.getsize(path) > 2 * 1024 * 1024:
-			CTkMessagebox(
-				title='Archivo muy grande',
-				message='El logo debe pesar menos de 2 MB.',
-				icon='warning',
-			)
+			self.show_warning('El logo debe pesar menos de 2 MB.', 'Archivo muy grande')
 			return
-		# Copiar el logo a la carpeta del proyecto para portabilidad
+
 		dest_dir = os.path.join(
 			os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets'
 		)
@@ -296,52 +290,42 @@ class SettingsView(BaseView):
 		ext = os.path.splitext(path)[1].lower()
 		dest = os.path.join(dest_dir, f'logo{ext}')
 		shutil.copy2(path, dest)
+
 		self._settings['company_logo_path'] = dest
-		cfg.save(self._settings)
+		self._mark_dirty()
 		self._lbl_logo_name.configure(
 			text=os.path.basename(dest), text_color=GREEN_TEXT
-		)
-		CTkMessagebox(
-			title='Logo guardado',
-			message='El logo se guardó y se usará en los presupuestos PDF.',
-			icon='check',
 		)
 
 	def _remove_logo(self):
 		self._settings['company_logo_path'] = ''
-		cfg.save(self._settings)
+		self._mark_dirty()
 		self._lbl_logo_name.configure(text='Sin logo', text_color=TEXT_MUTED)
 
 	# =========================================================
 	# SECCIÓN: MONEDA
 	# =========================================================
 	def _build_moneda(self, parent):
-		card = _section_card(parent, 'MONEDA', '💱')
-		card.pack(fill='x', pady=(0, 12))
+		card = self._section_card(parent, 'MONEDA', '💱')
+		card.pack(fill='x', pady=(0, PAD_MD))
 
-		# Quick-pick símbolo
+		make_form_label(card, 'Símbolo de moneda').pack(
+			anchor='w', padx=PAD_MD, pady=(0, PAD_XS)
+		)
+
 		sym_row = ctk.CTkFrame(card, fg_color='transparent')
-		sym_row.pack(fill='x', padx=16, pady=(0, 8))
-		ctk.CTkLabel(
-			sym_row,
-			text='Símbolo de moneda',
-			font=('Arial', 11),
-			text_color=TEXT_SECONDARY,
-			anchor='w',
-			width=180,
-		).pack(side='left')
+		sym_row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 
 		self._sym_var = ctk.StringVar(value=self._settings.get('currency_symbol', '$'))
-		btn_frame = ctk.CTkFrame(sym_row, fg_color='transparent')
-		btn_frame.pack(side='left', fill='x', expand=True, padx=(8, 0))
 
 		for sym in CURRENCY_SYMBOLS:
 			active = sym == self._sym_var.get()
 			btn = ctk.CTkButton(
-				btn_frame,
+				sym_row,
 				text=sym,
 				width=40,
-				height=30,
+				height=34,
+				font=FONT_BODY_BOLD,
 				fg_color=ACCENT_DIM if active else SURFACE3,
 				hover_color=ACCENT if active else SURFACE4,
 				text_color=ACCENT_TEXT if active else TEXT_SECONDARY,
@@ -350,19 +334,15 @@ class SettingsView(BaseView):
 				corner_radius=6,
 				command=lambda s=sym: self._pick_symbol(s),
 			)
-			btn.pack(side='left', padx=2)
+			btn.pack(side='left', padx=(0, PAD_XS))
 
-		# Custom symbol
+		make_form_label(card, 'Símbolo personalizado').pack(
+			anchor='w', padx=PAD_MD, pady=(PAD_XS, PAD_XS)
+		)
+
 		custom_row = ctk.CTkFrame(card, fg_color='transparent')
-		custom_row.pack(fill='x', padx=16, pady=(0, 10))
-		ctk.CTkLabel(
-			custom_row,
-			text='Símbolo personalizado',
-			font=('Arial', 11),
-			text_color=TEXT_SECONDARY,
-			anchor='w',
-			width=180,
-		).pack(side='left')
+		custom_row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
+
 		self.entry_custom_sym = ctk.CTkEntry(
 			custom_row,
 			width=80,
@@ -371,16 +351,18 @@ class SettingsView(BaseView):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			placeholder_text='Ej: Bs.',
+			font=FONT_BODY,
 		)
 		if self._sym_var.get() not in CURRENCY_SYMBOLS:
 			self.entry_custom_sym.insert(0, self._sym_var.get())
-		self.entry_custom_sym.pack(side='left', padx=(8, 0))
+		self.entry_custom_sym.pack(side='left', padx=(0, PAD_XS))
 
 		ctk.CTkButton(
 			custom_row,
 			text='Usar',
 			width=56,
 			height=34,
+			font=FONT_LABEL_BOLD,
 			fg_color=SURFACE3,
 			hover_color=SURFACE4,
 			text_color=TEXT_SECONDARY,
@@ -388,25 +370,19 @@ class SettingsView(BaseView):
 			border_color=BORDER,
 			corner_radius=6,
 			command=self._use_custom_sym,
-		).pack(side='left', padx=(6, 0))
-
-		# Decimales
-		dec_row = ctk.CTkFrame(card, fg_color='transparent')
-		dec_row.pack(fill='x', padx=16, pady=(0, 10))
-		ctk.CTkLabel(
-			dec_row,
-			text='Formato de precios',
-			font=('Arial', 11),
-			text_color=TEXT_SECONDARY,
-			anchor='w',
-			width=180,
 		).pack(side='left')
+
+		make_form_label(card, 'Formato de precios').pack(
+			anchor='w', padx=PAD_MD, pady=(PAD_XS, PAD_XS)
+		)
 
 		self._dec_var = ctk.IntVar(value=self._settings.get('currency_decimals', 0))
 		seg = ctk.CTkSegmentedButton(
-			dec_row,
+			card,
 			values=['Sin decimales  ($1.500)', 'Con decimales  ($1.500,00)'],
 			variable=None,
+			font=FONT_BODY,
+			height=34,
 			fg_color=SURFACE3,
 			selected_color=ACCENT_DIM,
 			selected_hover_color=ACCENT,
@@ -421,77 +397,95 @@ class SettingsView(BaseView):
 			if self._dec_var.get() == 0
 			else 'Con decimales  ($1.500,00)'
 		)
-		seg.pack(side='left', padx=(8, 0))
-		self._dec_seg = seg
+		seg.pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
 
-		# Preview
 		self.lbl_currency_preview = ctk.CTkLabel(
-			card,
-			text='',
-			font=('Arial', 13, 'bold'),
-			text_color=ACCENT_TEXT,
+			card, text='', font=FONT_HEADING, text_color=ACCENT_TEXT
 		)
-		self.lbl_currency_preview.pack(anchor='w', padx=16, pady=(0, 12))
+		self.lbl_currency_preview.pack(anchor='w', padx=PAD_MD, pady=(0, PAD_MD))
 		self._update_currency_preview()
 
 	def _pick_symbol(self, sym: str):
 		self._sym_var.set(sym)
-		self._update_currency_preview()
-		# Rebuild section to refresh button colors (easiest approach)
-		# We just store the value; visual refresh on next open
-		# For immediate feedback we update preview label
+		self._mark_dirty()
 		self._update_currency_preview()
 
 	def _use_custom_sym(self):
 		val = self.entry_custom_sym.get().strip()
 		if val:
 			self._sym_var.set(val)
+			self._mark_dirty()
 			self._update_currency_preview()
 
 	def _pick_decimals(self, val: str):
 		self._dec_var.set(0 if 'Sin' in val else 2)
+		self._mark_dirty()
 		self._update_currency_preview()
 
 	def _update_currency_preview(self):
 		sym = self._sym_var.get()
 		dec = self._dec_var.get()
 		sample = 1500.0
+		# Adaptado al formato latino local
 		if dec == 0:
-			preview = f'{sym}{sample:,.0f}'
+			preview = f'{sym}{sample:,.0f}'.replace(',', '.')
 		else:
-			preview = f'{sym}{sample:,.{dec}f}'
+			preview = (
+				f'{sym}{sample:,.{dec}f}'.replace(',', 'X')
+				.replace('.', ',')
+				.replace('X', '.')
+			)
 		self.lbl_currency_preview.configure(text=f'Vista previa:  {preview}')
 
 	# =========================================================
 	# SECCIÓN: VENTAS
 	# =========================================================
 	def _build_ventas(self, parent):
-		card = _section_card(parent, 'VENTAS Y ALERTAS', '🛒')
-		card.pack(fill='x', pady=(0, 12))
+		card = self._section_card(parent, 'VENTAS Y ALERTAS', '🛒')
+		card.pack(fill='x', pady=(0, PAD_MD))
 
-		self.entry_tax = _field_row(
+		make_form_label(card, 'IVA / Impuesto por defecto (%)').pack(
+			anchor='w', padx=PAD_MD, pady=(0, PAD_XS)
+		)
+		self.entry_tax = ctk.CTkEntry(
 			card,
-			'IVA / Impuesto por defecto (%)',
-			lambda p: _make_entry(
-				p, str(self._settings.get('tax_rate', 0.0)), '0 = sin impuesto'
-			),
+			placeholder_text='0 = sin impuesto',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=34,
+			font=FONT_BODY,
+		)
+		self.entry_tax.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
+		self.entry_tax.insert(0, str(self._settings.get('tax_rate', 0.0)))
+
+		make_form_label(card, 'Umbral de stock crítico (unid.)').pack(
+			anchor='w', padx=PAD_MD, pady=(PAD_XS, PAD_XS)
+		)
+		self.entry_low_stock = ctk.CTkEntry(
+			card,
+			placeholder_text='5',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=34,
+			font=FONT_BODY,
+		)
+		self.entry_low_stock.pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
+		self.entry_low_stock.insert(
+			0, str(self._settings.get('low_stock_threshold', 5))
 		)
 
-		self.entry_low_stock = _field_row(
-			card,
-			'Umbral de stock crítico (unid.)',
-			lambda p: _make_entry(
-				p, str(self._settings.get('low_stock_threshold', 5)), '5'
-			),
+		ctk.CTkFrame(card, height=1, fg_color=BORDER).pack(
+			fill='x', padx=PAD_MD, pady=(0, PAD_SM)
 		)
 
-		# Toggle: pedir cliente en cada venta
 		req_row = ctk.CTkFrame(card, fg_color='transparent')
-		req_row.pack(fill='x', padx=16, pady=(0, 12))
+		req_row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 		ctk.CTkLabel(
 			req_row,
 			text='Pedir cliente en cada venta',
-			font=('Arial', 11),
+			font=FONT_BODY,
 			text_color=TEXT_SECONDARY,
 			anchor='w',
 			width=180,
@@ -503,18 +497,16 @@ class SettingsView(BaseView):
 			req_row,
 			text='',
 			variable=self._req_customer_var,
-			onvalue=True,
-			offvalue=False,
 			progress_color=ACCENT,
-		).pack(side='left', padx=(8, 0))
+			command=self._mark_dirty,
+		).pack(side='left', padx=(PAD_SM, 0))
 
-		# Toggle: barra de atajos
 		bar_row = ctk.CTkFrame(card, fg_color='transparent')
-		bar_row.pack(fill='x', padx=16, pady=(0, 12))
+		bar_row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
 		ctk.CTkLabel(
 			bar_row,
 			text='Mostrar barra de atajos',
-			font=('Arial', 11),
+			font=FONT_BODY,
 			text_color=TEXT_SECONDARY,
 			anchor='w',
 			width=180,
@@ -526,17 +518,93 @@ class SettingsView(BaseView):
 			bar_row,
 			text='',
 			variable=self._show_bar_var,
-			onvalue=True,
-			offvalue=False,
 			progress_color=ACCENT,
-		).pack(side='left', padx=(8, 0))
+			command=self._mark_dirty,
+		).pack(side='left', padx=(PAD_SM, 0))
 
 	# =========================================================
-	# SECCIÓN: BASE DE DATOS
+	# SECCIÓN: REPORTES
+	# =========================================================
+	def _build_reportes(self, parent):
+		card = self._section_card(parent, 'CARPETA DE REPORTES', '📁')
+		card.pack(fill='x', pady=(0, PAD_MD))
+
+		ctk.CTkLabel(
+			card,
+			text='Los reportes, PDFs, CSV y exportaciones se guardarán en esta carpeta.',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			wraplength=360,
+			anchor='w',
+			justify='left',
+		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
+
+		current_path = cfg.get('reports_path', '') or cfg.get_reports_path()
+		self._lbl_reports_path = ctk.CTkLabel(
+			card,
+			text=current_path,
+			font=('Consolas', 11),
+			text_color=TEXT_SECONDARY,
+			wraplength=340,
+			anchor='w',
+			justify='left',
+		)
+		self._lbl_reports_path.pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
+
+		btn_row = ctk.CTkFrame(card, fg_color='transparent')
+		btn_row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
+
+		ctk.CTkButton(
+			btn_row,
+			text='📁  Elegir Carpeta',
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			border_width=1,
+			border_color=ACCENT,
+			height=36,
+			corner_radius=8,
+			font=FONT_LABEL_BOLD,
+			command=self._pick_reports_path,
+		).pack(side='left', padx=(0, PAD_SM))
+
+		ctk.CTkButton(
+			btn_row,
+			text='↺ Restaurar Desktop',
+			fg_color='transparent',
+			hover_color=SURFACE3,
+			text_color=TEXT_MUTED,
+			border_width=1,
+			border_color=BORDER,
+			height=36,
+			corner_radius=8,
+			font=FONT_LABEL,
+			command=self._reset_reports_path,
+		).pack(side='left')
+
+	def _pick_reports_path(self):
+		from tkinter import filedialog
+
+		path = filedialog.askdirectory(
+			title='Seleccionar carpeta de reportes', initialdir=cfg.get_reports_path()
+		)
+		if not path:
+			return
+		self._settings['reports_path'] = path
+		self._mark_dirty()
+		self._lbl_reports_path.configure(text=path)
+
+	def _reset_reports_path(self):
+		self._settings['reports_path'] = ''
+		self._mark_dirty()
+		self._lbl_reports_path.configure(text=cfg.get_reports_path())
+
+	# =========================================================
+	# SECCIÓN: BASE DE DATOS Y LÓGICA FINAL
 	# =========================================================
 	def _build_datos(self, parent):
-		card = _section_card(parent, 'BASE DE DATOS', '💾')
-		card.pack(fill='x', pady=(0, 12))
+		card = self._section_card(parent, 'BASE DE DATOS', '💾')
+		card.pack(fill='x', pady=(0, PAD_MD))
 
 		db_path = Path('pos_system.db').resolve()
 		ctk.CTkLabel(
@@ -544,16 +612,17 @@ class SettingsView(BaseView):
 			text=f'Archivo: {db_path.name}',
 			font=('Consolas', 11),
 			text_color=TEXT_MUTED,
-		).pack(anchor='w', padx=16, pady=(0, 4))
+		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_XS))
+
 		ctk.CTkLabel(
 			card,
 			text=f'Ubicación: {db_path.parent}',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 			wraplength=360,
 			anchor='w',
 			justify='left',
-		).pack(anchor='w', padx=16, pady=(0, 12))
+		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
 		ctk.CTkButton(
 			card,
@@ -565,92 +634,58 @@ class SettingsView(BaseView):
 			border_color=ORANGE,
 			height=38,
 			corner_radius=8,
+			font=FONT_BODY_BOLD,
 			command=self._backup_db,
-		).pack(fill='x', padx=16, pady=(0, 14))
+		).pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
 
 	def _backup_db(self):
-		src = Path('pos_system.db')
-		if not src.exists():
-			CTkMessagebox(
-				title='No encontrado',
-				message='No se encontró la base de datos pos_system.db',
-				icon='cancel',
+		"""Genera una copia de seguridad física de la base de datos sqlite en la carpeta de reportes."""
+		db_path = Path('pos_system.db').resolve()
+		if not db_path.exists():
+			self.show_error(
+				"No se encontró el archivo de base de datos 'pos_system.db'."
 			)
 			return
 
+		dest_folder = cfg.get_reports_path()
 		timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-		backup_name = f'backup_{timestamp}.db'
-		dest = src.parent / backup_name
+		backup_name = f'respaldo_CloudPOS_{timestamp}.db'
+		dest_path = Path(dest_folder) / backup_name
 
 		try:
-			shutil.copy2(src, dest)
-			CTkMessagebox(
-				title='Respaldo creado',
-				message=f'✅ Respaldo guardado como:\n{backup_name}',
-				icon='check',
-			)
+			shutil.copy2(db_path, dest_path)
+			self.show_success(f'Respaldo creado con éxito en:\n{dest_path}')
 		except Exception as e:
-			CTkMessagebox(
-				title='Error',
-				message=f'No se pudo crear el respaldo:\n{e}',
-				icon='cancel',
-			)
+			logger.error(f'Fallo al respaldar BD: {e}', exc_info=True)
+			self.show_error(f'Error al crear el respaldo:\n{e}')
 
-	def has_unsaved_changes(self) -> bool:
-		return not self._saved
-
-	def _mark_dirty(self, *_) -> None:
-		self._saved = False
-
-	# =========================================================
-	# GUARDAR TODO
-	# =========================================================
 	def _save_all(self):
-		errors = []
+		"""Valida y persiste todas las configuraciones en disco."""
+		self._settings['company_name'] = self.entry_company_name.get().strip()
+		self._settings['company_address'] = self.entry_company_address.get().strip()
+		self._settings['company_phone'] = self.entry_company_phone.get().strip()
+		self._settings['currency_symbol'] = self._sym_var.get()
+		self._settings['currency_decimals'] = self._dec_var.get()
 
 		try:
-			tax = float(self.entry_tax.get().strip().replace(',', '.') or '0')
+			self._settings['tax_rate'] = float(self.entry_tax.get().replace(',', '.'))
+			self._settings['low_stock_threshold'] = int(self.entry_low_stock.get())
 		except ValueError:
-			errors.append('IVA debe ser un número (ej: 21)')
-			tax = 0.0
-
-		try:
-			threshold = int(self.entry_low_stock.get().strip() or '5')
-		except ValueError:
-			errors.append('Umbral de stock debe ser un número entero')
-			threshold = 5
-
-		if errors:
-			CTkMessagebox(
-				title='Errores de validación',
-				message='\n'.join(f'• {e}' for e in errors),
-				icon='warning',
+			self.show_error(
+				'El IVA y el Umbral de Stock Crítico deben ser números válidos.'
 			)
 			return
 
-		# Construir dict final
-		new_settings = {
-			'company_name': self.entry_company_name.get().strip(),
-			'company_address': self.entry_company_address.get().strip(),
-			'company_phone': self.entry_company_phone.get().strip(),
-			'currency_symbol': self._sym_var.get(),
-			'currency_decimals': self._dec_var.get(),
-			'tax_rate': tax,
-			'low_stock_threshold': threshold,
-			'require_customer': self._req_customer_var.get(),
-			'show_shortcuts_bar': self._show_bar_var.get(),
-		}
+		self._settings['require_customer'] = self._req_customer_var.get()
+		self._settings['show_shortcuts_bar'] = self._show_bar_var.get()
 
-		if cfg.save(new_settings):
+		if cfg.save(self._settings):
 			self._saved = True
-			CTkMessagebox(
-				title='Configuración guardada',
-				message='✅ Los cambios fueron guardados correctamente.',
-				icon='check',
-			)
+			self.btn_save.configure(fg_color=GREEN_DIM, text_color=GREEN_TEXT)
+			self.show_success('Configuración actualizada correctamente.')
+
+			# Recargar el UI del Dashboard si el usuario activó/desactivó la barra de atajos
+			if hasattr(self.ctx, 'navigate'):
+				pass  # Aquí el Dashboard podría suscribirse a cambios de config
 		else:
-			CTkMessagebox(
-				title='Error',
-				message='No se pudo guardar la configuración. Verificá los permisos del directorio.',
-				icon='cancel',
-			)
+			self.show_error('No se pudo guardar la configuración en el disco.')

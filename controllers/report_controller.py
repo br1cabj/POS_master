@@ -33,6 +33,7 @@ from database.models import (
 	SaleDetail,
 )
 from utils.config import make_engine
+from utils.settings_manager import get_reports_path
 
 logger = logging.getLogger(__name__)
 _default_engine = make_engine()
@@ -386,11 +387,8 @@ class ReportController(BaseController):
 		pdf.cell(W, 5, 'Firma del responsable', ln=1, align='C')
 
 		# Guardar
-		desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
-		if not os.path.isdir(desktop):
-			desktop = os.path.expanduser('~')
 		fname = f'Reporte_{period["from"].strftime("%Y%m%d")}_{period["to"].strftime("%Y%m%d")}.pdf'
-		filepath = os.path.join(desktop, fname)
+		filepath = os.path.join(get_reports_path(), fname)
 		pdf.output(filepath)
 		return filepath
 

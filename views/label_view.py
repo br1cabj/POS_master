@@ -1,15 +1,7 @@
-"""
-views/label_view.py
-====================
-Módulo de impresión de etiquetas de precio/producto.
-Layout: panel izquierdo (buscador + artículos) | panel derecho (configuración + cola)
-"""
-
 import logging
 import tkinter as tk
 
 import customtkinter as ctk
-from CTkMessagebox import CTkMessagebox
 from sqlalchemy.orm import sessionmaker
 
 from controllers.label_controller import TEMPLATES, LabelController
@@ -26,6 +18,10 @@ from utils.styles import (
 	FONT_LABEL,
 	FONT_LABEL_BOLD,
 	GREEN,
+	PAD_LG,
+	PAD_MD,
+	PAD_SM,
+	PAD_XS,
 	RED,
 	RED_DIM,
 	RED_TEXT,
@@ -64,22 +60,22 @@ class LabelView(ctk.CTkFrame):
 	# ─────────────────────────────────────────────────────────────────────────
 
 	def _build(self):
-		self.grid_columnconfigure(0, weight=0)
-		self.grid_columnconfigure(1, weight=1)
+		self.grid_columnconfigure(0, weight=1)
+		self.grid_columnconfigure(1, weight=3)
 		self.grid_rowconfigure(0, weight=1)
 		self._build_left()
 		self._build_right()
 
 	def _build_left(self):
-		left = ctk.CTkFrame(self, fg_color=SURFACE0, width=340, corner_radius=0)
+		left = ctk.CTkFrame(self, fg_color=SURFACE0, corner_radius=0)
 		left.grid(row=0, column=0, sticky='nsew')
-		left.grid_propagate(False)
 		left.grid_rowconfigure(2, weight=1)
 		left.grid_columnconfigure(0, weight=1)
 
 		hdr = ctk.CTkFrame(left, fg_color='transparent')
-		hdr.grid(row=0, column=0, sticky='ew', padx=12, pady=(14, 6))
+		hdr.grid(row=0, column=0, sticky='ew', padx=PAD_MD, pady=(PAD_LG, PAD_SM))
 		hdr.grid_columnconfigure(0, weight=1)
+
 		ctk.CTkLabel(
 			hdr,
 			text='Catálogo de artículos',
@@ -88,7 +84,7 @@ class LabelView(ctk.CTkFrame):
 		).grid(row=0, column=0, sticky='w')
 
 		srch = ctk.CTkFrame(left, fg_color='transparent')
-		srch.grid(row=1, column=0, sticky='ew', padx=12, pady=(0, 6))
+		srch.grid(row=1, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_SM))
 		srch.grid_columnconfigure(0, weight=1)
 
 		self._entry_search = ctk.CTkEntry(
@@ -100,13 +96,14 @@ class LabelView(ctk.CTkFrame):
 			text_color=TEXT_PRIMARY,
 			font=FONT_BODY,
 		)
-		self._entry_search.grid(row=0, column=0, sticky='ew', pady=(0, 4))
+		self._entry_search.grid(row=0, column=0, sticky='ew', pady=(0, PAD_XS))
 		self._entry_search.bind('<KeyRelease>', self._debounced_search)
 		self._entry_search.bind('<Return>', lambda e: self._add_first_filtered())
 
 		act = ctk.CTkFrame(srch, fg_color='transparent')
 		act.grid(row=1, column=0, sticky='ew')
 		act.grid_columnconfigure((0, 1), weight=1)
+
 		ctk.CTkButton(
 			act,
 			text='Agregar selección',
@@ -116,6 +113,7 @@ class LabelView(ctk.CTkFrame):
 			hover_color='#1d4ed8',
 			command=self._add_selected_to_queue,
 		).grid(row=0, column=0, sticky='ew', padx=(0, 3))
+
 		ctk.CTkButton(
 			act,
 			text='Agregar todos',
@@ -131,7 +129,9 @@ class LabelView(ctk.CTkFrame):
 			fg_color='transparent',
 			scrollbar_button_color=SURFACE3,
 		)
-		self._catalog_frame.grid(row=2, column=0, sticky='nsew', padx=8, pady=(4, 8))
+		self._catalog_frame.grid(
+			row=2, column=0, sticky='nsew', padx=PAD_SM, pady=(PAD_XS, PAD_SM)
+		)
 		self._catalog_frame.grid_columnconfigure(0, weight=1)
 		self._catalog_rows: list[dict] = []
 
@@ -142,7 +142,7 @@ class LabelView(ctk.CTkFrame):
 		right.grid_rowconfigure(1, weight=1)
 
 		tpl_outer = ctk.CTkFrame(right, fg_color=SURFACE2, corner_radius=10)
-		tpl_outer.grid(row=0, column=0, sticky='ew', padx=20, pady=(16, 10))
+		tpl_outer.grid(row=0, column=0, sticky='ew', padx=PAD_LG, pady=(PAD_LG, PAD_SM))
 		tpl_outer.grid_columnconfigure(tuple(range(len(TEMPLATES))), weight=1)
 
 		ctk.CTkLabel(
@@ -155,8 +155,8 @@ class LabelView(ctk.CTkFrame):
 			column=0,
 			columnspan=len(TEMPLATES),
 			sticky='w',
-			padx=14,
-			pady=(10, 6),
+			padx=PAD_MD,
+			pady=(PAD_SM, PAD_XS),
 		)
 
 		self._tpl_frames: dict[str, ctk.CTkFrame] = {}
@@ -169,7 +169,7 @@ class LabelView(ctk.CTkFrame):
 				corner_radius=8,
 				cursor='hand2',
 			)
-			f.grid(row=1, column=col, padx=6, pady=(0, 12), sticky='nsew')
+			f.grid(row=1, column=col, padx=PAD_XS, pady=(0, PAD_MD), sticky='nsew')
 			self._tpl_frames[key] = f
 
 			cv = tk.Canvas(
@@ -179,7 +179,7 @@ class LabelView(ctk.CTkFrame):
 				bg=SURFACE3 if key != self._tpl_key else '#1a274a',
 				highlightthickness=0,
 			)
-			cv.pack(padx=8, pady=(8, 4))
+			cv.pack(padx=PAD_SM, pady=(PAD_SM, PAD_XS))
 			self._tpl_canvases[key] = cv
 			self._draw_template_preview(cv, key)
 
@@ -188,14 +188,15 @@ class LabelView(ctk.CTkFrame):
 				text=tpl['icon'] + '  ' + tpl['label'],
 				font=FONT_LABEL_BOLD,
 				text_color=ACCENT_TEXT if key == self._tpl_key else TEXT_SECONDARY,
-			).pack(padx=6, pady=(0, 2))
+			).pack(padx=PAD_XS, pady=(0, 2))
+
 			ctk.CTkLabel(
 				f,
 				text=tpl['desc'],
 				font=FONT_LABEL,
 				text_color=TEXT_MUTED,
 				wraplength=130,
-			).pack(padx=6, pady=(0, 8))
+			).pack(padx=PAD_XS, pady=(0, PAD_SM))
 
 			def _sel(k=key):
 				self._select_template(k)
@@ -205,12 +206,12 @@ class LabelView(ctk.CTkFrame):
 			cv.bind('<Button-1>', lambda e, k=key: self._select_template(k))
 
 		queue_outer = ctk.CTkFrame(right, fg_color=SURFACE2, corner_radius=10)
-		queue_outer.grid(row=1, column=0, sticky='nsew', padx=20, pady=(0, 10))
+		queue_outer.grid(row=1, column=0, sticky='nsew', padx=PAD_LG, pady=(0, PAD_SM))
 		queue_outer.grid_columnconfigure(0, weight=1)
 		queue_outer.grid_rowconfigure(1, weight=1)
 
 		qhdr = ctk.CTkFrame(queue_outer, fg_color='transparent')
-		qhdr.grid(row=0, column=0, sticky='ew', padx=14, pady=(10, 6))
+		qhdr.grid(row=0, column=0, sticky='ew', padx=PAD_MD, pady=(PAD_SM, PAD_XS))
 		qhdr.grid_columnconfigure(0, weight=1)
 
 		ctk.CTkLabel(
@@ -238,18 +239,20 @@ class LabelView(ctk.CTkFrame):
 			hover_color=RED_DIM,
 			text_color=TEXT_SECONDARY,
 			command=self._clear_queue,
-		).grid(row=0, column=2, padx=(8, 0))
+		).grid(row=0, column=2, padx=(PAD_SM, 0))
 
 		self._queue_frame = ctk.CTkScrollableFrame(
 			queue_outer,
 			fg_color='transparent',
 			scrollbar_button_color=SURFACE3,
 		)
-		self._queue_frame.grid(row=1, column=0, sticky='nsew', padx=8, pady=(0, 8))
+		self._queue_frame.grid(
+			row=1, column=0, sticky='nsew', padx=PAD_SM, pady=(0, PAD_SM)
+		)
 		self._queue_frame.grid_columnconfigure(0, weight=1)
 
 		footer = ctk.CTkFrame(right, fg_color='transparent')
-		footer.grid(row=2, column=0, sticky='ew', padx=20, pady=(0, 16))
+		footer.grid(row=2, column=0, sticky='ew', padx=PAD_LG, pady=(0, PAD_MD))
 		footer.grid_columnconfigure(0, weight=1)
 
 		self._btn_print = ctk.CTkButton(
@@ -268,7 +271,6 @@ class LabelView(ctk.CTkFrame):
 	# ─────────────────────────────────────────────────────────────────────────
 
 	def _draw_template_preview(self, cv: tk.Canvas, key: str):
-		"""Dibuja una representación proporcional de la etiqueta seleccionada en un Canvas."""
 		if not cv.winfo_exists():
 			return
 
@@ -388,13 +390,11 @@ class LabelView(ctk.CTkFrame):
 	# ─────────────────────────────────────────────────────────────────────────
 
 	def _debounced_search(self, event=None):
-		"""Ejecuta la búsqueda con retraso para evitar bloqueo de la interfaz al tipear rápido."""
 		if self._search_timer:
 			self.after_cancel(self._search_timer)
 		self._search_timer = self.after(300, self._filter_catalog)
 
 	def _add_first_filtered(self):
-		"""Agrega automáticamente a la cola el primer resultado visible (Optimizado para lector/teclado)."""
 		q = self._entry_search.get().lower().strip()
 		filtered = [
 			v
@@ -501,10 +501,11 @@ class LabelView(ctk.CTkFrame):
 				hover_color='#1d4ed8',
 				border_color=SURFACE4,
 				checkmark_color='white',
-			).grid(row=0, column=0, padx=(8, 4), pady=6)
+			).grid(row=0, column=0, padx=(PAD_SM, PAD_XS), pady=PAD_XS)
 
 			info = ctk.CTkFrame(row, fg_color='transparent')
 			info.grid(row=0, column=1, sticky='ew', pady=4)
+
 			ctk.CTkLabel(
 				info,
 				text=v['display'][:40],
@@ -512,10 +513,12 @@ class LabelView(ctk.CTkFrame):
 				text_color=TEXT_PRIMARY,
 				anchor='w',
 			).pack(fill='x')
+
 			meta_parts = []
 			if v['barcode']:
 				meta_parts.append(f'#{v["barcode"]}')
 			meta_parts.append(fmt_price(v['price']))
+
 			ctk.CTkLabel(
 				info,
 				text='  '.join(meta_parts),
@@ -545,17 +548,15 @@ class LabelView(ctk.CTkFrame):
 				)
 
 			btn_add.configure(command=_do_add)
-			btn_add.grid(row=0, column=2, padx=(4, 8))
+			btn_add.grid(row=0, column=2, padx=(PAD_XS, PAD_SM))
 
 			self._catalog_rows.append({'check_var': check_var, 'data': v})
 
 	def _add_selected_to_queue(self):
 		selected = [r['data'] for r in self._catalog_rows if r['check_var'].get()]
 		if not selected:
-			CTkMessagebox(
-				title='Sin selección',
-				message='Marcá los artículos que querés agregar.',
-				icon='warning',
+			self.show_warning(
+				'Marcá los artículos que querés agregar.', 'Sin selección'
 			)
 			return
 		for v in selected:
@@ -591,7 +592,6 @@ class LabelView(ctk.CTkFrame):
 	# ─────────────────────────────────────────────────────────────────────────
 
 	def _update_queue_total(self):
-		"""Modifica el texto total de copias generadas en la interfaz de la cola de impresión."""
 		total = sum(it['copies'] for it in self._queue)
 		if self._lbl_total.winfo_exists():
 			self._lbl_total.configure(
@@ -618,18 +618,24 @@ class LabelView(ctk.CTkFrame):
 				font=FONT_BODY,
 				text_color=TEXT_MUTED,
 				justify='center',
-			).pack(pady=24)
+			).pack(pady=PAD_LG)
 			return
 
 		hd = ctk.CTkFrame(self._queue_frame, fg_color=SURFACE3, corner_radius=4)
-		hd.pack(fill='x', pady=(0, 4))
+		hd.pack(fill='x', pady=(0, PAD_XS))
 		hd.grid_columnconfigure(0, weight=1)
 		for ci, (txt, w) in enumerate(
 			[('Artículo', 0), ('Precio', 80), ('Copias', 90), ('', 56)]
 		):
 			ctk.CTkLabel(
 				hd, text=txt, font=FONT_LABEL_BOLD, text_color=TEXT_SECONDARY, width=w
-			).grid(row=0, column=ci, padx=8, pady=4, sticky='w' if ci == 0 else 'e')
+			).grid(
+				row=0,
+				column=ci,
+				padx=PAD_SM,
+				pady=PAD_XS,
+				sticky='w' if ci == 0 else 'e',
+			)
 		hd.grid_columnconfigure(0, weight=1)
 
 		for idx, item in enumerate(self._queue):
@@ -641,7 +647,7 @@ class LabelView(ctk.CTkFrame):
 			name_txt = item['display'][:36]
 			ctk.CTkLabel(
 				row, text=name_txt, font=FONT_LABEL, text_color=TEXT_PRIMARY, anchor='w'
-			).grid(row=0, column=0, padx=8, pady=5, sticky='w')
+			).grid(row=0, column=0, padx=PAD_SM, pady=5, sticky='w')
 
 			ctk.CTkLabel(
 				row,
@@ -715,7 +721,7 @@ class LabelView(ctk.CTkFrame):
 				text_color=RED_TEXT,
 				font=FONT_LABEL,
 				command=lambda i=idx: self._remove_from_queue(i),
-			).grid(row=0, column=3, padx=(4, 8))
+			).grid(row=0, column=3, padx=(PAD_XS, PAD_SM))
 
 	def _inc_copies(self, idx: int, ent: ctk.CTkEntry):
 		if 0 <= idx < len(self._queue):
@@ -749,7 +755,6 @@ class LabelView(ctk.CTkFrame):
 	# ─────────────────────────────────────────────────────────────────────────
 
 	def _setup_bindings(self):
-		"""Asigna atajos de teclado seguros al entorno principal (TopLevel)."""
 		if not self.winfo_exists():
 			return
 		self.top_level = self.winfo_toplevel()
@@ -760,12 +765,9 @@ class LabelView(ctk.CTkFrame):
 			self._print_labels()
 
 	def _print_labels(self):
-		"""Dispara el proceso de generación de PDF delegado al controlador base."""
 		if not self._queue:
-			CTkMessagebox(
-				title='Cola vacía',
-				message='Agregá artículos a la cola antes de imprimir.',
-				icon='warning',
+			self.show_warning(
+				'Agregá artículos a la cola antes de imprimir.', 'Cola vacía'
 			)
 			return
 
@@ -784,20 +786,12 @@ class LabelView(ctk.CTkFrame):
 			)
 
 		if ok:
-			CTkMessagebox(
-				title='PDF generado',
-				message=(
-					f'{total} etiqueta{"s" if total != 1 else ""} en formato '
-					f'"{tpl["label"]}" abierta{"s" if total != 1 else ""} automáticamente.'
-				),
-				icon='check',
+			self.show_success(
+				f'{total} etiqueta{"s" if total != 1 else ""} en formato "{tpl["label"]}" abierta{"s" if total != 1 else ""} automáticamente.',
+				'PDF generado',
 			)
 		else:
-			CTkMessagebox(
-				title='Error al generar etiquetas',
-				message=str(result),
-				icon='cancel',
-			)
+			self.show_error(str(result), 'Error al generar etiquetas')
 
 	def destroy(self):
 		if hasattr(self, 'top_level') and self.top_level.winfo_exists():

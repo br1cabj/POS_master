@@ -7,6 +7,7 @@ import customtkinter as ctk
 from controllers.sales_controller import SalesController
 from core.base_view import BaseView
 from core.context import AppContext
+from utils.settings_manager import get_reports_path
 from utils.styles import (
 	ACCENT_TEXT,
 	BORDER,
@@ -332,10 +333,7 @@ class HistoryView(BaseView):
 			return
 
 		try:
-			desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
-			if not os.path.isdir(desktop):
-				desktop = os.path.expanduser('~')
-			filepath = os.path.join(desktop, 'historial_ventas.csv')
+			filepath = os.path.join(get_reports_path(), 'historial_ventas.csv')
 
 			with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
 				w = csv.writer(f)

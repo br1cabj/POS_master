@@ -18,6 +18,7 @@ from CTkMessagebox import CTkMessagebox
 from controllers.data_sync_controller import COLUMN_SPEC, DataSyncController
 from core.base_view import BaseView
 from core.context import AppContext
+from utils.settings_manager import get_reports_path
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
@@ -73,11 +74,8 @@ class DataSyncView(BaseView):
 		)
 
 	def _get_desktop_path(self):
-		"""Resuelve la ruta absoluta al escritorio del usuario en distintos SO e idiomas."""
-		desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
-		if not os.path.exists(desktop):
-			desktop = os.path.join(os.path.expanduser('~'), 'Escritorio')
-		return desktop
+		"""Resuelve la carpeta de destino configurada para exportaciones."""
+		return get_reports_path()
 
 	# ===========================================================
 	# CONSTRUCCIÓN DE INTERFAZ: PANEL IZQUIERDO (EXPORTACIÓN)
@@ -612,18 +610,14 @@ class DataSyncView(BaseView):
 
 	def handle_export(self):
 		"""Verifica parámetros, bloquea el hilo gráfico y solicita el volcado Excel al controlador."""
+		from datetime import datetime
 		entity_type = self.combo_export_type.get()
 		tenant_id = self.ctx.tenant_id
 
-		file_path = filedialog.asksaveasfilename(
-			initialdir=self._get_desktop_path(),
-			defaultextension='.xlsx',
-			filetypes=[('Excel files', '*.xlsx')],
-			title='Guardar como...',
-			initialfile=f'Exportacion_{entity_type}.xlsx',
+		file_path = os.path.join(
+			get_reports_path(),
+			f'Exportacion_{entity_type}_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx',
 		)
-		if not file_path:
-			return
 
 		self.btn_export.configure(state='disabled', text='Generando archivo...')
 		self.update_idletasks()

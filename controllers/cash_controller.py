@@ -17,6 +17,7 @@ from sqlalchemy.orm import joinedload
 from controllers.base import BaseController
 from database.models import CashMovement, CashSession, Sale
 from utils.config import make_engine
+from utils.settings_manager import get_reports_path
 from utils.shared import parse_decimal
 
 logger = logging.getLogger(__name__)
@@ -416,14 +417,8 @@ class CashController(BaseController):
 		pdf.cell(0, 5, '_______________________', ln=True, align='C')
 		pdf.cell(0, 5, 'Firma del Cajero', ln=True, align='C')
 
-		desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
-		if not os.path.isdir(desktop):
-			desktop = os.path.join(os.path.expanduser('~'), 'Escritorio')
-			if not os.path.isdir(desktop):
-				desktop = os.path.expanduser('~')
-
 		filename = os.path.join(
-			desktop,
+			get_reports_path(),
 			f'ReporteZ_Turno{session_id}_{datetime.now().strftime("%Y%m%d_%H%M")}.pdf',
 		)
 		pdf.output(filename)

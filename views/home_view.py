@@ -11,11 +11,22 @@ from utils.styles import (
 	ACCENT_DIM,
 	ACCENT_TEXT,
 	BORDER,
+	FONT_BODY,
+	FONT_BODY_BOLD,
+	FONT_HEADING,
+	FONT_LABEL,
+	FONT_LABEL_BOLD,
 	FONT_STAT,
+	FONT_TITLE,
 	GREEN,
 	GREEN_DIM,
 	GREEN_TEXT,
 	ORANGE,
+	PAD_LG,
+	PAD_MD,
+	PAD_SM,
+	PAD_XS,
+	SURFACE0,
 	SURFACE2,
 	SURFACE3,
 	SURFACE4,
@@ -24,13 +35,13 @@ from utils.styles import (
 	TEXT_SECONDARY,
 )
 
-# ─── Paleta del gráfico (alineada con el design system) ───────────────────────
-_CHART_BG = '#111111'
-_BAR_NORMAL = '#1a2744'
+# ─── Paleta del gráfico ───────────────────────
+_CHART_BG = SURFACE0
+_BAR_NORMAL = SURFACE3
 _BAR_TODAY = ACCENT
-_AXIS_COLOR = '#333333'
-_GRID_COLOR = '#1e1e1e'
-_TICK_COLOR = '#555555'
+_AXIS_COLOR = BORDER
+_GRID_COLOR = SURFACE2
+_TICK_COLOR = TEXT_SECONDARY
 
 
 class HomeView(BaseView):
@@ -46,32 +57,23 @@ class HomeView(BaseView):
 		# ── Configuración del grid (bento layout) ─────────────────────────
 		self.grid_columnconfigure(0, weight=2)
 		self.grid_columnconfigure(1, weight=1)
-		self.grid_rowconfigure(0, weight=0)  # header
-		self.grid_rowconfigure(1, weight=0)  # accesos rápidos
-		self.grid_rowconfigure(2, weight=0)  # stat cards
-		self.grid_rowconfigure(3, weight=1)  # gráfico + top5
+		self.grid_rowconfigure(0, weight=0)
+		self.grid_rowconfigure(1, weight=0)
+		self.grid_rowconfigure(2, weight=0)
+		self.grid_rowconfigure(3, weight=1)
 
-		# ── Header ────────────────────────────────────────────────────────
 		self._build_header(username)
-
-		# ── Accesos rápidos ────────────────────────────────────────────────
 		self._build_quick_actions()
-
-		# ── Cards de estadísticas ─────────────────────────────────────────
 		self._build_stat_cards()
-
-		# ── Zona inferior: gráfico + top 5 ────────────────────────────────
 		self._build_chart_area()
 		self._build_top_products_area()
 
-		# ── Carga de datos con pequeño delay ──────────────────────────────
 		self.after(150, self.load_dashboard_data)
 
 	# =========================================================
 	# NAVEGACIÓN INTERNA
 	# =========================================================
 	def _go_to(self, view_name: str):
-		"""Lazy-import y navegación para evitar imports circulares."""
 		if not self._navigate:
 			return
 		lazy = {
@@ -95,7 +97,9 @@ class HomeView(BaseView):
 	# =========================================================
 	def _build_header(self, username):
 		hdr = ctk.CTkFrame(self, fg_color='transparent')
-		hdr.grid(row=0, column=0, columnspan=2, sticky='ew', padx=20, pady=(20, 0))
+		hdr.grid(
+			row=0, column=0, columnspan=2, sticky='ew', padx=PAD_LG, pady=(PAD_LG, 0)
+		)
 
 		left = ctk.CTkFrame(hdr, fg_color='transparent')
 		left.pack(side='left', fill='y')
@@ -103,7 +107,7 @@ class HomeView(BaseView):
 		ctk.CTkLabel(
 			left,
 			text=f'Buen día, {username.capitalize()} 👋',
-			font=('Arial', 24, 'bold'),
+			font=FONT_TITLE,  # Usamos la fuente del Design System
 			text_color=TEXT_PRIMARY,
 			anchor='w',
 		).pack(anchor='w')
@@ -111,15 +115,15 @@ class HomeView(BaseView):
 		ctk.CTkLabel(
 			left,
 			text='Resumen de actividad del día',
-			font=('Arial', 12),
+			font=FONT_BODY,
 			text_color=TEXT_MUTED,
 			anchor='w',
-		).pack(anchor='w', pady=(2, 0))
+		).pack(anchor='w', pady=(PAD_XS, 0))
 
 		self.btn_refresh = ctk.CTkButton(
 			hdr,
 			text='↻  Actualizar',
-			font=('Arial', 12, 'bold'),
+			font=FONT_BODY_BOLD,
 			fg_color=SURFACE2,
 			hover_color=SURFACE3,
 			text_color=TEXT_SECONDARY,
@@ -134,9 +138,10 @@ class HomeView(BaseView):
 		self.btn_refresh.pack(side='right')
 
 	def _build_quick_actions(self):
-		"""Fila de accesos directos grandes — tap-friendly."""
 		qa_frame = ctk.CTkFrame(self, fg_color='transparent')
-		qa_frame.grid(row=1, column=0, columnspan=2, sticky='ew', padx=20, pady=(14, 0))
+		qa_frame.grid(
+			row=1, column=0, columnspan=2, sticky='ew', padx=PAD_LG, pady=(PAD_MD, 0)
+		)
 		qa_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
 		actions = [
@@ -164,7 +169,11 @@ class HomeView(BaseView):
 				border_color=hover,
 			)
 			btn_frame.grid(
-				row=0, column=col, sticky='ew', padx=(0, 8) if col < 3 else 0, pady=0
+				row=0,
+				column=col,
+				sticky='ew',
+				padx=(0, PAD_SM) if col < 3 else 0,
+				pady=0,
 			)
 			btn_frame.grid_propagate(False)
 			btn_frame.configure(height=82)
@@ -172,58 +181,48 @@ class HomeView(BaseView):
 			inner = ctk.CTkFrame(btn_frame, fg_color='transparent')
 			inner.place(relx=0.5, rely=0.5, anchor='center')
 
-			ctk.CTkLabel(
-				inner,
-				text=icon,
-				font=('Arial', 22),
-				text_color=fg,
-			).pack()
+			ctk.CTkLabel(inner, text=icon, font=FONT_TITLE, text_color=fg).pack()
 
 			lbl_row = ctk.CTkFrame(inner, fg_color='transparent')
 			lbl_row.pack()
-			ctk.CTkLabel(
-				lbl_row,
-				text=label,
-				font=('Arial', 12, 'bold'),
-				text_color=fg,
-			).pack(side='left')
+
+			ctk.CTkLabel(lbl_row, text=label, font=FONT_BODY_BOLD, text_color=fg).pack(
+				side='left'
+			)
+
 			if shortcut:
 				ctk.CTkLabel(
 					lbl_row,
 					text=f'  {shortcut}',
-					font=('Arial', 10),
+					font=FONT_LABEL,
 					text_color=TEXT_MUTED,
 				).pack(side='left')
 
-			# Bind completo: frame + todos sus descendientes
 			_bind_tile(btn_frame, target)
 
 	def _build_stat_cards(self):
-		"""Tres tarjetas en fila — borde izquierdo de acento por color."""
 		cards_frame = ctk.CTkFrame(self, fg_color='transparent')
-		cards_frame.grid(row=2, column=0, columnspan=2, sticky='ew', padx=20, pady=14)
+		cards_frame.grid(
+			row=2, column=0, columnspan=2, sticky='ew', padx=PAD_LG, pady=PAD_MD
+		)
 		cards_frame.grid_columnconfigure((0, 1, 2), weight=1)
 
-		# Card Ventas — acento verde
 		self.card_ventas, self.lbl_ventas, self.lbl_ventas_sub = self._make_stat_card(
 			cards_frame, 'Ventas de Hoy', GREEN
 		)
-		self.card_ventas.grid(row=0, column=0, sticky='ew', padx=(0, 8))
+		self.card_ventas.grid(row=0, column=0, sticky='ew', padx=(0, PAD_SM))
 
-		# Card Ganancia — acento azul
 		self.card_ganancia, self.lbl_ganancia, self.lbl_ganancia_sub = (
 			self._make_stat_card(cards_frame, 'Ganancia', ACCENT)
 		)
-		self.card_ganancia.grid(row=0, column=1, sticky='ew', padx=4)
+		self.card_ganancia.grid(row=0, column=1, sticky='ew', padx=PAD_SM)
 
-		# Card Tickets — acento naranja
 		self.card_tickets, self.lbl_tickets, self.lbl_tickets_sub = (
 			self._make_stat_card(cards_frame, 'Tickets', ORANGE)
 		)
-		self.card_tickets.grid(row=0, column=2, sticky='ew', padx=(8, 0))
+		self.card_tickets.grid(row=0, column=2, sticky='ew', padx=(PAD_SM, 0))
 
 	def _make_stat_card(self, parent, title: str, accent: str):
-		"""Crea una tarjeta con borde de acento izquierdo."""
 		outer = ctk.CTkFrame(
 			parent,
 			fg_color=SURFACE2,
@@ -233,39 +232,30 @@ class HomeView(BaseView):
 		)
 		outer.grid_columnconfigure(1, weight=1)
 
-		# Barra lateral de acento (4px)
 		bar = ctk.CTkFrame(outer, fg_color=accent, width=4, corner_radius=0)
-		bar.grid(row=0, column=0, sticky='ns', padx=(0, 0), pady=0)
+		bar.grid(row=0, column=0, sticky='ns', padx=0, pady=0)
 		bar.grid_propagate(False)
 
 		content = ctk.CTkFrame(outer, fg_color='transparent')
-		content.grid(row=0, column=1, sticky='nsew', padx=14, pady=14)
+		content.grid(row=0, column=1, sticky='nsew', padx=PAD_MD, pady=PAD_MD)
 
 		ctk.CTkLabel(
 			content,
 			text=title.upper(),
-			font=('Arial', 9, 'bold'),
+			font=FONT_LABEL_BOLD,
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(anchor='w')
 
 		lbl_val = ctk.CTkLabel(
-			content,
-			text='—',
-			font=FONT_STAT,
-			text_color=accent,
-			anchor='w',
+			content, text='—', font=FONT_STAT, text_color=accent, anchor='w'
 		)
-		lbl_val.pack(anchor='w', pady=(4, 0))
+		lbl_val.pack(anchor='w', pady=(PAD_XS, 0))
 
 		lbl_sub = ctk.CTkLabel(
-			content,
-			text='',
-			font=('Arial', 10),
-			text_color=TEXT_MUTED,
-			anchor='w',
+			content, text='', font=FONT_LABEL, text_color=TEXT_MUTED, anchor='w'
 		)
-		lbl_sub.pack(anchor='w', pady=(2, 0))
+		lbl_sub.pack(anchor='w', pady=(PAD_XS, 0))
 
 		return outer, lbl_val, lbl_sub
 
@@ -278,7 +268,7 @@ class HomeView(BaseView):
 			border_color=BORDER,
 		)
 		self.chart_frame.grid(
-			row=3, column=0, sticky='nsew', padx=(20, 8), pady=(0, 20)
+			row=3, column=0, sticky='nsew', padx=(PAD_LG, PAD_SM), pady=(0, PAD_LG)
 		)
 
 	def _build_top_products_area(self):
@@ -289,7 +279,9 @@ class HomeView(BaseView):
 			border_width=1,
 			border_color=BORDER,
 		)
-		self.top_frame.grid(row=3, column=1, sticky='nsew', padx=(8, 20), pady=(0, 20))
+		self.top_frame.grid(
+			row=3, column=1, sticky='nsew', padx=(PAD_SM, PAD_LG), pady=(0, PAD_LG)
+		)
 
 	# =========================================================
 	# CARGA DE DATOS
@@ -326,7 +318,6 @@ class HomeView(BaseView):
 	# GRÁFICO SEMANAL
 	# =========================================================
 	def draw_weekly_chart(self, tenant_id):
-		# Limpieza correcta de memoria
 		if self.canvas_widget:
 			self.canvas_widget.destroy()
 			self.canvas_widget = None
@@ -338,13 +329,13 @@ class HomeView(BaseView):
 
 		dates, totals = self.controller.get_weekly_sales(tenant_id)
 
-		# Header del panel
 		hdr = ctk.CTkFrame(self.chart_frame, fg_color='transparent')
-		hdr.pack(fill='x', padx=16, pady=(14, 0))
+		hdr.pack(fill='x', padx=PAD_MD, pady=(PAD_MD, 0))
+
 		ctk.CTkLabel(
 			hdr,
 			text='Ventas — últimos 7 días',
-			font=('Arial', 13, 'bold'),
+			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
 		).pack(side='left')
@@ -354,7 +345,7 @@ class HomeView(BaseView):
 				self.chart_frame,
 				text='No hay ventas registradas esta semana.',
 				text_color=TEXT_MUTED,
-				font=('Arial', 13),
+				font=FONT_BODY,
 			).pack(expand=True)
 			return
 
@@ -379,7 +370,6 @@ class HomeView(BaseView):
 			zorder=2,
 		)
 
-		# Valor encima de la barra de hoy
 		if float_totals:
 			last_val = float_totals[-1]
 			ax.text(
@@ -393,7 +383,6 @@ class HomeView(BaseView):
 				fontweight='bold',
 			)
 
-		# Estilos del eje
 		ax.yaxis.grid(True, color=_GRID_COLOR, linewidth=0.8, zorder=0)
 		ax.set_axisbelow(True)
 		ax.spines['top'].set_visible(False)
@@ -409,7 +398,9 @@ class HomeView(BaseView):
 		canvas.draw()
 		self.canvas_widget = canvas.get_tk_widget()
 		self.canvas_widget.configure(bg=_CHART_BG, highlightthickness=0)
-		self.canvas_widget.pack(fill='both', expand=True, padx=10, pady=(6, 10))
+		self.canvas_widget.pack(
+			fill='both', expand=True, padx=PAD_SM, pady=(PAD_SM, PAD_SM)
+		)
 
 	# =========================================================
 	# TOP 5 PRODUCTOS
@@ -418,13 +409,13 @@ class HomeView(BaseView):
 		for w in self.top_frame.winfo_children():
 			w.destroy()
 
-		# Header
 		hdr = ctk.CTkFrame(self.top_frame, fg_color='transparent')
-		hdr.pack(fill='x', padx=16, pady=(14, 8))
+		hdr.pack(fill='x', padx=PAD_MD, pady=(PAD_MD, PAD_SM))
+
 		ctk.CTkLabel(
 			hdr,
 			text='🏆 Top 5 Productos',
-			font=('Arial', 13, 'bold'),
+			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
 		).pack(side='left')
@@ -436,7 +427,7 @@ class HomeView(BaseView):
 				self.top_frame,
 				text='Aún no hay ventas\nregistradas.',
 				text_color=TEXT_MUTED,
-				font=('Arial', 12),
+				font=FONT_BODY,
 				justify='center',
 			).pack(expand=True)
 			return
@@ -450,46 +441,39 @@ class HomeView(BaseView):
 			qty_str = f'{int(qty)}' if qty.is_integer() else f'{qty:.1f}'
 			pct = int(qty / max_qty * 100) if max_qty > 0 else 0
 
-			# Recortar nombre largo
 			if len(desc) > 22:
 				desc = desc[:19] + '…'
 
 			row = ctk.CTkFrame(self.top_frame, fg_color='transparent')
-			row.pack(fill='x', padx=14, pady=(0, 10))
+			row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 
-			# Número de ranking
 			ctk.CTkLabel(
 				row,
 				text=f'{i + 1}',
-				font=('Arial', 10, 'bold'),
+				font=FONT_LABEL_BOLD,
 				text_color=accent_colors[i],
 				width=18,
 				anchor='center',
 			).pack(side='left')
 
 			col = ctk.CTkFrame(row, fg_color='transparent')
-			col.pack(side='left', fill='x', expand=True, padx=(8, 0))
+			col.pack(side='left', fill='x', expand=True, padx=(PAD_SM, 0))
 
 			name_row = ctk.CTkFrame(col, fg_color='transparent')
 			name_row.pack(fill='x')
 
 			ctk.CTkLabel(
-				name_row,
-				text=desc,
-				font=('Arial', 11),
-				text_color=TEXT_PRIMARY,
-				anchor='w',
+				name_row, text=desc, font=FONT_BODY, text_color=TEXT_PRIMARY, anchor='w'
 			).pack(side='left')
 
 			ctk.CTkLabel(
 				name_row,
 				text=f'{qty_str} u',
-				font=('Arial', 11, 'bold'),
+				font=FONT_BODY_BOLD,
 				text_color=accent_colors[i],
 				anchor='e',
 			).pack(side='right')
 
-			# Barra de progreso
 			bar_bg = ctk.CTkFrame(col, fg_color=SURFACE3, height=6, corner_radius=3)
 			bar_bg.pack(fill='x', pady=(3, 0))
 			bar_fill_width = max(int(pct / 100 * 160), 4)
@@ -501,9 +485,6 @@ class HomeView(BaseView):
 				corner_radius=3,
 			).place(x=0, y=0)
 
-	# =========================================================
-	# DESTROY
-	# =========================================================
 	def destroy(self):
 		if self._fig is not None:
 			plt.close(self._fig)

@@ -182,7 +182,7 @@ class ArticleController(BaseController):
 	def update_article(
 		self,
 		tenant_id,
-		user_id,  # ── NUEVO: Requerido para la auditoría ──
+		user_id,
 		variant_id,
 		name,
 		barcode,

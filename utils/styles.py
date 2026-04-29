@@ -36,7 +36,9 @@ ORANGE_DIM = '#2d1b00'
 RED = '#dc2626'
 RED_TEXT = '#f87171'
 RED_DIM = '#2d0a0a'
+PURPLE = '#7e22ce'
 PURPLE_TEXT = '#a78bfa'
+PURPLE_DIM = '#2d1a4a'
 
 # ── Typography Colors ─────────────────────────────────────────────────────────
 TEXT_PRIMARY = '#f0f0f0'
@@ -44,7 +46,14 @@ TEXT_SECONDARY = '#888888'
 TEXT_MUTED = '#555555'
 TEXT_DISABLED = '#3a3a3a'
 
-# ── Fonts ─────────────────────────────────────────────────────────────────────
+# ── Spacing System ──────────────────────────────────────
+PAD_XS = 4  # Detalles mínimos, separaciones internas de íconos
+PAD_SM = 8  # Separación entre inputs o botones agrupados
+PAD_MD = 16  # Padding estándar de contenedores y frames
+PAD_LG = 24  # Separación entre secciones distintas
+PAD_XL = 32  # Márgenes principales de las vistas
+
+# ── Fonts ───────────────────────────────────────────────
 FONT_LABEL = ('Arial', 10)
 FONT_LABEL_BOLD = ('Arial', 10, 'bold')
 FONT_BODY = ('Arial', 12)
@@ -107,12 +116,12 @@ def make_stat_card(parent, title: str, accent_color: str = ACCENT):
 	accent_bar.pack(side='left', fill='y')
 
 	content = ctk.CTkFrame(outer, fg_color='transparent')
-	content.pack(side='left', fill='both', expand=True, padx=16, pady=14)
+	content.pack(side='left', fill='both', expand=True, padx=PAD_MD, pady=14)
 
 	lbl_title = ctk.CTkLabel(
 		content,
 		text=title.upper(),
-		font=('Arial', 10, 'bold'),
+		font=FONT_LABEL_BOLD,
 		text_color=TEXT_MUTED,
 	)
 	lbl_title.pack(anchor='w')
@@ -123,12 +132,12 @@ def make_stat_card(parent, title: str, accent_color: str = ACCENT):
 		font=FONT_STAT,
 		text_color=accent_color,
 	)
-	lbl_value.pack(anchor='w', pady=(4, 0))
+	lbl_value.pack(anchor='w', pady=(PAD_XS, 0))
 
 	lbl_sub = ctk.CTkLabel(
 		content,
 		text='',
-		font=('Arial', 10),
+		font=FONT_LABEL,
 		text_color=TEXT_MUTED,
 	)
 	lbl_sub.pack(anchor='w')
@@ -163,7 +172,7 @@ def make_form_label(parent, text: str, required: bool = False):
 		ast = ctk.CTkLabel(
 			container,
 			text=' *',
-			font=('Arial', 10, 'bold'),
+			font=FONT_LABEL_BOLD,
 			text_color=RED_TEXT,
 		)
 		ast.pack(side='left')

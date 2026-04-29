@@ -3,7 +3,6 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from tkinter import ttk
 
 import customtkinter as ctk
-from CTkMessagebox import CTkMessagebox
 
 import utils.settings_manager as cfg
 from controllers.article_controller import ArticleController
@@ -16,12 +15,22 @@ from utils.styles import (
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
+	FONT_BODY,
+	FONT_BODY_BOLD,
+	FONT_HEADING,
+	FONT_LABEL,
+	FONT_LABEL_BOLD,
+	FONT_TITLE,
 	GREEN,
 	GREEN_DIM,
 	GREEN_TEXT,
 	ORANGE,
 	ORANGE_DIM,
 	ORANGE_TEXT,
+	PAD_LG,
+	PAD_MD,
+	PAD_SM,
+	PAD_XS,
 	RED,
 	RED_DIM,
 	RED_TEXT,
@@ -32,7 +41,7 @@ from utils.styles import (
 	TEXT_MUTED,
 	TEXT_PRIMARY,
 	TEXT_SECONDARY,
-	apply_treeview_style,
+	make_form_label,
 )
 
 
@@ -61,9 +70,6 @@ class ArticlesView(BaseView):
 		self.grid_columnconfigure(1, weight=2)
 		self.grid_rowconfigure(0, weight=1)
 
-		apply_treeview_style()
-		ttk.Style().map('Treeview.Heading', background=[('active', SURFACE4)])
-
 		self._var_iva_included = ctk.BooleanVar(value=False)
 		self._var_margin = ctk.StringVar(value='')
 		self._var_cost_str = ctk.StringVar(value='')
@@ -83,8 +89,11 @@ class ArticlesView(BaseView):
 		self.after(100, self.load_data)
 		self.entry_barcode.focus()
 
+	# ─────────────────────────────────────────────────────────────────────────
+	# CONSTRUCCIÓN DE LA INTERFAZ
+	# ─────────────────────────────────────────────────────────────────────────
+
 	def _build_left_panel(self):
-		"""Construye el panel izquierdo utilizando un sistema de pestañas para la entrada de datos."""
 		self.left_panel = ctk.CTkFrame(
 			self,
 			fg_color=SURFACE2,
@@ -92,17 +101,21 @@ class ArticlesView(BaseView):
 			border_width=1,
 			border_color=BORDER,
 		)
-		self.left_panel.grid(row=0, column=0, sticky='nsew', padx=(16, 8), pady=16)
+		self.left_panel.grid(
+			row=0, column=0, sticky='nsew', padx=(PAD_LG, PAD_SM), pady=PAD_LG
+		)
 		self.left_panel.grid_columnconfigure(0, weight=1)
 		self.left_panel.grid_rowconfigure(1, weight=1)
 
 		self.lbl_form_title = ctk.CTkLabel(
 			self.left_panel,
 			text='📦 Nuevo Producto',
-			font=('Arial', 18, 'bold'),
+			font=FONT_TITLE,
 			text_color=TEXT_PRIMARY,
 		)
-		self.lbl_form_title.grid(row=0, column=0, pady=(16, 10), padx=20, sticky='w')
+		self.lbl_form_title.grid(
+			row=0, column=0, pady=(PAD_LG, PAD_SM), padx=PAD_LG, sticky='w'
+		)
 
 		self.tabview = ctk.CTkTabview(
 			self.left_panel,
@@ -112,7 +125,7 @@ class ArticlesView(BaseView):
 			segmented_button_selected_hover_color=ACCENT_DIM,
 			text_color=TEXT_PRIMARY,
 		)
-		self.tabview.grid(row=1, column=0, sticky='nsew', padx=16, pady=(0, 16))
+		self.tabview.grid(row=1, column=0, sticky='nsew', padx=PAD_MD, pady=(0, PAD_MD))
 
 		tab_gen = self.tabview.add('General')
 		tab_pre = self.tabview.add('Precios')
@@ -123,7 +136,7 @@ class ArticlesView(BaseView):
 		self._build_tab_empaque(tab_emp)
 
 		footer = ctk.CTkFrame(self.left_panel, fg_color='transparent')
-		footer.grid(row=2, column=0, sticky='ew', padx=16, pady=(0, 16))
+		footer.grid(row=2, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_MD))
 
 		self.btn_add = ctk.CTkButton(
 			footer,
@@ -131,13 +144,13 @@ class ArticlesView(BaseView):
 			fg_color=ACCENT_DIM,
 			hover_color=ACCENT,
 			text_color=ACCENT_TEXT,
-			font=('Arial', 13, 'bold'),
+			font=FONT_BODY_BOLD,
 			height=45,
 			corner_radius=8,
 			cursor='hand2',
 			command=self.save_article,
 		)
-		self.btn_add.pack(side='left', expand=True, fill='x', padx=(0, 8))
+		self.btn_add.pack(side='left', expand=True, fill='x', padx=(0, PAD_SM))
 
 		self.btn_cancel = ctk.CTkButton(
 			footer,
@@ -145,7 +158,7 @@ class ArticlesView(BaseView):
 			fg_color=SURFACE3,
 			hover_color=SURFACE4,
 			text_color=TEXT_SECONDARY,
-			font=('Arial', 12),
+			font=FONT_BODY,
 			height=45,
 			corner_radius=8,
 			cursor='hand2',
@@ -154,64 +167,57 @@ class ArticlesView(BaseView):
 		self.btn_cancel.pack(side='right', expand=False, fill='x')
 
 	def _build_tab_general(self, parent):
-		"""Inicializa los campos de la pestaña de información general del artículo."""
-		lbl_font = ('Arial', 11, 'bold')
-
-		ctk.CTkLabel(
-			parent, text='CÓDIGO DE BARRAS', font=lbl_font, text_color=TEXT_MUTED
-		).pack(anchor='w', pady=(10, 2))
+		make_form_label(parent, 'CÓDIGO DE BARRAS', required=False).pack(
+			anchor='w', pady=(PAD_MD, PAD_XS)
+		)
 		self.entry_barcode = ctk.CTkEntry(
 			parent,
 			placeholder_text='Escanear o escribir (Enter)',
 			height=40,
-			font=('Arial', 13),
+			font=FONT_BODY,
 		)
-		self.entry_barcode.pack(fill='x', pady=(0, 10))
+		self.entry_barcode.pack(fill='x', pady=(0, PAD_SM))
 		self.entry_barcode.bind('<Return>', self.on_barcode_scanned)
 
-		ctk.CTkLabel(
-			parent, text='NOMBRE DEL PRODUCTO', font=lbl_font, text_color=TEXT_MUTED
-		).pack(anchor='w', pady=(6, 2))
+		make_form_label(parent, 'NOMBRE DEL PRODUCTO', required=True).pack(
+			anchor='w', pady=(PAD_SM, PAD_XS)
+		)
 		self.entry_name = ctk.CTkEntry(
 			parent,
 			placeholder_text='Ej: Gaseosa Cola 1.5L',
 			height=40,
-			font=('Arial', 14, 'bold'),
+			font=FONT_HEADING,
 		)
-		self.entry_name.pack(fill='x', pady=(0, 10))
+		self.entry_name.pack(fill='x', pady=(0, PAD_SM))
 
-		ctk.CTkLabel(
-			parent, text='PROVEEDOR', font=lbl_font, text_color=TEXT_MUTED
-		).pack(anchor='w', pady=(6, 2))
+		make_form_label(parent, 'PROVEEDOR', required=False).pack(
+			anchor='w', pady=(PAD_SM, PAD_XS)
+		)
 		self.combo_supplier = ctk.CTkComboBox(
-			parent, values=['Cargando...'], height=40, font=('Arial', 13)
+			parent, values=['Cargando...'], height=40, font=FONT_BODY
 		)
-		self.combo_supplier.pack(fill='x', pady=(0, 10))
+		self.combo_supplier.pack(fill='x', pady=(0, PAD_SM))
 
-		ctk.CTkLabel(
-			parent, text='STOCK INICIAL', font=lbl_font, text_color=TEXT_MUTED
-		).pack(anchor='w', pady=(6, 2))
-		self.entry_stock = ctk.CTkEntry(
-			parent, placeholder_text='0', height=40, font=('Arial', 14)
+		make_form_label(parent, 'STOCK INICIAL', required=False).pack(
+			anchor='w', pady=(PAD_SM, PAD_XS)
 		)
-		self.entry_stock.pack(fill='x', pady=(0, 10))
+		self.entry_stock = ctk.CTkEntry(
+			parent, placeholder_text='0', height=40, font=FONT_BODY_BOLD
+		)
+		self.entry_stock.pack(fill='x', pady=(0, PAD_SM))
 
 	def _build_tab_precios(self, parent):
-		"""Inicializa los campos y la lógica interactiva de la pestaña de precios."""
-		lbl_font = ('Arial', 11, 'bold')
-		big_money_font = ('Arial', 18, 'bold')
-
-		ctk.CTkLabel(
-			parent, text='PRECIO DE COSTO ($)', font=lbl_font, text_color=TEXT_MUTED
-		).pack(anchor='w', pady=(10, 2))
+		make_form_label(parent, 'PRECIO DE COSTO ($)', required=True).pack(
+			anchor='w', pady=(PAD_MD, PAD_XS)
+		)
 		self.entry_cost = ctk.CTkEntry(
 			parent,
 			placeholder_text='0.00',
 			height=45,
-			font=big_money_font,
+			font=FONT_TITLE,
 			textvariable=self._var_cost_str,
 		)
-		self.entry_cost.pack(fill='x', pady=(0, 6))
+		self.entry_cost.pack(fill='x', pady=(0, PAD_SM))
 
 		chk_text = (
 			f'Proveedor incluye IVA ({self._iva_pct_str})'
@@ -222,41 +228,39 @@ class ArticlesView(BaseView):
 			parent,
 			text=chk_text,
 			variable=self._var_iva_included,
-			font=('Arial', 12),
+			font=FONT_BODY,
 			state='normal' if self._iva_enabled else 'disabled',
 		)
-		self.chk_iva.pack(anchor='w', pady=(0, 15), padx=4)
+		self.chk_iva.pack(anchor='w', pady=(0, PAD_MD), padx=PAD_XS)
 
 		row_precios = ctk.CTkFrame(parent, fg_color='transparent')
-		row_precios.pack(fill='x', pady=(0, 15))
+		row_precios.pack(fill='x', pady=(0, PAD_MD))
 		row_precios.grid_columnconfigure(0, weight=1)
 		row_precios.grid_columnconfigure(1, weight=1)
 
 		frame_margen = ctk.CTkFrame(row_precios, fg_color='transparent')
-		frame_margen.grid(row=0, column=0, sticky='nsew', padx=(0, 5))
-		ctk.CTkLabel(
-			frame_margen, text='MARGEN (%)', font=lbl_font, text_color=TEXT_MUTED
-		).pack(anchor='w', pady=(0, 2))
+		frame_margen.grid(row=0, column=0, sticky='nsew', padx=(0, PAD_XS))
+		make_form_label(frame_margen, 'MARGEN (%)').pack(anchor='w', pady=(0, PAD_XS))
 		self.entry_margin = ctk.CTkEntry(
 			frame_margen,
 			placeholder_text='Ej: 30',
 			height=45,
-			font=('Arial', 16, 'bold'),
+			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
 			textvariable=self._var_margin,
 		)
 		self.entry_margin.pack(fill='x')
 
 		frame_venta = ctk.CTkFrame(row_precios, fg_color='transparent')
-		frame_venta.grid(row=0, column=1, sticky='nsew', padx=(5, 0))
-		ctk.CTkLabel(
-			frame_venta, text='PRECIO VENTA ($)', font=lbl_font, text_color=GREEN_TEXT
-		).pack(anchor='w', pady=(0, 2))
+		frame_venta.grid(row=0, column=1, sticky='nsew', padx=(PAD_XS, 0))
+		make_form_label(frame_venta, 'PRECIO VENTA ($)', required=True).pack(
+			anchor='w', pady=(0, PAD_XS)
+		)
 		self.entry_price = ctk.CTkEntry(
 			frame_venta,
 			placeholder_text='0.00',
 			height=45,
-			font=big_money_font,
+			font=FONT_TITLE,
 			text_color=GREEN_TEXT,
 			textvariable=self._var_price_str,
 		)
@@ -269,20 +273,19 @@ class ArticlesView(BaseView):
 			border_width=1,
 			border_color=ACCENT,
 		)
-		self._formula_frame.pack(fill='x', pady=(10, 0))
+		self._formula_frame.pack(fill='x', pady=(PAD_SM, 0))
 
 		self._lbl_formula_expr = ctk.CTkLabel(
 			self._formula_frame,
 			text='Costo Real: $0.00 | Ganancia: $0.00',
-			font=('Arial', 11, 'bold'),
+			font=FONT_LABEL_BOLD,
 			text_color=ACCENT_TEXT,
 		)
-		self._lbl_formula_expr.pack(padx=12, pady=12)
+		self._lbl_formula_expr.pack(padx=PAD_MD, pady=PAD_MD)
 
 	def _build_tab_empaque(self, parent):
-		"""Inicializa los componentes de la pestaña de presentaciones secundarias."""
 		self.frame_packaging = ctk.CTkFrame(parent, fg_color='transparent')
-		self.frame_packaging.pack(fill='both', expand=True, pady=10)
+		self.frame_packaging.pack(fill='both', expand=True, pady=PAD_SM)
 
 		packaging_header = ctk.CTkFrame(self.frame_packaging, fg_color='transparent')
 		packaging_header.pack(fill='x')
@@ -290,7 +293,7 @@ class ArticlesView(BaseView):
 		self.btn_add_pack = ctk.CTkButton(
 			packaging_header,
 			text='+ Agregar Presentación',
-			font=('Arial', 11, 'bold'),
+			font=FONT_LABEL_BOLD,
 			fg_color=GREEN_DIM,
 			hover_color=GREEN,
 			text_color=GREEN_TEXT,
@@ -304,19 +307,18 @@ class ArticlesView(BaseView):
 		self.lbl_pack_hint = ctk.CTkLabel(
 			self.frame_packaging,
 			text='(Guarda el producto base primero)',
-			font=('Arial', 12),
+			font=FONT_BODY,
 			text_color=TEXT_MUTED,
 		)
-		self.lbl_pack_hint.pack(pady=20)
+		self.lbl_pack_hint.pack(pady=PAD_LG)
 
 		self.frame_pack_list = ctk.CTkScrollableFrame(
 			self.frame_packaging, fg_color='transparent'
 		)
-		self.frame_pack_list.pack(fill='both', expand=True, pady=(10, 0))
+		self.frame_pack_list.pack(fill='both', expand=True, pady=(PAD_SM, 0))
 		self.frame_pack_list.pack_forget()
 
 	def _build_right_panel(self):
-		"""Construye el panel derecho que contiene la tabla de visualización del catálogo y las herramientas de búsqueda."""
 		self.right_panel = ctk.CTkFrame(
 			self,
 			fg_color=SURFACE2,
@@ -324,14 +326,16 @@ class ArticlesView(BaseView):
 			border_width=1,
 			border_color=BORDER,
 		)
-		self.right_panel.grid(row=0, column=1, sticky='nsew', padx=(8, 16), pady=16)
+		self.right_panel.grid(
+			row=0, column=1, sticky='nsew', padx=(PAD_SM, PAD_LG), pady=PAD_LG
+		)
 
 		hdr = ctk.CTkFrame(self.right_panel, fg_color='transparent')
-		hdr.pack(fill='x', padx=16, pady=(16, 4))
+		hdr.pack(fill='x', padx=PAD_MD, pady=(PAD_MD, PAD_XS))
 		ctk.CTkLabel(
 			hdr,
 			text='Catálogo de Productos',
-			font=('Arial', 15, 'bold'),
+			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
 		).pack(side='left')
@@ -339,12 +343,12 @@ class ArticlesView(BaseView):
 		ctk.CTkLabel(
 			self.right_panel,
 			text='Doble clic en un producto para editarlo',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
-		).pack(anchor='w', padx=16, pady=(0, 6))
+		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
 		search_row = ctk.CTkFrame(self.right_panel, fg_color='transparent')
-		search_row.pack(fill='x', padx=14, pady=(0, 6))
+		search_row.pack(fill='x', padx=PAD_SM, pady=(0, PAD_SM))
 
 		self.entry_search = ctk.CTkEntry(
 			search_row,
@@ -360,15 +364,17 @@ class ArticlesView(BaseView):
 		self.lbl_count = ctk.CTkLabel(
 			search_row,
 			text='',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 			width=100,
 			anchor='e',
 		)
-		self.lbl_count.pack(side='right', padx=(8, 0))
+		self.lbl_count.pack(side='right', padx=(PAD_SM, 0))
 
 		self.table_container = ctk.CTkFrame(self.right_panel, fg_color='transparent')
-		self.table_container.pack(fill='both', expand=True, padx=14, pady=(0, 8))
+		self.table_container.pack(
+			fill='both', expand=True, padx=PAD_SM, pady=(0, PAD_SM)
+		)
 
 		self.tree_scroll = ttk.Scrollbar(self.table_container, orient='vertical')
 
@@ -380,6 +386,7 @@ class ArticlesView(BaseView):
 			height=15,
 			yscrollcommand=self.tree_scroll.set,
 		)
+		self.init_treeview(self.tree)
 		self.tree_scroll.configure(command=self.tree.yview)
 
 		for col in columns:
@@ -392,17 +399,16 @@ class ArticlesView(BaseView):
 		self.tree.pack(side='left', fill='both', expand=True)
 		self.tree.bind('<Double-1>', self.on_tree_double_click)
 
-		# Label de estado vacío (se muestra cuando no hay productos)
 		self.lbl_empty_tree = ctk.CTkLabel(
 			self.table_container,
 			text='📦\nNo hay productos en el catálogo.\nUsá el formulario de la izquierda para agregar el primero.',
-			font=('Arial', 13),
+			font=FONT_BODY,
 			text_color=TEXT_MUTED,
 			justify='center',
 		)
 
 		btns = ctk.CTkFrame(self.right_panel, fg_color='transparent')
-		btns.pack(fill='x', padx=14, pady=(4, 14))
+		btns.pack(fill='x', padx=PAD_SM, pady=(PAD_XS, PAD_SM))
 
 		self.btn_edit_sel = ctk.CTkButton(
 			btns,
@@ -417,7 +423,7 @@ class ArticlesView(BaseView):
 			cursor='hand2',
 			command=lambda: self.on_tree_double_click(None),
 		)
-		self.btn_edit_sel.pack(side='left', expand=True, fill='x', padx=(0, 6))
+		self.btn_edit_sel.pack(side='left', expand=True, fill='x', padx=(0, PAD_SM))
 
 		self.btn_delete = ctk.CTkButton(
 			btns,
@@ -432,11 +438,11 @@ class ArticlesView(BaseView):
 			cursor='hand2',
 			command=self.delete_article,
 		)
-		self.btn_delete.pack(side='left', expand=True, fill='x', padx=(0, 6))
+		self.btn_delete.pack(side='left', expand=True, fill='x', padx=(0, PAD_SM))
 
 		self.btn_print_labels = ctk.CTkButton(
 			btns,
-			text='🖨 Imprimir Etiquetas PDF',
+			text='🖨 Imprimir Etiquetas',
 			fg_color=ACCENT_DIM,
 			hover_color=ACCENT,
 			text_color=ACCENT_TEXT,
@@ -448,6 +454,10 @@ class ArticlesView(BaseView):
 			command=self.print_labels,
 		)
 		self.btn_print_labels.pack(side='left', expand=True, fill='x')
+
+	# ─────────────────────────────────────────────────────────────────────────
+	# LÓGICA DE NEGOCIO Y EVENTOS
+	# ─────────────────────────────────────────────────────────────────────────
 
 	def _get_cost_real(self) -> Decimal | None:
 		"""Calcula el costo real de adquisición contemplando la configuración del IVA."""
@@ -555,17 +565,16 @@ class ArticlesView(BaseView):
 		for item in self.tree.get_children():
 			self.tree.delete(item)
 
-		for variant in matches:
+		for i, variant in enumerate(matches):
 			stock_actual = variant.get('total_stock', 0)
 			stock_format = (
 				f'{int(stock_actual)}'
 				if float(stock_actual).is_integer()
 				else f'{float(stock_actual):.2f}'
 			)
-
-			self.tree.insert(
-				'',
-				'end',
+			self.insert_tree_row(
+				tree=self.tree,
+				index=i,
 				values=(
 					variant.get('variant_id'),
 					variant.get('barcode') or 'N/A',
@@ -577,7 +586,6 @@ class ArticlesView(BaseView):
 				),
 			)
 
-		# Mostrar / ocultar empty state
 		if hasattr(self, 'lbl_empty_tree'):
 			if not matches:
 				self.tree.pack_forget()
@@ -692,7 +700,7 @@ class ArticlesView(BaseView):
 		self.lbl_form_title.configure(text='📦 Nuevo Producto', text_color=TEXT_PRIMARY)
 		self.btn_add.configure(text='💾 Guardar Producto (Ctrl+G)')
 
-		self.lbl_pack_hint.pack(pady=20)
+		self.lbl_pack_hint.pack(pady=PAD_LG)
 		self.frame_pack_list.pack_forget()
 
 		self.tabview.set('General')
@@ -705,7 +713,6 @@ class ArticlesView(BaseView):
 
 	def save_article(self):
 		"""Evalúa, valida y serializa los datos del formulario para persistirlos a través del controlador."""
-		# Limpiar errores anteriores
 		self.clear_field_errors(self.entry_name, self.entry_barcode)
 
 		name = self.entry_name.get().strip()
@@ -799,18 +806,10 @@ class ArticlesView(BaseView):
 		if not selected:
 			return
 
-		msg = CTkMessagebox(
-			title='Confirmar',
-			message='¿Seguro que deseas eliminar este producto?',
-			icon='question',
-			option_1='No',
-			option_2='Sí',
-		)
-		if msg.get() == 'Sí':
+		if self.confirm('¿Seguro que deseas eliminar este producto?', 'Confirmar'):
 			variant_id = self.tree.item(selected[0], 'values')[0]
-			tenant_id = self.ctx.tenant_id
 			success, msg_response = self.controller.delete_variant(
-				tenant_id, variant_id
+				self.ctx.tenant_id, variant_id
 			)
 			if success:
 				self.load_data()
@@ -823,11 +822,7 @@ class ArticlesView(BaseView):
 		"""Compila los artículos seleccionados y emite un requerimiento de renderizado PDF para las etiquetas."""
 		selected_items = self.tree.selection()
 		if not selected_items:
-			CTkMessagebox(
-				title='Atención',
-				message='Selecciona al menos un artículo de la tabla.',
-				icon='info',
-			)
+			self.show_warning('Selecciona al menos un artículo de la tabla.')
 			return
 
 		products_to_print = []
@@ -850,23 +845,11 @@ class ArticlesView(BaseView):
 				products_to_print, template_key='supermercado'
 			)
 			if ok:
-				CTkMessagebox(
-					title='¡Éxito!',
-					message='Etiquetas generadas correctamente.',
-					icon='check',
-				)
+				self.show_success('Etiquetas generadas correctamente.')
 			else:
-				CTkMessagebox(
-					title='Error',
-					message=f'No se pudo generar el PDF: {result}',
-					icon='cancel',
-				)
+				self.show_error(f'No se pudo generar el PDF: {result}')
 		except Exception as e:
-			CTkMessagebox(
-				title='Error',
-				message=f'Excepción al generar etiquetas: {e}',
-				icon='cancel',
-			)
+			self.show_error(f'Excepción al generar etiquetas: {e}')
 
 	def _show_packaging_panel(self, base_variant_id):
 		"""Solicita las presentaciones asociadas a la variante base y gestiona su visualización."""
@@ -879,13 +862,13 @@ class ArticlesView(BaseView):
 			self.lbl_pack_hint.pack_forget()
 			for p in packs:
 				self._build_pack_row(p, base_variant_id)
-			self.frame_pack_list.pack(fill='both', expand=True, pady=(10, 0))
+			self.frame_pack_list.pack(fill='both', expand=True, pady=(PAD_SM, 0))
 		else:
 			self.frame_pack_list.pack_forget()
 			self.lbl_pack_hint.configure(
 				text='Sin presentaciones. Usa + Agregar para definir cajon, pallet, etc.'
 			)
-			self.lbl_pack_hint.pack(pady=20)
+			self.lbl_pack_hint.pack(pady=PAD_LG)
 
 		self.btn_add_pack.configure(
 			command=lambda vid=base_variant_id: self._open_add_packaging_dialog(vid)
@@ -900,34 +883,34 @@ class ArticlesView(BaseView):
 			border_width=1,
 			border_color=BORDER,
 		)
-		row.pack(fill='x', pady=(0, 4))
+		row.pack(fill='x', pady=(0, PAD_XS))
 		row.grid_columnconfigure(1, weight=1)
 
 		ctk.CTkLabel(
 			row,
 			text=pack['pack_label'],
-			font=('Arial', 11, 'bold'),
+			font=FONT_LABEL_BOLD,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
-		).grid(row=0, column=0, sticky='w', padx=(10, 6), pady=6)
+		).grid(row=0, column=0, sticky='w', padx=(PAD_SM, PAD_XS), pady=PAD_XS)
 
 		ctk.CTkLabel(
 			row,
 			text=f'{pack["units_per_pack"]}u  |  ${pack["selling_price"]:,.2f}',
-			font=('Arial', 10),
+			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 			anchor='w',
-		).grid(row=0, column=1, sticky='w', pady=6)
+		).grid(row=0, column=1, sticky='w', pady=PAD_XS)
 
 		btn_frame = ctk.CTkFrame(row, fg_color='transparent')
-		btn_frame.grid(row=0, column=2, padx=(4, 8), pady=6)
+		btn_frame.grid(row=0, column=2, padx=(PAD_XS, PAD_SM), pady=PAD_XS)
 
 		ctk.CTkButton(
 			btn_frame,
 			text='✏',
 			width=28,
 			height=24,
-			font=('Arial', 11),
+			font=FONT_LABEL,
 			fg_color=ORANGE_DIM,
 			hover_color=ORANGE,
 			text_color=ORANGE_TEXT,
@@ -943,7 +926,7 @@ class ArticlesView(BaseView):
 			text='X',
 			width=28,
 			height=24,
-			font=('Arial', 10, 'bold'),
+			font=FONT_LABEL_BOLD,
 			fg_color=RED_DIM,
 			hover_color=RED,
 			text_color=RED_TEXT,
@@ -956,8 +939,9 @@ class ArticlesView(BaseView):
 
 	def _delete_pack(self, variant_id, base_variant_id):
 		"""Ejecuta la eliminación lógica o física de una presentación en la persistencia de datos."""
-		tenant_id = self.ctx.tenant_id
-		success, msg = self.controller.delete_packaging_variant(tenant_id, variant_id)
+		success, msg = self.controller.delete_packaging_variant(
+			self.ctx.tenant_id, variant_id
+		)
 		if success:
 			self._show_packaging_panel(base_variant_id)
 		else:
@@ -992,30 +976,26 @@ class ArticlesView(BaseView):
 
 		dialog = ctk.CTkToplevel(self)
 		dialog.title(title)
-		dialog.geometry('400x430')
+		dialog.geometry('400x480')
 		dialog.resizable(False, False)
 		dialog.grab_set()
 		dialog.focus()
 		dialog.attributes('-topmost', True)
 
-		ctk.CTkLabel(
-			dialog, text=title, font=('Arial', 18, 'bold'), text_color=TEXT_PRIMARY
-		).pack(pady=(20, 2))
+		ctk.CTkLabel(dialog, text=title, font=FONT_TITLE, text_color=TEXT_PRIMARY).pack(
+			pady=(PAD_LG, PAD_XS)
+		)
 
 		ctk.CTkLabel(
 			dialog,
 			text='Definí nombre, cantidad y precio de venta del paquete.',
-			font=('Arial', 11),
+			font=FONT_BODY,
 			text_color=TEXT_MUTED,
-		).pack(pady=(0, 12))
+		).pack(pady=(0, PAD_MD))
 
-		ctk.CTkLabel(
-			dialog,
-			text='NOMBRE  (ej: Cajón 12u, Caja x6, Pallet 200u)',
-			font=('Arial', 9, 'bold'),
-			text_color=TEXT_MUTED,
-			anchor='w',
-		).pack(padx=28, anchor='w', pady=(0, 2))
+		make_form_label(dialog, 'NOMBRE  (ej: Cajón 12u, Caja x6)', required=True).pack(
+			padx=PAD_LG, anchor='w'
+		)
 
 		entry_label = ctk.CTkEntry(
 			dialog,
@@ -1024,22 +1004,19 @@ class ArticlesView(BaseView):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=36,
+			font=FONT_BODY,
 		)
-		entry_label.pack(padx=28, fill='x', pady=(0, 10))
+		entry_label.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
 		if is_edit:
 			entry_label.insert(0, existing_pack.get('pack_label', ''))
 		entry_label.focus()
 
-		ctk.CTkLabel(
-			dialog,
-			text='UNIDADES POR PAQUETE',
-			font=('Arial', 9, 'bold'),
-			text_color=TEXT_MUTED,
-			anchor='w',
-		).pack(padx=28, anchor='w', pady=(0, 2))
+		make_form_label(dialog, 'UNIDADES POR PAQUETE', required=True).pack(
+			padx=PAD_LG, anchor='w'
+		)
 
 		presets_row = ctk.CTkFrame(dialog, fg_color='transparent')
-		presets_row.pack(padx=28, fill='x', pady=(0, 4))
+		presets_row.pack(padx=PAD_LG, fill='x', pady=(0, PAD_XS))
 		entry_units = ctk.CTkEntry(
 			dialog,
 			placeholder_text='Ej: 6, 12, 24, 200',
@@ -1047,6 +1024,7 @@ class ArticlesView(BaseView):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=36,
+			font=FONT_BODY,
 		)
 
 		def _set_units(val):
@@ -1059,7 +1037,7 @@ class ArticlesView(BaseView):
 				text=str(qty),
 				width=44,
 				height=28,
-				font=('Arial', 11),
+				font=FONT_BODY,
 				fg_color=SURFACE3,
 				hover_color=SURFACE4,
 				text_color=TEXT_SECONDARY,
@@ -1067,19 +1045,15 @@ class ArticlesView(BaseView):
 				border_color=BORDER,
 				corner_radius=6,
 				command=lambda v=qty: _set_units(v),
-			).pack(side='left', padx=(0, 4))
+			).pack(side='left', padx=(0, PAD_XS))
 
-		entry_units.pack(padx=28, fill='x', pady=(0, 10))
+		entry_units.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
 		if is_edit:
 			entry_units.insert(0, str(existing_pack.get('units_per_pack', '')))
 
-		ctk.CTkLabel(
-			dialog,
-			text='PRECIO DE VENTA DEL PAQUETE ($)',
-			font=('Arial', 9, 'bold'),
-			text_color=TEXT_MUTED,
-			anchor='w',
-		).pack(padx=28, anchor='w', pady=(0, 2))
+		make_form_label(dialog, 'PRECIO DE VENTA DEL PAQUETE ($)', required=True).pack(
+			padx=PAD_LG, anchor='w'
+		)
 
 		entry_price = ctk.CTkEntry(
 			dialog,
@@ -1088,18 +1062,15 @@ class ArticlesView(BaseView):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=36,
+			font=FONT_BODY,
 		)
-		entry_price.pack(padx=28, fill='x', pady=(0, 10))
+		entry_price.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
 		if is_edit:
 			entry_price.insert(0, f'{existing_pack.get("selling_price", ""):.2f}')
 
-		ctk.CTkLabel(
-			dialog,
-			text='CÓDIGO DE BARRAS  (opcional)',
-			font=('Arial', 9, 'bold'),
-			text_color=TEXT_MUTED,
-			anchor='w',
-		).pack(padx=28, anchor='w', pady=(0, 2))
+		make_form_label(dialog, 'CÓDIGO DE BARRAS  (opcional)', required=False).pack(
+			padx=PAD_LG, anchor='w'
+		)
 
 		entry_barcode = ctk.CTkEntry(
 			dialog,
@@ -1108,15 +1079,16 @@ class ArticlesView(BaseView):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=36,
+			font=FONT_BODY,
 		)
-		entry_barcode.pack(padx=28, fill='x', pady=(0, 6))
+		entry_barcode.pack(padx=PAD_LG, fill='x', pady=(0, PAD_XS))
 		if is_edit and existing_pack.get('barcode'):
 			entry_barcode.insert(0, existing_pack['barcode'])
 
 		lbl_err = ctk.CTkLabel(
-			dialog, text='', font=('Arial', 11, 'bold'), text_color=RED_TEXT
+			dialog, text='', font=FONT_LABEL_BOLD, text_color=RED_TEXT
 		)
-		lbl_err.pack(pady=(0, 4))
+		lbl_err.pack(pady=(0, PAD_XS))
 
 		def _do_save():
 			label = entry_label.get().strip()
@@ -1160,9 +1132,8 @@ class ArticlesView(BaseView):
 			border_color=ACCENT,
 			height=40,
 			corner_radius=8,
+			font=FONT_BODY_BOLD,
 			command=_do_save,
-		).pack(padx=28, fill='x')
+		).pack(padx=PAD_LG, fill='x')
 
 		entry_barcode.bind('<Return>', lambda e: _do_save())
-		dialog.grab_set()
-		entry_label.focus()
