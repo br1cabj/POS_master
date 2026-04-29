@@ -1,10 +1,17 @@
+"""
+controllers/combo_controller.py
+===============================
+Controlador de dominio para la estructuración de productos compuestos (Combos)
+y gestión de la capa visual de atajos en el Punto de Venta (Touch POS).
+"""
+
 import logging
+from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 
 from controllers.base import BaseController
-from database.models import Article, ArticleVariant, Branch, ComboItem, Warehouse
+from database.models import Article, ArticleVariant, ComboItem
 from utils.config import make_engine
-from utils.shared import get_or_create_default_warehouse
 
 logger = logging.getLogger(__name__)
 
@@ -12,58 +19,90 @@ _default_engine = make_engine()
 
 
 class ComboController(BaseController):
+	"""
+	Controlador responsable de la integridad referencial y proyección de costos
+	en la creación de promociones y botones rápidos.
+	"""
+
 	def __init__(self, db_engine=None):
 		engine = db_engine if db_engine is not None else _default_engine
 		super().__init__(engine)
 
 	def create_combo(self, tenant_id, name, price, btn_color, ingredients_list):
 		"""
-		Crea una promoción con su artículo contenedor, variante y receta de ingredientes.
-		ingredients_list: [{'variant_id': int, 'qty': float}, ...]
+		Ensambla un artículo de tipo promoción.
+		Aplica consolidación de duplicados, validación de aislamiento tenant,
+		y previene topologías circulares (anidamiento de combos).
 		"""
 		if not name or not str(name).strip():
-			return False, 'El nombre del combo es obligatorio.'
+			return False, 'El nombre de la promoción es obligatorio.'
 		if not ingredients_list:
-			return False, 'El combo debe tener al menos un ingrediente.'
+			return False, 'La promoción debe contener al menos un ingrediente válido.'
 
 		try:
 			price = Decimal(str(price))
 		except (ValueError, InvalidOperation):
-			return False, 'Precio inválido.'
+			return False, 'El formato numérico del precio es inválido.'
 
 		if price < Decimal('0.0'):
-			return False, 'El precio no puede ser negativo.'
+			return False, 'El precio de venta no puede poseer valor negativo.'
+
+		# Consolidación O(N) para unificar ingredientes repetidos enviados por la capa vista
+		aggregated_ingredients = defaultdict(Decimal)
+		for item in ingredients_list:
+			try:
+				qty = Decimal(str(item.get('qty', 0)))
+				if qty <= 0:
+					return (
+						False,
+						'Las proporciones en la receta deben ser mayores a cero.',
+					)
+				aggregated_ingredients[item['variant_id']] += qty
+			except (ValueError, InvalidOperation, KeyError):
+				return False, 'Estructura de payload de ingrediente inválida.'
 
 		with self._Session() as session:
 			try:
+				combo_cost = Decimal('0.0')
+				validated_items = []
+
+				# Validación de ingredientes contra la Base de Datos
+				for variant_id, qty in aggregated_ingredients.items():
+					ing_variant = (
+						session.query(ArticleVariant)
+						.join(Article)
+						.filter(
+							ArticleVariant.id == variant_id,
+							Article.tenant_id == tenant_id,
+						)
+						.first()
+					)
+
+					if not ing_variant:
+						session.rollback()
+						return (
+							False,
+							f'Inconsistencia: El artículo (ID: {variant_id}) no pertenece a su base de datos.',
+						)
+
+					if getattr(ing_variant, 'is_combo', False):
+						session.rollback()
+						return (
+							False,
+							'Restricción arquitectónica: No se permite anidar combos.',
+						)
+
+					combo_cost += ing_variant.cost_price * qty
+					validated_items.append((variant_id, qty))
+
+				# Persistencia del Contenedor Base
 				article = Article(
 					name=str(name).strip(), tenant_id=tenant_id, has_variants=False
 				)
 				session.add(article)
 				session.flush()
 
-				# Calcular el costo real del combo sumando ingredientes antes de crear la variante
-				combo_cost = Decimal('0.0')
-				validated_items = []
-				for item in ingredients_list:
-					try:
-						qty = Decimal(str(item['qty']))
-					except (ValueError, InvalidOperation, KeyError):
-						session.rollback()
-						return False, 'Cantidad de ingrediente inválida.'
-
-					if qty <= 0:
-						session.rollback()
-						return (
-							False,
-							'La cantidad de cada ingrediente debe ser mayor a cero.',
-						)
-
-					ing_variant = session.get(ArticleVariant, item['variant_id'])
-					if ing_variant:
-						combo_cost += ing_variant.cost_price * qty
-					validated_items.append((item['variant_id'], qty))
-
+				# Persistencia de la Variante de tipo Venta
 				combo_variant = ArticleVariant(
 					article_id=article.id,
 					barcode=None,
@@ -76,6 +115,7 @@ class ComboController(BaseController):
 				session.add(combo_variant)
 				session.flush()
 
+				# Vinculación Relacional de la Receta
 				for variant_id, qty in validated_items:
 					session.add(
 						ComboItem(
@@ -86,14 +126,22 @@ class ComboController(BaseController):
 					)
 
 				session.commit()
-				return True, f"Promo '{name}' creada y lista en la botonera."
+				return (
+					True,
+					f"Promoción '{name}' generada y habilitada en el panel POS.",
+				)
 			except Exception as e:
 				session.rollback()
-				logger.error(f'Error creando combo: {e}', exc_info=True)
-				return False, 'Error interno al guardar la Promo.'
+				logger.error(f'Error en persistencia de combo: {e}', exc_info=True)
+				return (
+					False,
+					'Excepción interna al almacenar la estructura de la promoción.',
+				)
 
 	def toggle_touch_status(self, tenant_id, variant_id, show_on_touch, btn_color):
-		"""Activa o desactiva la visibilidad de un producto en la botonera táctil."""
+		"""
+		Modifica los metadatos de renderizado POS para artículos individuales.
+		"""
 		with self._Session() as session:
 			try:
 				variant = (
@@ -105,15 +153,21 @@ class ComboController(BaseController):
 					.first()
 				)
 				if not variant:
-					return False, 'Producto no encontrado.'
+					return (
+						False,
+						'Producto inhallable o violación de aislamiento de tenant.',
+					)
 
 				variant.show_on_touch = show_on_touch
 				variant.btn_color = btn_color
 				session.commit()
 
-				estado = 'agregado a' if show_on_touch else 'quitado de'
-				return True, f'Producto {estado} la botonera rápida.'
+				estado = 'asignado al' if show_on_touch else 'retirado del'
+				return True, f'Atajo {estado} panel de acceso rápido exitosamente.'
 			except Exception as e:
 				session.rollback()
-				logger.error(f'Error actualizando botonera: {e}', exc_info=True)
-				return False, 'Error al actualizar la configuración.'
+				logger.error(f'Error mutando estado touch: {e}', exc_info=True)
+				return (
+					False,
+					'Fallo de concurrencia al actualizar preferencias visuales.',
+				)
