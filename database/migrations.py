@@ -3,6 +3,7 @@ utils/migrations.py
 ===================
 Aplica migraciones de esquema SQLite de forma segura al inicio del sistema.
 Cada migración es idempotente: si la columna ya existe, simplemente se omite.
+Adaptado para compatibilidad con UUID (VARCHAR(36)).
 """
 
 import logging
@@ -39,7 +40,7 @@ def _v1_add_cost_price_usd(engine) -> None:
 			)
 			conn.commit()
 			logger.info(
-				'Migracion v1 aplicada: cost_price_usd agregado a article_variants.'
+				'Migración v1 aplicada: cost_price_usd agregado a article_variants.'
 			)
 		except Exception:
 			pass
@@ -48,7 +49,7 @@ def _v1_add_cost_price_usd(engine) -> None:
 def _v2_add_recovery_pin_hash(engine) -> None:
 	"""
 	v2: Agrega la columna recovery_pin_hash a users.
-	Almacena (hasheado con bcrypt) el PIN de recuperacion de contrasena.
+	Almacena (hasheado con bcrypt) el PIN de recuperación de contraseña.
 	Es nullable: usuarios existentes no tienen PIN hasta que lo configuren.
 	"""
 	with engine.connect() as conn:
@@ -59,7 +60,7 @@ def _v2_add_recovery_pin_hash(engine) -> None:
 				)
 			)
 			conn.commit()
-			logger.info('Migracion v2 aplicada: recovery_pin_hash agregado a users.')
+			logger.info('Migración v2 aplicada: recovery_pin_hash agregado a users.')
 		except Exception:
 			pass
 
@@ -78,7 +79,7 @@ def _v3_add_discount_amount(engine) -> None:
 				)
 			)
 			conn.commit()
-			logger.info('Migracion v3 aplicada: discount_amount agregado a sales.')
+			logger.info('Migración v3 aplicada: discount_amount agregado a sales.')
 		except Exception:
 			pass
 
@@ -86,7 +87,7 @@ def _v3_add_discount_amount(engine) -> None:
 def _v4_add_mixto_fields(engine) -> None:
 	"""
 	v4: Agrega payment_method_2 y amount_method_2 a sales.
-	Permiten registrar ventas con dos metodos de pago (pago mixto).
+	Permiten registrar ventas con dos métodos de pago (pago mixto).
 	Nullable: ventas existentes se tratan como pago simple.
 	"""
 	with engine.connect() as conn:
@@ -100,45 +101,46 @@ def _v4_add_mixto_fields(engine) -> None:
 			except Exception:
 				pass
 		logger.info(
-			'Migracion v4 aplicada: payment_method_2 y amount_method_2 en sales.'
+			'Migración v4 aplicada: payment_method_2 y amount_method_2 en sales.'
 		)
 
 
 def _v5_create_quotations(engine) -> None:
 	"""
 	v5: Crea las tablas quotations y quotation_items si no existen.
+	Adaptado para usar UUIDs (VARCHAR(36)).
 	"""
 	with engine.connect() as conn:
 		conn.execute(
 			text("""
-            CREATE TABLE IF NOT EXISTS quotations (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                number          VARCHAR NOT NULL,
-                date            DATETIME DEFAULT CURRENT_TIMESTAMP,
-                valid_until     DATE,
-                status          VARCHAR DEFAULT 'borrador',
-                total_amount    NUMERIC(10,2) NOT NULL DEFAULT 0,
-                discount_amount NUMERIC(10,2) DEFAULT 0,
-                notes           VARCHAR,
-                tenant_id       INTEGER NOT NULL REFERENCES tenants(id),
-                user_id         INTEGER NOT NULL REFERENCES users(id),
-                customer_id     INTEGER REFERENCES customers(id),
-                UNIQUE(tenant_id, number)
-            )
-        """)
+                CREATE TABLE IF NOT EXISTS quotations (
+                    id              VARCHAR(36) PRIMARY KEY,
+                    number          VARCHAR NOT NULL,
+                    date            DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    valid_until     DATE,
+                    status          VARCHAR DEFAULT 'borrador',
+                    total_amount    NUMERIC(10,2) NOT NULL DEFAULT 0,
+                    discount_amount NUMERIC(10,2) DEFAULT 0,
+                    notes           VARCHAR,
+                    tenant_id       VARCHAR(36) NOT NULL REFERENCES tenants(id),
+                    user_id         VARCHAR(36) NOT NULL REFERENCES users(id),
+                    customer_id     VARCHAR(36) REFERENCES customers(id),
+                    UNIQUE(tenant_id, number)
+                )
+            """)
 		)
 		conn.execute(
 			text("""
-            CREATE TABLE IF NOT EXISTS quotation_items (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                description   VARCHAR NOT NULL,
-                quantity      NUMERIC(12,4) NOT NULL,
-                unit_price    NUMERIC(10,2) NOT NULL,
-                subtotal      NUMERIC(10,2) NOT NULL,
-                quotation_id  INTEGER NOT NULL REFERENCES quotations(id),
-                variant_id    INTEGER REFERENCES article_variants(id)
-            )
-        """)
+                CREATE TABLE IF NOT EXISTS quotation_items (
+                    id            VARCHAR(36) PRIMARY KEY,
+                    description   VARCHAR NOT NULL,
+                    quantity      NUMERIC(12,4) NOT NULL,
+                    unit_price    NUMERIC(10,2) NOT NULL,
+                    subtotal      NUMERIC(10,2) NOT NULL,
+                    quotation_id  VARCHAR(36) NOT NULL REFERENCES quotations(id),
+                    variant_id    VARCHAR(36) REFERENCES article_variants(id)
+                )
+            """)
 		)
 		conn.execute(
 			text(
@@ -155,23 +157,20 @@ def _v5_create_quotations(engine) -> None:
 		)
 		conn.commit()
 		logger.info(
-			'Migracion v5 aplicada: tablas quotations y quotation_items creadas.'
+			'Migración v5 aplicada: tablas quotations y quotation_items creadas.'
 		)
 
 
 def _v6_add_packaging_variants(engine) -> None:
 	"""
 	v6: Agrega soporte de presentaciones/empaque a article_variants.
-	  - units_per_pack: cuantas unidades base representa 1 pieza de esta variante.
-	  - pack_label: etiqueta visible (ej: 'Cajon 12u', 'Pallet 200u').
-	  - base_variant_id: FK a la variante base de la que se descuenta stock.
-	Nullable/default: todas las variantes existentes son presentacion unitaria (factor 1).
+	Adaptado para que base_variant_id sea VARCHAR(36) (UUID).
 	"""
 	with engine.connect() as conn:
 		for sql in [
 			'ALTER TABLE article_variants ADD COLUMN units_per_pack INTEGER DEFAULT 1',
 			'ALTER TABLE article_variants ADD COLUMN pack_label VARCHAR DEFAULT NULL',
-			'ALTER TABLE article_variants ADD COLUMN base_variant_id INTEGER DEFAULT NULL REFERENCES article_variants(id)',
+			'ALTER TABLE article_variants ADD COLUMN base_variant_id VARCHAR(36) DEFAULT NULL REFERENCES article_variants(id)',
 		]:
 			try:
 				conn.execute(text(sql))
@@ -179,5 +178,5 @@ def _v6_add_packaging_variants(engine) -> None:
 			except Exception:
 				pass
 		logger.info(
-			'Migracion v6 aplicada: units_per_pack, pack_label, base_variant_id en article_variants.'
+			'Migración v6 aplicada: units_per_pack, pack_label, base_variant_id en article_variants.'
 		)

@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 
 from sqlalchemy import (
@@ -23,7 +24,7 @@ Base = declarative_base()
 # ==========================================
 class Tenant(Base):
 	__tablename__ = 'tenants'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	name = Column(String, nullable=False)
 
 	users = relationship('User', back_populates='tenant')
@@ -34,7 +35,7 @@ class Tenant(Base):
 
 class User(Base):
 	__tablename__ = 'users'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
 	username = Column(String, nullable=False)
 	password_hash = Column(String, nullable=False)
@@ -42,7 +43,7 @@ class User(Base):
 	role = Column(String, default='cajero')
 	is_active = Column(Boolean, default=True)
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 	tenant = relationship('Tenant', back_populates='users')
 
 	sales = relationship('Sale', back_populates='user')
@@ -58,12 +59,12 @@ class User(Base):
 # ==========================================
 class Branch(Base):
 	__tablename__ = 'branches'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	name = Column(String, nullable=False)
 	address = Column(String, nullable=True)
 	is_active = Column(Boolean, default=True)
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 	tenant = relationship('Tenant', back_populates='branches')
 
 	warehouses = relationship('Warehouse', back_populates='branch')
@@ -71,11 +72,13 @@ class Branch(Base):
 
 class Warehouse(Base):
 	__tablename__ = 'warehouses'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	name = Column(String, nullable=False)
 	is_active = Column(Boolean, default=True)
 
-	branch_id = Column(Integer, ForeignKey('branches.id'), nullable=False, index=True)
+	branch_id = Column(
+		String(36), ForeignKey('branches.id'), nullable=False, index=True
+	)
 	branch = relationship('Branch', back_populates='warehouses')
 
 	stocks = relationship('Stock', back_populates='warehouse')
@@ -86,13 +89,13 @@ class Warehouse(Base):
 # ==========================================
 class Category(Base):
 	__tablename__ = 'categories'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	name = Column(String, nullable=False)
 
 
 class Article(Base):
 	__tablename__ = 'articles'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	name = Column(String, nullable=False)
 	description = Column(String, nullable=True)
 
@@ -102,12 +105,14 @@ class Article(Base):
 	has_variants = Column(Boolean, default=False)
 	is_active = Column(Boolean, default=True)
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 	tenant = relationship('Tenant', back_populates='articles')
 
-	category_id = Column(Integer, ForeignKey('categories.id'), nullable=True)
+	category_id = Column(String(36), ForeignKey('categories.id'), nullable=True)
 
-	supplier_id = Column(Integer, ForeignKey('suppliers.id'), nullable=True, index=True)
+	supplier_id = Column(
+		String(36), ForeignKey('suppliers.id'), nullable=True, index=True
+	)
 	supplier = relationship('Supplier')
 
 	# El borrado en cascada aquí está bien porque borrar un artículo padre lógicamente
@@ -118,7 +123,7 @@ class Article(Base):
 
 class ArticleVariant(Base):
 	__tablename__ = 'article_variants'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
 	barcode = Column(String, nullable=True, index=True)
 
@@ -130,7 +135,9 @@ class ArticleVariant(Base):
 	cost_price_usd = Column(Numeric(10, 4), nullable=True, default=None)
 	is_active = Column(Boolean, default=True)
 
-	article_id = Column(Integer, ForeignKey('articles.id'), nullable=False, index=True)
+	article_id = Column(
+		String(36), ForeignKey('articles.id'), nullable=False, index=True
+	)
 	article = relationship('Article', back_populates='variants')
 
 	stocks = relationship('Stock', back_populates='variant')
@@ -140,14 +147,10 @@ class ArticleVariant(Base):
 	show_on_touch = Column(Boolean, default=False)
 	btn_color = Column(String, default='#1f538d')
 
-	# Presentaciones / Empaque (cajones, pallets, etc.)
-	# units_per_pack: cuantas unidades base representa 1 pieza de esta variante
-	# base_variant_id: si no es None, el stock se descuenta de esa variante base
-	# pack_label: etiqueta de presentacion (ej: 'Cajon 12u', 'Pallet 200u')
 	units_per_pack = Column(Integer, default=1)
 	pack_label = Column(String, nullable=True)
 	base_variant_id = Column(
-		Integer, ForeignKey('article_variants.id'), nullable=True, index=True
+		String(36), ForeignKey('article_variants.id'), nullable=True, index=True
 	)
 	base_variant = relationship(
 		'ArticleVariant',
@@ -163,18 +166,18 @@ class ArticleVariant(Base):
 
 class ArticleHistory(Base):
 	__tablename__ = 'article_history'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
 	date = Column(DateTime, default=datetime.utcnow, index=True)
-	user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+	user_id = Column(String(36), ForeignKey('users.id'), nullable=False)
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 
 	action_type = Column(
 		String, nullable=False
 	)  # Ej: 'CREACIÓN', 'EDICIÓN MANUAL', 'AUMENTO MASIVO', 'ELIMINACIÓN'
 	article_name = Column(String, nullable=False)
 	variant_id = Column(
-		Integer, ForeignKey('article_variants.id'), nullable=True, index=True
+		String(36), ForeignKey('article_variants.id'), nullable=True, index=True
 	)
 
 	old_cost = Column(Numeric(10, 2), nullable=True)
@@ -190,7 +193,7 @@ class ArticleHistory(Base):
 # ==========================================
 class Stock(Base):
 	__tablename__ = 'stocks'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
 	quantity = Column(Numeric(12, 4), default=0.0)
 
@@ -199,12 +202,12 @@ class Stock(Base):
 	serial_number = Column(String, unique=True, nullable=True)
 
 	warehouse_id = Column(
-		Integer, ForeignKey('warehouses.id'), nullable=False, index=True
+		String(36), ForeignKey('warehouses.id'), nullable=False, index=True
 	)
 	warehouse = relationship('Warehouse', back_populates='stocks')
 
 	variant_id = Column(
-		Integer, ForeignKey('article_variants.id'), nullable=False, index=True
+		String(36), ForeignKey('article_variants.id'), nullable=False, index=True
 	)
 	variant = relationship('ArticleVariant', back_populates='stocks')
 
@@ -215,22 +218,22 @@ class Stock(Base):
 
 class StockMovement(Base):
 	__tablename__ = 'stock_movements'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	date = Column(DateTime, default=datetime.utcnow, index=True)
 
 	movement_type = Column(String, nullable=False)
 	quantity = Column(Numeric(12, 4), nullable=False)
 	reference = Column(String, nullable=True)
 
-	source_warehouse_id = Column(Integer, ForeignKey('warehouses.id'), nullable=True)
-	dest_warehouse_id = Column(Integer, ForeignKey('warehouses.id'), nullable=True)
+	source_warehouse_id = Column(String(36), ForeignKey('warehouses.id'), nullable=True)
+	dest_warehouse_id = Column(String(36), ForeignKey('warehouses.id'), nullable=True)
 
 	variant_id = Column(
-		Integer, ForeignKey('article_variants.id'), nullable=False, index=True
+		String(36), ForeignKey('article_variants.id'), nullable=False, index=True
 	)
 	variant = relationship('ArticleVariant')
 
-	user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+	user_id = Column(String(36), ForeignKey('users.id'), nullable=False)
 	user = relationship('User', back_populates='stock_movements')
 
 	__table_args__ = (
@@ -243,7 +246,7 @@ class StockMovement(Base):
 # ==========================================
 class Customer(Base):
 	__tablename__ = 'customers'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	name = Column(String, nullable=False)
 	phone = Column(String, nullable=True)
 	current_balance = Column(
@@ -251,7 +254,7 @@ class Customer(Base):
 	)  # Aquí sí permitimos negativos por si hay saldo a favor
 	is_active = Column(Boolean, default=True)
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 	tenant = relationship('Tenant', back_populates='customers')
 
 	sales = relationship('Sale', back_populates='customer')
@@ -259,7 +262,7 @@ class Customer(Base):
 
 class Sale(Base):
 	__tablename__ = 'sales'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	date = Column(DateTime, default=datetime.utcnow, index=True)
 	total_amount = Column(Numeric(10, 2), nullable=False)
 	discount_amount = Column(
@@ -271,12 +274,14 @@ class Sale(Base):
 	payment_method = Column(String, default='efectivo')
 	status = Column(String, default='completada')
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 
-	user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+	user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
 	user = relationship('User', back_populates='sales')
 
-	customer_id = Column(Integer, ForeignKey('customers.id'), nullable=True, index=True)
+	customer_id = Column(
+		String(36), ForeignKey('customers.id'), nullable=True, index=True
+	)
 	customer = relationship('Customer', back_populates='sales')
 
 	items = relationship(
@@ -286,25 +291,25 @@ class Sale(Base):
 
 class SaleDetail(Base):
 	__tablename__ = 'sale_details'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	quantity = Column(Numeric(12, 4), nullable=False)
 	unit_cost = Column(Numeric(10, 2), nullable=False)
 	unit_price = Column(Numeric(10, 2), nullable=False)
 	subtotal = Column(Numeric(10, 2), nullable=False)
 	description = Column(String, nullable=False)
 
-	sale_id = Column(Integer, ForeignKey('sales.id'), nullable=False, index=True)
+	sale_id = Column(String(36), ForeignKey('sales.id'), nullable=False, index=True)
 	sale = relationship('Sale', back_populates='items')
 
-	variant_id = Column(Integer, ForeignKey('article_variants.id'), nullable=True)
+	variant_id = Column(String(36), ForeignKey('article_variants.id'), nullable=True)
 	variant = relationship('ArticleVariant', back_populates='sale_details')
 
 
 class CashSession(Base):
 	__tablename__ = 'cash_sessions'
-	id = Column(Integer, primary_key=True)
-	user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+	user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 
 	opened_at = Column(DateTime, default=datetime.utcnow)
 	closed_at = Column(DateTime, nullable=True)
@@ -323,14 +328,14 @@ class CashSession(Base):
 
 class CashMovement(Base):
 	__tablename__ = 'cash_movements'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	movement_type = Column(String, nullable=False)
 	amount = Column(Numeric(10, 2), nullable=False)
 	description = Column(String, nullable=True)
 	time = Column(DateTime, default=datetime.utcnow)
 
 	session_id = Column(
-		Integer, ForeignKey('cash_sessions.id'), nullable=False, index=True
+		String(36), ForeignKey('cash_sessions.id'), nullable=False, index=True
 	)
 	session = relationship('CashSession', back_populates='movements')
 
@@ -342,41 +347,45 @@ class CashMovement(Base):
 # ==========================================
 class Supplier(Base):
 	__tablename__ = 'suppliers'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	name = Column(String, nullable=False)
 	phone = Column(String, nullable=True)
 	email = Column(String, nullable=True)
 	address = Column(String, nullable=True)
 	is_active = Column(Boolean, default=True)
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 	purchases = relationship('Purchase', back_populates='supplier')
 
 
 class Purchase(Base):
 	__tablename__ = 'purchases'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	date = Column(DateTime, default=datetime.utcnow, index=True)
 	total_amount = Column(Numeric(10, 2), nullable=False)
 	invoice_number = Column(String, nullable=True)
 	status = Column(String, default='pagada')
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
-	user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
+	user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
 
-	supplier_id = Column(Integer, ForeignKey('suppliers.id'), nullable=True, index=True)
+	supplier_id = Column(
+		String(36), ForeignKey('suppliers.id'), nullable=True, index=True
+	)
 	supplier = relationship('Supplier', back_populates='purchases')
 
 
 class ComboItem(Base):
 	__tablename__ = 'combo_items'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
 	combo_id = Column(
-		Integer, ForeignKey('article_variants.id'), nullable=False, index=True
+		String(36), ForeignKey('article_variants.id'), nullable=False, index=True
 	)
 
-	ingredient_id = Column(Integer, ForeignKey('article_variants.id'), nullable=False)
+	ingredient_id = Column(
+		String(36), ForeignKey('article_variants.id'), nullable=False
+	)
 
 	quantity_required = Column(Numeric(12, 4), nullable=False)
 
@@ -400,7 +409,7 @@ def init_db(database_url='sqlite:///pos_system.db'):
 # ==========================================
 class Quotation(Base):
 	__tablename__ = 'quotations'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
 	number = Column(String, nullable=False)  # e.g. "COT-0001"
 	date = Column(DateTime, default=datetime.utcnow, index=True)
@@ -414,9 +423,11 @@ class Quotation(Base):
 	discount_amount = Column(Numeric(10, 2), default=0)
 	notes = Column(String, nullable=True)  # nota/condiciones al pie
 
-	tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, index=True)
-	user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
-	customer_id = Column(Integer, ForeignKey('customers.id'), nullable=True, index=True)
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
+	user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
+	customer_id = Column(
+		String(36), ForeignKey('customers.id'), nullable=True, index=True
+	)
 
 	user = relationship('User')
 	customer = relationship('Customer')
@@ -431,7 +442,7 @@ class Quotation(Base):
 
 class QuotationItem(Base):
 	__tablename__ = 'quotation_items'
-	id = Column(Integer, primary_key=True)
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
 	description = Column(String, nullable=False)
 	quantity = Column(Numeric(12, 4), nullable=False)
@@ -439,9 +450,9 @@ class QuotationItem(Base):
 	subtotal = Column(Numeric(10, 2), nullable=False)
 
 	quotation_id = Column(
-		Integer, ForeignKey('quotations.id'), nullable=False, index=True
+		String(36), ForeignKey('quotations.id'), nullable=False, index=True
 	)
 	quotation = relationship('Quotation', back_populates='items')
 
-	variant_id = Column(Integer, ForeignKey('article_variants.id'), nullable=True)
+	variant_id = Column(String(36), ForeignKey('article_variants.id'), nullable=True)
 	variant = relationship('ArticleVariant')
