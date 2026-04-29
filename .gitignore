@@ -1,43 +1,65 @@
-# ── Python ────────────────────────────────────────────────────────────────────
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-*.pyc
+# =========================
+# 🔐 Archivos sensibles
+# =========================
+.env
+*.env
+*.dat
+settings.json
 
-# ── Entornos virtuales ────────────────────────────────────────────────────────
-venv/
-.venv/
-env/
-.env/
-
-# ── Base de datos ──────────────────────────────
+# =========================
+# 🗄️ Base de datos
+# =========================
 *.db
-*.sqlite
 *.sqlite3
 
-# ── Archivos de respaldo de BD ────────────────────────────────────────────────
-backup_*.db
+# =========================
+# 🧪 Entornos virtuales
+# =========================
+venv/
+.env/
+.venv/
 
-# ── Configuración local (puede tener datos sensibles) ────────────────────────
-settings.json
-license.dat
+# =========================
+# 🐍 Python cache
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 
-# ── Archivos generados en runtime ────────────────────────────────────────────
+# =========================
+# 📦 Build / packaging
+# =========================
+build/
+dist/
+*.egg-info/
+
+# =========================
+# 🧾 Logs
+# =========================
 *.log
-*.pdf
-*.csv
 
-# ── Etiquetas generadas ───────────────────────────────────────────────────────
-etiquetas_*.pdf
-
-# ── Sistema operativo ─────────────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# ── IDEs ──────────────────────────────────────────────────────────────────────
+# =========================
+# 🧠 IDE / editor
+# =========================
 .vscode/
 .idea/
-*.swp
-*.swo
+
+# =========================
+# 🖥️ Sistema operativo
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# 📄 Archivos generados / innecesarios
+# =========================
+*.pdf
+*.ico
+
+# =========================
+# 🔥 Otros opcionales
+# =========================
+# Si este archivo es generado automáticamente
+# descomentá:
+license.dat
