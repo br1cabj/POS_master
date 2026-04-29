@@ -18,16 +18,16 @@ class AppContext:
 	settings: 'SettingsManager'
 
 	@property
-	def tenant_id(self) -> int:
+	def tenant_id(self) -> str:
 		if isinstance(self.current_user, dict):
-			return int(self.current_user.get('tenant_id', 1))
-		return int(self.current_user.tenant_id)
+			return self.current_user.get('tenant_id', '')
+		return self.current_user.tenant_id
 
 	@property
-	def user_id(self) -> int:
+	def user_id(self) -> str:
 		if isinstance(self.current_user, dict):
-			return int(self.current_user.get('id', 1))
-		return int(self.current_user.id)
+			return self.current_user.get('id', '')
+		return self.current_user.id
 
 	@property
 	def username(self) -> str:

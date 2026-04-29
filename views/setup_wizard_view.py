@@ -993,7 +993,7 @@ class SetupWizard(ctk.CTkFrame):
 				tenant_id=tenant.id,
 				username=self._d_username,
 				password_hash=pwd_hashed,
-				recovery_pin_hash=pin_hashed,  # CORRECCIÓN: Persistencia del PIN agregado
+				recovery_pin_hash=pin_hashed,
 				role='admin',
 				is_active=True,
 			)
@@ -1007,7 +1007,6 @@ class SetupWizard(ctk.CTkFrame):
 		cfg['company_address'] = self._d_address
 		cfg['company_phone'] = self._d_phone
 		cfg['currency_symbol'] = self._d_currency
-		cfg['currency_decimals'] = 0 if self._d_decimals.startswith('0') else 2
-		cfg['tax_rate'] = float(self._d_tax)
+		cfg['currency_decimals'] = self._d_decimals
 		cfg['reports_path'] = self._d_reports_path
 		_cfg_save(cfg)

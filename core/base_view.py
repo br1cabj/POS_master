@@ -32,12 +32,12 @@ class BaseView(ctk.CTkFrame):
 
 	# ── Gestión de Treeviews (Zebra Striping y Tags) ─────────────────────────
 
-	def init_treeview(self, tree: ttk.Treeview) -> None:
+	def init_treeview(self, tree: 'ttk.Treeview') -> None:
 		"""Aplica las configuraciones de diseño base al Treeview."""
 		setup_treeview_tags(tree)
 
 	def insert_tree_row(
-		self, tree: ttk.Treeview, index: int, values: tuple, tags: tuple = ()
+		self, tree: 'ttk.Treeview', index: int, values: tuple, tags: tuple = ()
 	) -> str:
 		"""
 		Inserta una fila manejando automáticamente el color alterno (zebra striping)
@@ -136,7 +136,6 @@ class BaseView(ctk.CTkFrame):
 				self.after_cancel(self._debounce_timers[key])
 			except Exception:
 				pass
-
 		self._debounce_timers[key] = self.after(delay_ms, callback)
 
 	def destroy(self) -> None:

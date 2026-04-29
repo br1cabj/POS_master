@@ -9,15 +9,13 @@ try:
 except ImportError:
 	pass
 
-# ──────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 # Configuración centralizada de la aplicación
-# Lee desde variables de entorno; valores por defecto
-# solo para desarrollo local. En producción define
-# DATABASE_URL y SECRET_SALT en un archivo .env
-# ──────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
 
 DB_URL = os.getenv('DATABASE_URL', 'sqlite:///pos_system.db')
-SECRET_SALT = os.getenv('SECRET_SALT', 'CloudPOS_SaaS_2026_Secreto_X99')
+
+SECRET_SALT = 'aantesbajocabeconcontradedesdeenentrehaciahastaparaporsegunsinsobretrasmediantedurante'
 
 
 def make_engine(url: str = None):
@@ -32,9 +30,8 @@ def make_engine(url: str = None):
 	if target.startswith('sqlite'):
 		kwargs['connect_args'] = {'check_same_thread': False}
 	else:
-		# Configuración robusta para bases de datos en red
-		kwargs['pool_size'] = 10  # Cantidad de conexiones simultáneas por defecto
-		kwargs['max_overflow'] = 20  # Conexiones extra permitidas en picos de uso
+		kwargs['pool_size'] = 10
+		kwargs['max_overflow'] = 20
 		kwargs['pool_recycle'] = 3600
 		kwargs['pool_pre_ping'] = True
 

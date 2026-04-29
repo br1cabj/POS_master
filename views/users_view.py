@@ -6,6 +6,7 @@ from controllers.user_controller import UserController
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.styles import (
+	apply_treeview_style,
 	ACCENT,
 	ACCENT_DIM,
 	ACCENT_TEXT,
@@ -215,7 +216,8 @@ class UsersView(BaseView):
 		)
 		self.tree_scroll.configure(command=self.tree.yview)
 
-		# CORRECCIÓN: Inicialización con el Design System
+		# Aplicar estilo oscuro al Treeview antes de configurar tags
+		apply_treeview_style()
 		self.init_treeview(self.tree)
 
 		col_widths = {'ID': 50, 'Usuario': 200, 'Rol': 120, 'PIN': 100}

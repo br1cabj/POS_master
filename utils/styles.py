@@ -98,8 +98,8 @@ def apply_treeview_style(style_name: str = 'Treeview') -> None:
 
 def setup_treeview_tags(tree: ttk.Treeview) -> None:
 	"""Aplica las etiquetas semánticas y de estilo a las filas de un Treeview."""
-	tree.tag_configure('oddrow', background=SURFACE2)
-	tree.tag_configure('evenrow', background=SURFACE1)
+	tree.tag_configure('oddrow', background=SURFACE2, foreground=TEXT_PRIMARY)
+	tree.tag_configure('evenrow', background=SURFACE1, foreground=TEXT_PRIMARY)
 	tree.tag_configure('danger', foreground=RED_TEXT)
 	tree.tag_configure('success', foreground=GREEN_TEXT)
 	tree.tag_configure('warning', foreground=ORANGE_TEXT)

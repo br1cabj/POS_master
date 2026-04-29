@@ -54,7 +54,20 @@ def load() -> dict:
 		if _SETTINGS_FILE.exists():
 			with open(_SETTINGS_FILE, 'r', encoding='utf-8') as f:
 				saved = json.load(f)
-			_cached_settings = {**DEFAULTS, **saved}
+			merged = {**DEFAULTS, **saved}
+			try:
+				merged['currency_decimals'] = int(merged['currency_decimals'])
+			except (ValueError, TypeError):
+				merged['currency_decimals'] = 0
+			try:
+				merged['tax_rate'] = float(merged['tax_rate'])
+			except (ValueError, TypeError):
+				merged['tax_rate'] = 0.0
+			try:
+				merged['low_stock_threshold'] = int(merged['low_stock_threshold'])
+			except (ValueError, TypeError):
+				merged['low_stock_threshold'] = 5
+			_cached_settings = merged
 			return _cached_settings
 	except Exception as e:
 		logger.warning(f'No se pudo leer settings.json, usando defaults: {e}')
