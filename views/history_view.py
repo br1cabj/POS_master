@@ -8,17 +8,17 @@ from controllers.sales_controller import SalesController
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.styles import (
-	ACCENT,
-	ACCENT_DIM,
 	ACCENT_TEXT,
 	BORDER,
+	BORDER_ACTIVE,
 	SURFACE1,
 	SURFACE2,
 	SURFACE3,
+	SURFACE4,
 	TEXT_MUTED,
 	TEXT_PRIMARY,
 	TEXT_SECONDARY,
-	apply_treeview_style,
+	make_toggle_button,
 )
 
 
@@ -35,8 +35,6 @@ class HistoryView(BaseView):
 		self.grid_rowconfigure(1, weight=0)
 		self.grid_rowconfigure(2, weight=0)
 		self.grid_rowconfigure(3, weight=1)
-
-		apply_treeview_style()
 
 		# ── Header ────────────────────────────────────────────────────────
 		header_frame = ctk.CTkFrame(self, fg_color='transparent')
@@ -69,7 +67,8 @@ class HistoryView(BaseView):
 		search_row.grid(row=1, column=0, sticky='ew', padx=20, pady=(0, 8))
 
 		self._search_var = ctk.StringVar()
-		self._search_var.trace_add('write', self._filter_tree)
+		self._search_var.trace_add('write', self.debounce_filter)
+
 		ctk.CTkEntry(
 			search_row,
 			textvariable=self._search_var,
@@ -101,19 +100,13 @@ class HistoryView(BaseView):
 			('week', 'Esta Semana'),
 			('fiado', 'Solo Fiados'),
 		]
+
 		for fkey, flabel in _filters:
 			is_active = fkey == 'all'
-			btn = ctk.CTkButton(
+			btn = make_toggle_button(
 				filter_row,
 				text=flabel,
-				height=28,
-				corner_radius=6,
-				font=('Arial', 11, 'bold') if is_active else ('Arial', 11),
-				fg_color=ACCENT_DIM if is_active else SURFACE2,
-				hover_color=ACCENT if is_active else SURFACE3,
-				text_color=ACCENT_TEXT if is_active else TEXT_SECONDARY,
-				border_width=1,
-				border_color=ACCENT if is_active else BORDER,
+				active=is_active,
 				command=lambda k=fkey: self._apply_filter(k),
 			)
 			btn.pack(side='left', padx=(0, 6))
@@ -166,6 +159,8 @@ class HistoryView(BaseView):
 		)
 		self.tree_scroll.configure(command=self.tree.yview)
 
+		self.init_treeview(self.tree)
+
 		_col_widths = {
 			'ID': 50,
 			'Fecha': 130,
@@ -192,14 +187,11 @@ class HistoryView(BaseView):
 			text_color=TEXT_MUTED,
 			justify='center',
 		)
+
 		self.tree.tag_configure('fiado', foreground='#fb923c')
 		self.tree.tag_configure('pendiente', foreground='#facc15')
 		self.tree.tag_configure('completada', foreground='#4ade80')
-		self.tree.tag_configure('odd', background='#161616')
-		self.tree.tag_configure('even', background='#1a1a1a')
-		self.tree.tag_configure(
-			'has_disc', foreground='#fbbf24'
-		)  # descuento activo → fila naranja
+		self.tree.tag_configure('has_disc', foreground='#fbbf24')
 
 		# ── Botón Ver Detalle ──────────────────────────────────────────────
 		btn_row = ctk.CTkFrame(self, fg_color='transparent')
@@ -221,22 +213,21 @@ class HistoryView(BaseView):
 
 		self.after(100, self.load_history)
 
+	def debounce_filter(self, *args):
+		self.debounce(200, self._filter_tree)
+
 	def _apply_filter(self, key: str):
-		"""Activa un filtro rápido y actualiza los botones."""
 		self._active_filter = key
 		for k, btn in self._filter_btns.items():
 			active = k == key
 			btn.configure(
-				fg_color=ACCENT_DIM if active else SURFACE2,
-				hover_color=ACCENT if active else SURFACE3,
-				text_color=ACCENT_TEXT if active else TEXT_SECONDARY,
-				border_color=ACCENT if active else BORDER,
-				font=('Arial', 11, 'bold') if active else ('Arial', 11),
+				fg_color=SURFACE4 if active else SURFACE2,
+				text_color=TEXT_PRIMARY if active else TEXT_SECONDARY,
+				border_color=BORDER_ACTIVE if active else BORDER,
 			)
 		self._filter_tree()
 
 	def _filter_tree(self, *args):
-		"""Filtra las ventas por búsqueda + filtro rápido activo."""
 		from datetime import date, timedelta
 
 		q = self._search_var.get().lower()
@@ -271,7 +262,7 @@ class HistoryView(BaseView):
 		for item in self.tree.get_children():
 			self.tree.delete(item)
 
-		for sale in matches:
+		for row_idx, sale in enumerate(matches):
 			raw_date = sale.get('date')
 			date_str = (
 				raw_date.strftime('%Y-%m-%d %H:%M')
@@ -284,31 +275,25 @@ class HistoryView(BaseView):
 			pm = sale.get('payment_method', '') or ''
 			pm2 = sale.get('payment_method_2', '') or ''
 			status = sale.get('status', '') or ''
+
 			if pm == 'fiado':
-				estado_label = '💳 Fiado'
-				row_color = 'fiado'
+				estado_label, row_color = '💳 Fiado', 'fiado'
 			elif status == 'pendiente':
-				estado_label = '⏳ Pendiente'
-				row_color = 'pendiente'
+				estado_label, row_color = '⏳ Pendiente', 'pendiente'
 			elif pm2:
-				estado_label = '💰 Mixto'
-				row_color = 'completada'
+				estado_label, row_color = '💰 Mixto', 'completada'
 			else:
-				estado_label = (
-					'✓ Efectivo' if pm == 'efectivo' else f'✓ {pm.capitalize()}'
+				estado_label, row_color = (
+					('✓ Efectivo' if pm == 'efectivo' else f'✓ {pm.capitalize()}'),
+					'completada',
 				)
-				row_color = 'completada'
 
 			disc_str = f'-${discount_amount:.2f}' if discount_amount > 0 else '—'
-			row_idx = len(self.tree.get_children())
-			alt_tag = 'odd' if row_idx % 2 == 0 else 'even'
-			# Si hubo descuento, la fila entera toma color naranja para visibilidad
-			tags = (
-				('has_disc', alt_tag) if discount_amount > 0 else (row_color, alt_tag)
-			)
-			self.tree.insert(
-				'',
-				'end',
+
+			tags = ('has_disc',) if discount_amount > 0 else (row_color,)
+			self.insert_tree_row(
+				tree=self.tree,
+				index=row_idx,
 				values=(
 					sale.get('id'),
 					date_str,
@@ -322,7 +307,6 @@ class HistoryView(BaseView):
 				tags=tags,
 			)
 
-		# Mostrar / ocultar empty state
 		if hasattr(self, 'lbl_empty_history'):
 			if not matches:
 				self.tree.pack_forget()
@@ -342,22 +326,17 @@ class HistoryView(BaseView):
 			)
 
 	def export_csv(self):
-		"""Exporta las ventas visibles a un CSV en el escritorio."""
-		rows = []
-		for iid in self.tree.get_children():
-			rows.append(self.tree.item(iid, 'values'))
+		rows = [self.tree.item(iid, 'values') for iid in self.tree.get_children()]
 		if not rows:
-			from CTkMessagebox import CTkMessagebox
-
-			CTkMessagebox(
-				title='Sin datos', message='No hay ventas para exportar.', icon='info'
-			)
+			self.show_warning('No hay ventas para exportar.', 'Sin datos')
 			return
+
 		try:
 			desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
 			if not os.path.isdir(desktop):
 				desktop = os.path.expanduser('~')
 			filepath = os.path.join(desktop, 'historial_ventas.csv')
+
 			with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
 				w = csv.writer(f)
 				w.writerow(
@@ -373,19 +352,10 @@ class HistoryView(BaseView):
 					]
 				)
 				w.writerows(rows)
-			from CTkMessagebox import CTkMessagebox
 
-			CTkMessagebox(
-				title='Exportado',
-				message=f'Archivo guardado en:\n{filepath}',
-				icon='check',
-			)
+			self.show_success(f'Archivo guardado en:\n{filepath}', 'Exportado')
 		except Exception as e:
-			from CTkMessagebox import CTkMessagebox
-
-			CTkMessagebox(
-				title='Error', message=f'No se pudo exportar: {e}', icon='cancel'
-			)
+			self.show_error(f'No se pudo exportar: {e}')
 
 	def load_history(self):
 		tenant_id = self.ctx.tenant_id
@@ -395,18 +365,13 @@ class HistoryView(BaseView):
 	def open_details_popup(self, event):
 		selected_item = self.tree.selection()
 		if not selected_item:
-			from CTkMessagebox import CTkMessagebox
-
-			CTkMessagebox(
-				title='Selección',
-				message='Seleccioná una venta de la tabla primero.',
-				icon='info',
-			)
+			self.show_warning('Seleccioná una venta de la tabla primero.', 'Selección')
 			return
 
 		item_data = self.tree.item(selected_item)
 		sale_id = item_data['values'][0]
 		tenant_id = self.ctx.tenant_id
+
 		result = self.controller.get_sale_details(tenant_id, sale_id)
 		details = result.get('items', []) if isinstance(result, dict) else result
 		discount_amount = (
@@ -427,7 +392,10 @@ class HistoryView(BaseView):
 
 		popup = ctk.CTkToplevel(self)
 		popup.title(f'Detalle Venta #{sale_id}')
-		popup.geometry('560x420')
+
+		popup.minsize(560, 400)
+		popup.maxsize(560, 600)
+		popup.geometry('560x500')
 		popup.configure(fg_color=SURFACE1)
 		popup.attributes('-topmost', True)
 
@@ -438,20 +406,35 @@ class HistoryView(BaseView):
 			text_color=TEXT_PRIMARY,
 		).pack(pady=(18, 10))
 
-		textbox = ctk.CTkTextbox(
+		# CORRECCIÓN: Cambiamos Textbox por ScrollableFrame
+		scroll_container = ctk.CTkScrollableFrame(
 			popup,
-			width=520,
-			height=250,
-			font=('Consolas', 12),
 			fg_color=SURFACE2,
-			text_color=TEXT_PRIMARY,
 			border_color=BORDER,
 			border_width=1,
+			corner_radius=8,
 		)
-		textbox.pack(pady=(0, 6), padx=20)
+		scroll_container.pack(fill='both', expand=True, padx=20, pady=(0, 20))
 
+		# Cabecera de la lista
+		header = ctk.CTkFrame(scroll_container, fg_color='transparent')
+		header.pack(fill='x', padx=10, pady=(10, 5))
+
+		ctk.CTkLabel(
+			header, text='Descripción', font=('Arial', 11, 'bold'), anchor='w'
+		).pack(side='left', fill='x', expand=True)
+		ctk.CTkLabel(header, text='Cant', font=('Arial', 11, 'bold'), width=50).pack(
+			side='left'
+		)
+		ctk.CTkLabel(header, text='P. Unit', font=('Arial', 11, 'bold'), width=80).pack(
+			side='left'
+		)
+		ctk.CTkLabel(
+			header, text='Subtotal', font=('Arial', 11, 'bold'), width=80
+		).pack(side='left')
+
+		# Items de la venta
 		subtotal_items = 0.0
-		text_content = ''
 		for d in details:
 			desc = d.get('description', 'Desconocido')
 			raw_qty = float(d.get('quantity', 0))
@@ -459,22 +442,132 @@ class HistoryView(BaseView):
 			price = float(d.get('unit_price', 0.0))
 			subtotal = float(d.get('subtotal', 0.0))
 			subtotal_items += subtotal
-			text_content += f'• {desc[:20]:<20} | x{qty:<5} | ${price:<7.2f} | Sub: ${subtotal:.2f}\n'
+
+			row = ctk.CTkFrame(scroll_container, fg_color='transparent')
+			row.pack(fill='x', padx=10, pady=2)
+
+			ctk.CTkLabel(
+				row,
+				text=desc,
+				font=('Arial', 11),
+				text_color=TEXT_SECONDARY,
+				anchor='w',
+			).pack(side='left', fill='x', expand=True)
+			ctk.CTkLabel(
+				row,
+				text=f'x{qty}',
+				font=('Arial', 11),
+				text_color=TEXT_PRIMARY,
+				width=50,
+			).pack(side='left')
+			ctk.CTkLabel(
+				row,
+				text=f'${price:.2f}',
+				font=('Arial', 11),
+				text_color=TEXT_PRIMARY,
+				width=80,
+			).pack(side='left')
+			ctk.CTkLabel(
+				row,
+				text=f'${subtotal:.2f}',
+				font=('Arial', 11, 'bold'),
+				text_color=TEXT_PRIMARY,
+				width=80,
+			).pack(side='left')
+
+		# Resumen de totales al final del scroll
+		ctk.CTkFrame(scroll_container, height=1, fg_color=BORDER).pack(
+			fill='x', padx=10, pady=10
+		)
 
 		if discount_amount > 0:
-			text_content += f'\n{"─" * 58}\n'
-			text_content += f'  {"Subtotal:":<30} ${subtotal_items:.2f}\n'
-			text_content += f'  {"Descuento aplicado:":<30}-${discount_amount:.2f}\n'
-			text_content += (
-				f'  {"TOTAL COBRADO:":<30} ${subtotal_items - discount_amount:.2f}\n'
-			)
+			summary = ctk.CTkFrame(scroll_container, fg_color='transparent')
+			summary.pack(fill='x', padx=10, pady=2)
+			ctk.CTkLabel(
+				summary,
+				text='Subtotal:',
+				font=('Arial', 11),
+				text_color=TEXT_SECONDARY,
+				anchor='e',
+			).pack(side='left', fill='x', expand=True)
+			ctk.CTkLabel(
+				summary,
+				text=f'${subtotal_items:.2f}',
+				font=('Arial', 11),
+				width=80,
+				anchor='e',
+			).pack(side='right')
+
+			summary2 = ctk.CTkFrame(scroll_container, fg_color='transparent')
+			summary2.pack(fill='x', padx=10, pady=2)
+			ctk.CTkLabel(
+				summary2,
+				text='Descuento aplicado:',
+				font=('Arial', 11),
+				text_color=TEXT_SECONDARY,
+				anchor='e',
+			).pack(side='left', fill='x', expand=True)
+			ctk.CTkLabel(
+				summary2,
+				text=f'-${discount_amount:.2f}',
+				font=('Arial', 11),
+				text_color='#fbbf24',
+				width=80,
+				anchor='e',
+			).pack(side='right')
+
+		total_row = ctk.CTkFrame(scroll_container, fg_color='transparent')
+		total_row.pack(fill='x', padx=10, pady=5)
+		ctk.CTkLabel(
+			total_row,
+			text='TOTAL COBRADO:',
+			font=('Arial', 13, 'bold'),
+			text_color=TEXT_PRIMARY,
+			anchor='e',
+		).pack(side='left', fill='x', expand=True)
+		ctk.CTkLabel(
+			total_row,
+			text=f'${(subtotal_items - discount_amount):.2f}',
+			font=('Arial', 14, 'bold'),
+			text_color=ACCENT_TEXT,
+			width=80,
+			anchor='e',
+		).pack(side='right')
 
 		if pay_method_2 and pay_amount_2 > 0:
 			pay_amount_1 = sale_total - pay_amount_2
-			text_content += f'\n{"─" * 58}\n'
-			text_content += f'  {"Pago Mixto:":<30}\n'
-			text_content += f'  {pay_method.capitalize():<30} ${pay_amount_1:.2f}\n'
-			text_content += f'  {pay_method_2.capitalize():<30} ${pay_amount_2:.2f}\n'
+			ctk.CTkFrame(scroll_container, height=1, fg_color=BORDER).pack(
+				fill='x', padx=10, pady=10
+			)
+			ctk.CTkLabel(
+				scroll_container,
+				text='Pago Mixto:',
+				font=('Arial', 11, 'bold'),
+				anchor='w',
+			).pack(fill='x', padx=10)
 
-		textbox.insert('0.0', text_content)
-		textbox.configure(state='disabled')
+			p1 = ctk.CTkFrame(scroll_container, fg_color='transparent')
+			p1.pack(fill='x', padx=10, pady=2)
+			ctk.CTkLabel(
+				p1,
+				text=pay_method.capitalize(),
+				font=('Arial', 11),
+				text_color=TEXT_SECONDARY,
+				anchor='w',
+			).pack(side='left')
+			ctk.CTkLabel(
+				p1, text=f'${pay_amount_1:.2f}', font=('Arial', 11), anchor='e'
+			).pack(side='right')
+
+			p2 = ctk.CTkFrame(scroll_container, fg_color='transparent')
+			p2.pack(fill='x', padx=10, pady=2)
+			ctk.CTkLabel(
+				p2,
+				text=pay_method_2.capitalize(),
+				font=('Arial', 11),
+				text_color=TEXT_SECONDARY,
+				anchor='w',
+			).pack(side='left')
+			ctk.CTkLabel(
+				p2, text=f'${pay_amount_2:.2f}', font=('Arial', 11), anchor='e'
+			).pack(side='right')

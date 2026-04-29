@@ -22,8 +22,6 @@ from utils.styles import (
 	make_section_label,
 	section_divider,
 )
-
-# Importamos todas las vistas
 from views.alerts_view import AlertsView
 from views.articles_view import ArticlesView
 from views.cash_view import CashView
@@ -45,7 +43,6 @@ from views.users_view import UsersView
 
 logger = logging.getLogger(__name__)
 
-# Mapa de rutas: view_class → (icon, label, section)
 NAV_ITEMS_PUBLIC = [
 	(HomeView, '⊞', 'Inicio', 'principal'),
 	(SalesView, '🛒', 'Ventas', 'principal'),
@@ -70,7 +67,6 @@ NAV_ITEMS_ADMIN = [
 	(SettingsView, '⚙', 'Configuración', 'sistema'),
 ]
 
-# Atajos de teclado que se muestran en la barra inferior
 _SHORTCUTS = [
 	('F1', 'Ventas'),
 	('F2', 'Caja'),
@@ -82,6 +78,11 @@ _SHORTCUTS = [
 
 
 class MainDashboard(ctk.CTkFrame):
+	"""
+	Layout principal de la aplicación.
+	Maneja el ruteo de vistas, la barra lateral de navegación y la barra de estado global.
+	"""
+
 	def __init__(self, master, ctx: AppContext, logout_command, **kwargs):
 		super().__init__(master, fg_color=SURFACE1, **kwargs)
 		self.master_app = master
@@ -93,50 +94,27 @@ class MainDashboard(ctk.CTkFrame):
 
 		self.pack(fill='both', expand=True)
 
-		# ── Usuario ────────────────────────────────────────────────────────
 		self.username = ctx.username
 		self.is_admin = ctx.is_admin
 		self.role_label = (ctx.role or 'Usuario').capitalize()
 
-		# ── Layout principal ───────────────────────────────────────────────
 		self._build_sidebar()
 		self._build_main_area()
 
-		# ── Inyectar navigate en contexto (para vistas que lo necesitan) ───
 		self.ctx.navigate = self.safe_switch_view
-
-		# ── Reloj pantalla completa ────────────────────────────────────────
 		self.is_fullscreen = False
-		self.lbl_clock = ctk.CTkLabel(
-			self, text='', font=('Arial', 12, 'bold'), text_color=TEXT_MUTED
-		)
-		self.update_clock()
-		self.after(100, self._setup_fullscreen_binds)
 
-		# ── Atajos globales ────────────────────────────────────────────────
-		self.master_app.bind('<F1>', lambda e: self.safe_switch_view(SalesView))
-		self.master_app.bind('<F2>', lambda e: self.safe_switch_view(CashView))
-		self.master_app.bind(
-			'<F3>', lambda e: self.safe_switch_view(ArticlesView, requires_admin=True)
-		)
-		self.master_app.bind(
-			'<F4>', lambda e: self.safe_switch_view(CustomersView, requires_admin=True)
-		)
-		self.master_app.bind('<Escape>', self._handle_escape)
+		self._setup_global_binds()
 
-		# ── Carga inicial ──────────────────────────────────────────────────
 		self.after(60, lambda: self.safe_switch_view(HomeView))
 		self.after(400, self._refresh_cash_dot)
 
-	# =========================================================
-	# SIDEBAR
-	# =========================================================
+	# ── Sidebar ──────────────────────────────────────────────────────────────
 	def _build_sidebar(self):
 		self.sidebar = ctk.CTkFrame(self, width=220, fg_color=SURFACE0, corner_radius=0)
 		self.sidebar.pack(side='left', fill='y')
 		self.sidebar.pack_propagate(False)
 
-		# ── Logo ──────────────────────────────────────────────────────────
 		logo_frame = ctk.CTkFrame(self.sidebar, fg_color='transparent')
 		logo_frame.pack(fill='x', padx=16, pady=(22, 0))
 
@@ -148,7 +126,6 @@ class MainDashboard(ctk.CTkFrame):
 			anchor='w',
 		).pack(side='left')
 
-		# Dot de estado (verde = caja activa)
 		self.lbl_dot = ctk.CTkLabel(
 			logo_frame,
 			text='● Cerrada',
@@ -167,20 +144,17 @@ class MainDashboard(ctk.CTkFrame):
 
 		section_divider(self.sidebar).pack(fill='x', padx=12, pady=(0, 12))
 
-		# ── Scrollable nav ────────────────────────────────────────────────
 		self.menu_scroll = ctk.CTkScrollableFrame(
 			self.sidebar, fg_color='transparent', scrollbar_button_color=SURFACE3
 		)
 		self.menu_scroll.pack(fill='both', expand=True, padx=0, pady=0)
 
-		# Sección pública
 		make_section_label(self.menu_scroll, 'Principal').pack(
 			fill='x', padx=16, pady=(4, 4)
 		)
 		for view_cls, icon, label, _ in NAV_ITEMS_PUBLIC:
 			self._add_nav_btn(view_cls, icon, label)
 
-		# Sección admin
 		if self.is_admin:
 			sections_seen = []
 			for view_cls, icon, label, section in NAV_ITEMS_ADMIN:
@@ -194,7 +168,6 @@ class MainDashboard(ctk.CTkFrame):
 					)
 				self._add_nav_btn(view_cls, icon, label, requires_admin=True)
 
-		# ── User card ─────────────────────────────────────────────────────
 		section_divider(self.sidebar).pack(fill='x', padx=12, pady=(8, 0))
 		self._build_user_card()
 
@@ -224,7 +197,6 @@ class MainDashboard(ctk.CTkFrame):
 		inner = ctk.CTkFrame(card, fg_color='transparent')
 		inner.pack(fill='x', padx=12, pady=10)
 
-		# Avatar circular
 		avatar = ctk.CTkLabel(
 			inner,
 			text=self.username[0].upper(),
@@ -248,7 +220,6 @@ class MainDashboard(ctk.CTkFrame):
 			anchor='w',
 		).pack(anchor='w')
 
-		# Badge de rol
 		role_color = ACCENT_DIM if self.is_admin else SURFACE3
 		role_text_color = ACCENT_TEXT if self.is_admin else TEXT_SECONDARY
 		ctk.CTkLabel(
@@ -261,7 +232,6 @@ class MainDashboard(ctk.CTkFrame):
 			anchor='w',
 		).pack(anchor='w', pady=(2, 0))
 
-		# Logout
 		ctk.CTkButton(
 			card,
 			text='Cerrar Sesión',
@@ -275,7 +245,6 @@ class MainDashboard(ctk.CTkFrame):
 		).pack(fill='x', padx=8, pady=(0, 6))
 
 	def _update_nav_highlight(self, active_view_class):
-		"""Marca el botón activo y desmarca todos los demás."""
 		for view_cls, btn in self._nav_buttons.items():
 			if view_cls == active_view_class:
 				btn.configure(
@@ -286,9 +255,7 @@ class MainDashboard(ctk.CTkFrame):
 					fg_color='transparent', text_color=TEXT_SECONDARY, font=FONT_NAV
 				)
 
-	# =========================================================
-	# MAIN AREA + SHORTCUTS BAR
-	# =========================================================
+	# ── Área Principal y Barra de Estado ─────────────────────────────────────
 	def _build_main_area(self):
 		area_container = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=0)
 		area_container.pack(side='right', fill='both', expand=True)
@@ -313,21 +280,12 @@ class MainDashboard(ctk.CTkFrame):
 		bar.pack(side='bottom', fill='x')
 		bar.pack_propagate(False)
 
-		inner = ctk.CTkFrame(bar, fg_color='transparent')
-		inner.pack(side='left', padx=12, fill='y')
-
-		self.lbl_view_shortcuts = ctk.CTkLabel(
-			bar,
-			text='',
-			font=('Arial', 9, 'italic'),
-			text_color=TEXT_MUTED,
-		)
-		self.lbl_view_shortcuts.pack(side='right', padx=12)
+		global_shortcuts = ctk.CTkFrame(bar, fg_color='transparent')
+		global_shortcuts.pack(side='left', padx=12, fill='y')
 
 		for key, desc in _SHORTCUTS:
-			chip = ctk.CTkFrame(inner, fg_color=SURFACE2, corner_radius=5)
+			chip = ctk.CTkFrame(global_shortcuts, fg_color=SURFACE2, corner_radius=5)
 			chip.pack(side='left', padx=(0, 6), pady=5)
-
 			ctk.CTkLabel(
 				chip,
 				text=f' {key} ',
@@ -336,17 +294,36 @@ class MainDashboard(ctk.CTkFrame):
 				fg_color=ACCENT_DIM,
 				corner_radius=4,
 			).pack(side='left', padx=(3, 0), pady=2)
-
 			ctk.CTkLabel(
-				chip,
-				text=f' {desc} ',
-				font=('Arial', 9),
-				text_color=TEXT_MUTED,
+				chip, text=f' {desc} ', font=('Arial', 9), text_color=TEXT_MUTED
 			).pack(side='left', pady=2)
 
-	# =========================================================
-	# NAVEGACIÓN
-	# =========================================================
+		self.lbl_clock = ctk.CTkLabel(
+			bar, text='', font=('Arial', 10, 'bold'), text_color=TEXT_MUTED
+		)
+		self.lbl_clock.pack(side='right', padx=16)
+		self.update_clock()
+
+		self.lbl_view_shortcuts = ctk.CTkLabel(
+			bar, text='', font=('Arial', 9, 'italic'), text_color=TEXT_MUTED
+		)
+		self.lbl_view_shortcuts.pack(side='right', padx=12)
+
+	# ── Navegación y Atajos ──────────────────────────────────────────────────
+	def _setup_global_binds(self):
+		self.master_app.bind('<F1>', lambda e: self.safe_switch_view(SalesView))
+		self.master_app.bind('<F2>', lambda e: self.safe_switch_view(CashView))
+		self.master_app.bind(
+			'<F3>', lambda e: self.safe_switch_view(ArticlesView, requires_admin=True)
+		)
+		self.master_app.bind(
+			'<F4>', lambda e: self.safe_switch_view(CustomersView, requires_admin=True)
+		)
+		self.master_app.bind('<Escape>', self._handle_escape)
+		self.after(
+			100, lambda: self.winfo_toplevel().bind('<F11>', self.toggle_fullscreen)
+		)
+
 	def safe_switch_view(self, view_class, requires_admin=False):
 		if not self.winfo_exists():
 			return
@@ -360,7 +337,6 @@ class MainDashboard(ctk.CTkFrame):
 			)
 			return
 
-		# Confirmar si hay cambios no guardados en la vista actual
 		if self.current_view and self._active_view_class is not view_class:
 			try:
 				if self.current_view.has_unsaved_changes():
@@ -376,7 +352,6 @@ class MainDashboard(ctk.CTkFrame):
 			except Exception:
 				pass
 
-		# Destrucción segura de la vista actual
 		if self.current_view:
 			try:
 				self.current_view.destroy()
@@ -396,9 +371,7 @@ class MainDashboard(ctk.CTkFrame):
 
 		if view_class is HomeView:
 			self.current_view = HomeView(
-				self.main_area,
-				self.ctx,
-				navigate=self.safe_switch_view,
+				self.main_area, self.ctx, navigate=self.safe_switch_view
 			)
 		else:
 			self.current_view = view_class(self.main_area, self.ctx)
@@ -443,19 +416,11 @@ class MainDashboard(ctk.CTkFrame):
 				pass
 		self._external_logout_command()
 
-	# =========================================================
-	# RELOJ Y FULLSCREEN
-	# =========================================================
-	def _setup_fullscreen_binds(self):
-		if not self.winfo_exists():
-			return
-		top = self.winfo_toplevel()
-		top.bind('<F11>', self.toggle_fullscreen)
-
+	# ── Reloj y Estado ───────────────────────────────────────────────────────
 	def update_clock(self):
 		if not self.winfo_exists():
 			return
-		if self.lbl_clock.winfo_exists():
+		if hasattr(self, 'lbl_clock') and self.lbl_clock.winfo_exists():
 			self.lbl_clock.configure(text=time.strftime('%d/%m/%Y  |  %H:%M:%S'))
 		self._clock_job = self.after(1000, self.update_clock)
 
@@ -465,21 +430,11 @@ class MainDashboard(ctk.CTkFrame):
 		top = self.winfo_toplevel()
 		self.is_fullscreen = not self.is_fullscreen
 		top.attributes('-fullscreen', self.is_fullscreen)
-		if self.is_fullscreen:
-			self.lbl_clock.pack(side='bottom', anchor='se', padx=20, pady=5)
-		else:
-			self.lbl_clock.pack_forget()
-
-	def exit_fullscreen(self, event=None):
-		if self.is_fullscreen and self.winfo_exists():
-			self.is_fullscreen = False
-			self.winfo_toplevel().attributes('-fullscreen', False)
-			self.lbl_clock.pack_forget()
 
 	def _handle_escape(self, event=None):
-		"""Si está en pantalla completa, sale. Si no, va al Inicio."""
 		if self.is_fullscreen:
-			self.exit_fullscreen()
+			self.is_fullscreen = False
+			self.winfo_toplevel().attributes('-fullscreen', False)
 		else:
 			self.safe_switch_view(HomeView)
 

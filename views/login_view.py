@@ -21,6 +21,7 @@ from utils.styles import (
 	TEXT_MUTED,
 	TEXT_PRIMARY,
 	TEXT_SECONDARY,
+	make_form_label,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ class LoginView(ctk.CTkFrame):
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(2, weight=1)
 
-		# Tarjeta central
+		# ── Tarjeta central ───────────────────────────────────────────────
 		self.login_frame = ctk.CTkFrame(
 			self,
 			corner_radius=16,
@@ -58,7 +59,7 @@ class LoginView(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			self.login_frame,
-			text='Sistema de Gestion',
+			text='Sistema de Gestión',
 			font=('Arial', 14),
 			text_color=TEXT_MUTED,
 		).pack(pady=(2, 28))
@@ -78,7 +79,7 @@ class LoginView(ctk.CTkFrame):
 			self.login_frame,
 			width=300,
 			height=42,
-			placeholder_text='Contrasena',
+			placeholder_text='Contraseña',
 			show='*',
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
@@ -88,7 +89,7 @@ class LoginView(ctk.CTkFrame):
 
 		self.check_show_pass = ctk.CTkCheckBox(
 			self.login_frame,
-			text='Mostrar contrasena',
+			text='Mostrar contraseña',
 			font=('Arial', 12),
 			text_color=TEXT_MUTED,
 			command=self.toggle_password,
@@ -97,7 +98,7 @@ class LoginView(ctk.CTkFrame):
 
 		self.btn_login = ctk.CTkButton(
 			self.login_frame,
-			text='INICIAR SESION',
+			text='INICIAR SESIÓN',
 			width=300,
 			height=46,
 			font=('Arial', 14, 'bold'),
@@ -113,7 +114,7 @@ class LoginView(ctk.CTkFrame):
 
 		self.btn_forgot = ctk.CTkButton(
 			self.login_frame,
-			text='Olvide mi contrasena',
+			text='Olvidé mi contraseña',
 			width=300,
 			height=28,
 			font=('Arial', 11),
@@ -137,9 +138,7 @@ class LoginView(ctk.CTkFrame):
 		self.entry_password.bind('<Return>', lambda e: self.trigger_login())
 		self.entry_username.focus()
 
-	# =========================================================
-	# LOGIN NORMAL
-	# =========================================================
+	# ── Login Normal ──────────────────────────────────────────────────────────
 	def toggle_password(self):
 		self.entry_password.configure(show='' if self.check_show_pass.get() else '*')
 
@@ -168,74 +167,106 @@ class LoginView(ctk.CTkFrame):
 			if user_dict:
 				self.on_login_success(user_dict)
 			else:
-				self.show_error('Usuario o contrasena incorrectos.')
+				self.show_error('Usuario o contraseña incorrectos.')
 		except Exception as e:
 			logger.error(f'Error inesperado durante el login: {e}', exc_info=True)
-			self.show_error('Error de conexion a la base de datos.')
+			self.show_error('Error de conexión a la base de datos.')
 
 	def show_error(self, message):
 		self.lbl_error.configure(text=message)
-		self.btn_login.configure(state='normal', text='INICIAR SESION')
+		self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
 
-	# =========================================================
-	# DIALOGO RECUPERACION DE CONTRASENA
-	# =========================================================
+	# ── Diálogo Recuperación de Contraseña ────────────────────────────────────
 	def _open_recovery_dialog(self):
 		dialog = ctk.CTkToplevel(self)
-		dialog.title('Recuperar Contrasena')
-		dialog.geometry('420x420')
-		dialog.resizable(False, False)
+		dialog.title('Recuperar Contraseña')
+
+		dialog.geometry('420x550')
+		dialog.minsize(420, 480)
 		dialog.grab_set()
 		dialog.focus()
 
+		container = ctk.CTkScrollableFrame(dialog, fg_color='transparent')
+		container.pack(fill='both', expand=True, padx=0, pady=0)
+
 		ctk.CTkLabel(
-			dialog,
-			text='Recuperar Contrasena',
+			container,
+			text='Recuperar Contraseña',
 			font=('Arial', 18, 'bold'),
 			text_color=TEXT_PRIMARY,
 		).pack(pady=(28, 4))
 
 		ctk.CTkLabel(
-			dialog,
-			text='Ingresa tu usuario y el PIN de recuperacion\nque configuraste al crear tu cuenta.',
+			container,
+			text='Ingresá tu usuario y el PIN de recuperación\nque configuraste al crear tu cuenta.',
 			font=('Arial', 12),
 			text_color=TEXT_SECONDARY,
 			justify='center',
 		).pack(pady=(0, 16))
 
-		ctk.CTkLabel(dialog, text='NOMBRE DE USUARIO', font=('Arial', 9, 'bold'),
-					 text_color=TEXT_MUTED, anchor='w').pack(padx=32, anchor='w', pady=(0, 2))
-		entry_username = ctk.CTkEntry(dialog, placeholder_text='Tu nombre de usuario',
-									 fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-									 text_color=TEXT_PRIMARY, height=36)
+		make_form_label(container, 'NOMBRE DE USUARIO', required=True).pack(
+			padx=32, anchor='w', pady=(0, 2)
+		)
+		entry_username = ctk.CTkEntry(
+			container,
+			placeholder_text='Tu nombre de usuario',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=36,
+		)
 		entry_username.pack(padx=32, fill='x', pady=(0, 8))
+
 		current_user = self.entry_username.get().strip()
 		if current_user:
 			entry_username.insert(0, current_user)
 		entry_username.focus()
 
-		ctk.CTkLabel(dialog, text='PIN DE RECUPERACION', font=('Arial', 9, 'bold'),
-					 text_color=TEXT_MUTED, anchor='w').pack(padx=32, anchor='w', pady=(0, 2))
-		entry_pin = ctk.CTkEntry(dialog, placeholder_text='Tu PIN secreto', show='*',
-								 fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-								 text_color=TEXT_PRIMARY, height=36)
+		make_form_label(container, 'PIN DE RECUPERACIÓN', required=True).pack(
+			padx=32, anchor='w', pady=(0, 2)
+		)
+		entry_pin = ctk.CTkEntry(
+			container,
+			placeholder_text='Tu PIN secreto',
+			show='*',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=36,
+		)
 		entry_pin.pack(padx=32, fill='x', pady=(0, 8))
 
-		ctk.CTkLabel(dialog, text='NUEVA CONTRASENA', font=('Arial', 9, 'bold'),
-					 text_color=TEXT_MUTED, anchor='w').pack(padx=32, anchor='w', pady=(0, 2))
-		entry_new_pass = ctk.CTkEntry(dialog, placeholder_text='Minimo 6 caracteres', show='*',
-									  fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-									  text_color=TEXT_PRIMARY, height=36)
+		make_form_label(container, 'NUEVA CONTRASEÑA', required=True).pack(
+			padx=32, anchor='w', pady=(0, 2)
+		)
+		entry_new_pass = ctk.CTkEntry(
+			container,
+			placeholder_text='Mínimo 6 caracteres',
+			show='*',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=36,
+		)
 		entry_new_pass.pack(padx=32, fill='x', pady=(0, 8))
 
-		ctk.CTkLabel(dialog, text='CONFIRMAR NUEVA CONTRASENA', font=('Arial', 9, 'bold'),
-					 text_color=TEXT_MUTED, anchor='w').pack(padx=32, anchor='w', pady=(0, 2))
-		entry_confirm = ctk.CTkEntry(dialog, placeholder_text='Repetir contrasena', show='*',
-									 fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-									 text_color=TEXT_PRIMARY, height=36)
-		entry_confirm.pack(padx=32, fill='x', pady=(0, 6))
+		make_form_label(container, 'CONFIRMAR NUEVA CONTRASEÑA', required=True).pack(
+			padx=32, anchor='w', pady=(0, 2)
+		)
+		entry_confirm = ctk.CTkEntry(
+			container,
+			placeholder_text='Repetir contraseña',
+			show='*',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=36,
+		)
+		entry_confirm.pack(padx=32, fill='x', pady=(0, 16))
 
-		lbl_err = ctk.CTkLabel(dialog, text='', font=('Arial', 11, 'bold'), text_color=RED_TEXT)
+		lbl_err = ctk.CTkLabel(
+			container, text='', font=('Arial', 11, 'bold'), text_color=RED_TEXT
+		)
 		lbl_err.pack(pady=(0, 4))
 
 		def _do_recovery():
@@ -243,15 +274,19 @@ class LoginView(ctk.CTkFrame):
 			pin = entry_pin.get().strip()
 			new_pass = entry_new_pass.get().strip()
 			confirmed = entry_confirm.get().strip()
+
 			if not all([username, pin, new_pass, confirmed]):
 				lbl_err.configure(text='Todos los campos son obligatorios.')
 				return
 			if new_pass != confirmed:
-				lbl_err.configure(text='Las contrasenas no coinciden.')
+				lbl_err.configure(text='Las contraseñas no coinciden.')
 				return
+
 			btn_recover.configure(state='disabled', text='Verificando...')
 			tenant_id = self.auth_ctrl.get_first_tenant_id()
-			dialog.after(50, lambda: _execute_recovery(tenant_id, username, pin, new_pass))
+			dialog.after(
+				50, lambda: _execute_recovery(tenant_id, username, pin, new_pass)
+			)
 
 		def _execute_recovery(tenant_id, username, pin, new_pass):
 			success, msg = self.user_ctrl.reset_password_with_pin(
@@ -259,27 +294,42 @@ class LoginView(ctk.CTkFrame):
 			)
 			if success:
 				dialog.destroy()
-				CTkMessagebox(title='Contrasena restablecida',
-							  message=f'{msg}\n\nYa podes iniciar sesion.', icon='check')
+				CTkMessagebox(
+					title='Contraseña restablecida',
+					message=f'{msg}\n\nYa podés iniciar sesión.',
+					icon='check',
+				)
 				self.entry_username.delete(0, 'end')
 				self.entry_username.insert(0, username)
 				self.entry_password.delete(0, 'end')
 				self.entry_password.focus()
 			else:
 				lbl_err.configure(text=msg)
-				btn_recover.configure(state='normal', text='Restablecer Contrasena')
+				btn_recover.configure(state='normal', text='Restablecer Contraseña')
 
 		btn_recover = ctk.CTkButton(
-			dialog, text='Restablecer Contrasena',
-			fg_color=ORANGE_DIM, hover_color=ORANGE, text_color=ORANGE_TEXT,
-			border_width=1, border_color=ORANGE, height=40, corner_radius=8,
+			container,
+			text='Restablecer Contraseña',
+			fg_color=ORANGE_DIM,
+			hover_color=ORANGE,
+			text_color=ORANGE_TEXT,
+			border_width=1,
+			border_color=ORANGE,
+			height=40,
+			corner_radius=8,
 			command=_do_recovery,
 		)
 		btn_recover.pack(padx=32, fill='x', pady=(0, 6))
 
-		ctk.CTkButton(dialog, text='Cancelar', fg_color='transparent',
-					  hover_color=SURFACE3, text_color=TEXT_MUTED,
-					  height=32, corner_radius=8, command=dialog.destroy
-					  ).pack(padx=32, fill='x')
+		ctk.CTkButton(
+			container,
+			text='Cancelar',
+			fg_color='transparent',
+			hover_color=SURFACE3,
+			text_color=TEXT_MUTED,
+			height=32,
+			corner_radius=8,
+			command=dialog.destroy,
+		).pack(padx=32, fill='x', pady=(0, 20))
 
 		entry_confirm.bind('<Return>', lambda e: _do_recovery())

@@ -5,18 +5,18 @@ from typing import TYPE_CHECKING, Callable
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
-from utils.styles import BORDER, SURFACE1
+from utils.styles import BORDER, SURFACE1, setup_treeview_tags
 
 if TYPE_CHECKING:
+	from tkinter import ttk
+
 	from core.context import AppContext
 
 
 class BaseView(ctk.CTkFrame):
-	"""Clase base para todas las vistas de la aplicación.
-
-	Provee acceso al AppContext, utilidades de feedback visual (popups),
-	recolección de basura de procesos en segundo plano (after_cancel) y
-	controladores de concurrencia (debounce).
+	"""
+	Clase base para todas las vistas de la aplicación.
+	Provee contexto, utilidades visuales, gestión de tablas y control de hilos.
 	"""
 
 	def __init__(self, master, ctx: 'AppContext', **kwargs):
@@ -27,48 +27,60 @@ class BaseView(ctk.CTkFrame):
 		self._debounce_timers: dict[str, str] = {}
 
 	def load_data(self) -> None:
-		"""Sobrescribir en las subclases para poblar la vista desde la base de datos."""
+		"""Sobrescribir en subclases para poblar la vista desde la base de datos."""
 		pass
 
-	# ── Utilidades de Interfaz ──────────────────────────────────────
+	# ── Gestión de Treeviews (Zebra Striping y Tags) ─────────────────────────
+
+	def init_treeview(self, tree: ttk.Treeview) -> None:
+		"""Aplica las configuraciones de diseño base al Treeview."""
+		setup_treeview_tags(tree)
+
+	def insert_tree_row(
+		self, tree: ttk.Treeview, index: int, values: tuple, tags: tuple = ()
+	) -> str:
+		"""
+		Inserta una fila manejando automáticamente el color alterno (zebra striping)
+		y combinándolo con tags adicionales (ej: 'danger', 'success').
+		"""
+		stripe_tag = 'evenrow' if index % 2 == 0 else 'oddrow'
+		final_tags = (stripe_tag,) + tags
+		return tree.insert('', 'end', values=values, tags=final_tags)
+
+	# ── Utilidades de Interfaz ───────────────────────────────────────────────
 
 	def show_error(self, message: str, title: str = 'Error') -> None:
-		"""Muestra un mensaje de error garantizando que esté por encima de todo."""
+		"""Muestra mensaje de error en capa superior."""
 		CTkMessagebox(title=title, message=message, icon='cancel', fade_in_duration=200)
 
 	def show_success(self, message: str, title: str = 'Éxito') -> None:
-		"""Muestra un mensaje de éxito."""
+		"""Muestra mensaje de éxito."""
 		CTkMessagebox(title=title, message=message, icon='check', fade_in_duration=200)
 
 	def show_warning(self, message: str, title: str = 'Atención') -> None:
-		"""Muestra una advertencia al usuario."""
+		"""Muestra advertencia."""
 		CTkMessagebox(
 			title=title, message=message, icon='warning', fade_in_duration=200
 		)
 
-	# ── Feedback Visual Inline ─────────────────────────────────────────────
+	# ── Feedback Visual Inline ───────────────────────────────────────────────
 
-	def set_loading(self, btn, loading: bool, original_text: str = '') -> None:
-		"""Deshabilita/habilita un botón durante operaciones lentas.
-
-		Uso:
-		    original = btn.cget('text')
-		    self.set_loading(btn, True, original)
-		    ... operación ...
-		    self.set_loading(btn, False, original)
-		"""
+	def set_loading(
+		self, btn: ctk.CTkButton, loading: bool, original_text: str = ''
+	) -> None:
+		"""Alterna estado de carga en botones para operaciones asíncronas."""
 		if loading:
 			btn.configure(state='disabled', text='Procesando…')
 		else:
 			btn.configure(state='normal', text=original_text)
 
-	def mark_field_error(self, entry, message: str | None = None) -> None:
-		"""Pone borde rojo en el entry para señalar un error de validación."""
+	def mark_field_error(self, entry: ctk.CTkEntry, message: str | None = None) -> None:
+		"""Resalta un input con error de validación."""
 		entry.configure(border_color='#f87171')
 		entry.focus()
 
-	def clear_field_errors(self, *entries) -> None:
-		"""Restaura el borde normal en uno o varios entries."""
+	def clear_field_errors(self, *entries: ctk.CTkEntry) -> None:
+		"""Restaura el estado visual normal de los inputs."""
 		for entry in entries:
 			try:
 				entry.configure(border_color=BORDER)
@@ -77,13 +89,11 @@ class BaseView(ctk.CTkFrame):
 
 	def show_empty_state(
 		self,
-		container,
+		container: ctk.CTkFrame,
 		message: str = 'No hay datos para mostrar.',
 		icon: str = '📭',
 	) -> None:
-		"""Muestra un mensaje centrado en cualquier frame cuando no hay datos."""
-		import customtkinter as ctk
-
+		"""Renderiza un estado vacío centrado en el contenedor proporcionado."""
 		lbl = ctk.CTkLabel(
 			container,
 			text=f'{icon}\n{message}',
@@ -93,17 +103,14 @@ class BaseView(ctk.CTkFrame):
 		)
 		lbl.pack(expand=True, pady=40)
 
-	# ── Gestión de Cambios No Guardados ────────────────────────────────────
+	# ── Gestión de Estados ───────────────────────────────────────────────────
 
 	def has_unsaved_changes(self) -> bool:
-		"""Retorna True si la vista tiene cambios en formularios sin guardar.
-
-		Sobrescribir en vistas que tienen formularios editables.
-		"""
+		"""Retorna True si la vista tiene formularios sucios."""
 		return False
 
 	def confirm(self, message: str, title: str = 'Confirmar') -> bool:
-		"""Muestra un diálogo de Sí/No. Retorna True si el usuario confirma."""
+		"""Despliega diálogo de confirmación booleano."""
 		msg = CTkMessagebox(
 			title=title,
 			message=message,
@@ -114,20 +121,16 @@ class BaseView(ctk.CTkFrame):
 		)
 		return msg.get() == 'Sí'
 
-	# ── Controladores de Tiempo y Memoria ─────────────────────────────────────
+	# ── Controladores de Tiempo y Memoria ────────────────────────────────────
 
 	def schedule(self, delay_ms: int, callback: Callable) -> str:
-		"""Programa un callback (after) y lo rastrea para limpiarlo si se destruye la vista."""
+		"""Programa ejecución diferida rastreable para limpieza segura."""
 		job = self.after(delay_ms, callback)
 		self._pending_jobs.append(job)
 		return job
 
 	def debounce(self, delay_ms: int, callback: Callable, key: str = 'default') -> None:
-		"""
-		Ejecuta un callback solo después de que hayan pasado `delay_ms` milisegundos
-		sin que se vuelva a llamar a esta función con la misma `key`.
-		Ideal para barras de búsqueda (KeyRelease).
-		"""
+		"""Limita la tasa de ejecución de una función (ej: tipeo en barra de búsqueda)."""
 		if key in self._debounce_timers:
 			try:
 				self.after_cancel(self._debounce_timers[key])
@@ -137,7 +140,7 @@ class BaseView(ctk.CTkFrame):
 		self._debounce_timers[key] = self.after(delay_ms, callback)
 
 	def destroy(self) -> None:
-		"""Destrucción segura de la vista limpiando todos los hilos pendientes."""
+		"""Destructor seguro: limpia colas de eventos antes de eliminar la UI."""
 		for job in self._pending_jobs:
 			try:
 				self.after_cancel(job)
