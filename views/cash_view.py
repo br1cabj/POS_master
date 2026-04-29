@@ -495,15 +495,27 @@ class CashView(BaseView):
 		if self.active_session:
 			self.show_blind_close_popup()
 		else:
+			self.clear_field_errors(self.entry_amount)
 			amount_str = self.entry_amount.get().strip().replace(',', '.')
 			if not amount_str:
-				self.show_error('Ingresá el monto de apertura inicial (puede ser 0).')
+				self.mark_field_error(self.entry_amount)
+				self.show_warning('Ingresá el monto de apertura (puede ser 0).')
 				return
 
-			success, msg = self.controller.open_session(tenant_id, user_id, amount_str)
+			original = self.btn_action.cget('text')
+			self.set_loading(self.btn_action, True)
+			self.update_idletasks()
+			try:
+				success, msg = self.controller.open_session(
+					tenant_id, user_id, amount_str
+				)
+			finally:
+				self.set_loading(self.btn_action, False, original)
+
 			if success:
 				self.show_success(msg)
 				self.entry_amount.delete(0, 'end')
+				self.clear_field_errors(self.entry_amount)
 				self.refresh_view()
 			else:
 				self.show_error(msg)
@@ -541,13 +553,19 @@ class CashView(BaseView):
 
 	def save_movement(self):
 		"""Valida y solicita al controlador la persistencia de un movimiento manual."""
+		self.clear_field_errors(self.entry_mov_desc, self.entry_mov_amount)
+
 		desc = self.entry_mov_desc.get().strip()
 		amount_str = self.entry_mov_amount.get().strip().replace(',', '.')
 		mov_type = self._mov_type
 		tenant_id = self.ctx.tenant_id
 
-		if not desc or not amount_str:
-			self.show_warning('La descripción y el monto son obligatorios.')
+		if not desc:
+			self.mark_field_error(self.entry_mov_desc)
+			return
+
+		if not amount_str:
+			self.mark_field_error(self.entry_mov_amount)
 			return
 
 		if not self.active_session:
@@ -562,6 +580,7 @@ class CashView(BaseView):
 		if success:
 			self.entry_mov_desc.delete(0, 'end')
 			self.entry_mov_amount.delete(0, 'end')
+			self.clear_field_errors(self.entry_mov_desc, self.entry_mov_amount)
 			self.entry_mov_desc.focus()
 			self._show_open_state()
 		else:

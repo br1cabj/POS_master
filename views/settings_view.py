@@ -104,6 +104,7 @@ class SettingsView(BaseView):
 		super().__init__(master, ctx)
 		self.db_engine = ctx.db_engine
 		self._settings = cfg.load()
+		self._saved = True  # False cuando hay cambios sin guardar
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_rowconfigure(1, weight=1)
@@ -164,6 +165,16 @@ class SettingsView(BaseView):
 
 		self._build_moneda(right)
 		self._build_ventas(right)
+
+		# Marcar dirty al editar cualquier campo
+		for entry in (
+			self.entry_company_name,
+			self.entry_company_address,
+			self.entry_company_phone,
+			self.entry_tax,
+			self.entry_low_stock,
+		):
+			entry.bind('<KeyRelease>', self._mark_dirty)
 
 	# =========================================================
 	# SECCIÓN: EMPRESA
@@ -585,6 +596,12 @@ class SettingsView(BaseView):
 				icon='cancel',
 			)
 
+	def has_unsaved_changes(self) -> bool:
+		return not self._saved
+
+	def _mark_dirty(self, *_) -> None:
+		self._saved = False
+
 	# =========================================================
 	# GUARDAR TODO
 	# =========================================================
@@ -625,6 +642,7 @@ class SettingsView(BaseView):
 		}
 
 		if cfg.save(new_settings):
+			self._saved = True
 			CTkMessagebox(
 				title='Configuración guardada',
 				message='✅ Los cambios fueron guardados correctamente.',

@@ -360,6 +360,22 @@ class MainDashboard(ctk.CTkFrame):
 			)
 			return
 
+		# Confirmar si hay cambios no guardados en la vista actual
+		if self.current_view and self._active_view_class is not view_class:
+			try:
+				if self.current_view.has_unsaved_changes():
+					msg = CTkMessagebox(
+						title='Cambios sin guardar',
+						message='Tenés cambios sin guardar. ¿Querés salir igual?',
+						icon='warning',
+						option_1='Cancelar',
+						option_2='Salir sin guardar',
+					)
+					if msg.get() != 'Salir sin guardar':
+						return
+			except Exception:
+				pass
+
 		# Destrucción segura de la vista actual
 		if self.current_view:
 			try:

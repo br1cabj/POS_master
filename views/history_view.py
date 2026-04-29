@@ -183,6 +183,15 @@ class HistoryView(BaseView):
 		self.tree_scroll.pack(side='right', fill='y')
 		self.tree.pack(side='left', fill='both', expand=True)
 		self.tree.bind('<Double-1>', self.open_details_popup)
+
+		# Label empty state (oculto por defecto)
+		self.lbl_empty_history = ctk.CTkLabel(
+			inner,
+			text='📋\nNo hay ventas para el período seleccionado.',
+			font=('Arial', 13),
+			text_color=TEXT_MUTED,
+			justify='center',
+		)
 		self.tree.tag_configure('fiado', foreground='#fb923c')
 		self.tree.tag_configure('pendiente', foreground='#facc15')
 		self.tree.tag_configure('completada', foreground='#4ade80')
@@ -312,6 +321,18 @@ class HistoryView(BaseView):
 				),
 				tags=tags,
 			)
+
+		# Mostrar / ocultar empty state
+		if hasattr(self, 'lbl_empty_history'):
+			if not matches:
+				self.tree.pack_forget()
+				self.tree_scroll.pack_forget()
+				self.lbl_empty_history.pack(expand=True)
+			else:
+				self.lbl_empty_history.pack_forget()
+				if not self.tree.winfo_ismapped():
+					self.tree_scroll.pack(side='right', fill='y')
+					self.tree.pack(side='left', fill='both', expand=True)
 
 		total = len(self._all_sales)
 		shown = len(matches)

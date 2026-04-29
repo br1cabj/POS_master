@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Callable
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
-from utils.styles import SURFACE1
+from utils.styles import BORDER, SURFACE1
 
 if TYPE_CHECKING:
 	from core.context import AppContext
@@ -45,6 +45,62 @@ class BaseView(ctk.CTkFrame):
 		CTkMessagebox(
 			title=title, message=message, icon='warning', fade_in_duration=200
 		)
+
+	# ── Feedback Visual Inline ─────────────────────────────────────────────
+
+	def set_loading(self, btn, loading: bool, original_text: str = '') -> None:
+		"""Deshabilita/habilita un botón durante operaciones lentas.
+
+		Uso:
+		    original = btn.cget('text')
+		    self.set_loading(btn, True, original)
+		    ... operación ...
+		    self.set_loading(btn, False, original)
+		"""
+		if loading:
+			btn.configure(state='disabled', text='Procesando…')
+		else:
+			btn.configure(state='normal', text=original_text)
+
+	def mark_field_error(self, entry, message: str | None = None) -> None:
+		"""Pone borde rojo en el entry para señalar un error de validación."""
+		entry.configure(border_color='#f87171')
+		entry.focus()
+
+	def clear_field_errors(self, *entries) -> None:
+		"""Restaura el borde normal en uno o varios entries."""
+		for entry in entries:
+			try:
+				entry.configure(border_color=BORDER)
+			except Exception:
+				pass
+
+	def show_empty_state(
+		self,
+		container,
+		message: str = 'No hay datos para mostrar.',
+		icon: str = '📭',
+	) -> None:
+		"""Muestra un mensaje centrado en cualquier frame cuando no hay datos."""
+		import customtkinter as ctk
+
+		lbl = ctk.CTkLabel(
+			container,
+			text=f'{icon}\n{message}',
+			font=('Arial', 13),
+			text_color='#64748b',
+			justify='center',
+		)
+		lbl.pack(expand=True, pady=40)
+
+	# ── Gestión de Cambios No Guardados ────────────────────────────────────
+
+	def has_unsaved_changes(self) -> bool:
+		"""Retorna True si la vista tiene cambios en formularios sin guardar.
+
+		Sobrescribir en vistas que tienen formularios editables.
+		"""
+		return False
 
 	def confirm(self, message: str, title: str = 'Confirmar') -> bool:
 		"""Muestra un diálogo de Sí/No. Retorna True si el usuario confirma."""

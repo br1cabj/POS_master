@@ -243,6 +243,15 @@ class CustomersView(BaseView):
 
 		self.tree.tag_configure('deudor', foreground=RED_TEXT)
 
+		# Label empty state
+		self.lbl_empty_customers = ctk.CTkLabel(
+			self.table_container,
+			text='👤\nNo hay clientes registrados.\nAgregá el primero con el formulario.',
+			font=('Arial', 13),
+			text_color=TEXT_MUTED,
+			justify='center',
+		)
+
 		# ── Botón Seleccionar para Cobro ─────────────────────────────────
 		btn_row = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		btn_row.pack(fill='x', padx=14, pady=(4, 14))
@@ -310,6 +319,18 @@ class CustomersView(BaseView):
 			)
 			if balance > 0:
 				self.tree.item(item_id, tags=('deudor',))
+
+		# Mostrar / ocultar empty state
+		if hasattr(self, 'lbl_empty_customers'):
+			if not matches:
+				self.tree.pack_forget()
+				self.tree_scroll.pack_forget()
+				self.lbl_empty_customers.pack(expand=True)
+			else:
+				self.lbl_empty_customers.pack_forget()
+				if not self.tree.winfo_ismapped():
+					self.tree_scroll.pack(side='right', fill='y')
+					self.tree.pack(side='left', fill='both', expand=True)
 
 		total = len(self._all_customers)
 		shown = len(matches)
@@ -379,9 +400,11 @@ class CustomersView(BaseView):
 			)
 			return
 
+		customer = self.customer_map[name]
+
 		try:
-			amount_val = float(amount_str)
-			if amount_val <= 0:
+			amount = float(amount_str)
+			if amount <= 0:
 				raise ValueError
 		except ValueError:
 			CTkMessagebox(
@@ -393,26 +416,21 @@ class CustomersView(BaseView):
 
 		msg_box = CTkMessagebox(
 			title='Confirmar Abono',
-			message=f'¿Confirmás que {name} te está entregando ${amount_val:.2f}?',
+			message=f'Registrar un abono de ${amount:.2f} para {customer["name"]}?',
 			icon='question',
-			option_1='No',
-			option_2='Sí',
+			option_1='Cancelar',
+			option_2='Confirmar',
 		)
-		if msg_box.get() != 'Sí':
+		if msg_box.get() != 'Confirmar':
 			return
 
-		customer_id = self.customer_map[name]['id']
 		tenant_id = self.ctx.tenant_id
-		user_id = self.ctx.user_id
-
-		success, msg = self.controller.pay_debt(
-			tenant_id, user_id, customer_id, amount_str
+		success, msg = self.controller.register_payment(
+			tenant_id, customer['id'], amount
 		)
 
 		if success:
-			CTkMessagebox(title='Pago Registrado', message=msg, icon='check')
+			CTkMessagebox(title='¡Éxito!', message=msg, icon='check')
 			self.entry_payment.delete(0, 'end')
-			self.combo_customers.set('Seleccionar cliente...')
-			self.load_data()
 		else:
-			CTkMessagebox(title='Error al cobrar', message=msg, icon='cancel')
+			CTkMessagebox(title='Error', message=msg, icon='cancel')

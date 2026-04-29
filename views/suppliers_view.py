@@ -214,30 +214,35 @@ class SuppliersView(BaseView):
 		self.entry_name.focus()
 
 	def save_supplier(self):
+		self.clear_field_errors(self.entry_name)
+
 		name = self.entry_name.get().strip()
 		phone = self.entry_phone.get().strip()
 		email = self.entry_email.get().strip()
 		address = self.entry_address.get().strip()
 
 		if not name:
-			CTkMessagebox(
-				title='Faltan Datos',
-				message='El nombre del proveedor es obligatorio.',
-				icon='warning',
-			)
+			self.mark_field_error(self.entry_name)
 			return
 
 		tenant_id = self.ctx.tenant_id
-		success, msg = self.controller.save_supplier(
-			tenant_id, self.editing_id, name, phone, email, address
-		)
+
+		original = self.btn_save.cget('text')
+		self.set_loading(self.btn_save, True)
+		self.update_idletasks()
+		try:
+			success, msg = self.controller.save_supplier(
+				tenant_id, self.editing_id, name, phone, email, address
+			)
+		finally:
+			self.set_loading(self.btn_save, False, original)
 
 		if success:
-			CTkMessagebox(title='¡Éxito!', message=msg, icon='check')
+			self.show_success(msg)
 			self.reset_form()
 			self.load_data()
 		else:
-			CTkMessagebox(title='Error', message=msg, icon='cancel')
+			self.show_error(msg)
 
 	def delete_supplier(self):
 		selected = self.tree.selection()

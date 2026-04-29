@@ -392,6 +392,15 @@ class ArticlesView(BaseView):
 		self.tree.pack(side='left', fill='both', expand=True)
 		self.tree.bind('<Double-1>', self.on_tree_double_click)
 
+		# Label de estado vacío (se muestra cuando no hay productos)
+		self.lbl_empty_tree = ctk.CTkLabel(
+			self.table_container,
+			text='📦\nNo hay productos en el catálogo.\nUsá el formulario de la izquierda para agregar el primero.',
+			font=('Arial', 13),
+			text_color=TEXT_MUTED,
+			justify='center',
+		)
+
 		btns = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		btns.pack(fill='x', padx=14, pady=(4, 14))
 
@@ -568,6 +577,24 @@ class ArticlesView(BaseView):
 				),
 			)
 
+		# Mostrar / ocultar empty state
+		if hasattr(self, 'lbl_empty_tree'):
+			if not matches:
+				self.tree.pack_forget()
+				self.tree_scroll.pack_forget()
+				msg = (
+					'🔍\nNo se encontraron productos con ese criterio.'
+					if q
+					else '📦\nNo hay productos en el catálogo.\nUsá el formulario de la izquierda para agregar el primero.'
+				)
+				self.lbl_empty_tree.configure(text=msg)
+				self.lbl_empty_tree.pack(expand=True)
+			else:
+				self.lbl_empty_tree.pack_forget()
+				if not self.tree.winfo_ismapped():
+					self.tree_scroll.pack(side='right', fill='y')
+					self.tree.pack(side='left', fill='both', expand=True)
+
 		total = len(self.current_variants)
 		shown = len(matches)
 		if hasattr(self, 'lbl_count') and self.lbl_count.winfo_exists():
@@ -672,8 +699,15 @@ class ArticlesView(BaseView):
 		if not keep_barcode:
 			self.entry_barcode.focus()
 
+	def has_unsaved_changes(self) -> bool:
+		"""Retorna True si hay datos ingresados en el formulario que no fueron guardados."""
+		return bool(self.entry_name.get().strip())
+
 	def save_article(self):
 		"""Evalúa, valida y serializa los datos del formulario para persistirlos a través del controlador."""
+		# Limpiar errores anteriores
+		self.clear_field_errors(self.entry_name, self.entry_barcode)
+
 		name = self.entry_name.get().strip()
 		raw_barcode = self.entry_barcode.get().strip().lstrip('0')
 		barcode = (
@@ -684,12 +718,12 @@ class ArticlesView(BaseView):
 		supplier_name = self.combo_supplier.get()
 		supplier_id = self.suppliers_map.get(supplier_name)
 
-		if not name or not self._var_cost_str.get() or not self._var_price_str.get():
-			CTkMessagebox(
-				title='Faltan Datos',
-				message='Nombre, costo y precio son obligatorios.',
-				icon='warning',
-			)
+		if not name:
+			self.mark_field_error(self.entry_name, 'El nombre es obligatorio.')
+			return
+
+		if not self._var_cost_str.get() or not self._var_price_str.get():
+			self.show_warning('Completá el costo y el precio de venta.')
 			return
 
 		try:
@@ -715,34 +749,41 @@ class ArticlesView(BaseView):
 				if 'negativo' in str(e)
 				else 'Los precios y el stock deben ser números válidos.'
 			)
-			CTkMessagebox(title='Error de Formato', message=msg, icon='cancel')
+			self.show_error(msg)
 			return
 
 		tenant_id = self.ctx.tenant_id
 		user_id = self.ctx.user_id
 
-		if self.editing_variant_id:
-			success, msg = self.controller.update_article(
-				tenant_id,
-				user_id,
-				self.editing_variant_id,
-				name,
-				barcode,
-				cost,
-				price,
-				supplier_id,
-			)
-		else:
-			success, msg = self.controller.add_simple_article(
-				tenant_id,
-				user_id,
-				name,
-				barcode,
-				cost,
-				price,
-				initial_stock,
-				supplier_id,
-			)
+		original_text = self.btn_add.cget('text')
+		self.set_loading(self.btn_add, True)
+		self.update_idletasks()
+
+		try:
+			if self.editing_variant_id:
+				success, msg = self.controller.update_article(
+					tenant_id,
+					user_id,
+					self.editing_variant_id,
+					name,
+					barcode,
+					cost,
+					price,
+					supplier_id,
+				)
+			else:
+				success, msg = self.controller.add_simple_article(
+					tenant_id,
+					user_id,
+					name,
+					barcode,
+					cost,
+					price,
+					initial_stock,
+					supplier_id,
+				)
+		finally:
+			self.set_loading(self.btn_add, False, original_text)
 
 		if success:
 			self.show_success(msg)
@@ -1123,3 +1164,5 @@ class ArticlesView(BaseView):
 		).pack(padx=28, fill='x')
 
 		entry_barcode.bind('<Return>', lambda e: _do_save())
+		dialog.grab_set()
+		entry_label.focus()
