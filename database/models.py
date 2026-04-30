@@ -276,6 +276,7 @@ class Sale(Base):
 	profit = Column(Numeric(10, 2), nullable=False)
 	payment_method = Column(String, default='efectivo')
 	status = Column(String, default='completada')
+	quotation_number = Column(String, nullable=True)  # Ej: "COT-2024-001" si viene de cotización
 
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 

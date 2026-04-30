@@ -13,7 +13,6 @@ import os
 from tkinter import ttk
 
 import customtkinter as ctk
-from CTkMessagebox import CTkMessagebox
 
 from controllers.receipt_controller import ReceiptController
 from controllers.returns_controller import ReturnsController
@@ -73,14 +72,14 @@ _STATUS_LABELS = {
 
 
 class ReturnsView(BaseView):
-	def __init__(self, master, ctx: AppContext):
-		super().__init__(master, ctx)
+	# ¡Mira qué limpio queda el init ahora! No hace falta interceptar nada.
+	def __init__(self, master, ctx: AppContext, **kwargs):
+		super().__init__(master, ctx, **kwargs)
 		self.controller = ReturnsController(ctx.db_engine)
 
 		self._all_sales = []
 		self._active_filter = 'all'
 		self._selected_sale = None
-		self._search_timer = None
 
 		self.grid_columnconfigure(0, weight=2)
 		self.grid_columnconfigure(1, weight=3)
@@ -91,7 +90,11 @@ class ReturnsView(BaseView):
 		self._build_left_panel()
 		self._build_right_panel()
 
-		self.after(100, self.load_sales)
+		self.schedule(100, self.load_sales)
+
+	def set_initial_focus(self):
+		if hasattr(self, '_entry_search') and self._entry_search.winfo_exists():
+			self._entry_search.focus_set()
 
 	# =========================================================
 	# PANEL IZQUIERDO — Lista de Tickets
@@ -133,8 +136,11 @@ class ReturnsView(BaseView):
 		).pack(side='right')
 
 		self._search_var = ctk.StringVar()
-		self._search_var.trace_add('write', self._on_search_change)  # Usando debouncer
-		ctk.CTkEntry(
+		self._search_var.trace_add(
+			'write', lambda *args: self.debounce(300, self._filter_tree, 'search_sales')
+		)
+
+		self._entry_search = ctk.CTkEntry(
 			self.left,
 			textvariable=self._search_var,
 			placeholder_text='🔍 Buscar por ID, cliente o fecha...',
@@ -142,7 +148,8 @@ class ReturnsView(BaseView):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=34,
-		).grid(row=1, column=0, sticky='ew', padx=14, pady=(4, 4))
+		)
+		self._entry_search.grid(row=1, column=0, sticky='ew', padx=14, pady=(4, 4))
 
 		filter_frame = ctk.CTkFrame(self.left, fg_color='transparent')
 		filter_frame.grid(row=2, column=0, sticky='ew', padx=14, pady=(0, 6))
@@ -153,6 +160,7 @@ class ReturnsView(BaseView):
 			('today', 'Hoy'),
 			('fiado', 'Fiados'),
 			('anuladas', 'Anuladas'),
+			('cotizacion', '📋 Cotización'),
 		]
 		for fkey, flabel in _filters:
 			is_active = fkey == 'all'
@@ -176,7 +184,7 @@ class ReturnsView(BaseView):
 		tree_frame.grid(row=3, column=0, sticky='nsew', padx=14, pady=(0, 14))
 
 		scroll = ttk.Scrollbar(tree_frame, orient='vertical')
-		cols = ('ID', 'Fecha', 'Cliente', 'Total', 'Estado')
+		cols = ('ID', 'Fecha', 'Cliente', 'Total', 'Origen', 'Estado')
 		self.tree = ttk.Treeview(
 			tree_frame,
 			columns=cols,
@@ -185,10 +193,19 @@ class ReturnsView(BaseView):
 		)
 		scroll.configure(command=self.tree.yview)
 
-		_widths = {'ID': 45, 'Fecha': 120, 'Cliente': 120, 'Total': 75, 'Estado': 90}
+		_widths = {
+			'ID': 45,
+			'Fecha': 108,
+			'Cliente': 100,
+			'Total': 68,
+			'Origen': 100,
+			'Estado': 85,
+		}
 		for col in cols:
 			self.tree.heading(col, text=col)
 			self.tree.column(col, width=_widths[col], anchor='center')
+
+		self.init_treeview(self.tree)
 
 		self.tree.tag_configure('completada', foreground=GREEN_TEXT)
 		self.tree.tag_configure('pendiente', foreground=ORANGE_TEXT)
@@ -196,8 +213,7 @@ class ReturnsView(BaseView):
 		self.tree.tag_configure('devuelta', foreground=TEXT_MUTED)
 		self.tree.tag_configure('anulada', foreground=RED_TEXT)
 		self.tree.tag_configure('fiado', foreground=ORANGE_TEXT)
-		self.tree.tag_configure('odd', background='#161616')
-		self.tree.tag_configure('even', background='#1a1a1a')
+		self.tree.tag_configure('cotizacion', foreground=ACCENT_TEXT)
 
 		scroll.pack(side='right', fill='y')
 		self.tree.pack(side='left', fill='both', expand=True)
@@ -215,19 +231,54 @@ class ReturnsView(BaseView):
 			border_color=BORDER,
 		)
 		self.right.grid(row=0, column=1, sticky='nsew', padx=(8, 16), pady=16)
-		self.right.grid_rowconfigure(2, weight=1)
+		self.right.grid_rowconfigure(0, weight=1)
 		self.right.grid_columnconfigure(0, weight=1)
 
-		self.lbl_ticket_title = ctk.CTkLabel(
-			self.right,
-			text='Seleccioná un ticket de la lista',
-			font=('Arial', 17, 'bold'),
-			text_color=TEXT_MUTED,
-		)
-		self.lbl_ticket_title.grid(row=0, column=0, sticky='w', padx=20, pady=(18, 4))
+		self.right_content = ctk.CTkFrame(self.right, fg_color='transparent')
+		self.right_content.grid(row=0, column=0, sticky='nsew')
 
-		info_frame = ctk.CTkFrame(self.right, fg_color=SURFACE3, corner_radius=8)
-		info_frame.grid(row=1, column=0, sticky='ew', padx=16, pady=(0, 10))
+		self._reset_detail_panel()
+
+	def _reset_detail_panel(self):
+		self._selected_sale = None
+		for w in list(self.right_content.winfo_children()):
+			w.destroy()
+
+		self.show_empty_state(
+			self.right_content,
+			message='Seleccioná un ticket de la lista para ver su\ndetalle o procesar devoluciones.',
+			icon='🧾',
+		)
+
+	def _build_detail_ui(self):
+		for w in list(self.right_content.winfo_children()):
+			w.destroy()
+
+		self.right_content.grid_rowconfigure(3, weight=1)
+		self.right_content.grid_columnconfigure(0, weight=1)
+
+		self.lbl_ticket_title = ctk.CTkLabel(
+			self.right_content,
+			text='',
+			font=('Arial', 17, 'bold'),
+		)
+		self.lbl_ticket_title.grid(row=0, column=0, sticky='w', padx=20, pady=(18, 0))
+
+		self.lbl_quotation_origin = ctk.CTkLabel(
+			self.right_content,
+			text='',
+			font=FONT_LABEL,
+			text_color=ACCENT_TEXT,
+			anchor='w',
+		)
+		self.lbl_quotation_origin.grid(
+			row=1, column=0, sticky='w', padx=22, pady=(2, 6)
+		)
+
+		info_frame = ctk.CTkFrame(
+			self.right_content, fg_color=SURFACE3, corner_radius=8
+		)
+		info_frame.grid(row=2, column=0, sticky='ew', padx=16, pady=(0, 10))
 		info_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
 		self.lbl_date = self._info_cell(info_frame, '—', 'Fecha', 0)
@@ -235,8 +286,8 @@ class ReturnsView(BaseView):
 		self.lbl_method = self._info_cell(info_frame, '—', 'Pago', 2)
 		self.lbl_status = self._info_cell(info_frame, '—', 'Estado', 3)
 
-		items_container = ctk.CTkFrame(self.right, fg_color='transparent')
-		items_container.grid(row=2, column=0, sticky='nsew', padx=16, pady=(0, 8))
+		items_container = ctk.CTkFrame(self.right_content, fg_color='transparent')
+		items_container.grid(row=3, column=0, sticky='nsew', padx=16, pady=(0, 8))
 
 		ctk.CTkLabel(
 			items_container,
@@ -265,14 +316,13 @@ class ReturnsView(BaseView):
 			self.items_tree.column(col, width=_iwidths[col], anchor='center')
 		self.items_tree.column('Producto', anchor='w')
 
-		self.items_tree.tag_configure('odd', background='#161616')
-		self.items_tree.tag_configure('even', background='#1a1a1a')
+		self.init_treeview(self.items_tree)
 
 		items_scroll.pack(side='right', fill='y')
 		self.items_tree.pack(side='left', fill='both', expand=True)
 
-		bottom = ctk.CTkFrame(self.right, fg_color='transparent')
-		bottom.grid(row=3, column=0, sticky='ew', padx=16, pady=(0, 16))
+		bottom = ctk.CTkFrame(self.right_content, fg_color='transparent')
+		bottom.grid(row=4, column=0, sticky='ew', padx=16, pady=(0, 16))
 		bottom.grid_columnconfigure(0, weight=1)
 
 		self.lbl_discount_info = ctk.CTkLabel(
@@ -306,7 +356,6 @@ class ReturnsView(BaseView):
 			height=40,
 			corner_radius=8,
 			font=FONT_BODY_BOLD,
-			state='disabled',
 			command=self._confirm_cancel,
 		)
 		self.btn_cancel_sale.grid(row=2, column=0, sticky='ew', pady=(0, 6))
@@ -322,7 +371,6 @@ class ReturnsView(BaseView):
 			height=40,
 			corner_radius=8,
 			font=FONT_BODY_BOLD,
-			state='disabled',
 			command=self._open_return_popup,
 		)
 		self.btn_return_items.grid(row=3, column=0, sticky='ew', pady=(0, 6))
@@ -338,7 +386,6 @@ class ReturnsView(BaseView):
 			height=40,
 			corner_radius=8,
 			font=FONT_BODY_BOLD,
-			state='disabled',
 			command=self._confirm_modify,
 		)
 		self.btn_modify.grid(row=4, column=0, sticky='ew', pady=(0, 10))
@@ -362,7 +409,6 @@ class ReturnsView(BaseView):
 			height=34,
 			corner_radius=8,
 			font=FONT_LABEL_BOLD,
-			state='disabled',
 			command=self._reprint_ticket,
 		)
 		self.btn_reprint.grid(row=0, column=0, sticky='ew', padx=(0, 4))
@@ -378,7 +424,6 @@ class ReturnsView(BaseView):
 			height=34,
 			corner_radius=8,
 			font=FONT_LABEL_BOLD,
-			state='disabled',
 			command=self._open_credit_note,
 		)
 		self.btn_credit_note.grid(row=0, column=1, sticky='ew', padx=(4, 0))
@@ -425,20 +470,29 @@ class ReturnsView(BaseView):
 			)
 		self.load_sales()
 
-	def _on_search_change(self, *args):
-		if self._search_timer:
-			self.after_cancel(self._search_timer)
-		self._search_timer = self.after(300, self._filter_tree)
+	def _filter_tree(self):
+		if not self.winfo_exists():
+			return
 
-	def _filter_tree(self, *args):
 		q = self._search_var.get().lower().strip()
+
+		def _matches_search(s):
+			if not q:
+				return True
+			return (
+				q in str(s.get('id', '')).lower()
+				or q in (s.get('customer_name') or '').lower()
+				or q in str(s.get('date') or '').lower()
+				or q in (s.get('quotation_number') or '').lower()
+			)
+
+		def _matches_filter(s):
+			if self._active_filter == 'cotizacion':
+				return bool(s.get('quotation_number'))
+			return True
+
 		matches = [
-			s
-			for s in self._all_sales
-			if not q
-			or q in str(s.get('id', '')).lower()
-			or q in (s.get('customer_name') or '').lower()
-			or q in str(s.get('date') or '').lower()
+			s for s in self._all_sales if _matches_search(s) and _matches_filter(s)
 		]
 
 		for iid in self.tree.get_children():
@@ -453,21 +507,30 @@ class ReturnsView(BaseView):
 			)
 			pm = sale.get('payment_method', '')
 			status = sale.get('status', 'completada')
-			tag = 'fiado' if pm == 'fiado' else status
-			alt = 'odd' if i % 2 == 0 else 'even'
+			quotation_number = sale.get('quotation_number') or ''
+			origen_label = (
+				f'📋 {quotation_number}' if quotation_number else '🛒 Directa'
+			)
 
-			self.tree.insert(
-				'',
-				'end',
-				iid=str(sale['id']),
+			if pm == 'fiado':
+				tag = 'fiado'
+			elif quotation_number:
+				tag = 'cotizacion'
+			else:
+				tag = status
+
+			self.insert_tree_row(
+				self.tree,
+				i,
 				values=(
 					sale['id'],
 					date_str,
-					(sale.get('customer_name') or 'S/N')[:16],
+					(sale.get('customer_name') or 'S/N')[:14],
 					f'${sale["total_amount"]:.0f}',
+					origen_label,
 					_STATUS_LABELS.get(status, status),
 				),
-				tags=(tag, alt),
+				tags=(tag,),
 			)
 
 	# =========================================================
@@ -485,6 +548,12 @@ class ReturnsView(BaseView):
 		self._refresh_detail_panel(sale)
 
 	def _refresh_detail_panel(self, sale):
+		if (
+			not hasattr(self, 'lbl_ticket_title')
+			or not self.lbl_ticket_title.winfo_exists()
+		):
+			self._build_detail_ui()
+
 		status = sale.get('status', 'completada')
 		pm = sale.get('payment_method', '')
 		operable = status in ('completada', 'pendiente')
@@ -494,10 +563,19 @@ class ReturnsView(BaseView):
 			text_color=_STATUS_COLORS.get(status, TEXT_PRIMARY),
 		)
 
+		quotation_number = sale.get('quotation_number') or ''
+		if quotation_number:
+			self.lbl_quotation_origin.configure(
+				text=f'📋 Originado desde cotización  {quotation_number}'
+			)
+		else:
+			self.lbl_quotation_origin.configure(text='')
+
 		raw = sale.get('date')
 		date_str = (
 			raw.strftime('%d/%m/%Y  %H:%M') if hasattr(raw, 'strftime') else str(raw)
 		)
+
 		self.lbl_date.configure(text=date_str)
 		self.lbl_client.configure(
 			text=(sale.get('customer_name') or 'Consumidor Final')[:18]
@@ -518,17 +596,15 @@ class ReturnsView(BaseView):
 			qty = float(item['quantity'])
 			qty_str = f'{int(qty)}' if qty.is_integer() else f'{qty:.3f}'
 
-			alt = 'odd' if i % 2 == 0 else 'even'
-			self.items_tree.insert(
-				'',
-				'end',
+			self.insert_tree_row(
+				self.items_tree,
+				i,
 				values=(
 					item['description'][:30],
 					qty_str,
 					f'${item["unit_price"]:.2f}',
 					f'${item["subtotal"]:.2f}',
 				),
-				tags=(alt,),
 			)
 
 		total = sale['total_amount']
@@ -540,6 +616,7 @@ class ReturnsView(BaseView):
 			)
 		else:
 			self.lbl_discount_info.configure(text='')
+
 		self.lbl_total.configure(text=f'Total cobrado:  ${total:.2f}')
 
 		state = 'normal' if operable else 'disabled'
@@ -571,12 +648,8 @@ class ReturnsView(BaseView):
 		self.btn_return_items.configure(state=state)
 		self.btn_modify.configure(state=state)
 
-		if processing and button:
-			button.configure(text='⏳ Procesando...')
-		elif not processing and button:
-			button.configure(text=original_text)
-
-		self.update()
+		if button:
+			self.set_loading(button, processing, original_text)
 
 	# =========================================================
 	# ACCIÓN: ANULAR TICKET COMPLETO
@@ -585,20 +658,15 @@ class ReturnsView(BaseView):
 		if not self._selected_sale:
 			return
 		sale = self._selected_sale
-		msg = CTkMessagebox(
-			title='Confirmar Anulación',
-			message=(
-				f'¿Anulás el Ticket #{sale["id"]}?\n\n'
-				f'Cliente: {sale.get("customer_name", "—")}\n'
-				f'Total: ${sale["total_amount"]:.2f}\n\n'
-				f'El stock se restaurará y el monto se\n'
-				f'descontará de la caja activa.'
-			),
-			icon='warning',
-			option_1='No, volver',
-			option_2='Sí, Anular',
+
+		msg = (
+			f'¿Anulás el Ticket #{sale["id"]}?\n\n'
+			f'Cliente: {sale.get("customer_name", "—")}\n'
+			f'Total: ${sale["total_amount"]:.2f}\n\n'
+			f'El stock se restaurará y el monto se\n'
+			f'descontará de la caja activa.'
 		)
-		if msg.get() != 'Sí, Anular':
+		if not self.confirm(msg, 'Confirmar Anulación'):
 			return
 
 		original_text = self.btn_cancel_sale.cget('text')
@@ -611,12 +679,11 @@ class ReturnsView(BaseView):
 		self._set_processing_state(False, self.btn_cancel_sale, original_text)
 
 		if success:
-			self.show_toast(result_msg, 'success')
-			self._selected_sale = None
-			self.load_sales()
+			self.show_success(result_msg)
 			self._reset_detail_panel()
+			self.load_sales()
 		else:
-			self.show_toast(result_msg, 'error')
+			self.show_error(result_msg)
 
 	# =========================================================
 	# ACCIÓN: DEVOLUCIÓN PARCIAL — POPUP TOUCH-FRIENDLY
@@ -626,10 +693,9 @@ class ReturnsView(BaseView):
 			return
 		sale = self._selected_sale
 		items = sale.get('items', [])
+
 		if not items:
-			CTkMessagebox(
-				title='Sin ítems', message='Este ticket no tiene ítems.', icon='info'
-			)
+			self.show_warning('Este ticket no tiene ítems.')
 			return
 
 		popup = ctk.CTkToplevel(self)
@@ -651,6 +717,7 @@ class ReturnsView(BaseView):
 			font=('Arial', 16, 'bold'),
 			text_color=TEXT_PRIMARY,
 		).pack(pady=(18, 4))
+
 		ctk.CTkLabel(
 			popup,
 			text='Ajustá la cantidad a devolver usando los botones + y -',
@@ -722,7 +789,6 @@ class ReturnsView(BaseView):
 				anchor='e',
 			).grid(row=0, column=2, padx=10)
 
-			# Controles táctiles +/-
 			ctrl_frame = ctk.CTkFrame(row, fg_color='transparent')
 			ctrl_frame.grid(row=0, column=3, padx=(0, 10))
 
@@ -808,19 +874,14 @@ class ReturnsView(BaseView):
 						continue
 					qty = float(raw_val)
 				except (ValueError, TypeError):
-					CTkMessagebox(
-						title='Error',
-						message=f'Cantidad inválida para "{it["description"]}".',
-						icon='cancel',
-					)
+					self.show_error(f'Cantidad inválida para "{it["description"]}".')
 					return
 
 				orig_qty = float(it['quantity'])
 				if qty <= 0 or qty > orig_qty:
-					CTkMessagebox(
-						title='Cantidad inválida',
-						message=f'"{it["description"]}": ingresá entre 0.001 y {orig_qty}.',
-						icon='cancel',
+					self.show_error(
+						f'"{it["description"]}": ingresá entre 0.001 y {orig_qty}.',
+						'Cantidad inválida',
 					)
 					return
 
@@ -829,10 +890,9 @@ class ReturnsView(BaseView):
 				)
 
 			if not items_to_return:
-				CTkMessagebox(
-					title='Sin selección',
-					message='Aumentá la cantidad de al menos un ítem para devolver.',
-					icon='info',
+				self.show_warning(
+					'Aumentá la cantidad de al menos un ítem para devolver.',
+					'Sin selección',
 				)
 				return
 
@@ -845,12 +905,11 @@ class ReturnsView(BaseView):
 			popup.destroy()
 
 			if success:
-				self.show_toast(msg, 'success')
-				self._selected_sale = None
-				self.load_sales()
+				self.show_success(msg)
 				self._reset_detail_panel()
+				self.load_sales()
 			else:
-				self.show_toast(msg, 'error')
+				self.show_error(msg)
 
 		btn_confirm = ctk.CTkButton(
 			popup,
@@ -887,19 +946,14 @@ class ReturnsView(BaseView):
 		if not self._selected_sale:
 			return
 		sale = self._selected_sale
-		msg = CTkMessagebox(
-			title='Modificar Ticket',
-			message=(
-				f'Esto va a ANULAR el Ticket #{sale["id"]} y te va a llevar\n'
-				f'a la pantalla de Ventas para que lo rehagas con los cambios.\n\n'
-				f'Total original: ${sale["total_amount"]:.2f}\n'
-				f'¿Continuás?'
-			),
-			icon='warning',
-			option_1='No',
-			option_2='Sí, Modificar',
+
+		msg = (
+			f'Esto va a ANULAR el Ticket #{sale["id"]} y te va a llevar\n'
+			f'a la pantalla de Ventas para que lo rehagas con los cambios.\n\n'
+			f'Total original: ${sale["total_amount"]:.2f}\n'
+			f'¿Continuás?'
 		)
-		if msg.get() != 'Sí, Modificar':
+		if not self.confirm(msg, 'Modificar Ticket'):
 			return
 
 		original_text = self.btn_modify.cget('text')
@@ -912,18 +966,19 @@ class ReturnsView(BaseView):
 		self._set_processing_state(False, self.btn_modify, original_text)
 
 		if not success:
-			self.show_toast(result_msg, 'error')
+			self.show_error(result_msg)
 			return
 
-		navigate = getattr(self.ctx, 'navigate', None)
-		if navigate:
+		if self.navigate:
 			from views.sales_view import SalesView
 
-			navigate(SalesView, context_data={'restore_sale': sale})
+			self.navigate(SalesView, context_data={'restore_sale': sale})
 		else:
-			self.show_toast(f'{result_msg} — Andá a Ventas para rehacerlo.', 'info', 5000)
-			self.load_sales()
+			self.show_toast(
+				f'{result_msg} — Andá a Ventas para rehacerlo.', 'info', 5000
+			)
 			self._reset_detail_panel()
+			self.load_sales()
 
 	# =========================================================
 	# ACCIÓN: REIMPRIMIR TICKET
@@ -955,28 +1010,7 @@ class ReturnsView(BaseView):
 		if os.path.exists(filepath):
 			rc.print_receipt(filepath)
 		else:
-			self.show_toast(
-				f'No se encontró la nota de crédito del Ticket #{sale["id"]}.', 'info'
+			self.show_warning(
+				f'No se encontró la nota de crédito del Ticket #{sale["id"]}.',
+				'Archivo no encontrado',
 			)
-
-	# =========================================================
-	# HELPERS
-	# =========================================================
-	def _reset_detail_panel(self):
-		self.lbl_ticket_title.configure(
-			text='Seleccioná un ticket de la lista', text_color=TEXT_MUTED
-		)
-		self.lbl_date.configure(text='—')
-		self.lbl_client.configure(text='—')
-		self.lbl_method.configure(text='—')
-		self.lbl_status.configure(text='—', text_color=TEXT_PRIMARY)
-		for iid in self.items_tree.get_children():
-			self.items_tree.delete(iid)
-		self.lbl_discount_info.configure(text='')
-		self.lbl_total.configure(text='Total: —')
-		for btn in (self.btn_cancel_sale, self.btn_return_items, self.btn_modify):
-			btn.configure(state='disabled')
-		self.btn_cancel_sale.configure(text='🚫  Anular Ticket Completo')
-		self.btn_reprint.configure(state='disabled')
-		self.btn_credit_note.configure(state='disabled', text_color=TEXT_MUTED)
-		self._selected_sale = None

@@ -108,6 +108,7 @@ class HistoryView(BaseView):
 			('today', 'Hoy'),
 			('week', 'Esta Semana'),
 			('fiado', 'Solo Fiados'),
+			('cotizacion', '📋 Cotizaciones'),
 		]
 
 		for fkey, flabel in _filters:
@@ -155,6 +156,7 @@ class HistoryView(BaseView):
 			'Fecha',
 			'Cliente',
 			'Vendedor',
+			'Origen',
 			'Descuento',
 			'Total',
 			'Ganancia',
@@ -175,6 +177,7 @@ class HistoryView(BaseView):
 			'Fecha': 130,
 			'Cliente': 150,
 			'Vendedor': 100,
+			'Origen': 120,
 			'Descuento': 85,
 			'Total': 90,
 			'Ganancia': 90,
@@ -200,6 +203,7 @@ class HistoryView(BaseView):
 		self.tree.tag_configure('pendiente', foreground='#facc15')
 		self.tree.tag_configure('completada', foreground=GREEN_TEXT)
 		self.tree.tag_configure('has_disc', foreground=ORANGE_TEXT)
+		self.tree.tag_configure('cotizacion', foreground=ACCENT_TEXT)
 
 		# ── Actions ───────────────────────────────────────────────────────
 		btn_row = ctk.CTkFrame(self, fg_color='transparent')
@@ -252,6 +256,8 @@ class HistoryView(BaseView):
 				return sale_date is not None and sale_date >= week_start
 			if self._active_filter == 'fiado':
 				return s.get('payment_method') == 'fiado'
+			if self._active_filter == 'cotizacion':
+				return bool(s.get('quotation_number'))
 			return True
 
 		matches = [
@@ -263,6 +269,7 @@ class HistoryView(BaseView):
 				or q in (s.get('customer_name') or '').lower()
 				or q in (s.get('user_name') or '').lower()
 				or q in str(s.get('date') or '').lower()
+				or q in (s.get('quotation_number') or '').lower()
 			)
 		]
 
@@ -282,6 +289,12 @@ class HistoryView(BaseView):
 			pm = sale.get('payment_method', '') or ''
 			pm2 = sale.get('payment_method_2', '') or ''
 			status = sale.get('status', '') or ''
+			quotation_number = sale.get('quotation_number', '') or ''
+
+			# Columna Origen
+			origen_label = (
+				f'📋 {quotation_number}' if quotation_number else '🛒 Directa'
+			)
 
 			if pm == 'fiado':
 				estado_label, row_color = '💳 Fiado', 'fiado'
@@ -295,6 +308,10 @@ class HistoryView(BaseView):
 					'completada',
 				)
 
+			# Las filas de cotización tienen su propio color de resaltado
+			if quotation_number:
+				row_color = 'cotizacion'
+
 			disc_str = f'-${discount_amount:.2f}' if discount_amount > 0 else '—'
 			tags = ('has_disc',) if discount_amount > 0 else (row_color,)
 
@@ -306,6 +323,7 @@ class HistoryView(BaseView):
 					date_str,
 					sale.get('customer_name', 'Sin Cliente'),
 					sale.get('user_name', 'Desconocido'),
+					origen_label,
 					disc_str,
 					f'${total_amount:.2f}',
 					f'${profit:.2f}',
@@ -349,6 +367,7 @@ class HistoryView(BaseView):
 						'Fecha',
 						'Cliente',
 						'Vendedor',
+						'Origen',
 						'Descuento',
 						'Total',
 						'Ganancia',

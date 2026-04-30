@@ -386,6 +386,7 @@ class QuotationController(BaseController):
 					profit=real_profit,
 					payment_method=payment_method,
 					status='completada',
+					quotation_number=q.number,
 				)
 				s.add(sale)
 				s.flush()

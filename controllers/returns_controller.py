@@ -85,6 +85,7 @@ class ReturnsController(BaseController):
 						if s.customer
 						else 'Consumidor Final',
 						'user_name': s.user.username if s.user else 'Desconocido',
+						'quotation_number': s.quotation_number or '',
 					}
 					for s in sales
 				]
@@ -125,6 +126,7 @@ class ReturnsController(BaseController):
 					else 'Consumidor Final',
 					'customer_id': sale.customer_id,
 					'user_name': sale.user.username if sale.user else 'Desconocido',
+					'quotation_number': sale.quotation_number or '',
 					'items': [
 						{
 							'detail_id': d.id,

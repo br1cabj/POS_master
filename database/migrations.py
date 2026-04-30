@@ -24,6 +24,7 @@ def run_migrations(engine) -> None:
 	_v4_add_mixto_fields(engine)
 	_v5_create_quotations(engine)
 	_v6_add_packaging_variants(engine)
+	_v7_add_quotation_number_to_sales(engine)
 
 
 def _v1_add_cost_price_usd(engine) -> None:
@@ -159,6 +160,23 @@ def _v5_create_quotations(engine) -> None:
 		logger.info(
 			'Migración v5 aplicada: tablas quotations y quotation_items creadas.'
 		)
+
+
+def _v7_add_quotation_number_to_sales(engine) -> None:
+	"""
+	v7: Agrega quotation_number a sales.
+	Almacena el número legible de la cotización de origen (ej: COT-2024-001).
+	Nullable: ventas directas no tienen cotización asociada.
+	"""
+	with engine.connect() as conn:
+		try:
+			conn.execute(
+				text('ALTER TABLE sales ADD COLUMN quotation_number VARCHAR DEFAULT NULL')
+			)
+			conn.commit()
+			logger.info('Migración v7 aplicada: quotation_number agregado a sales.')
+		except Exception:
+			pass
 
 
 def _v6_add_packaging_variants(engine) -> None:

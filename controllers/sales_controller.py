@@ -149,6 +149,7 @@ class SalesController(BaseController):
 						'payment_method_2': s.payment_method_2 or '',
 						'amount_method_2': float(s.amount_method_2 or 0),
 						'status': s.status,
+						'quotation_number': s.quotation_number or '',
 						'customer_name': s.customer.name
 						if s.customer
 						else 'Consumidor Final',
