@@ -5,20 +5,17 @@ Módulo de Devoluciones y Anulaciones de Tickets.
 
 Layout: dos paneles
   - Izquierdo: lista de tickets con búsqueda y filtros rápidos
-  - Derecho:   detalle del ticket seleccionado + botones de acción
-
-Acciones disponibles:
-  🚫 Anular Ticket    → cancel_sale() — anula todo, restaura stock y caja
-  ↩  Devolver Ítems   → popup parcial — elige qué ítems y cuántos devolver
-  ✏️ Modificar        → anula + navega a Ventas para rehacer el ticket
+  - Derecho:  detalle del ticket seleccionado + botones de acción
 """
 
 import logging
+import os
 from tkinter import ttk
 
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
+from controllers.receipt_controller import ReceiptController
 from controllers.returns_controller import ReturnsController
 from core.base_view import BaseView
 from core.context import AppContext
@@ -52,11 +49,11 @@ from utils.styles import (
 	TEXT_MUTED,
 	TEXT_PRIMARY,
 	TEXT_SECONDARY,
+	apply_treeview_style,
 )
 
 logger = logging.getLogger(__name__)
 
-# Colores de estado
 _STATUS_COLORS = {
 	'completada': GREEN_TEXT,
 	'pendiente': ORANGE_TEXT,
@@ -82,7 +79,8 @@ class ReturnsView(BaseView):
 
 		self._all_sales = []
 		self._active_filter = 'all'
-		self._selected_sale = None  # dict completo del ticket seleccionado
+		self._selected_sale = None
+		self._search_timer = None
 
 		self.grid_columnconfigure(0, weight=2)
 		self.grid_columnconfigure(1, weight=3)
@@ -110,7 +108,6 @@ class ReturnsView(BaseView):
 		self.left.grid_rowconfigure(3, weight=1)
 		self.left.grid_columnconfigure(0, weight=1)
 
-		# ── Header ───────────────────────────────────────────────
 		hdr = ctk.CTkFrame(self.left, fg_color='transparent')
 		hdr.grid(row=0, column=0, sticky='ew', padx=16, pady=(16, 4))
 
@@ -135,9 +132,8 @@ class ReturnsView(BaseView):
 			command=self.load_sales,
 		).pack(side='right')
 
-		# ── Búsqueda ─────────────────────────────────────────────
 		self._search_var = ctk.StringVar()
-		self._search_var.trace_add('write', self._filter_tree)
+		self._search_var.trace_add('write', self._on_search_change)  # Usando debouncer
 		ctk.CTkEntry(
 			self.left,
 			textvariable=self._search_var,
@@ -148,7 +144,6 @@ class ReturnsView(BaseView):
 			height=34,
 		).grid(row=1, column=0, sticky='ew', padx=14, pady=(4, 4))
 
-		# ── Filtros rápidos ───────────────────────────────────────
 		filter_frame = ctk.CTkFrame(self.left, fg_color='transparent')
 		filter_frame.grid(row=2, column=0, sticky='ew', padx=14, pady=(0, 6))
 
@@ -177,7 +172,6 @@ class ReturnsView(BaseView):
 			btn.pack(side='left', padx=(0, 4))
 			self._filter_btns[fkey] = btn
 
-		# ── Tabla de tickets ──────────────────────────────────────
 		tree_frame = ctk.CTkFrame(self.left, fg_color='transparent')
 		tree_frame.grid(row=3, column=0, sticky='nsew', padx=14, pady=(0, 14))
 
@@ -208,7 +202,6 @@ class ReturnsView(BaseView):
 		scroll.pack(side='right', fill='y')
 		self.tree.pack(side='left', fill='both', expand=True)
 		self.tree.bind('<<TreeviewSelect>>', self._on_sale_selected)
-		self.tree.bind('<Double-1>', self._on_sale_selected)
 
 	# =========================================================
 	# PANEL DERECHO — Detalle del Ticket
@@ -225,7 +218,6 @@ class ReturnsView(BaseView):
 		self.right.grid_rowconfigure(2, weight=1)
 		self.right.grid_columnconfigure(0, weight=1)
 
-		# ── Header del detalle ─────────────────────────────────────
 		self.lbl_ticket_title = ctk.CTkLabel(
 			self.right,
 			text='Seleccioná un ticket de la lista',
@@ -234,7 +226,6 @@ class ReturnsView(BaseView):
 		)
 		self.lbl_ticket_title.grid(row=0, column=0, sticky='w', padx=20, pady=(18, 4))
 
-		# ── Info del ticket (labels) ───────────────────────────────
 		info_frame = ctk.CTkFrame(self.right, fg_color=SURFACE3, corner_radius=8)
 		info_frame.grid(row=1, column=0, sticky='ew', padx=16, pady=(0, 10))
 		info_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
@@ -244,7 +235,6 @@ class ReturnsView(BaseView):
 		self.lbl_method = self._info_cell(info_frame, '—', 'Pago', 2)
 		self.lbl_status = self._info_cell(info_frame, '—', 'Estado', 3)
 
-		# ── Tabla de ítems ─────────────────────────────────────────
 		items_container = ctk.CTkFrame(self.right, fg_color='transparent')
 		items_container.grid(row=2, column=0, sticky='nsew', padx=16, pady=(0, 8))
 
@@ -281,7 +271,6 @@ class ReturnsView(BaseView):
 		items_scroll.pack(side='right', fill='y')
 		self.items_tree.pack(side='left', fill='both', expand=True)
 
-		# ── Total y botones ────────────────────────────────────────
 		bottom = ctk.CTkFrame(self.right, fg_color='transparent')
 		bottom.grid(row=3, column=0, sticky='ew', padx=16, pady=(0, 16))
 		bottom.grid_columnconfigure(0, weight=1)
@@ -352,7 +341,47 @@ class ReturnsView(BaseView):
 			state='disabled',
 			command=self._confirm_modify,
 		)
-		self.btn_modify.grid(row=4, column=0, sticky='ew')
+		self.btn_modify.grid(row=4, column=0, sticky='ew', pady=(0, 10))
+
+		ctk.CTkFrame(bottom, fg_color=BORDER, height=1).grid(
+			row=5, column=0, sticky='ew', pady=(0, 8)
+		)
+
+		print_row = ctk.CTkFrame(bottom, fg_color='transparent')
+		print_row.grid(row=6, column=0, sticky='ew')
+		print_row.grid_columnconfigure((0, 1), weight=1)
+
+		self.btn_reprint = ctk.CTkButton(
+			print_row,
+			text='🖨️  Reimprimir Ticket',
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_SECONDARY,
+			border_width=1,
+			border_color=BORDER,
+			height=34,
+			corner_radius=8,
+			font=FONT_LABEL_BOLD,
+			state='disabled',
+			command=self._reprint_ticket,
+		)
+		self.btn_reprint.grid(row=0, column=0, sticky='ew', padx=(0, 4))
+
+		self.btn_credit_note = ctk.CTkButton(
+			print_row,
+			text='📄  Nota de Crédito',
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_MUTED,
+			border_width=1,
+			border_color=BORDER,
+			height=34,
+			corner_radius=8,
+			font=FONT_LABEL_BOLD,
+			state='disabled',
+			command=self._open_credit_note,
+		)
+		self.btn_credit_note.grid(row=0, column=1, sticky='ew', padx=(4, 0))
 
 	def _info_cell(self, parent, value, label, col):
 		frame = ctk.CTkFrame(parent, fg_color='transparent')
@@ -396,6 +425,11 @@ class ReturnsView(BaseView):
 			)
 		self.load_sales()
 
+	def _on_search_change(self, *args):
+		if self._search_timer:
+			self.after_cancel(self._search_timer)
+		self._search_timer = self.after(300, self._filter_tree)
+
 	def _filter_tree(self, *args):
 		q = self._search_var.get().lower().strip()
 		matches = [
@@ -421,6 +455,7 @@ class ReturnsView(BaseView):
 			status = sale.get('status', 'completada')
 			tag = 'fiado' if pm == 'fiado' else status
 			alt = 'odd' if i % 2 == 0 else 'even'
+
 			self.tree.insert(
 				'',
 				'end',
@@ -442,7 +477,7 @@ class ReturnsView(BaseView):
 		sel = self.tree.selection()
 		if not sel:
 			return
-		sale_id = int(sel[0])
+		sale_id = str(sel[0])
 		sale = self.controller.get_sale_with_details(self.ctx.tenant_id, sale_id)
 		if not sale:
 			return
@@ -454,13 +489,11 @@ class ReturnsView(BaseView):
 		pm = sale.get('payment_method', '')
 		operable = status in ('completada', 'pendiente')
 
-		# Header
 		self.lbl_ticket_title.configure(
 			text=f'Ticket  #{sale["id"]}',
 			text_color=_STATUS_COLORS.get(status, TEXT_PRIMARY),
 		)
 
-		# Info cells
 		raw = sale.get('date')
 		date_str = (
 			raw.strftime('%d/%m/%Y  %H:%M') if hasattr(raw, 'strftime') else str(raw)
@@ -478,13 +511,13 @@ class ReturnsView(BaseView):
 			text_color=_STATUS_COLORS.get(status, TEXT_PRIMARY),
 		)
 
-		# Ítems
 		for iid in self.items_tree.get_children():
 			self.items_tree.delete(iid)
 
 		for i, item in enumerate(sale.get('items', [])):
-			qty = item['quantity']
-			qty_str = f'{int(qty)}' if float(qty).is_integer() else f'{qty:.3f}'
+			qty = float(item['quantity'])
+			qty_str = f'{int(qty)}' if qty.is_integer() else f'{qty:.3f}'
+
 			alt = 'odd' if i % 2 == 0 else 'even'
 			self.items_tree.insert(
 				'',
@@ -498,7 +531,6 @@ class ReturnsView(BaseView):
 				tags=(alt,),
 			)
 
-		# Total — con desglose de descuento si corresponde
 		total = sale['total_amount']
 		discount = sale.get('discount_amount', 0.0)
 		if discount > 0:
@@ -510,18 +542,41 @@ class ReturnsView(BaseView):
 			self.lbl_discount_info.configure(text='')
 		self.lbl_total.configure(text=f'Total cobrado:  ${total:.2f}')
 
-		# Botones
 		state = 'normal' if operable else 'disabled'
 		self.btn_cancel_sale.configure(state=state)
 		self.btn_return_items.configure(state=state)
 		self.btn_modify.configure(state=state)
 
 		if not operable:
-			self.btn_cancel_sale.configure(
-				text=f'🚫  Ticket ya {status.upper()}',
-			)
+			self.btn_cancel_sale.configure(text=f'🚫  Ticket ya {status.upper()}')
 		else:
 			self.btn_cancel_sale.configure(text='🚫  Anular Ticket Completo')
+
+		self.btn_reprint.configure(state='normal')
+
+		nc_available = status in ('anulada', 'devuelta', 'parcial')
+		self.btn_credit_note.configure(
+			state='normal' if nc_available else 'disabled',
+			text_color=TEXT_SECONDARY if nc_available else TEXT_MUTED,
+		)
+
+	# =========================================================
+	# ESTADO DE PROCESAMIENTO
+	# =========================================================
+	def _set_processing_state(
+		self, processing: bool, button: ctk.CTkButton = None, original_text: str = ''
+	):
+		state = 'disabled' if processing else 'normal'
+		self.btn_cancel_sale.configure(state=state)
+		self.btn_return_items.configure(state=state)
+		self.btn_modify.configure(state=state)
+
+		if processing and button:
+			button.configure(text='⏳ Procesando...')
+		elif not processing and button:
+			button.configure(text=original_text)
+
+		self.update()
 
 	# =========================================================
 	# ACCIÓN: ANULAR TICKET COMPLETO
@@ -546,9 +601,14 @@ class ReturnsView(BaseView):
 		if msg.get() != 'Sí, Anular':
 			return
 
+		original_text = self.btn_cancel_sale.cget('text')
+		self._set_processing_state(True, self.btn_cancel_sale)
+
 		success, result_msg = self.controller.cancel_sale(
 			self.ctx.tenant_id, sale['id'], self.ctx.user_id
 		)
+
+		self._set_processing_state(False, self.btn_cancel_sale, original_text)
 
 		if success:
 			CTkMessagebox(title='Anulación Exitosa', message=result_msg, icon='check')
@@ -559,7 +619,7 @@ class ReturnsView(BaseView):
 			CTkMessagebox(title='Error', message=result_msg, icon='cancel')
 
 	# =========================================================
-	# ACCIÓN: DEVOLUCIÓN PARCIAL — POPUP
+	# ACCIÓN: DEVOLUCIÓN PARCIAL — POPUP TOUCH-FRIENDLY
 	# =========================================================
 	def _open_return_popup(self):
 		if not self._selected_sale:
@@ -579,8 +639,8 @@ class ReturnsView(BaseView):
 		popup.grab_set()
 
 		popup.update_idletasks()
-		pw, ph = 520, 100 + len(items) * 52 + 140
-		ph = min(ph, 680)
+		pw, ph = 600, 100 + len(items) * 60 + 150
+		ph = min(ph, 700)
 		rx = self.winfo_rootx() + (self.winfo_width() - pw) // 2
 		ry = self.winfo_rooty() + (self.winfo_height() - ph) // 2
 		popup.geometry(f'{pw}x{ph}+{rx}+{ry}')
@@ -593,7 +653,7 @@ class ReturnsView(BaseView):
 		).pack(pady=(18, 4))
 		ctk.CTkLabel(
 			popup,
-			text='Marcá el ítem y escribí la cantidad a devolver (máx = cantidad original)',
+			text='Ajustá la cantidad a devolver usando los botones + y -',
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).pack(pady=(0, 12))
@@ -601,14 +661,32 @@ class ReturnsView(BaseView):
 		scroll_frame = ctk.CTkScrollableFrame(popup, fg_color='transparent')
 		scroll_frame.pack(fill='both', expand=True, padx=20)
 
-		row_data = []  # list of (check_var, qty_entry, item_dict)
+		row_data = []
+
+		def _update_refund(*args):
+			total = 0.0
+			for cv, ent, it in row_data:
+				if cv.get():
+					try:
+						raw_val = ent.get().replace(',', '.')
+						if not raw_val:
+							continue
+						q = float(raw_val)
+						q = min(max(q, 0), float(it['quantity']))
+						if q > 0:
+							total += float(it['unit_price']) * q
+						else:
+							cv.set(False)
+					except (ValueError, TypeError):
+						pass
+			lbl_refund.configure(text=f'Reembolso estimado: ${total:.2f}')
 
 		for item in items:
-			qty_orig = item['quantity']
+			qty_orig_float = float(item['quantity'])
 			qty_str = (
-				f'{int(qty_orig)}'
-				if float(qty_orig).is_integer()
-				else f'{qty_orig:.3f}'
+				f'{int(qty_orig_float)}'
+				if qty_orig_float.is_integer()
+				else f'{qty_orig_float:.3f}'
 			)
 
 			row = ctk.CTkFrame(scroll_frame, fg_color=SURFACE2, corner_radius=8)
@@ -616,7 +694,7 @@ class ReturnsView(BaseView):
 			row.grid_columnconfigure(1, weight=1)
 
 			check_var = ctk.BooleanVar(value=False)
-			ctk.CTkCheckBox(
+			cb = ctk.CTkCheckBox(
 				row,
 				text='',
 				variable=check_var,
@@ -624,7 +702,9 @@ class ReturnsView(BaseView):
 				fg_color=ACCENT_DIM,
 				hover_color=ACCENT,
 				checkmark_color=ACCENT_TEXT,
-			).grid(row=0, column=0, padx=(10, 4), pady=10)
+				command=_update_refund,
+			)
+			cb.grid(row=0, column=0, padx=(10, 4), pady=12)
 
 			ctk.CTkLabel(
 				row,
@@ -640,47 +720,82 @@ class ReturnsView(BaseView):
 				font=FONT_LABEL,
 				text_color=TEXT_MUTED,
 				anchor='e',
-			).grid(row=0, column=2, padx=6)
+			).grid(row=0, column=2, padx=10)
+
+			# Controles táctiles +/-
+			ctrl_frame = ctk.CTkFrame(row, fg_color='transparent')
+			ctrl_frame.grid(row=0, column=3, padx=(0, 10))
 
 			entry = ctk.CTkEntry(
-				row,
-				width=70,
+				ctrl_frame,
+				width=50,
 				justify='center',
 				fg_color=SURFACE3,
 				border_color=BORDER_ACTIVE,
 				text_color=TEXT_PRIMARY,
 				height=32,
-				placeholder_text=qty_str,
 			)
-			entry.insert(0, qty_str)
-			entry.grid(row=0, column=3, padx=(4, 10), pady=8)
+			entry.insert(0, '0')
+			entry.bind('<FocusIn>', lambda e, ent=entry: ent.select_range(0, 'end'))
 
+			def adjust_qty(delta, ent=entry, max_q=qty_orig_float, cv=check_var):
+				try:
+					current = float(ent.get().replace(',', '.'))
+				except Exception:
+					current = 0.0
+
+				new_val = current + delta
+				new_val = max(0.0, min(new_val, max_q))
+
+				ent.delete(0, 'end')
+				ent.insert(
+					0, f'{int(new_val)}' if new_val.is_integer() else f'{new_val:.3f}'
+				)
+
+				if new_val > 0 and not cv.get():
+					cv.set(True)
+				elif new_val == 0 and cv.get():
+					cv.set(False)
+				_update_refund()
+
+			ctk.CTkButton(
+				ctrl_frame,
+				text='-',
+				width=32,
+				height=32,
+				font=FONT_BODY_BOLD,
+				fg_color=SURFACE4,
+				text_color=TEXT_PRIMARY,
+				command=lambda e=entry, m=qty_orig_float, c=check_var: adjust_qty(
+					-1.0, e, m, c
+				),
+			).pack(side='left', padx=2)
+
+			entry.pack(side='left', padx=2)
+
+			ctk.CTkButton(
+				ctrl_frame,
+				text='+',
+				width=32,
+				height=32,
+				font=FONT_BODY_BOLD,
+				fg_color=SURFACE4,
+				text_color=TEXT_PRIMARY,
+				command=lambda e=entry, m=qty_orig_float, c=check_var: adjust_qty(
+					1.0, e, m, c
+				),
+			).pack(side='left', padx=2)
+
+			entry.bind('<KeyRelease>', _update_refund)
 			row_data.append((check_var, entry, item))
 
-		# Total del reembolso (dinámico)
 		lbl_refund = ctk.CTkLabel(
 			popup,
 			text='Reembolso estimado: $0.00',
-			font=('Arial', 15, 'bold'),
+			font=('Arial', 16, 'bold'),
 			text_color=ORANGE_TEXT,
 		)
 		lbl_refund.pack(pady=(10, 0))
-
-		def _update_refund(*args):
-			total = 0.0
-			for cv, ent, it in row_data:
-				if cv.get():
-					try:
-						q = float(ent.get().replace(',', '.'))
-						q = min(max(q, 0), it['quantity'])
-						total += it['unit_price'] * q
-					except (ValueError, TypeError):
-						pass
-			lbl_refund.configure(text=f'Reembolso estimado: ${total:.2f}')
-
-		for cv, ent, _ in row_data:
-			cv.trace_add('write', _update_refund)
-			ent.bind('<KeyRelease>', _update_refund)
 
 		def _confirm_return():
 			items_to_return = []
@@ -688,7 +803,10 @@ class ReturnsView(BaseView):
 				if not cv.get():
 					continue
 				try:
-					qty = float(ent.get().replace(',', '.'))
+					raw_val = ent.get().replace(',', '.')
+					if not raw_val:
+						continue
+					qty = float(raw_val)
 				except (ValueError, TypeError):
 					CTkMessagebox(
 						title='Error',
@@ -696,32 +814,36 @@ class ReturnsView(BaseView):
 						icon='cancel',
 					)
 					return
-				if qty <= 0 or qty > it['quantity']:
+
+				orig_qty = float(it['quantity'])
+				if qty <= 0 or qty > orig_qty:
 					CTkMessagebox(
 						title='Cantidad inválida',
-						message=f'"{it["description"]}": ingresá entre 0 y {it["quantity"]}.',
+						message=f'"{it["description"]}": ingresá entre 0.001 y {orig_qty}.',
 						icon='cancel',
 					)
 					return
+
 				items_to_return.append(
-					{
-						'detail_id': it['detail_id'],
-						'qty_to_return': qty,
-					}
+					{'detail_id': it['detail_id'], 'qty_to_return': qty}
 				)
 
 			if not items_to_return:
 				CTkMessagebox(
 					title='Sin selección',
-					message='Marcá al menos un ítem para devolver.',
+					message='Aumentá la cantidad de al menos un ítem para devolver.',
 					icon='info',
 				)
 				return
+
+			btn_confirm.configure(text='⏳ Procesando...', state='disabled')
+			popup.update()
 
 			success, msg = self.controller.return_items(
 				self.ctx.tenant_id, sale['id'], self.ctx.user_id, items_to_return
 			)
 			popup.destroy()
+
 			if success:
 				CTkMessagebox(title='Devolución Registrada', message=msg, icon='check')
 				self._selected_sale = None
@@ -730,7 +852,7 @@ class ReturnsView(BaseView):
 			else:
 				CTkMessagebox(title='Error', message=msg, icon='cancel')
 
-		ctk.CTkButton(
+		btn_confirm = ctk.CTkButton(
 			popup,
 			text='✓  Confirmar Devolución',
 			fg_color=GREEN_DIM,
@@ -742,7 +864,8 @@ class ReturnsView(BaseView):
 			font=FONT_NAV_BOLD,
 			corner_radius=8,
 			command=_confirm_return,
-		).pack(pady=(8, 6), padx=24, fill='x')
+		)
+		btn_confirm.pack(pady=(12, 6), padx=24, fill='x')
 
 		ctk.CTkButton(
 			popup,
@@ -779,31 +902,68 @@ class ReturnsView(BaseView):
 		if msg.get() != 'Sí, Modificar':
 			return
 
+		original_text = self.btn_modify.cget('text')
+		self._set_processing_state(True, self.btn_modify)
+
 		success, result_msg = self.controller.cancel_sale(
 			self.ctx.tenant_id, sale['id'], self.ctx.user_id
 		)
+
+		self._set_processing_state(False, self.btn_modify, original_text)
 
 		if not success:
 			CTkMessagebox(title='Error', message=result_msg, icon='cancel')
 			return
 
-		# Navegar a SalesView
 		navigate = getattr(self.ctx, 'navigate', None)
 		if navigate:
 			from views.sales_view import SalesView
 
-			navigate(SalesView)
+			navigate(SalesView, context_data={'restore_sale': sale})
 		else:
 			CTkMessagebox(
 				title='Ticket Anulado',
-				message=(
-					f'{result_msg}\n\n'
-					f'Andá a la sección Ventas para procesar el ticket nuevamente.'
-				),
+				message=f'{result_msg}\n\nAndá a la sección Ventas para procesar el ticket nuevamente.',
 				icon='check',
 			)
 			self.load_sales()
 			self._reset_detail_panel()
+
+	# =========================================================
+	# ACCIÓN: REIMPRIMIR TICKET
+	# =========================================================
+	def _reprint_ticket(self):
+		if not self._selected_sale:
+			return
+		ok, result = ReceiptController().reprint_receipt(
+			self.ctx.tenant_id, self._selected_sale['id']
+		)
+		if not ok:
+			CTkMessagebox(title='Sin ticket guardado', message=result, icon='info')
+
+	# =========================================================
+	# ACCIÓN: VER NOTA DE CRÉDITO
+	# =========================================================
+	def _open_credit_note(self):
+		if not self._selected_sale:
+			return
+		sale = self._selected_sale
+		status = sale.get('status', '')
+		note_type = 'Anulación' if status == 'anulada' else 'Devolución'
+
+		rc = ReceiptController()
+		filepath = os.path.join(
+			rc.receipts_dir,
+			f'tenant_{self.ctx.tenant_id}_NC_{sale["id"]}_{note_type[:3].lower()}.pdf',
+		)
+		if os.path.exists(filepath):
+			rc.print_receipt(filepath)
+		else:
+			CTkMessagebox(
+				title='Sin nota de crédito',
+				message=f'No se encontró la nota de crédito del Ticket #{sale["id"]}.\nSolo existe si la operación se realizó en este equipo.',
+				icon='info',
+			)
 
 	# =========================================================
 	# HELPERS
@@ -823,4 +983,6 @@ class ReturnsView(BaseView):
 		for btn in (self.btn_cancel_sale, self.btn_return_items, self.btn_modify):
 			btn.configure(state='disabled')
 		self.btn_cancel_sale.configure(text='🚫  Anular Ticket Completo')
+		self.btn_reprint.configure(state='disabled')
+		self.btn_credit_note.configure(state='disabled', text_color=TEXT_MUTED)
 		self._selected_sale = None

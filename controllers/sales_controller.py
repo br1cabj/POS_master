@@ -218,6 +218,7 @@ class SalesController(BaseController):
 		discount_amount=None,
 		payment_method_2=None,
 		amount_method_2=None,
+		paid_amount=None,
 	):
 		"""
 		Procesa una venta de forma atómica. Verifica caja, resuelve cliente, descuenta stock
@@ -492,14 +493,38 @@ class SalesController(BaseController):
 				try:
 					from controllers.receipt_controller import ReceiptController
 
+					# Calcular vuelto si el pago fue en efectivo simple
+					change_amt = None
+					paid_dec = None
+					pm_lower = payment_method.lower() if payment_method else ''
+					if (
+						paid_amount is not None
+						and not is_fiado
+						and not payment_method_2
+					):
+						try:
+							paid_dec = Decimal(str(paid_amount))
+							change_amt = max(paid_dec - final_total, Decimal('0'))
+						except Exception:
+							pass
+
 					ReceiptController().generate_pdf(
 						tenant_id=tenant_id,
 						sale_id=new_sale.id,
-						date_str=new_sale.date.strftime('%Y-%m-%d %H:%M'),
+						date_str=new_sale.date.strftime('%d/%m/%Y  %H:%M'),
 						items_list=cart_items,
 						total=final_total,
 						customer_name=customer_str,
 						discount_amount=float(discount_amount),
+						payment_method=None if is_fiado else pm_lower,
+						payment_method_2=payment_method_2_lower
+						if payment_method_2_lower
+						else None,
+						amount_method_2=float(amount_m2) if amount_m2 > 0 else None,
+						paid_amount=float(paid_dec) if paid_dec is not None else None,
+						change_amount=float(change_amt)
+						if change_amt is not None
+						else None,
 					)
 				except Exception as pdf_err:
 					logger.warning(

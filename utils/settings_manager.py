@@ -8,14 +8,29 @@ Carga valores por defecto si el archivo no existe o está corrupto.
 import json
 import logging
 import os
+import sys
+from decimal import Decimal
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# ── Archivo de configuración ──────────────────────────────────────────────────
-_SETTINGS_FILE = Path(__file__).parent.parent / 'settings.json'
 
-# ── Caché en memoria (Solución al cuello de botella I/O) ──────────────────────
+def _app_data_dir() -> Path:
+	"""Devuelve el directorio seguro para guardar datos (Appdata/Local o ~/.config)."""
+	if sys.platform == 'win32':
+		base_dir = Path(os.getenv('LOCALAPPDATA', os.path.expanduser('~')))
+	else:
+		base_dir = Path(os.path.expanduser('~')) / '.config'
+
+	app_folder = base_dir / 'CloudPOS'
+	app_folder.mkdir(parents=True, exist_ok=True)
+	return app_folder
+
+
+# ── Archivo de configuración ──────────────────────────────────────────────────
+_SETTINGS_FILE = _app_data_dir() / 'settings.json'
+
+# ── Caché en memoria ──────────────────────────────────────────────────────────
 _cached_settings: dict | None = None
 
 # ── Valores por defecto ───────────────────────────────────────────────────────
@@ -39,16 +54,21 @@ DEFAULTS: dict = {
 	'dollar_rate': 0.0,
 	'dollar_margin_pct': 30.0,
 	# Rutas de salida
-	'reports_path': '',  # carpeta de destino para reportes; vacío = Desktop
+	'reports_path': '',
+	# Precios Mayoristas
+	'wholesale_enabled': False,
+	# Lista de reglas: [{"min_qty": 6, "discount_pct": 10}, ...]
+	# Ordenadas de mayor a menor min_qty; se aplica la primera que coincide.
+	'wholesale_rules': [],
 }
 
 
 def load() -> dict:
-	"""Devuelve el dict de configuración, utilizando caché en memoria para evitar leer el disco constantemente."""
+	"""Devuelve una COPIA del dict de configuración desde el caché o el disco."""
 	global _cached_settings
 
 	if _cached_settings is not None:
-		return _cached_settings
+		return _cached_settings.copy()
 
 	try:
 		if _SETTINGS_FILE.exists():
@@ -67,17 +87,24 @@ def load() -> dict:
 				merged['low_stock_threshold'] = int(merged['low_stock_threshold'])
 			except (ValueError, TypeError):
 				merged['low_stock_threshold'] = 5
+
+			# Asegurar tipos correctos para wholesale
+			if not isinstance(merged.get('wholesale_enabled'), bool):
+				merged['wholesale_enabled'] = bool(merged.get('wholesale_enabled', False))
+			if not isinstance(merged.get('wholesale_rules'), list):
+				merged['wholesale_rules'] = []
+
 			_cached_settings = merged
-			return _cached_settings
+			return _cached_settings.copy()
 	except Exception as e:
 		logger.warning(f'No se pudo leer settings.json, usando defaults: {e}')
 
 	_cached_settings = dict(DEFAULTS)
-	return _cached_settings
+	return _cached_settings.copy()
 
 
 def save(settings: dict) -> bool:
-	"""Guarda el dict en settings.json y actualiza el caché. Retorna True si tuvo éxito."""
+	"""Guarda el dict en settings.json y actualiza el caché."""
 	global _cached_settings
 	try:
 		with open(_SETTINGS_FILE, 'w', encoding='utf-8') as f:
@@ -91,19 +118,12 @@ def save(settings: dict) -> bool:
 
 
 def get(key: str, default=None):
-	"""Atajo para leer una sola clave directamente desde el caché."""
+	"""Atajo para leer una sola clave directamente."""
 	return load().get(key, default)
 
 
 def get_reports_path() -> str:
-	"""Retorna la carpeta de destino para reportes.
-
-	Prioridad:
-	  1. Ruta configurada en settings (si existe y es un directorio válido).
-	  2. ~/Desktop
-	  3. ~/Escritorio  (Windows en español)
-	  4. ~ (home del usuario como último recurso)
-	"""
+	"""Retorna la carpeta de destino para reportes."""
 	custom = get('reports_path', '')
 	if custom and os.path.isdir(custom):
 		return custom
@@ -116,29 +136,54 @@ def get_reports_path() -> str:
 	return home
 
 
-def fmt_price(amount: float) -> str:
-	"""Formatea un precio aplicando formato latino (1.500,00) de manera eficiente."""
+def get_wholesale_discount(qty: float) -> float:
+	"""
+	Dado una cantidad, retorna el porcentaje de descuento mayorista aplicable (0.0 si ninguno).
+	Requiere que wholesale_enabled sea True y que qty supere el min_qty de alguna regla.
+	Las reglas se evalúan de mayor a menor min_qty (mejor descuento primero).
+	"""
+	cfg = load()
+	if not cfg.get('wholesale_enabled', False):
+		return 0.0
+	rules = cfg.get('wholesale_rules', [])
+	if not rules:
+		return 0.0
+	# Ordenar de mayor a menor min_qty para encontrar el mejor nivel
+	sorted_rules = sorted(rules, key=lambda r: r.get('min_qty', 0), reverse=True)
+	for rule in sorted_rules:
+		try:
+			min_qty = float(rule.get('min_qty', 0))
+			discount_pct = float(rule.get('discount_pct', 0))
+		except (ValueError, TypeError):
+			continue
+		if qty >= min_qty and min_qty > 0:
+			return discount_pct
+	return 0.0
+
+
+def fmt_price(amount: float | str | Decimal) -> str:
+	"""Formatea un precio aplicando formato latino (1.500,00) de manera segura."""
 	cfg = load()
 	symbol = cfg.get('currency_symbol', '$')
 	decimals = cfg.get('currency_decimals', 0)
 
-	# Formateo base en estándar US
-	if decimals == 0:
-		base_fmt = f'{amount:,.0f}'
-	else:
-		base_fmt = f'{amount:,.{decimals}f}'
+	try:
+		val = float(amount) if amount is not None else 0.0
+	except (ValueError, TypeError):
+		val = 0.0
 
-	# Reemplazo rápido para formato latino: miles con punto, decimales con coma
+	if decimals == 0:
+		base_fmt = f'{val:,.0f}'
+	else:
+		base_fmt = f'{val:,.{decimals}f}'
+
 	latam_fmt = base_fmt.replace(',', 'X').replace('.', ',').replace('X', '.')
 
 	return f'{symbol}{latam_fmt}'
 
 
 class SettingsManager:
-	"""
-	Wrapper de instancia sobre las funciones del módulo.
-	Mantiene la compatibilidad con inyecciones de dependencias como AppContext.
-	"""
+	"""Wrapper de instancia sobre las funciones del módulo para inyección en AppContext."""
 
 	def load(self) -> dict:
 		return load()
@@ -149,5 +194,5 @@ class SettingsManager:
 	def get(self, key: str, default=None):
 		return get(key, default)
 
-	def fmt_price(self, amount: float) -> str:
+	def fmt_price(self, amount: float | str | Decimal) -> str:
 		return fmt_price(amount)

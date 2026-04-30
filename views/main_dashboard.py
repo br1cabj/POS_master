@@ -330,7 +330,7 @@ class MainDashboard(ctk.CTkFrame):
 			100, lambda: self.winfo_toplevel().bind('<F11>', self.toggle_fullscreen)
 		)
 
-	def safe_switch_view(self, view_class, requires_admin=False):
+	def safe_switch_view(self, view_class, requires_admin=False, context_data=None):
 		if not self.winfo_exists():
 			return
 
@@ -378,6 +378,10 @@ class MainDashboard(ctk.CTkFrame):
 		if view_class is HomeView:
 			self.current_view = HomeView(
 				self.main_area, self.ctx, navigate=self.safe_switch_view
+			)
+		elif view_class is SalesView:
+			self.current_view = SalesView(
+				self.main_area, self.ctx, context_data=context_data
 			)
 		else:
 			self.current_view = view_class(self.main_area, self.ctx)

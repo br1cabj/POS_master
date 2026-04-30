@@ -67,7 +67,7 @@ class UsersView(BaseView):
 		).pack(pady=(PAD_LG, PAD_SM))
 
 		# Usuario
-		make_form_label(self.left_panel, 'NOMBRE DE USUARIO', required=True).pack(
+		make_form_label(self.left_panel, 'NOMBRE DE USUARIO', required=True)[0].pack(
 			padx=PAD_LG, anchor='w', pady=(PAD_SM, PAD_XS)
 		)
 		self.entry_user = ctk.CTkEntry(
@@ -82,7 +82,7 @@ class UsersView(BaseView):
 		self.entry_user.pack(pady=(0, PAD_SM), padx=PAD_LG, fill='x')
 
 		# Contraseña
-		make_form_label(self.left_panel, 'CONTRASEÑA', required=True).pack(
+		make_form_label(self.left_panel, 'CONTRASEÑA', required=True)[0].pack(
 			padx=PAD_LG, anchor='w', pady=(PAD_XS, PAD_XS)
 		)
 		self.entry_pass = ctk.CTkEntry(
@@ -137,7 +137,7 @@ class UsersView(BaseView):
 		).pack(padx=PAD_MD, anchor='w', pady=(0, PAD_SM))
 
 		# Rol
-		make_form_label(self.left_panel, 'ROL DE ACCESO', required=True).pack(
+		make_form_label(self.left_panel, 'ROL DE ACCESO', required=True)[0].pack(
 			padx=PAD_LG, anchor='w', pady=(PAD_XS, PAD_XS)
 		)
 		self.combo_role = ctk.CTkComboBox(
@@ -217,9 +217,10 @@ class UsersView(BaseView):
 		)
 		self.tree_scroll.configure(command=self.tree.yview)
 
-		# Aplicar estilo oscuro al Treeview antes de configurar tags
-		apply_treeview_style()
 		self.init_treeview(self.tree)
+		apply_treeview_style()
+		self.tree.tag_configure('odd', background='#161616')
+		self.tree.tag_configure('even', background='#1a1a1a')
 
 		col_widths = {'ID': 50, 'Usuario': 200, 'Rol': 120, 'PIN': 100}
 		for col in columns:
@@ -294,7 +295,6 @@ class UsersView(BaseView):
 			role_display = '👑 Admin' if u.get('role') == 'admin' else '👤 Cajero'
 			pin_display = '✅ Configurado' if u.get('has_recovery_pin') else '⚠ Sin PIN'
 
-			# CORRECCIÓN: Usando la base_view para zebra striping
 			self.insert_tree_row(
 				tree=self.tree,
 				index=idx,
@@ -308,7 +308,6 @@ class UsersView(BaseView):
 		username = self.entry_user.get().strip()
 		password = self.entry_pass.get().strip()
 
-		# Mapeo de UI a valores internos de base de datos
 		role_ui = self.combo_role.get()
 		role = 'admin' if role_ui == 'Administrador' else 'cajero'
 
@@ -322,7 +321,6 @@ class UsersView(BaseView):
 			self.show_warning('La contraseña debe tener al menos 6 caracteres.')
 			return
 
-		# CORRECCIÓN: Validación firme de longitud y formato de PIN
 		if pin and (not pin.isdigit() or len(pin) < 4):
 			self.show_warning('El PIN debe tener al menos 4 dígitos numéricos.')
 			return
@@ -382,7 +380,7 @@ class UsersView(BaseView):
 			text_color=ORANGE_TEXT,
 		).pack(pady=(0, PAD_MD))
 
-		make_form_label(popup, 'NUEVA CONTRASEÑA', required=True).pack(
+		make_form_label(popup, 'NUEVA CONTRASEÑA', required=True)[0].pack(
 			padx=PAD_LG, anchor='w', pady=(0, PAD_XS)
 		)
 		entry_new = ctk.CTkEntry(
@@ -396,9 +394,10 @@ class UsersView(BaseView):
 			font=FONT_BODY,
 		)
 		entry_new.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
+		entry_new.bind('<FocusIn>', lambda e: entry_new.select_range(0, 'end'))
 		entry_new.focus()
 
-		make_form_label(popup, 'CONFIRMAR CONTRASEÑA', required=True).pack(
+		make_form_label(popup, 'CONFIRMAR CONTRASEÑA', required=True)[0].pack(
 			padx=PAD_LG, anchor='w', pady=(0, PAD_XS)
 		)
 		entry_confirm = ctk.CTkEntry(
@@ -412,6 +411,7 @@ class UsersView(BaseView):
 			font=FONT_BODY,
 		)
 		entry_confirm.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
+		entry_confirm.bind('<FocusIn>', lambda e: entry_confirm.select_range(0, 'end'))
 
 		lbl_err = ctk.CTkLabel(
 			popup, text='', font=FONT_LABEL_BOLD, text_color=RED_TEXT
@@ -492,7 +492,7 @@ class UsersView(BaseView):
 			text_color=ACCENT_TEXT,
 		).pack(pady=(0, PAD_MD))
 
-		make_form_label(popup, 'NUEVO PIN  (mínimo 4 dígitos)', required=True).pack(
+		make_form_label(popup, 'NUEVO PIN  (mínimo 4 dígitos)', required=True)[0].pack(
 			padx=PAD_LG, anchor='w', pady=(0, PAD_XS)
 		)
 		entry_pin = ctk.CTkEntry(
@@ -506,9 +506,10 @@ class UsersView(BaseView):
 			font=FONT_BODY,
 		)
 		entry_pin.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
+		entry_pin.bind('<FocusIn>', lambda e: entry_pin.select_range(0, 'end'))
 		entry_pin.focus()
 
-		make_form_label(popup, 'CONFIRMAR PIN', required=True).pack(
+		make_form_label(popup, 'CONFIRMAR PIN', required=True)[0].pack(
 			padx=PAD_LG, anchor='w', pady=(0, PAD_XS)
 		)
 		entry_confirm = ctk.CTkEntry(
@@ -522,6 +523,7 @@ class UsersView(BaseView):
 			font=FONT_BODY,
 		)
 		entry_confirm.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
+		entry_confirm.bind('<FocusIn>', lambda e: entry_confirm.select_range(0, 'end'))
 
 		lbl_err = ctk.CTkLabel(
 			popup, text='', font=FONT_LABEL_BOLD, text_color=RED_TEXT

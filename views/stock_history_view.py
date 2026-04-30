@@ -38,7 +38,7 @@ class StockHistoryView(BaseView):
 
 		self._active_idx = 0
 		self._tab_btns: list = []
-		self._frames: list = []
+		self._views: list = []  # Cambiado para almacenar la instancia de la vista y poder refrescarla
 
 		# ── Tab bar ───────────────────────────────────────────────────────
 		tab_bar = ctk.CTkFrame(
@@ -67,6 +67,7 @@ class StockHistoryView(BaseView):
 				text_color=TEXT_MUTED,
 				border_width=0,
 				corner_radius=8,
+				cursor='hand2',  # UX FIX: Añadido para indicar interactividad
 				command=lambda idx=i: self._switch_tab(idx),
 			)
 			btn.pack(side='left', padx=(0, 4), pady=7)
@@ -78,8 +79,10 @@ class StockHistoryView(BaseView):
 
 		for _, _, view_cls in _TABS:
 			frame = ctk.CTkFrame(content, fg_color='transparent', corner_radius=0)
-			view_cls(frame, ctx).pack(fill='both', expand=True)
-			self._frames.append(frame)
+			view_instance = view_cls(frame, ctx)
+			view_instance.pack(fill='both', expand=True)
+
+			self._views.append({'frame': frame, 'instance': view_instance})
 
 		self._switch_tab(0)
 
@@ -87,12 +90,17 @@ class StockHistoryView(BaseView):
 	def _switch_tab(self, idx: int):
 		self._active_idx = idx
 
-		for i, frame in enumerate(self._frames):
+		# Mostrar el frame correcto y refrescar sus datos si es posible
+		for i, view_dict in enumerate(self._views):
 			if i == idx:
-				frame.pack(fill='both', expand=True)
+				view_dict['frame'].pack(fill='both', expand=True)
+				# LÓGICA VITAL: Refrescar la tabla al enfocar la pestaña
+				if hasattr(view_dict['instance'], 'load_data'):
+					view_dict['instance'].load_data()
 			else:
-				frame.pack_forget()
+				view_dict['frame'].pack_forget()
 
+		# Actualizar colores de las pestañas
 		for i, btn in enumerate(self._tab_btns):
 			if i == idx:
 				btn.configure(

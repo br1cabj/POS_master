@@ -158,7 +158,7 @@ class ComboMakerView(BaseView):
 		)
 		self.entry_combo_price.pack(pady=(0, PAD_MD), padx=PAD_LG, fill='x')
 
-		make_form_label(left, 'COLOR DEL BOTÓN TÁCTIL').pack(padx=PAD_LG, anchor='w')
+		make_form_label(left, 'COLOR DEL BOTÓN TÁCTIL')[0].pack(padx=PAD_LG, anchor='w')
 
 		self.combo_color = ctk.CTkComboBox(
 			left,
@@ -203,6 +203,9 @@ class ComboMakerView(BaseView):
 		)
 		self.entry_ingredient_qty.pack(pady=(0, PAD_SM), padx=PAD_LG, fill='x')
 		self.entry_ingredient_qty.bind('<Return>', lambda e: self.add_ingredient())
+		self.entry_ingredient_qty.bind(
+			'<FocusIn>', lambda e: self.entry_ingredient_qty.select_range(0, 'end')
+		)
 
 		ctk.CTkButton(
 			left,
@@ -242,7 +245,7 @@ class ComboMakerView(BaseView):
 			show='headings',
 			height=10,
 		)
-		self.init_treeview(self.tree_recipe)  # <-- Aplicando tags de colores zebra
+		self.init_treeview(self.tree_recipe)
 
 		self.tree_recipe.heading('Producto', text='Producto')
 		self.tree_recipe.heading('Cantidad', text='Cant.')
@@ -324,24 +327,41 @@ class ComboMakerView(BaseView):
 			return
 
 		variant = self.variant_map[desc]
+		variant_id = variant['variant_id']
 		cost_unitario = Decimal(str(variant.get('cost_price', 0)))
-		costo_parcial = cost_unitario * qty
 
-		row_idx = len(self.tree_recipe.get_children())
-		item_id = self.insert_tree_row(
-			self.tree_recipe,
-			row_idx,
-			values=(desc, f'{qty:g}', f'${costo_parcial:,.2f}'),
+		existing_item = next(
+			(
+				item
+				for item in self.ingredients_cart
+				if item['variant_id'] == variant_id
+			),
+			None,
 		)
 
-		self.ingredients_cart.append(
-			{
-				'tree_id': item_id,
-				'variant_id': variant['variant_id'],
-				'qty': qty,
-				'cost_price': cost_unitario,
-			}
-		)
+		if existing_item:
+			existing_item['qty'] += qty
+			costo_parcial = cost_unitario * existing_item['qty']
+			self.tree_recipe.item(
+				existing_item['tree_id'],
+				values=(desc, f'{existing_item["qty"]:g}', f'${costo_parcial:,.2f}'),
+			)
+		else:
+			costo_parcial = cost_unitario * qty
+			row_idx = len(self.tree_recipe.get_children())
+			item_id = self.insert_tree_row(
+				self.tree_recipe,
+				row_idx,
+				values=(desc, f'{qty:g}', f'${costo_parcial:,.2f}'),
+			)
+			self.ingredients_cart.append(
+				{
+					'tree_id': item_id,
+					'variant_id': variant_id,
+					'qty': qty,
+					'cost_price': cost_unitario,
+				}
+			)
 
 		self.entry_ingredient_qty.delete(0, 'end')
 		self.combo_ingredient.set('Seleccionar Ingrediente...')
@@ -428,7 +448,7 @@ class ComboMakerView(BaseView):
 			text_color=TEXT_MUTED,
 		).pack(pady=(0, PAD_LG))
 
-		make_form_label(inner, '1. SELECCIONA EL PRODUCTO').pack(anchor='w')
+		make_form_label(inner, '1. SELECCIONA EL PRODUCTO')[0].pack(anchor='w')
 
 		self.combo_sueltos = ctk.CTkComboBox(
 			inner,
@@ -440,7 +460,7 @@ class ComboMakerView(BaseView):
 		self.combo_sueltos.pack(pady=(PAD_XS, PAD_MD), fill='x')
 		self.combo_sueltos.bind('<KeyRelease>', lambda e: self._filter_sueltos(e))
 
-		make_form_label(inner, '2. ELIGE EL COLOR DEL BOTÓN').pack(anchor='w')
+		make_form_label(inner, '2. ELIGE EL COLOR DEL BOTÓN')[0].pack(anchor='w')
 
 		self.combo_color_suelto = ctk.CTkComboBox(
 			inner,

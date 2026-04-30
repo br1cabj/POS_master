@@ -167,7 +167,7 @@ class ArticlesView(BaseView):
 		self.btn_cancel.pack(side='right', expand=False, fill='x')
 
 	def _build_tab_general(self, parent):
-		make_form_label(parent, 'CÓDIGO DE BARRAS', required=False).pack(
+		make_form_label(parent, 'CÓDIGO DE BARRAS', required=False)[0].pack(
 			anchor='w', pady=(PAD_MD, PAD_XS)
 		)
 		self.entry_barcode = ctk.CTkEntry(
@@ -179,7 +179,7 @@ class ArticlesView(BaseView):
 		self.entry_barcode.pack(fill='x', pady=(0, PAD_SM))
 		self.entry_barcode.bind('<Return>', self.on_barcode_scanned)
 
-		make_form_label(parent, 'NOMBRE DEL PRODUCTO', required=True).pack(
+		make_form_label(parent, 'NOMBRE DEL PRODUCTO', required=True)[0].pack(
 			anchor='w', pady=(PAD_SM, PAD_XS)
 		)
 		self.entry_name = ctk.CTkEntry(
@@ -190,7 +190,7 @@ class ArticlesView(BaseView):
 		)
 		self.entry_name.pack(fill='x', pady=(0, PAD_SM))
 
-		make_form_label(parent, 'PROVEEDOR', required=False).pack(
+		make_form_label(parent, 'PROVEEDOR', required=False)[0].pack(
 			anchor='w', pady=(PAD_SM, PAD_XS)
 		)
 		self.combo_supplier = ctk.CTkComboBox(
@@ -198,7 +198,7 @@ class ArticlesView(BaseView):
 		)
 		self.combo_supplier.pack(fill='x', pady=(0, PAD_SM))
 
-		make_form_label(parent, 'STOCK INICIAL', required=False).pack(
+		make_form_label(parent, 'STOCK INICIAL', required=False)[0].pack(
 			anchor='w', pady=(PAD_SM, PAD_XS)
 		)
 		self.entry_stock = ctk.CTkEntry(
@@ -207,7 +207,7 @@ class ArticlesView(BaseView):
 		self.entry_stock.pack(fill='x', pady=(0, PAD_SM))
 
 	def _build_tab_precios(self, parent):
-		make_form_label(parent, 'PRECIO DE COSTO ($)', required=True).pack(
+		make_form_label(parent, 'PRECIO DE COSTO ($)', required=True)[0].pack(
 			anchor='w', pady=(PAD_MD, PAD_XS)
 		)
 		self.entry_cost = ctk.CTkEntry(
@@ -240,7 +240,9 @@ class ArticlesView(BaseView):
 
 		frame_margen = ctk.CTkFrame(row_precios, fg_color='transparent')
 		frame_margen.grid(row=0, column=0, sticky='nsew', padx=(0, PAD_XS))
-		make_form_label(frame_margen, 'MARGEN (%)').pack(anchor='w', pady=(0, PAD_XS))
+		make_form_label(frame_margen, 'MARGEN (%)')[0].pack(
+			anchor='w', pady=(0, PAD_XS)
+		)
 		self.entry_margin = ctk.CTkEntry(
 			frame_margen,
 			placeholder_text='Ej: 30',
@@ -253,7 +255,7 @@ class ArticlesView(BaseView):
 
 		frame_venta = ctk.CTkFrame(row_precios, fg_color='transparent')
 		frame_venta.grid(row=0, column=1, sticky='nsew', padx=(PAD_XS, 0))
-		make_form_label(frame_venta, 'PRECIO VENTA ($)', required=True).pack(
+		make_form_label(frame_venta, 'PRECIO VENTA ($)', required=True)[0].pack(
 			anchor='w', pady=(0, PAD_XS)
 		)
 		self.entry_price = ctk.CTkEntry(
@@ -460,7 +462,6 @@ class ArticlesView(BaseView):
 	# ─────────────────────────────────────────────────────────────────────────
 
 	def _get_cost_real(self) -> Decimal | None:
-		"""Calcula el costo real de adquisición contemplando la configuración del IVA."""
 		try:
 			cost = Decimal(self._var_cost_str.get().replace(',', '.'))
 			if cost < 0:
@@ -474,7 +475,6 @@ class ArticlesView(BaseView):
 			return cost * (Decimal('1') + self._iva_rate)
 
 	def _on_cost_or_margin_changed(self, *_):
-		"""Disparador que calcula y actualiza el precio de venta cuando se modifica el margen o el costo."""
 		if self._calc_lock:
 			return
 		self._calc_lock = True
@@ -500,7 +500,6 @@ class ArticlesView(BaseView):
 		self._calc_lock = False
 
 	def _on_price_changed(self, *_):
-		"""Disparador que realiza un cálculo inverso del margen cuando se modifica explícitamente el precio de venta."""
 		if self._calc_lock:
 			return
 		self._calc_lock = True
@@ -520,11 +519,15 @@ class ArticlesView(BaseView):
 			self._lbl_formula_expr.configure(
 				text=f'Costo con IVA: ${cost_real:.2f} | Ganancia: ${ganancia:.2f}'
 			)
+		elif cost_real is not None and cost_real == 0 and precio is not None:
+			self._var_margin.set('100.00')
+			self._lbl_formula_expr.configure(
+				text=f'Costo con IVA: $0.00 | Ganancia: ${precio:.2f}'
+			)
 
 		self._calc_lock = False
 
 	def load_data(self):
-		"""Recupera los datos del catálogo desde la base de datos y los expone en la vista."""
 		tenant_id = self.ctx.tenant_id
 		suppliers = self.controller.get_suppliers_for_combo(tenant_id)
 		self.suppliers_map = {s['name']: s['id'] for s in suppliers}
@@ -540,13 +543,11 @@ class ArticlesView(BaseView):
 		self._filter_tree()
 
 	def _debounced_search(self, event=None):
-		"""Implementa un retardo en la ejecución de la búsqueda para optimizar los recursos visuales."""
 		if self._search_timer:
 			self.after_cancel(self._search_timer)
 		self._search_timer = self.after(300, self._filter_tree)
 
 	def _filter_tree(self):
-		"""Aplica el criterio de búsqueda a los resultados mostrados en el catálogo de productos."""
 		if not self.winfo_exists():
 			return
 
@@ -611,7 +612,6 @@ class ArticlesView(BaseView):
 			)
 
 	def on_barcode_scanned(self, event):
-		"""Evalúa el código ingresado; carga el artículo si existe o prepara el formulario para creación."""
 		barcode = self.entry_barcode.get().strip().lstrip('0') or '0'
 		if not barcode:
 			return
@@ -628,7 +628,6 @@ class ArticlesView(BaseView):
 			self.entry_name.focus()
 
 	def on_tree_double_click(self, event):
-		"""Carga los datos del artículo seleccionado desde el catálogo de la interfaz gráfica."""
 		selected = self.tree.selection()
 		if not selected:
 			return
@@ -645,7 +644,6 @@ class ArticlesView(BaseView):
 			self.load_variant_into_form(found)
 
 	def load_variant_into_form(self, variant):
-		"""Puebla el formulario de entrada con la información existente del artículo."""
 		self.reset_form()
 		self.editing_variant_id = variant['variant_id']
 
@@ -675,7 +673,6 @@ class ArticlesView(BaseView):
 		self._show_packaging_panel(variant['variant_id'])
 
 	def reset_form(self, keep_barcode=False):
-		"""Restablece el estado predeterminado de los elementos del formulario de entrada."""
 		self.editing_variant_id = None
 		barcode_temp = self.entry_barcode.get() if keep_barcode else ''
 
@@ -708,11 +705,9 @@ class ArticlesView(BaseView):
 			self.entry_barcode.focus()
 
 	def has_unsaved_changes(self) -> bool:
-		"""Retorna True si hay datos ingresados en el formulario que no fueron guardados."""
 		return bool(self.entry_name.get().strip())
 
 	def save_article(self):
-		"""Evalúa, valida y serializa los datos del formulario para persistirlos a través del controlador."""
 		self.clear_field_errors(self.entry_name, self.entry_barcode)
 
 		name = self.entry_name.get().strip()
@@ -801,7 +796,6 @@ class ArticlesView(BaseView):
 			self.show_error(msg)
 
 	def delete_article(self):
-		"""Procesa la eliminación de la variante seleccionada previa confirmación del usuario."""
 		selected = self.tree.selection()
 		if not selected:
 			return
@@ -819,7 +813,6 @@ class ArticlesView(BaseView):
 				self.show_error(msg_response)
 
 	def print_labels(self):
-		"""Compila los artículos seleccionados y emite un requerimiento de renderizado PDF para las etiquetas."""
 		selected_items = self.tree.selection()
 		if not selected_items:
 			self.show_warning('Selecciona al menos un artículo de la tabla.')
@@ -852,7 +845,6 @@ class ArticlesView(BaseView):
 			self.show_error(f'Excepción al generar etiquetas: {e}')
 
 	def _show_packaging_panel(self, base_variant_id):
-		"""Solicita las presentaciones asociadas a la variante base y gestiona su visualización."""
 		for w in self.frame_pack_list.winfo_children():
 			w.destroy()
 
@@ -875,7 +867,6 @@ class ArticlesView(BaseView):
 		)
 
 	def _build_pack_row(self, pack, base_variant_id):
-		"""Instancia los componentes gráficos correspondientes a una variante de presentación individual."""
 		row = ctk.CTkFrame(
 			self.frame_pack_list,
 			fg_color=SURFACE1,
@@ -938,7 +929,6 @@ class ArticlesView(BaseView):
 		).pack(side='left')
 
 	def _delete_pack(self, variant_id, base_variant_id):
-		"""Ejecuta la eliminación lógica o física de una presentación en la persistencia de datos."""
 		success, msg = self.controller.delete_packaging_variant(
 			self.ctx.tenant_id, variant_id
 		)
@@ -948,7 +938,6 @@ class ArticlesView(BaseView):
 			self.show_error(msg)
 
 	def _open_add_packaging_dialog(self, base_variant_id=None):
-		"""Despliega la ventana modal orientada a la creación de una nueva presentación."""
 		if base_variant_id is None:
 			base_variant_id = self.editing_variant_id
 		if not base_variant_id:
@@ -963,7 +952,6 @@ class ArticlesView(BaseView):
 		)
 
 	def _open_edit_packaging_dialog(self, pack, base_variant_id):
-		"""Despliega la ventana modal orientada a la edición de los datos de una presentación provista."""
 		self._packaging_dialog(
 			title='Editar Presentación',
 			base_variant_id=base_variant_id,
@@ -971,7 +959,6 @@ class ArticlesView(BaseView):
 		)
 
 	def _packaging_dialog(self, title, base_variant_id, existing_pack):
-		"""Inicializa y procesa los eventos del diálogo modal de configuración de empaque."""
 		is_edit = existing_pack is not None
 
 		dialog = ctk.CTkToplevel(self)
@@ -993,9 +980,9 @@ class ArticlesView(BaseView):
 			text_color=TEXT_MUTED,
 		).pack(pady=(0, PAD_MD))
 
-		make_form_label(dialog, 'NOMBRE  (ej: Cajón 12u, Caja x6)', required=True).pack(
-			padx=PAD_LG, anchor='w'
-		)
+		make_form_label(dialog, 'NOMBRE  (ej: Cajón 12u, Caja x6)', required=True)[
+			0
+		].pack(padx=PAD_LG, anchor='w')
 
 		entry_label = ctk.CTkEntry(
 			dialog,
@@ -1011,7 +998,7 @@ class ArticlesView(BaseView):
 			entry_label.insert(0, existing_pack.get('pack_label', ''))
 		entry_label.focus()
 
-		make_form_label(dialog, 'UNIDADES POR PAQUETE', required=True).pack(
+		make_form_label(dialog, 'UNIDADES POR PAQUETE', required=True)[0].pack(
 			padx=PAD_LG, anchor='w'
 		)
 
@@ -1051,9 +1038,9 @@ class ArticlesView(BaseView):
 		if is_edit:
 			entry_units.insert(0, str(existing_pack.get('units_per_pack', '')))
 
-		make_form_label(dialog, 'PRECIO DE VENTA DEL PAQUETE ($)', required=True).pack(
-			padx=PAD_LG, anchor='w'
-		)
+		make_form_label(dialog, 'PRECIO DE VENTA DEL PAQUETE ($)', required=True)[
+			0
+		].pack(padx=PAD_LG, anchor='w')
 
 		entry_price = ctk.CTkEntry(
 			dialog,
@@ -1068,7 +1055,7 @@ class ArticlesView(BaseView):
 		if is_edit:
 			entry_price.insert(0, f'{existing_pack.get("selling_price", ""):.2f}')
 
-		make_form_label(dialog, 'CÓDIGO DE BARRAS  (opcional)', required=False).pack(
+		make_form_label(dialog, 'CÓDIGO DE BARRAS  (opcional)', required=False)[0].pack(
 			padx=PAD_LG, anchor='w'
 		)
 

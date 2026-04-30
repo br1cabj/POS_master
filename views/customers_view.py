@@ -24,6 +24,7 @@ from utils.styles import (
 	SURFACE4,
 	TEXT_MUTED,
 	TEXT_PRIMARY,
+	apply_treeview_style,
 )
 
 
@@ -31,6 +32,8 @@ class CustomersView(BaseView):
 	def __init__(self, master, ctx: AppContext):
 		super().__init__(master, ctx)
 		self.controller = CustomerController(ctx.db_engine)
+
+		self._search_timer = None
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=2)
@@ -124,6 +127,7 @@ class CustomersView(BaseView):
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(padx=20, anchor='w')
+
 		self.combo_customers = ctk.CTkComboBox(
 			self.left_panel,
 			values=['Seleccionar...'],
@@ -195,7 +199,8 @@ class CustomersView(BaseView):
 		search_row.pack(fill='x', padx=14, pady=(0, 6))
 
 		self._search_var = ctk.StringVar()
-		self._search_var.trace_add('write', self._filter_tree)
+		self._search_var.trace_add('write', self._on_search_change)
+
 		ctk.CTkEntry(
 			search_row,
 			textvariable=self._search_var,
@@ -244,6 +249,8 @@ class CustomersView(BaseView):
 
 		self.tree.tag_configure('deudor', foreground=RED_TEXT)
 
+		self.tree.bind('<Double-1>', lambda e: self._select_for_payment())
+
 		# Label empty state
 		self.lbl_empty_customers = ctk.CTkLabel(
 			self.table_container,
@@ -279,8 +286,6 @@ class CustomersView(BaseView):
 		"""Carga el cliente seleccionado en la tabla al combo de Cobro."""
 		selected = self.tree.selection()
 		if not selected:
-			from CTkMessagebox import CTkMessagebox
-
 			CTkMessagebox(
 				title='Selección',
 				message='Seleccioná un cliente de la tabla primero.',
@@ -292,6 +297,13 @@ class CustomersView(BaseView):
 		if name and name in self.customer_map:
 			self.combo_customers.set(name)
 			self.on_customer_select(name)
+			self.entry_payment.focus()
+
+	def _on_search_change(self, *args):
+		"""Aplica un retraso (debounce) a la búsqueda para no saturar la UI."""
+		if self._search_timer:
+			self.after_cancel(self._search_timer)
+		self._search_timer = self.after(300, self._filter_tree)
 
 	def _filter_tree(self, *args):
 		"""Filtra la tabla en tiempo real."""
@@ -379,7 +391,14 @@ class CustomersView(BaseView):
 			return
 
 		tenant_id = self.ctx.tenant_id
-		success, msg = self.controller.add_customer(tenant_id, name, phone)
+
+		self.btn_add.configure(state='disabled', text='⏳ Procesando...')
+		self.update_idletasks()
+
+		try:
+			success, msg = self.controller.add_customer(tenant_id, name, phone)
+		finally:
+			self.btn_add.configure(state='normal', text='➕  Guardar Cliente')
 
 		if success:
 			CTkMessagebox(title='¡Éxito!', message=msg, icon='check')
@@ -426,12 +445,21 @@ class CustomersView(BaseView):
 			return
 
 		tenant_id = self.ctx.tenant_id
-		success, msg = self.controller.register_payment(
-			tenant_id, customer['id'], amount
-		)
+
+		self.btn_pay.configure(state='disabled', text='⏳ Procesando...')
+		self.update_idletasks()
+
+		try:
+			success, msg = self.controller.register_payment(
+				tenant_id, customer['id'], amount
+			)
+		finally:
+			self.btn_pay.configure(state='normal', text='💰  Registrar Abono')
 
 		if success:
 			CTkMessagebox(title='¡Éxito!', message=msg, icon='check')
 			self.entry_payment.delete(0, 'end')
+			self.combo_customers.set('Seleccionar cliente...')
+			self.load_data()
 		else:
 			CTkMessagebox(title='Error', message=msg, icon='cancel')

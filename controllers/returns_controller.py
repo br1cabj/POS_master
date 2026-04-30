@@ -8,15 +8,6 @@ Operaciones soportadas:
   - return_items    → Devolución parcial: restaura solo los ítems seleccionados.
   - get_sale_with_details → Datos completos de un ticket para mostrar en la vista.
   - get_sales_for_returns → Lista de ventas (con filtros) para el panel izquierdo.
-
-Reglas de negocio:
-  - Solo se pueden anular/devolver ventas con status 'completada' o 'pendiente'.
-  - Las ventas 'anulada' o 'devuelta' no permiten nuevas acciones.
-  - Si el pago fue en efectivo/débito/otro: se registra un CashMovement tipo 'gasto'
-    (resta de caja) igual al monto devuelto.
-  - Si el pago fue 'fiado': se reduce el current_balance del cliente.
-  - Para combos: se restauran los ingredientes, no el combo en sí.
-  - Ítems sin variant_id (precio libre): no tienen stock que restaurar.
 """
 
 import logging
@@ -42,7 +33,6 @@ logger = logging.getLogger(__name__)
 
 _default_engine = make_engine()
 
-# Statuses que permiten operar
 _OPERABLE = {'completada', 'pendiente'}
 
 
@@ -51,14 +41,7 @@ class ReturnsController(BaseController):
 		engine = db_engine if db_engine is not None else _default_engine
 		super().__init__(engine)
 
-	# =========================================================
-	# CONSULTAS
-	# =========================================================
 	def get_sales_for_returns(self, tenant_id, filter_key='all', limit=300):
-		"""
-		Devuelve lista de ventas para el panel izquierdo.
-		filter_key: 'all' | 'today' | 'week' | 'fiado' | 'anuladas'
-		"""
 		with self._Session() as session:
 			try:
 				q = (
@@ -112,7 +95,6 @@ class ReturnsController(BaseController):
 				return []
 
 	def get_sale_with_details(self, tenant_id, sale_id):
-		"""Devuelve el ticket completo con sus ítems."""
 		with self._Session() as session:
 			try:
 				sale = (
@@ -162,16 +144,7 @@ class ReturnsController(BaseController):
 				)
 				return None
 
-	# =========================================================
-	# ANULACIÓN TOTAL
-	# =========================================================
 	def cancel_sale(self, tenant_id, sale_id, user_id):
-		"""
-		Anula la venta completa de forma atómica:
-		1. Marca Sale.status = 'anulada'
-		2. Restaura stock de todos los ítems (incluyendo ingredientes de combos)
-		3. Crea CashMovement/ajuste de deuda según método de pago
-		"""
 		with self._Session() as session:
 			try:
 				sale = (
@@ -187,12 +160,10 @@ class ReturnsController(BaseController):
 					estado = sale.status or 'desconocido'
 					return False, f'Este ticket ya fue {estado}. No se puede anular.'
 
-				# Restaurar stock
 				warnings = self._restore_stock_for_items(
 					session, sale.items, sale_id, user_id, label='Anulación'
 				)
 
-				# Ajuste financiero
 				total = Decimal(str(sale.total_amount or 0))
 				self._register_financial_reversal(
 					session,
@@ -204,7 +175,28 @@ class ReturnsController(BaseController):
 				)
 
 				sale.status = 'anulada'
+				sale.profit = 0  # CORRECCIÓN: La ganancia se anula también
 				session.commit()
+
+				try:
+					from controllers.receipt_controller import ReceiptController
+
+					date_str = datetime.now().strftime('%d/%m/%Y  %H:%M')
+					ReceiptController().generate_credit_note(
+						tenant_id=tenant_id,
+						sale_id=sale_id,
+						date_str=date_str,
+						items_returned=[],
+						refund_total=float(total),
+						customer_name=sale.customer.name
+						if sale.customer
+						else 'Consumidor Final',
+						note_type='Anulación',
+					)
+				except Exception as nc_err:
+					logger.warning(
+						f'Venta anulada, pero falló la nota de crédito: {nc_err}'
+					)
 
 				msg = f'Ticket #{sale_id} anulado correctamente. Total reembolsado: ${total:.2f}'
 				if warnings:
@@ -216,16 +208,7 @@ class ReturnsController(BaseController):
 				logger.error(f'Error al anular venta {sale_id}: {e}', exc_info=True)
 				return False, f'Error interno al anular el ticket: {e}'
 
-	# =========================================================
-	# DEVOLUCIÓN PARCIAL
-	# =========================================================
 	def return_items(self, tenant_id, sale_id, user_id, items_to_return):
-		"""
-		Devolución parcial. items_to_return = lista de dicts:
-		    [{'detail_id': int, 'qty_to_return': float}, ...]
-
-		El ticket pasa a status='parcial' si quedan ítems, o 'devuelta' si se devolvió todo.
-		"""
 		if not items_to_return:
 			return False, 'No seleccionaste ningún ítem para devolver.'
 
@@ -246,25 +229,45 @@ class ReturnsController(BaseController):
 						f'El ticket ya fue {sale.status}. No se puede devolver.',
 					)
 
-				# Mapa detail_id → SaleDetail
 				detail_map = {d.id: d for d in sale.items}
 
-				# Validar y preparar ítems
+				# CORRECCIÓN: Factor de descuento para calcular reembolsos exactos
+				sale_total_gross = sum(Decimal(str(d.subtotal)) for d in sale.items)
+				discount_amount = Decimal(str(sale.discount_amount or 0))
+				discount_factor = (
+					(sale_total_gross - discount_amount) / sale_total_gross
+					if sale_total_gross > 0
+					else Decimal('1')
+				)
+
 				return_map = {}
+				refund_total = Decimal('0')
+				profit_reduction = Decimal('0')
+
 				for r in items_to_return:
 					did = int(r['detail_id'])
 					qty = Decimal(str(r['qty_to_return']))
+
 					if did not in detail_map:
 						return False, f'Ítem #{did} no pertenece a este ticket.'
+
 					original_qty = Decimal(str(detail_map[did].quantity))
 					if qty <= 0 or qty > original_qty:
-						return False, (
-							f'Cantidad inválida para "{detail_map[did].description}": '
-							f'máximo {original_qty:.2f}.'
+						return (
+							False,
+							f'Cantidad inválida para "{detail_map[did].description}": máximo {original_qty:.2f}.',
 						)
+
 					return_map[did] = qty
 
-				# Restaurar stock de los ítems seleccionados
+					# CORRECCIÓN: Cálculos ajustados por descuentos y costos
+					unit_price = Decimal(str(detail_map[did].unit_price))
+					unit_cost = Decimal(str(detail_map[did].unit_cost))
+
+					effective_price = unit_price * discount_factor
+					refund_total += effective_price * qty
+					profit_reduction += (effective_price - unit_cost) * qty
+
 				selected_details = [detail_map[did] for did in return_map]
 				warnings = self._restore_stock_for_items(
 					session,
@@ -275,13 +278,6 @@ class ReturnsController(BaseController):
 					qty_override=return_map,
 				)
 
-				# Calcular monto del reembolso
-				refund_total = sum(
-					Decimal(str(detail_map[did].unit_price)) * qty
-					for did, qty in return_map.items()
-				)
-
-				# Ajuste financiero
 				self._register_financial_reversal(
 					session,
 					tenant_id,
@@ -291,22 +287,53 @@ class ReturnsController(BaseController):
 					description=f'Devolución parcial Ticket #{sale_id}',
 				)
 
-				# ¿Se devolvió todo?
 				all_returned = all(
 					return_map.get(d.id, Decimal('0')) >= Decimal(str(d.quantity))
 					for d in sale.items
 				)
 				sale.status = 'devuelta' if all_returned else 'parcial'
 
-				# Recalcular total de la venta
 				sale.total_amount = Decimal(str(sale.total_amount or 0)) - refund_total
+				sale.profit = (
+					Decimal(str(sale.profit or 0)) - profit_reduction
+				)  # CORRECCIÓN: Ajuste contable de ganancia
 
 				session.commit()
 
-				msg = (
-					f'Devolución registrada. Reembolso: ${refund_total:.2f}\n'
-					f'Estado del ticket: {sale.status.upper()}'
-				)
+				try:
+					from controllers.receipt_controller import ReceiptController
+
+					date_str = datetime.now().strftime('%d/%m/%Y  %H:%M')
+					nc_items = [
+						{
+							'desc': detail_map[did].description,
+							'qty': float(qty),
+							'price': float(
+								detail_map[did].unit_price * discount_factor
+							),
+							'subtotal': float(
+								(detail_map[did].unit_price * discount_factor) * qty
+							),
+						}
+						for did, qty in return_map.items()
+					]
+					ReceiptController().generate_credit_note(
+						tenant_id=tenant_id,
+						sale_id=sale_id,
+						date_str=date_str,
+						items_returned=nc_items,
+						refund_total=float(refund_total),
+						customer_name=sale.customer.name
+						if sale.customer
+						else 'Consumidor Final',
+						note_type='Devolución',
+					)
+				except Exception as nc_err:
+					logger.warning(
+						f'Devolución registrada, pero falló la nota de crédito: {nc_err}'
+					)
+
+				msg = f'Devolución registrada. Reembolso: ${refund_total:.2f}\nEstado del ticket: {sale.status.upper()}'
 				if warnings:
 					msg += '\n\nAvisos:\n' + '\n'.join(f'• {w}' for w in warnings)
 				return True, msg
@@ -318,20 +345,10 @@ class ReturnsController(BaseController):
 				)
 				return False, f'Error interno al procesar la devolución: {e}'
 
-	# =========================================================
-	# HELPERS PRIVADOS
-	# =========================================================
 	def _restore_stock_for_items(
 		self, session, details, sale_id, user_id, label='Devolución', qty_override=None
 	):
-		"""
-		Restaura el stock para una lista de SaleDetail.
-		qty_override = {detail_id: qty_decimal} para devoluciones parciales.
-		Retorna lista de advertencias (ítems sin stock registrado).
-		"""
 		warnings = []
-
-		# Pre-cargar variantes con sus ingredientes
 		variant_ids = [d.variant_id for d in details if d.variant_id]
 		variants_db = {}
 		if variant_ids:
@@ -349,7 +366,6 @@ class ReturnsController(BaseController):
 
 		for detail in details:
 			if not detail.variant_id:
-				# Precio libre, sin stock asociado
 				continue
 
 			qty = (
@@ -357,8 +373,8 @@ class ReturnsController(BaseController):
 				if qty_override
 				else Decimal(str(detail.quantity))
 			)
-
 			variant = variants_db.get(detail.variant_id)
+
 			if not variant:
 				warnings.append(
 					f'No se encontró el producto "{detail.description}" en el sistema.'
@@ -366,7 +382,6 @@ class ReturnsController(BaseController):
 				continue
 
 			if variant.is_combo:
-				# Restaurar ingredientes del combo
 				for ci in variant.ingredients:
 					req_qty = Decimal(str(ci.quantity_required)) * qty
 					stock = (
@@ -416,67 +431,54 @@ class ReturnsController(BaseController):
 	def _register_financial_reversal(
 		self, session, tenant_id, user_id, sale, amount, description
 	):
-		"""
-		Registra el reverso financiero según el método de pago:
-		- Efectivo/otro: CashMovement tipo 'gasto' en la sesión activa.
-		- Fiado:         Reduce current_balance del cliente.
-		Si no hay caja abierta, solo registra el aviso en el log.
-		"""
 		if amount <= 0:
 			return
 
-		if sale.payment_method == 'fiado' and sale.customer_id:
-			customer = session.query(Customer).filter_by(id=sale.customer_id).first()
-			if customer:
-				customer.current_balance -= amount
-			return
+		def process_method(method, split_amount):
+			if not method or split_amount <= 0:
+				return
 
-		# Para efectivo/débito/otro: registrar en caja activa
-		active_cash = (
-			session.query(CashSession)
-			.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
-			.first()
-		)
-		if not active_cash:
-			logger.warning('No hay caja abierta para registrar el reembolso.')
-			return
-
-		# Pago mixto: dividir el reembolso proporcionalmente entre ambos métodos
-		if sale.payment_method_2 and sale.amount_method_2:
-			amt_m2 = Decimal(str(sale.amount_method_2))
-			sale_total_approx = Decimal(str(sale.total_amount or 0)) + amount
-			if sale_total_approx > 0:
-				ratio_m2 = min(amt_m2 / sale_total_approx, Decimal('1'))
+			# CORRECCIÓN: Lógica encapsulada para procesar correctamente métodos combinados
+			if method == 'fiado' and sale.customer_id:
+				customer = (
+					session.query(Customer).filter_by(id=sale.customer_id).first()
+				)
+				if customer:
+					customer.current_balance -= split_amount
 			else:
-				ratio_m2 = Decimal('0.5')
+				active_cash = (
+					session.query(CashSession)
+					.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
+					.first()
+				)
+				if not active_cash:
+					logger.warning(
+						f'No hay caja abierta para registrar el reembolso de {split_amount} en {method}.'
+					)
+					return
+				session.add(
+					CashMovement(
+						session_id=active_cash.id,
+						movement_type='gasto',
+						amount=split_amount,
+						description=f'{description} ({method.capitalize()})',
+					)
+				)
+
+		pm1 = (sale.payment_method or '').lower()
+		pm2 = (sale.payment_method_2 or '').lower()
+
+		if pm2 and sale.amount_method_2:
+			amt_m2 = Decimal(str(sale.amount_method_2))
+			sale_total_approx = Decimal(str(sale.total_amount or 0))
+			if sale_total_approx <= 0:
+				sale_total_approx = amount
+
+			ratio_m2 = min(amt_m2 / sale_total_approx, Decimal('1'))
 			refund_m2 = (amount * ratio_m2).quantize(Decimal('0.01'))
 			refund_m1 = amount - refund_m2
-			pm1 = (sale.payment_method or '').lower()
-			pm2 = (sale.payment_method_2 or '').lower()
-			if refund_m1 > 0:
-				session.add(
-					CashMovement(
-						session_id=active_cash.id,
-						movement_type='gasto',
-						amount=refund_m1,
-						description=f'{description} ({pm1.capitalize()})',
-					)
-				)
-			if refund_m2 > 0:
-				session.add(
-					CashMovement(
-						session_id=active_cash.id,
-						movement_type='gasto',
-						amount=refund_m2,
-						description=f'{description} ({pm2.capitalize()})',
-					)
-				)
+
+			process_method(pm1, refund_m1)
+			process_method(pm2, refund_m2)
 		else:
-			session.add(
-				CashMovement(
-					session_id=active_cash.id,
-					movement_type='gasto',
-					amount=amount,
-					description=description,
-				)
-			)
+			process_method(pm1, amount)

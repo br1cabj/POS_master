@@ -9,7 +9,7 @@ import csv
 import os
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from tkinter import filedialog, ttk
+from tkinter import ttk
 
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
@@ -32,6 +32,7 @@ from utils.styles import (
 	SURFACE3,
 	TEXT_MUTED,
 	TEXT_PRIMARY,
+	apply_treeview_style,
 )
 
 
@@ -169,6 +170,9 @@ class ArticleHistoryView(BaseView):
 		self.tree.tag_configure('neutro', foreground=TEXT_MUTED)
 		self.tree.tag_configure('normal', foreground=TEXT_PRIMARY)
 
+		self.tree.tag_configure('odd', background='#161616')
+		self.tree.tag_configure('even', background='#1a1a1a')
+
 	def load_data(self):
 		"""Obtiene el historial completo desde la base de datos y refresca la vista."""
 		if not self.winfo_exists():
@@ -221,7 +225,7 @@ class ArticleHistoryView(BaseView):
 		total_mostrados = len(data)
 		self.lbl_count.configure(text=f'Mostrando {total_mostrados} registros')
 
-		for h in data:
+		for i, h in enumerate(data):
 			raw_date = h.get('date')
 			date_str = (
 				raw_date.strftime('%d/%m/%Y %H:%M')
@@ -245,6 +249,8 @@ class ArticleHistoryView(BaseView):
 			elif old_c == new_c and old_p == new_p:
 				color_tag = 'neutro'
 
+			alt_tag = 'odd' if i % 2 == 0 else 'even'
+
 			self.tree.insert(
 				'',
 				'end',
@@ -256,7 +262,7 @@ class ArticleHistoryView(BaseView):
 					cost_str,
 					price_str,
 				),
-				tags=(color_tag,),
+				tags=(color_tag, alt_tag),
 			)
 
 	def export_to_csv(self):
@@ -267,14 +273,13 @@ class ArticleHistoryView(BaseView):
 			)
 			return
 
-		import os
 		filepath = os.path.join(
 			get_reports_path(),
 			f'auditoria_precios_{datetime.now().strftime("%Y%m%d_%H%M")}.csv',
 		)
 
 		try:
-			with open(filepath, mode='w', newline='', encoding='utf-8') as file:
+			with open(filepath, mode='w', newline='', encoding='utf-8-sig') as file:
 				writer = csv.writer(file, delimiter=';')
 				# Escribir cabeceras
 				writer.writerow(

@@ -6,6 +6,7 @@ bento grid y tipografía jerárquica para interfaces POS.
 """
 
 from tkinter import ttk
+from typing import Any, Tuple
 
 import customtkinter as ctk
 
@@ -34,6 +35,7 @@ ORANGE = '#d97706'
 ORANGE_TEXT = '#fbbf24'
 ORANGE_DIM = '#2d1b00'
 RED = '#dc2626'
+RED_HOVER = '#b91c1c'
 RED_TEXT = '#f87171'
 RED_DIM = '#2d0a0a'
 PURPLE = '#7e22ce'
@@ -47,11 +49,11 @@ TEXT_MUTED = '#555555'
 TEXT_DISABLED = '#3a3a3a'
 
 # ── Spacing System ──────────────────────────────────────
-PAD_XS = 4  # Detalles mínimos, separaciones internas de íconos
-PAD_SM = 8  # Separación entre inputs o botones agrupados
-PAD_MD = 16  # Padding estándar de contenedores y frames
-PAD_LG = 24  # Separación entre secciones distintas
-PAD_XL = 32  # Márgenes principales de las vistas
+PAD_XS = 4
+PAD_SM = 8
+PAD_MD = 16
+PAD_LG = 24
+PAD_XL = 32
 
 # ── Fonts ───────────────────────────────────────────────
 FONT_LABEL = ('Arial', 10)
@@ -83,7 +85,7 @@ def apply_treeview_style(style_name: str = 'Treeview') -> None:
 		rowheight=32,
 		fieldbackground=SURFACE2,
 		borderwidth=0,
-		font=('Arial', 11),
+		font=FONT_SMALL,  # CORREGIDO: Uso de constante
 	)
 	style.map(style_name, background=[('selected', ACCENT_DIM)])
 	style.map(style_name, foreground=[('selected', ACCENT_TEXT)])
@@ -92,7 +94,7 @@ def apply_treeview_style(style_name: str = 'Treeview') -> None:
 		background=SURFACE3,
 		foreground=TEXT_SECONDARY,
 		relief='flat',
-		font=('Arial', 10, 'bold'),
+		font=FONT_LABEL_BOLD,  # CORREGIDO: Uso de constante
 	)
 	style.map(
 		f'{style_name}.Heading',
@@ -110,7 +112,9 @@ def setup_treeview_tags(tree: ttk.Treeview) -> None:
 
 
 # ── UI Components ─────────────────────────────────────────────────────────────
-def make_stat_card(parent, title: str, accent_color: str = ACCENT):
+def make_stat_card(
+	parent: Any, title: str, accent_color: str = ACCENT
+) -> Tuple[ctk.CTkFrame, ctk.CTkLabel, ctk.CTkLabel]:
 	"""Crea una tarjeta de estadística de diseño bento."""
 	outer = ctk.CTkFrame(
 		parent, fg_color=SURFACE2, corner_radius=12, border_width=1, border_color=BORDER
@@ -149,25 +153,27 @@ def make_stat_card(parent, title: str, accent_color: str = ACCENT):
 	return outer, lbl_value, lbl_sub
 
 
-def make_section_label(parent, text: str):
+def make_section_label(parent: Any, text: str) -> ctk.CTkLabel:
 	"""Etiqueta de jerarquía secundaria para agrupar elementos."""
 	return ctk.CTkLabel(
 		parent,
 		text=text.upper(),
-		font=('Arial', 9, 'bold'),
+		font=FONT_LABEL_BOLD,  # CORREGIDO: Uso de constante en lugar de hardcodeo
 		text_color=TEXT_MUTED,
 		anchor='w',
 	)
 
 
-def make_form_label(parent, text: str, required: bool = False):
-	"""Etiqueta para inputs de formulario con indicador visual de obligatoriedad."""
+def make_form_label(
+	parent: Any, text: str, required: bool = False
+) -> Tuple[ctk.CTkFrame, ctk.CTkLabel]:
+	"""Etiqueta para inputs. Retorna la tupla (contenedor, label) por si necesitas modificar el texto."""
 	container = ctk.CTkFrame(parent, fg_color='transparent')
 
 	lbl = ctk.CTkLabel(
 		container,
 		text=text.upper(),
-		font=('Arial', 9, 'bold'),
+		font=FONT_LABEL_BOLD,  # CORREGIDO: Uso de constante
 		text_color=TEXT_MUTED,
 	)
 	lbl.pack(side='left')
@@ -181,10 +187,12 @@ def make_form_label(parent, text: str, required: bool = False):
 		)
 		ast.pack(side='left')
 
-	return container
+	return container, lbl
 
 
-def make_nav_button(parent, icon: str, label: str, command, active: bool = False):
+def make_nav_button(
+	parent: Any, icon: str, label: str, command: Any, active: bool = False
+) -> ctk.CTkButton:
 	"""Botón de navegación primario (Sidebar)."""
 	fg = ACCENT_DIM if active else 'transparent'
 	txt = ACCENT_TEXT if active else TEXT_SECONDARY
@@ -205,7 +213,9 @@ def make_nav_button(parent, icon: str, label: str, command, active: bool = False
 	)
 
 
-def make_toggle_button(parent, text: str, command, active: bool = False):
+def make_toggle_button(
+	parent: Any, text: str, command: Any, active: bool = False
+) -> ctk.CTkButton:
 	"""Botón de estado o filtro secundario."""
 	fg = SURFACE4 if active else SURFACE2
 	txt_color = TEXT_PRIMARY if active else TEXT_SECONDARY
@@ -225,6 +235,55 @@ def make_toggle_button(parent, text: str, command, active: bool = False):
 	)
 
 
-def section_divider(parent):
+def section_divider(parent: Any) -> ctk.CTkFrame:
 	"""Separador de secciones."""
 	return ctk.CTkFrame(parent, height=1, fg_color=BORDER, corner_radius=0)
+
+
+def make_input_field(parent: Any, placeholder: str = '') -> ctk.CTkEntry:
+	"""Campo de texto estándar para el POS (ej. buscar productos, ingresar cantidad)."""
+	return ctk.CTkEntry(
+		parent,
+		placeholder_text=placeholder,
+		font=FONT_BODY,
+		fg_color=SURFACE1,
+		border_color=BORDER,
+		text_color=TEXT_PRIMARY,
+		placeholder_text_color=TEXT_MUTED,
+		height=38,
+		corner_radius=6,
+		border_width=1,
+	)
+
+
+def make_action_button(
+	parent: Any, text: str, command: Any, variant: str = 'primary'
+) -> ctk.CTkButton:
+	"""
+	Botón de acción para operaciones del POS.
+	Variantes: 'primary' (Cobrar/Aceptar), 'secondary' (Opciones), 'danger' (Eliminar/Cancelar).
+	"""
+	if variant == 'primary':
+		fg = ACCENT
+		hover = ACCENT_HOVER
+		txt = TEXT_PRIMARY
+	elif variant == 'danger':
+		fg = RED
+		hover = RED_HOVER
+		txt = TEXT_PRIMARY
+	else:  # secondary
+		fg = SURFACE3
+		hover = SURFACE4
+		txt = TEXT_PRIMARY
+
+	return ctk.CTkButton(
+		parent,
+		text=text,
+		command=command,
+		font=FONT_BODY_BOLD,
+		fg_color=fg,
+		hover_color=hover,
+		text_color=txt,
+		height=42,
+		corner_radius=6,
+	)
