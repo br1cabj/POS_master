@@ -27,13 +27,22 @@ class KardexView(BaseView):
 		super().__init__(master, ctx)
 		self.controller = InventoryController(ctx.db_engine)
 		self.current_page = 1
+		self.limit_per_page = 100
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_rowconfigure(1, weight=1)
 
 		apply_treeview_style()
 
-		# ── Header ────────────────────────────────────────────────────────
+		self._build_header()
+		self._build_table()
+
+		self.after(100, self.load_data)
+
+	# =========================================================
+	# UI: ENCABEZADO Y CONTROLES
+	# =========================================================
+	def _build_header(self):
 		header_frame = ctk.CTkFrame(self, fg_color='transparent')
 		header_frame.grid(row=0, column=0, pady=(20, 10), padx=20, sticky='ew')
 
@@ -68,8 +77,10 @@ class KardexView(BaseView):
 			text=f'Página {self.current_page}',
 			font=FONT_NAV_BOLD,
 			text_color=TEXT_PRIMARY,
+			width=80,  # Ancho fijo para que los botones no salten al cambiar de dígito
+			anchor='center',
 		)
-		self.lbl_page.pack(side='left', padx=10)
+		self.lbl_page.pack(side='left', padx=6)
 
 		self.btn_next = ctk.CTkButton(
 			controls_frame,
@@ -101,7 +112,10 @@ class KardexView(BaseView):
 		)
 		self.btn_refresh.pack(side='left', padx=(12, 0))
 
-		# ── Tabla ─────────────────────────────────────────────────────────
+	# =========================================================
+	# UI: TABLA DE DATOS
+	# =========================================================
+	def _build_table(self):
 		self.table_frame = ctk.CTkFrame(
 			self,
 			fg_color=SURFACE2,
@@ -116,21 +130,26 @@ class KardexView(BaseView):
 
 		self.tree_scroll = ttk.Scrollbar(inner, orient='vertical')
 
-		columns = ('Fecha', 'Tipo', 'Producto', 'Cantidad', 'Referencia', 'Usuario')
+		self.columns = {
+			'Fecha': {'width': 120, 'anchor': 'center'},
+			'Tipo': {'width': 100, 'anchor': 'center'},
+			'Producto': {'width': 280, 'anchor': 'w'},  # Texto largo -> Izquierda
+			'Cantidad': {'width': 90, 'anchor': 'center'},
+			'Referencia': {'width': 200, 'anchor': 'w'},  # Texto largo -> Izquierda
+			'Usuario': {'width': 120, 'anchor': 'center'},
+		}
+
 		self.tree = ttk.Treeview(
 			inner,
-			columns=columns,
+			columns=list(self.columns.keys()),
 			show='headings',
 			yscrollcommand=self.tree_scroll.set,
 		)
 		self.tree_scroll.configure(command=self.tree.yview)
 
-		for col in columns:
+		for col, config in self.columns.items():
 			self.tree.heading(col, text=col)
-			if col in ['Producto', 'Referencia']:
-				self.tree.column(col, anchor='center', width=200)
-			else:
-				self.tree.column(col, anchor='center', width=100)
+			self.tree.column(col, anchor=config['anchor'], width=config['width'])
 
 		self.tree_scroll.pack(side='right', fill='y')
 		self.tree.pack(side='left', fill='both', expand=True)
@@ -139,8 +158,9 @@ class KardexView(BaseView):
 		self.tree.tag_configure('salida', foreground=RED_TEXT)
 		self.tree.tag_configure('ajuste', foreground=ORANGE_TEXT)
 
-		self.after(100, self.load_data)
-
+	# =========================================================
+	# LÓGICA Y DATOS
+	# =========================================================
 	def prev_page(self):
 		if self.current_page > 1:
 			self.current_page -= 1
@@ -155,44 +175,59 @@ class KardexView(BaseView):
 		self.load_data()
 
 	def load_data(self):
-		for item in self.tree.get_children():
+		for item in list(self.tree.get_children()):
 			self.tree.delete(item)
 
 		self.lbl_page.configure(text=f'Página {self.current_page}')
-		tenant_id = self.ctx.tenant_id
+
+		# Deshabilitar controles temporalmente mientras carga (feedback visual)
+		self.btn_next.configure(state='disabled')
+		self.btn_prev.configure(state='disabled')
 
 		movements = self.controller.get_kardex(
-			tenant_id, page=self.current_page, limit=100
+			self.ctx.tenant_id, page=self.current_page, limit=self.limit_per_page
 		)
 
 		if not movements and self.current_page > 1:
-			self.btn_next.configure(state='disabled')
+			self.current_page -= 1
+			self.load_data()
 			return
-		else:
-			self.btn_next.configure(state='normal')
 
+		# Reactivar botón Anterior si no estamos en la primera página
 		self.btn_prev.configure(
 			state='disabled' if self.current_page == 1 else 'normal'
 		)
+
+		if len(movements) == self.limit_per_page:
+			self.btn_next.configure(state='normal')
+		else:
+			self.btn_next.configure(state='disabled')
 
 		for mov in movements:
 			raw_date = mov.get('date')
 			date_str = (
 				raw_date.strftime('%d/%m/%Y %H:%M')
 				if hasattr(raw_date, 'strftime')
-				else str(raw_date)
+				else str(raw_date)[:16]  # Fallback seguro
 			)
 
 			mov_type = mov.get('movement_type')
+			raw_qty = float(mov.get('quantity', 0))
+
+			sign_prefix = ''
 			if mov_type == 'in':
 				tipo, tag = '🟢 ENTRADA', 'entrada'
+				sign_prefix = '+'
 			elif mov_type == 'out':
 				tipo, tag = '🔴 SALIDA', 'salida'
+				sign_prefix = '-'
 			else:
 				tipo, tag = '🟡 AJUSTE', 'ajuste'
+				# Los ajustes pueden ser positivos o negativos, usamos el número tal cual
+				sign_prefix = '+' if raw_qty > 0 else ''
 
-			raw_qty = float(mov.get('quantity', 0))
-			cantidad = f'{int(raw_qty)}' if raw_qty.is_integer() else f'{raw_qty:.4f}'
+			qty_formatted = f'{abs(raw_qty):.3f}'.rstrip('0').rstrip('.')
+			cantidad_final = f'{sign_prefix}{qty_formatted}'
 
 			item_id = self.tree.insert(
 				'',
@@ -201,7 +236,7 @@ class KardexView(BaseView):
 					date_str,
 					tipo,
 					mov.get('article_name', 'Desconocido'),
-					cantidad,
+					cantidad_final,
 					mov.get('reference') or '-',
 					mov.get('user_name', 'Sistema').capitalize(),
 				),
