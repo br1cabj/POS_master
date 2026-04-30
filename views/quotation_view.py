@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 import customtkinter as ctk
-from CTkMessagebox import CTkMessagebox
 
 from controllers.quotation_controller import QuotationController
+from core.base_view import BaseView
 from core.context import AppContext
 from utils.settings_manager import fmt_price
 from utils.styles import (
@@ -57,11 +57,10 @@ STATUS_THEME = {
 STATUS_OPTIONS = ['borrador', 'enviada', 'aceptada', 'rechazada', 'vencida']
 
 
-class QuotationView(ctk.CTkFrame):
-	def __init__(self, master, ctx: AppContext, show_toast=None, **kwargs):
-		super().__init__(master, fg_color=SURFACE1, **kwargs)
-		self.ctx = ctx
-		self.show_toast = show_toast
+class QuotationView(BaseView):
+	def __init__(self, master, ctx: AppContext, **kwargs):
+		super().__init__(master, ctx, **kwargs)
+
 		self._ctrl = QuotationController(ctx.db_engine)
 		self._all_quotes: list[dict] = []
 		self._selected_id: int | None = None
@@ -74,7 +73,7 @@ class QuotationView(ctk.CTkFrame):
 		self._in_form_mode = False
 
 		self._build()
-		self.after(100, self._load_list)
+		self.schedule(100, self._load_list)
 
 	def set_initial_focus(self):
 		if hasattr(self, '_entry_search') and self._entry_search.winfo_exists():
@@ -82,16 +81,6 @@ class QuotationView(ctk.CTkFrame):
 
 	def has_unsaved_changes(self) -> bool:
 		return self._in_form_mode
-
-	def _notify(self, message: str, type_: str = 'success'):
-		if self.show_toast:
-			self.show_toast(message, type_=type_)
-		else:
-			CTkMessagebox(
-				title='Aviso',
-				message=message,
-				icon='check' if type_ == 'success' else 'warning',
-			)
 
 	def _build(self):
 		self.grid_columnconfigure(0, weight=1)
@@ -138,7 +127,10 @@ class QuotationView(ctk.CTkFrame):
 			text_color=TEXT_PRIMARY,
 		)
 		self._entry_search.grid(row=0, column=0, sticky='ew', pady=(0, PAD_XS))
-		self._entry_search.bind('<KeyRelease>', lambda e: self._apply_filter())
+		self._entry_search.bind(
+			'<KeyRelease>',
+			lambda e: self.debounce(250, self._apply_filter, 'quote_search'),
+		)
 
 		self._filter_var = ctk.StringVar(value='todas')
 		self._combo_filter = ctk.CTkOptionMenu(
@@ -166,7 +158,7 @@ class QuotationView(ctk.CTkFrame):
 		self._list_frame.grid_columnconfigure(0, weight=1)
 
 	def _build_right(self):
-		self._right = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=0)
+		self._right = ctk.CTkFrame(self, fg_color='transparent', corner_radius=0)
 		self._right.grid(row=0, column=1, sticky='nsew')
 		self._right.grid_columnconfigure(0, weight=1)
 		self._right.grid_rowconfigure(0, weight=1)
@@ -311,14 +303,10 @@ class QuotationView(ctk.CTkFrame):
 
 	def _select(self, qid: int):
 		if self._in_form_mode:
-			msg = CTkMessagebox(
-				title='Cambios sin guardar',
-				message='Estás editando una cotización. ¿Descartar los cambios?',
-				icon='warning',
-				option_1='Cancelar',
-				option_2='Descartar',
-			)
-			if msg.get() != 'Descartar':
+			if not self.confirm(
+				'Estás editando una cotización. ¿Descartar los cambios?',
+				'Cambios sin guardar',
+			):
 				return
 
 		self._in_form_mode = False
@@ -599,9 +587,8 @@ class QuotationView(ctk.CTkFrame):
 			pady=(PAD_SM, PAD_XS),
 		)
 
-		make_form_label(gen, 'Cliente (opcional)').grid(
-			row=1, column=0, sticky='w', padx=PAD_MD
-		)
+		lbl_frame_1, _ = make_form_label(gen, 'Cliente (opcional)')
+		lbl_frame_1.grid(row=1, column=0, sticky='w', padx=PAD_MD)
 
 		self._customers = self._load_customers()
 		cust_names = ['Consumidor Final'] + [c['name'] for c in self._customers]
@@ -621,9 +608,9 @@ class QuotationView(ctk.CTkFrame):
 		if prefill and prefill.get('customer_name'):
 			self._combo_cust.set(prefill['customer_name'])
 
-		make_form_label(gen, 'Días de validez').grid(
-			row=1, column=1, sticky='w', padx=PAD_MD
-		)
+		lbl_frame_2, _ = make_form_label(gen, 'Días de validez')
+		lbl_frame_2.grid(row=1, column=1, sticky='w', padx=PAD_MD)
+
 		self._entry_valid = ctk.CTkEntry(
 			gen,
 			height=36,
@@ -636,15 +623,22 @@ class QuotationView(ctk.CTkFrame):
 			row=2, column=1, sticky='ew', padx=PAD_MD, pady=(PAD_XS, PAD_SM)
 		)
 
-		if prefill and prefill.get('valid_until_raw'):
-			days_left = (prefill['valid_until_raw'] - datetime.now().date()).days
-			self._entry_valid.insert(0, str(max(days_left, 1)))
+		# MEJORA UX: Parseo seguro de fecha
+		if prefill and prefill.get('valid_until'):
+			try:
+				vu_date = datetime.strptime(
+					prefill['valid_until'][:10], '%Y-%m-%d'
+				).date()
+				days = (vu_date - datetime.now().date()).days
+				self._entry_valid.insert(0, str(max(days, 1)))
+			except Exception:
+				self._entry_valid.insert(0, '15')
 		else:
 			self._entry_valid.insert(0, '15')
 
-		make_form_label(gen, 'Descuento ($)').grid(
-			row=1, column=2, sticky='w', padx=PAD_MD
-		)
+		lbl_frame_3, _ = make_form_label(gen, 'Descuento ($)')
+		lbl_frame_3.grid(row=1, column=2, sticky='w', padx=PAD_MD)
+
 		self._entry_disc = ctk.CTkEntry(
 			gen,
 			height=36,
@@ -663,9 +657,9 @@ class QuotationView(ctk.CTkFrame):
 		self._entry_disc.insert(0, disc_prefill)
 		self._entry_disc.bind('<KeyRelease>', lambda e: self._update_totals_label())
 
-		make_form_label(gen, 'Notas / Condiciones').grid(
-			row=3, column=0, columnspan=3, sticky='w', padx=PAD_MD
-		)
+		lbl_frame_4, _ = make_form_label(gen, 'Notas / Condiciones')
+		lbl_frame_4.grid(row=3, column=0, columnspan=3, sticky='w', padx=PAD_MD)
+
 		self._entry_notes = ctk.CTkTextbox(
 			gen,
 			height=60,
@@ -754,7 +748,10 @@ class QuotationView(ctk.CTkFrame):
 			command=self._art_pick_first,
 		).grid(row=0, column=1)
 
-		self._entry_art_search.bind('<KeyRelease>', self._on_art_search)
+		self._entry_art_search.bind(
+			'<KeyRelease>',
+			lambda e: self.debounce(250, self._on_art_search, 'art_search'),
+		)
 		self._entry_art_search.bind('<Return>', lambda e: self._art_pick_first())
 		self._entry_art_search.bind('<Escape>', lambda e: self._close_art_results())
 
@@ -762,7 +759,6 @@ class QuotationView(ctk.CTkFrame):
 		self._art_results_visible = False
 		self._last_art_results = []
 
-		self._items_outer_ref = items_outer
 		self._items_table_frame = ctk.CTkFrame(items_outer, fg_color='transparent')
 		self._items_table_frame.pack(fill='x', padx=PAD_MD, pady=(PAD_XS, PAD_MD))
 		self._rebuild_items_table()
@@ -791,7 +787,7 @@ class QuotationView(ctk.CTkFrame):
 			command=self._cancel_form,
 		).pack(side='left')
 
-		self.after(50, self._entry_art_search.focus_set)
+		self.schedule(50, self._entry_art_search.focus_set)
 
 	def _load_customers(self) -> list[dict]:
 		try:
@@ -812,7 +808,7 @@ class QuotationView(ctk.CTkFrame):
 			logger.error('Error al cargar clientes en la vista: %s', e)
 			return []
 
-	def _on_art_search(self, event=None):
+	def _on_art_search(self):
 		if not self.winfo_exists():
 			return
 		query = self._entry_art_search.get().strip()
@@ -932,12 +928,10 @@ class QuotationView(ctk.CTkFrame):
 		self._item_widgets = []
 
 		if not self._items:
-			ctk.CTkLabel(
-				self._items_table_frame,
-				text='Sin ítems. Buscá un artículo o usá "+ Ítem manual".',
-				font=FONT_BODY,
-				text_color=TEXT_MUTED,
-			).pack(pady=PAD_SM)
+			# MEJORA UX: Estado vacío estilizado
+			self.show_empty_state(
+				self._items_table_frame, 'Agregá artículos desde el buscador', '🛒'
+			)
 			self._update_totals_label()
 			return
 
@@ -1157,10 +1151,8 @@ class QuotationView(ctk.CTkFrame):
 		self._sync_items_from_widgets()
 
 		if not self._items:
-			CTkMessagebox(
-				title='Falta información',
-				message='Agregá al menos un ítem a la cotización.',
-				icon='warning',
+			self.show_warning(
+				'Agregá al menos un ítem a la cotización.', 'Falta información'
 			)
 			return
 
@@ -1170,10 +1162,9 @@ class QuotationView(ctk.CTkFrame):
 			if not it.get('description', '').strip()
 		]
 		if empty_descs:
-			CTkMessagebox(
-				title='Falta información',
-				message=f'El ítem {"#" + str(empty_descs[0])} no tiene descripción.',
-				icon='warning',
+			self.show_warning(
+				f'El ítem {"#" + str(empty_descs[0])} no tiene descripción.',
+				'Falta información',
 			)
 			return
 
@@ -1183,10 +1174,9 @@ class QuotationView(ctk.CTkFrame):
 			if float(it.get('unit_price', 0)) == 0
 		]
 		if no_price:
-			CTkMessagebox(
-				title='Falta información',
-				message=f'El ítem #{no_price[0]} tiene precio $0. Verificá antes de guardar.',
-				icon='warning',
+			self.show_warning(
+				f'El ítem #{no_price[0]} tiene precio $0. Verificá antes de guardar.',
+				'Falta información',
 			)
 			return
 
@@ -1243,20 +1233,15 @@ class QuotationView(ctk.CTkFrame):
 			self._selected_id = new_id
 			self._apply_filter()
 			self._show_detail(new_id)
-			self._notify(msg_success)
+			self.show_toast(msg_success)
 		else:
-			CTkMessagebox(title='Error al guardar', message=str(result), icon='cancel')
+			self.show_error(str(result), 'Error al guardar')
 
 	def _cancel_form(self):
 		if self._in_form_mode:
-			msg = CTkMessagebox(
-				title='Cambios sin guardar',
-				message='¿Seguro querés descartar esta cotización?',
-				icon='warning',
-				option_1='Volver',
-				option_2='Descartar',
-			)
-			if msg.get() != 'Descartar':
+			if not self.confirm(
+				'¿Seguro querés descartar esta cotización?', 'Cambios sin guardar'
+			):
 				return
 
 		self._in_form_mode = False
@@ -1269,11 +1254,9 @@ class QuotationView(ctk.CTkFrame):
 	def _export_pdf(self, qid: int):
 		ok, result = self._ctrl.generate_pdf(qid)
 		if ok:
-			self._notify('PDF generado y abierto automáticamente')
+			self.show_toast('PDF generado y abierto automáticamente')
 		else:
-			CTkMessagebox(
-				title='Error al generar PDF', message=str(result), icon='cancel'
-			)
+			self.show_error(str(result), 'Error al generar PDF')
 
 	def _duplicate(self, qid: int):
 		ok, result = self._ctrl.duplicate_quotation(qid, self.ctx.user_id)
@@ -1282,9 +1265,9 @@ class QuotationView(ctk.CTkFrame):
 			self._selected_id = result['id']
 			self._apply_filter()
 			self._show_detail(result['id'])
-			self._notify(f'Cotización duplicada como {result["number"]}')
+			self.show_toast(f'Cotización duplicada como {result["number"]}')
 		else:
-			CTkMessagebox(title='Error', message=str(result), icon='cancel')
+			self.show_error(str(result))
 
 	def _change_status(self, qid: int, new_status: str):
 		ok, _ = self._ctrl.set_status(qid, new_status)
@@ -1293,14 +1276,10 @@ class QuotationView(ctk.CTkFrame):
 			self._show_detail(qid)
 
 	def _delete(self, qid: int):
-		msg = CTkMessagebox(
-			title='Eliminar cotización',
-			message='¿Eliminar esta cotización? Esta acción no se puede deshacer.',
-			icon='warning',
-			option_1='Cancelar',
-			option_2='Eliminar',
-		)
-		if msg.get() != 'Eliminar':
+		if not self.confirm(
+			'¿Eliminar esta cotización? Esta acción no se puede deshacer.',
+			'Eliminar cotización',
+		):
 			return
 
 		ok, result = self._ctrl.delete_quotation(qid)
@@ -1308,9 +1287,9 @@ class QuotationView(ctk.CTkFrame):
 			self._selected_id = None
 			self._load_list()
 			self._show_empty_state()
-			self._notify('Cotización eliminada')
+			self.show_toast('Cotización eliminada')
 		else:
-			CTkMessagebox(title='Error', message=result, icon='cancel')
+			self.show_error(result)
 
 	def _convert_to_sale(self, qid: int):
 		data = self._ctrl.get_quotation(qid)
@@ -1318,18 +1297,14 @@ class QuotationView(ctk.CTkFrame):
 			return
 
 		if data['status'] == 'rechazada':
-			CTkMessagebox(
-				title='No permitido',
-				message='No se puede convertir una cotización rechazada.',
-				icon='warning',
+			self.show_warning(
+				'No se puede convertir una cotización rechazada.', 'No permitido'
 			)
 			return
 
 		if float(data['total_amount']) <= 0:
-			CTkMessagebox(
-				title='Total inválido',
-				message='El total de la cotización debe ser mayor a $0.',
-				icon='warning',
+			self.show_warning(
+				'El total de la cotización debe ser mayor a $0.', 'Total inválido'
 			)
 			return
 
@@ -1390,11 +1365,11 @@ class QuotationView(ctk.CTkFrame):
 			)
 			popup.destroy()
 			if ok:
-				self._notify(f'Venta #{result} generada')
+				self.show_toast(f'Venta #{result} generada')
 				self._load_list()
 				self._show_detail(qid)
 			else:
-				CTkMessagebox(title='Error', message=result, icon='cancel')
+				self.show_error(result)
 
 		btn = ctk.CTkButton(
 			popup,

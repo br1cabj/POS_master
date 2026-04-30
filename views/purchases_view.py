@@ -357,11 +357,11 @@ class PurchasesView(BaseView):
 		)
 
 		if success:
-			CTkMessagebox(title='¡Éxito!', message=msg, icon='check')
+			self.show_toast(msg, 'success')
 			self.cart = []
 			for item in self.tree.get_children():
 				self.tree.delete(item)
 			self.update_total()
 			self.load_combos()
 		else:
-			CTkMessagebox(title='Error', message=msg, icon='cancel')
+			self.show_toast(msg, 'error')

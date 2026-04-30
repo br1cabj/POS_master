@@ -875,7 +875,7 @@ class DollarPriceView(BaseView):
 			if success:
 				self._load_data()
 			else:
-				CTkMessagebox(title='Error', message=msg, icon='cancel')
+				self.show_toast(msg, 'error')
 
 		ctk.CTkButton(
 			btn_row,
@@ -948,7 +948,7 @@ class DollarPriceView(BaseView):
 			if success:
 				self._load_data()
 			else:
-				CTkMessagebox(title='Error', message=msg, icon='cancel')
+				self.show_toast(msg, 'error')
 
 	# ═══════════════════════════════════════════════════════
 	# ACTUALIZACIÓN MASIVA
@@ -1012,7 +1012,7 @@ class DollarPriceView(BaseView):
 		self.btn_update.configure(state='normal', text='ACTUALIZAR PRECIOS')
 
 		if success:
-			CTkMessagebox(title='¡Precios actualizados!', message=msg, icon='check')
+			self.show_toast(msg, 'success')
 			self._load_data()
 		else:
-			CTkMessagebox(title='Error al actualizar', message=msg, icon='cancel')
+			self.show_toast(msg, 'error')

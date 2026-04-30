@@ -316,14 +316,6 @@ class ArticleHistoryView(BaseView):
 						]
 					)
 
-			CTkMessagebox(
-				title='¡Archivo Guardado!',
-				message=f'El historial de precios se exportó correctamente a:\n{filepath}',
-				icon='check',
-			)
+			self.show_toast(f'Historial exportado a: {filepath}', 'success', 4000)
 		except Exception as e:
-			CTkMessagebox(
-				title='Error',
-				message=f'No se pudo exportar el archivo:\n{e}',
-				icon='cancel',
-			)
+			self.show_toast(f'No se pudo exportar: {e}', 'error')

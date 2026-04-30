@@ -14,8 +14,8 @@ import platform
 import re
 import subprocess
 import tempfile
-import time
 import unicodedata
+import uuid
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -64,6 +64,11 @@ def _sanitize(text: str) -> str:
 
 
 def _fmt_price(amount: float, symbol: str = '$', decimals: int = 0) -> str:
+	try:
+		amount = float(amount or 0)
+	except (ValueError, TypeError):
+		amount = 0.0
+
 	if decimals == 0:
 		return f'{symbol}{amount:,.0f}'
 	return f'{symbol}{amount:,.{decimals}f}'
@@ -72,7 +77,7 @@ def _fmt_price(amount: float, symbol: str = '$', decimals: int = 0) -> str:
 def _compute_wholesale_price(base_price: float, rule: dict) -> float:
 	"""Aplica descuento de una regla mayorista a un precio base."""
 	try:
-		pct = float(rule.get('discount_pct', 0))
+		pct = float(rule.get('discount_pct') or 0)
 		return round(base_price * (1 - pct / 100), 2)
 	except (TypeError, ValueError):
 		return base_price
@@ -89,13 +94,12 @@ class LabelController:
 		"""Genera PNG de barcode CODE128. Retorna la ruta y la registra para limpieza."""
 		if not code or not str(code).strip():
 			return None
+
 		try:
 			import barcode
 			from barcode.writer import ImageWriter
 
 			safe_code = str(code).strip()
-
-			# BUG FIX: Evitar que caracteres especiales en el código rompan la ruta del archivo
 			file_safe_code = re.sub(r'[^a-zA-Z0-9]', '', safe_code)[:20]
 
 			cls = barcode.get_barcode_class('code128')
@@ -116,9 +120,8 @@ class LabelController:
 			)
 			buf.seek(0)
 
-			path = os.path.join(
-				self._tmp_dir, f'bc_{file_safe_code}_{int(time.time() * 1000)}.png'
-			)
+			unique_id = uuid.uuid4().hex[:8]
+			path = os.path.join(self._tmp_dir, f'bc_{file_safe_code}_{unique_id}.png')
 			with open(path, 'wb') as f:
 				f.write(buf.read())
 
@@ -162,16 +165,15 @@ class LabelController:
 			logo_path = cfg.get('company_logo_path', '')
 			symbol = cfg.get('currency_symbol', '$')
 
-			# BUG FIX: Conversiones robustas
 			try:
-				decimals = int(float(cfg.get('currency_decimals', 0)))
+				decimals = int(float(cfg.get('currency_decimals') or 0))
 			except (ValueError, TypeError):
 				decimals = 0
 
 			wholesale_enabled = cfg.get('wholesale_enabled', False)
 			wholesale_rules = sorted(
 				cfg.get('wholesale_rules', []),
-				key=lambda r: float(r.get('min_qty', 0)),
+				key=lambda r: float(r.get('min_qty') or 0),
 				reverse=True,
 			)
 
@@ -179,20 +181,22 @@ class LabelController:
 			W = tpl['w_mm']
 			H = tpl['h_mm']
 
-			pdf = FPDF(unit='mm', format=(W, H))
+			orientation = 'L' if W > H else 'P'
+			format_size = (H, W) if orientation == 'L' else (W, H)
+
+			pdf = FPDF(orientation=orientation, unit='mm', format=format_size)
 			pdf.set_auto_page_break(auto=False, margin=0)
 
 			for item in items:
-				# BUG FIX: Casteo seguro doble (float -> int) para evitar ValueError con strings como '1.0'
 				try:
-					copies = max(1, int(float(item.get('copies', 1))))
+					copies = max(1, int(float(item.get('copies') or 1)))
 				except (ValueError, TypeError):
 					copies = 1
 
-				price_mode = item.get('price_mode', 'retail')
+				price_mode = str(item.get('price_mode') or 'retail')
 
 				try:
-					base_price = float(item.get('price', 0))
+					base_price = float(item.get('price') or 0)
 				except (ValueError, TypeError):
 					base_price = 0.0
 
@@ -207,9 +211,8 @@ class LabelController:
 							rule = wholesale_rules[rule_idx]
 							display_price = _compute_wholesale_price(base_price, rule)
 
-							# BUG FIX: Casteos seguros para las reglas mayoristas
-							min_qty = int(float(rule.get('min_qty', 0)))
-							pct = float(rule.get('discount_pct', 0))
+							min_qty = int(float(rule.get('min_qty') or 0))
+							pct = float(rule.get('discount_pct') or 0)
 
 							pct_str = (
 								f'{int(pct)}' if pct.is_integer() else f'{pct:.1f}'
@@ -242,9 +245,11 @@ class LabelController:
 						temp_pngs,
 					)
 
-			timestamp = int(time.time())
-			out_path = os.path.join(self._tmp_dir, f'etiquetas_{timestamp}.pdf')
-			pdf.output(out_path, 'F')
+			out_path = os.path.join(
+				self._tmp_dir, f'etiquetas_{uuid.uuid4().hex[:8]}.pdf'
+			)
+			# BUG FIX: Sin parámetro 'dest' para mantener compatibilidad fpdf y fpdf2
+			pdf.output(out_path)
 
 			self._open(out_path)
 			return True, out_path
@@ -263,7 +268,12 @@ class LabelController:
 		name = _sanitize(item.get('name', ''))
 		attr = _sanitize(item.get('attribute', ''))
 		barcode = item.get('barcode', '')
-		display_price = item.get('_display_price', float(item.get('price', 0)))
+
+		try:
+			display_price = float(item.get('_display_price') or item.get('price') or 0)
+		except (ValueError, TypeError):
+			display_price = 0.0
+
 		price_str = _sanitize(_fmt_price(display_price, symbol, decimals))
 		mode_label = item.get('_mode_label')
 		retail_str = item.get('_retail_str')
@@ -323,7 +333,12 @@ class LabelController:
 		name = _sanitize(item.get('name', ''))
 		attr = _sanitize(item.get('attribute', ''))
 		barcode = item.get('barcode', '')
-		display_price = item.get('_display_price', float(item.get('price', 0)))
+
+		try:
+			display_price = float(item.get('_display_price') or item.get('price') or 0)
+		except (ValueError, TypeError):
+			display_price = 0.0
+
 		price_str = _sanitize(_fmt_price(display_price, symbol, decimals))
 		mode_label = item.get('_mode_label')
 		retail_str = item.get('_retail_str')
@@ -404,7 +419,12 @@ class LabelController:
 		name = _sanitize(item.get('name', ''))
 		attr = _sanitize(item.get('attribute', ''))
 		barcode = item.get('barcode', '')
-		display_price = item.get('_display_price', float(item.get('price', 0)))
+
+		try:
+			display_price = float(item.get('_display_price') or item.get('price') or 0)
+		except (ValueError, TypeError):
+			display_price = 0.0
+
 		mode_label = item.get('_mode_label')
 		retail_str = item.get('_retail_str')
 		price_str = _sanitize(_fmt_price(display_price, symbol, decimals))
@@ -448,7 +468,7 @@ class LabelController:
 
 		bc_path = self._generate_barcode_png(barcode, tracker_set)
 		if bc_path and y < H - 4:
-			bc_h = min(5.5, H - y - 2.5)
+			bc_h = max(2.0, min(5.5, H - y - 2.5))
 			bc_w = W - margin * 8
 			pdf.image(bc_path, x=margin * 4, y=y, w=bc_w, h=bc_h)
 			if y + bc_h + 0.5 < H:
@@ -466,7 +486,12 @@ class LabelController:
 		name = _sanitize(item.get('name', ''))
 		attr = _sanitize(item.get('attribute', ''))
 		barcode = item.get('barcode', '')
-		display_price = item.get('_display_price', float(item.get('price', 0)))
+
+		try:
+			display_price = float(item.get('_display_price') or item.get('price') or 0)
+		except (ValueError, TypeError):
+			display_price = 0.0
+
 		price_str = _sanitize(_fmt_price(display_price, symbol, decimals))
 		mode_label = item.get('_mode_label')
 		retail_str = item.get('_retail_str')
@@ -506,7 +531,6 @@ class LabelController:
 		pdf.set_font('Arial', 'B', 9)
 		pdf.cell(W, 5, price_str, align='C')
 
-		# Precio minorista de referencia (solo si hay espacio suficiente en la etiqueta)
 		y_after_price = name_y + 3.5 + 5
 		if retail_str and y_after_price < H - 2:
 			pdf.set_xy(0, y_after_price)

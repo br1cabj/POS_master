@@ -520,7 +520,7 @@ class PriceUpdateView(BaseView):
 			)
 
 			if success:
-				self.show_success(message)
+				self.show_toast(message, 'success')
 				self.btn_save.configure(state='disabled')
 				self.entry_preview_search.delete(0, 'end')
 				self.entry_percent.delete(0, 'end')
@@ -529,4 +529,4 @@ class PriceUpdateView(BaseView):
 				self._filter_preview()  # Limpia la tabla visual
 				self.load_data()
 			else:
-				CTkMessagebox(title='Error', message=message, icon='cancel')
+				self.show_toast(message, 'error')

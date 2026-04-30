@@ -187,7 +187,7 @@ class LabelView(BaseView):
 		).grid(
 			row=0,
 			column=0,
-			colspan=len(TEMPLATES),
+			columnspan=len(TEMPLATES),
 			sticky='w',
 			padx=PAD_MD,
 			pady=(PAD_SM, PAD_XS),

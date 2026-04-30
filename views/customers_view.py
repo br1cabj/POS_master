@@ -401,12 +401,12 @@ class CustomersView(BaseView):
 			self.btn_add.configure(state='normal', text='➕  Guardar Cliente')
 
 		if success:
-			CTkMessagebox(title='¡Éxito!', message=msg, icon='check')
+			self.show_toast(msg, 'success')
 			self.entry_name.delete(0, 'end')
 			self.entry_phone.delete(0, 'end')
 			self.load_data()
 		else:
-			CTkMessagebox(title='Error', message=msg, icon='cancel')
+			self.show_toast(msg, 'error')
 
 	def pay_debt(self):
 		name = self.combo_customers.get()
@@ -457,9 +457,9 @@ class CustomersView(BaseView):
 			self.btn_pay.configure(state='normal', text='💰  Registrar Abono')
 
 		if success:
-			CTkMessagebox(title='¡Éxito!', message=msg, icon='check')
+			self.show_toast(msg, 'success')
 			self.entry_payment.delete(0, 'end')
 			self.combo_customers.set('Seleccionar cliente...')
 			self.load_data()
 		else:
-			CTkMessagebox(title='Error', message=msg, icon='cancel')
+			self.show_toast(msg, 'error')

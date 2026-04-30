@@ -1806,7 +1806,7 @@ class SalesView(BaseView):
 			paid_amount=paid_amount,
 		)
 		if success:
-			CTkMessagebox(title='¡Venta registrada!', message=msg, icon='check')
+			self.show_toast(f'✓  {msg}', 'success')
 			self.cart.clear()
 			for item in self.tree.get_children():
 				self.tree.delete(item)
@@ -1815,7 +1815,7 @@ class SalesView(BaseView):
 			self.load_data()
 			self.entry_barcode.focus()
 		else:
-			CTkMessagebox(title='Error', message=msg, icon='cancel')
+			self.show_toast(msg, 'error')
 			if hasattr(self, 'btn_confirm_pay') and self.btn_confirm_pay.winfo_exists():
 				self.btn_confirm_pay.configure(
 					text='✅  CONFIRMAR COBRO (Enter)', state='normal'

@@ -638,11 +638,7 @@ class DataSyncView(BaseView):
 		)
 
 		if success:
-			CTkMessagebox(
-				title='Exportación exitosa',
-				message=f'{msg}\n\nUbicación: {file_path}',
-				icon='check',
-			)
+			self.show_toast(f'{msg}  ·  {file_path}', 'success', 4000)
 			try:
 				if platform.system() == 'Windows':
 					os.startfile(file_path)
@@ -653,7 +649,7 @@ class DataSyncView(BaseView):
 			except Exception as e:
 				logger.warning('No se pudo abrir el archivo automáticamente: %s', e)
 		else:
-			CTkMessagebox(title='Error', message=msg, icon='cancel')
+			self.show_toast(msg, 'error')
 
 	def handle_import(self):
 		"""Bloquea controles para evitar concurrencia y procesa el archivo subido en el controlador."""
@@ -696,10 +692,10 @@ class DataSyncView(BaseView):
 		self.btn_select_file.configure(state='normal')
 
 		if success:
-			CTkMessagebox(title='Importación completada', message=msg, icon='check')
+			self.show_toast(msg, 'success')
 			self._on_import_type_changed(entity_type)
 		else:
-			CTkMessagebox(title='Error en la importación', message=msg, icon='cancel')
+			self.show_toast(msg, 'error')
 			self.btn_import.configure(
 				state='normal', text='🚀  REINTENTAR IMPORTACIÓN (Ctrl+I)'
 			)

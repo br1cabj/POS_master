@@ -19,6 +19,8 @@ from utils.styles import (
 	FONT_TITLE,
 	GREEN_DIM,
 	GREEN_TEXT,
+	ORANGE_DIM,
+	ORANGE_TEXT,
 	RED_DIM,
 	RED_TEXT,
 	SURFACE0,
@@ -114,6 +116,7 @@ class MainDashboard(ctk.CTkFrame):
 		self._build_main_area()
 
 		self.ctx.navigate = self.safe_switch_view
+		self.ctx.show_toast = self.show_toast
 		self.is_fullscreen = False
 
 		self._setup_global_binds()
@@ -401,9 +404,13 @@ class MainDashboard(ctk.CTkFrame):
 		if not self.winfo_exists():
 			return
 
-		fg, text_col = (
-			(GREEN_DIM, GREEN_TEXT) if type_ == 'success' else (RED_DIM, RED_TEXT)
-		)
+		_COLORS = {
+			'success': (GREEN_DIM, GREEN_TEXT),
+			'error': (RED_DIM, RED_TEXT),
+			'warning': (ORANGE_DIM, ORANGE_TEXT),
+			'info': (SURFACE2, TEXT_SECONDARY),
+		}
+		fg, text_col = _COLORS.get(type_, (GREEN_DIM, GREEN_TEXT))
 
 		toast = ctk.CTkFrame(
 			self, fg_color=SURFACE2, border_width=1, border_color=fg, corner_radius=8
@@ -455,7 +462,7 @@ class MainDashboard(ctk.CTkFrame):
 		self._active_view_class = view_class
 		self._update_nav_highlight(view_class)
 
-		kwargs = {'show_toast': self.show_toast}
+		kwargs = {}
 		if context_data is not None:
 			kwargs['context_data'] = context_data
 		if view_class is HomeView:

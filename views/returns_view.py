@@ -611,12 +611,12 @@ class ReturnsView(BaseView):
 		self._set_processing_state(False, self.btn_cancel_sale, original_text)
 
 		if success:
-			CTkMessagebox(title='Anulación Exitosa', message=result_msg, icon='check')
+			self.show_toast(result_msg, 'success')
 			self._selected_sale = None
 			self.load_sales()
 			self._reset_detail_panel()
 		else:
-			CTkMessagebox(title='Error', message=result_msg, icon='cancel')
+			self.show_toast(result_msg, 'error')
 
 	# =========================================================
 	# ACCIÓN: DEVOLUCIÓN PARCIAL — POPUP TOUCH-FRIENDLY
@@ -845,12 +845,12 @@ class ReturnsView(BaseView):
 			popup.destroy()
 
 			if success:
-				CTkMessagebox(title='Devolución Registrada', message=msg, icon='check')
+				self.show_toast(msg, 'success')
 				self._selected_sale = None
 				self.load_sales()
 				self._reset_detail_panel()
 			else:
-				CTkMessagebox(title='Error', message=msg, icon='cancel')
+				self.show_toast(msg, 'error')
 
 		btn_confirm = ctk.CTkButton(
 			popup,
@@ -912,7 +912,7 @@ class ReturnsView(BaseView):
 		self._set_processing_state(False, self.btn_modify, original_text)
 
 		if not success:
-			CTkMessagebox(title='Error', message=result_msg, icon='cancel')
+			self.show_toast(result_msg, 'error')
 			return
 
 		navigate = getattr(self.ctx, 'navigate', None)
@@ -921,11 +921,7 @@ class ReturnsView(BaseView):
 
 			navigate(SalesView, context_data={'restore_sale': sale})
 		else:
-			CTkMessagebox(
-				title='Ticket Anulado',
-				message=f'{result_msg}\n\nAndá a la sección Ventas para procesar el ticket nuevamente.',
-				icon='check',
-			)
+			self.show_toast(f'{result_msg} — Andá a Ventas para rehacerlo.', 'info', 5000)
 			self.load_sales()
 			self._reset_detail_panel()
 
@@ -939,7 +935,7 @@ class ReturnsView(BaseView):
 			self.ctx.tenant_id, self._selected_sale['id']
 		)
 		if not ok:
-			CTkMessagebox(title='Sin ticket guardado', message=result, icon='info')
+			self.show_toast(result, 'info')
 
 	# =========================================================
 	# ACCIÓN: VER NOTA DE CRÉDITO
@@ -959,10 +955,8 @@ class ReturnsView(BaseView):
 		if os.path.exists(filepath):
 			rc.print_receipt(filepath)
 		else:
-			CTkMessagebox(
-				title='Sin nota de crédito',
-				message=f'No se encontró la nota de crédito del Ticket #{sale["id"]}.\nSolo existe si la operación se realizó en este equipo.',
-				icon='info',
+			self.show_toast(
+				f'No se encontró la nota de crédito del Ticket #{sale["id"]}.', 'info'
 			)
 
 	# =========================================================

@@ -264,6 +264,6 @@ class SuppliersView(BaseView):
 			if success:
 				self.load_data()
 				self.reset_form()
-				CTkMessagebox(title='Eliminado', message=msg_response, icon='check')
+				self.show_toast(msg_response, 'success')
 			else:
-				CTkMessagebox(title='Error', message=msg_response, icon='cancel')
+				self.show_toast(msg_response, 'error')
