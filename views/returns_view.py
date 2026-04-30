@@ -72,7 +72,6 @@ _STATUS_LABELS = {
 
 
 class ReturnsView(BaseView):
-	# ¡Mira qué limpio queda el init ahora! No hace falta interceptar nada.
 	def __init__(self, master, ctx: AppContext, **kwargs):
 		super().__init__(master, ctx, **kwargs)
 		self.controller = ReturnsController(ctx.db_engine)
@@ -495,7 +494,8 @@ class ReturnsView(BaseView):
 			s for s in self._all_sales if _matches_search(s) and _matches_filter(s)
 		]
 
-		for iid in self.tree.get_children():
+		# SOLUCIÓN APLICADA: Iterar sobre una copia de la lista usando list()
+		for iid in list(self.tree.get_children()):
 			self.tree.delete(iid)
 
 		for i, sale in enumerate(matches):
@@ -540,10 +540,15 @@ class ReturnsView(BaseView):
 		sel = self.tree.selection()
 		if not sel:
 			return
-		sale_id = str(sel[0])
+
+		# SOLUCIÓN APLICADA: Obtener datos por índice y no usar el ID de Tkinter
+		item_data = self.tree.item(sel[0])
+		sale_id = str(item_data['values'][0])
+
 		sale = self.controller.get_sale_with_details(self.ctx.tenant_id, sale_id)
 		if not sale:
 			return
+
 		self._selected_sale = sale
 		self._refresh_detail_panel(sale)
 
@@ -589,7 +594,8 @@ class ReturnsView(BaseView):
 			text_color=_STATUS_COLORS.get(status, TEXT_PRIMARY),
 		)
 
-		for iid in self.items_tree.get_children():
+		# SOLUCIÓN APLICADA: Iterar sobre una copia de la lista usando list()
+		for iid in list(self.items_tree.get_children()):
 			self.items_tree.delete(iid)
 
 		for i, item in enumerate(sale.get('items', [])):
@@ -735,7 +741,8 @@ class ReturnsView(BaseView):
 			for cv, ent, it in row_data:
 				if cv.get():
 					try:
-						raw_val = ent.get().replace(',', '.')
+						# SOLUCIÓN APLICADA: Limpiar los espacios extras
+						raw_val = ent.get().strip().replace(',', '.')
 						if not raw_val:
 							continue
 						q = float(raw_val)
@@ -806,7 +813,7 @@ class ReturnsView(BaseView):
 
 			def adjust_qty(delta, ent=entry, max_q=qty_orig_float, cv=check_var):
 				try:
-					current = float(ent.get().replace(',', '.'))
+					current = float(ent.get().strip().replace(',', '.'))
 				except Exception:
 					current = 0.0
 
@@ -869,7 +876,8 @@ class ReturnsView(BaseView):
 				if not cv.get():
 					continue
 				try:
-					raw_val = ent.get().replace(',', '.')
+					# SOLUCIÓN APLICADA: Limpiar los espacios extras
+					raw_val = ent.get().strip().replace(',', '.')
 					if not raw_val:
 						continue
 					qty = float(raw_val)
