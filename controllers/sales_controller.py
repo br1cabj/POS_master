@@ -356,6 +356,8 @@ class SalesController(BaseController):
 
 					v_id = item.get('variant_id')
 					cost_price = Decimal('0.0')
+
+					# Inicializamos el precio desde el item de forma segura
 					price = self._parse_decimal(item.get('price', 0))
 
 					if v_id is not None:
@@ -365,7 +367,9 @@ class SalesController(BaseController):
 								f'Producto no encontrado o no autorizado: {item.get("desc")}'
 							)
 
-						price = variant.selling_price
+						price = self._parse_decimal(
+							item.get('price', variant.selling_price)
+						)
 
 						if variant.is_combo:
 							for ci in variant.ingredients:
@@ -458,13 +462,19 @@ class SalesController(BaseController):
 					if payment_method_2_lower and amount_m2 > 0:
 						# Pago mixto: dos movimientos de caja
 						amount_m1 = final_total - amount_m2
+
+						if amount_m1 < Decimal('0.0') or amount_m2 < Decimal('0.0'):
+							raise ValueError(
+								'Error de consistencia: Los montos de pago en caja no pueden ser negativos.'
+							)
+
 						new_sale.payment_method_2 = payment_method_2_lower
 						new_sale.amount_method_2 = amount_m2
 						session.add(
 							CashMovement(
 								session_id=active_cash.id,
 								movement_type='venta',
-								amount=amount_m1 if amount_m1 > 0 else Decimal('0.01'),
+								amount=amount_m1,  # Fallback de 0.01 removido
 								description=f'Ticket #{new_sale.id} - {payment_method.capitalize()} (Mixto){disc_str}',
 							)
 						)
@@ -481,9 +491,7 @@ class SalesController(BaseController):
 							CashMovement(
 								session_id=active_cash.id,
 								movement_type='venta',
-								amount=final_total
-								if final_total > Decimal('0.0')
-								else Decimal('0.01'),
+								amount=final_total,  # Fallback de 0.01 removido
 								description=f'Ticket #{new_sale.id} - Pago: {payment_method.capitalize()}{disc_str}',
 							)
 						)
@@ -554,5 +562,12 @@ class SalesController(BaseController):
 			except ValueError as ve:
 				session.rollback()
 				return False, str(ve)
-			except Exception:
-				session.roll
+			except Exception as e:
+				session.rollback()
+				logger.error(
+					f'Error inesperado al procesar la venta: {e}', exc_info=True
+				)
+				return (
+					False,
+					'Ocurrió un error interno al procesar la venta. Revisa los logs.',
+				)

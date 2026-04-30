@@ -506,6 +506,15 @@ class LabelController:
 		pdf.set_font('Arial', 'B', 9)
 		pdf.cell(W, 5, price_str, align='C')
 
+		# Precio minorista de referencia (solo si hay espacio suficiente en la etiqueta)
+		y_after_price = name_y + 3.5 + 5
+		if retail_str and y_after_price < H - 2:
+			pdf.set_xy(0, y_after_price)
+			pdf.set_font('Arial', 'I', 4)
+			pdf.set_text_color(150, 150, 150)
+			pdf.cell(W, 2, f'Minorista: {retail_str}', align='C')
+			pdf.set_text_color(0, 0, 0)
+
 	# ── Abrir archivo ─────────────────────────────────────────────────────────
 
 	def _open(self, filepath: str):

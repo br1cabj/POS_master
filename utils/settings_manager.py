@@ -63,11 +63,14 @@ DEFAULTS: dict = {
 }
 
 
-def load() -> dict:
-	"""Devuelve una COPIA del dict de configuración desde el caché o el disco."""
+def load(force_reload: bool = False) -> dict:
+	"""
+	Devuelve una COPIA del dict de configuración desde el caché o el disco.
+	Si force_reload es True, ignora el caché en memoria y fuerza la lectura del archivo.
+	"""
 	global _cached_settings
 
-	if _cached_settings is not None:
+	if _cached_settings is not None and not force_reload:
 		return _cached_settings.copy()
 
 	try:
@@ -90,7 +93,9 @@ def load() -> dict:
 
 			# Asegurar tipos correctos para wholesale
 			if not isinstance(merged.get('wholesale_enabled'), bool):
-				merged['wholesale_enabled'] = bool(merged.get('wholesale_enabled', False))
+				merged['wholesale_enabled'] = bool(
+					merged.get('wholesale_enabled', False)
+				)
 			if not isinstance(merged.get('wholesale_rules'), list):
 				merged['wholesale_rules'] = []
 
@@ -117,9 +122,9 @@ def save(settings: dict) -> bool:
 		return False
 
 
-def get(key: str, default=None):
-	"""Atajo para leer una sola clave directamente."""
-	return load().get(key, default)
+def get(key: str, default=None, force_reload: bool = False):
+	"""Atajo para leer una sola clave directamente. Permite forzar la recarga."""
+	return load(force_reload=force_reload).get(key, default)
 
 
 def get_reports_path() -> str:
@@ -185,14 +190,14 @@ def fmt_price(amount: float | str | Decimal) -> str:
 class SettingsManager:
 	"""Wrapper de instancia sobre las funciones del módulo para inyección en AppContext."""
 
-	def load(self) -> dict:
-		return load()
+	def load(self, force_reload: bool = False) -> dict:
+		return load(force_reload=force_reload)
 
 	def save(self, settings: dict) -> bool:
 		return save(settings)
 
-	def get(self, key: str, default=None):
-		return get(key, default)
+	def get(self, key: str, default=None, force_reload: bool = False):
+		return get(key, default, force_reload=force_reload)
 
-	def fmt_price(self, amount: float | str | Decimal) -> str:
+	def fmt_price(self, amount) -> str:
 		return fmt_price(amount)

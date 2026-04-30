@@ -466,7 +466,6 @@ class SetupWizard(ctk.CTkFrame):
 			anchor='w',
 		).grid(row=1, column=0, columnspan=2, pady=(0, PAD_LG), padx=PAD_XL, sticky='w')
 
-		# CORRECCIÓN: Usando el make_form_label global en lugar de mk_field
 		make_form_label(card, 'Nombre del Comercio', required=True).grid(
 			row=2, column=0, sticky='w', padx=(PAD_XL, PAD_MD), pady=(PAD_SM, PAD_XS)
 		)
@@ -508,7 +507,7 @@ class SetupWizard(ctk.CTkFrame):
 		)
 		self._e_phone = ctk.CTkEntry(
 			card,
-			placeholder_text='Ej: +54 388 444-4444',
+			placeholder_text='Ej: +54 9 388 ...',
 			height=38,
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
@@ -772,7 +771,6 @@ class SetupWizard(ctk.CTkFrame):
 			anchor='w',
 		).grid(row=4, column=0, sticky='w', padx=PAD_XL, pady=(0, PAD_MD))
 
-		# CORRECCIÓN: Solicitamos el PIN de recuperación de cuenta
 		make_form_label(card, 'PIN DE RECUPERACIÓN (4 DÍGITOS)', required=True).grid(
 			row=5, column=0, sticky='w', padx=PAD_XL, pady=(0, PAD_XS)
 		)
@@ -918,7 +916,6 @@ class SetupWizard(ctk.CTkFrame):
 	# FINALIZAR — crear BD y settings
 	# =========================================================
 	def _finish(self):
-		# CORRECCIÓN: Eliminación de bloque de código duplicado e integración de la creación de BD
 		if self._busy:
 			return
 		if not self._validate_step3():
@@ -927,7 +924,7 @@ class SetupWizard(ctk.CTkFrame):
 		self._busy = True
 		self._btn_next.configure(state='disabled', text='Configurando…')
 		self._btn_back.configure(state='disabled')
-		self.update_idletasks()  # Asegura que la UI muestre el estado de carga antes de trabarse
+		self.update_idletasks()
 
 		# Activar licencia
 		if self._license_mode == 'DEMO':

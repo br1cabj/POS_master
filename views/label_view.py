@@ -12,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 
 import utils.settings_manager as _cfg_mgr
 from controllers.label_controller import TEMPLATES, LabelController
+from core.base_view import BaseView
 from core.context import AppContext
 from utils.settings_manager import fmt_price
 from utils.styles import (
@@ -50,10 +51,9 @@ logger = logging.getLogger(__name__)
 TEMPLATE_KEYS = list(TEMPLATES.keys())
 
 
-class LabelView(ctk.CTkFrame):
+class LabelView(BaseView):
 	def __init__(self, master, ctx: AppContext, **kwargs):
-		super().__init__(master, fg_color=SURFACE1, **kwargs)
-		self.ctx = ctx
+		super().__init__(master, ctx, **kwargs)
 		self._ctrl = LabelController()
 		self._variants: list[dict] = []
 		self._queue: list[dict] = []
@@ -240,7 +240,6 @@ class LabelView(ctk.CTkFrame):
 			cv.bind('<Button-1>', lambda e, k=key: self._select_template(k))
 
 		self._wholesale_bar = ctk.CTkFrame(right, fg_color=SURFACE2, corner_radius=8)
-		self._wholesale_bar_built = False
 
 		queue_outer = ctk.CTkFrame(right, fg_color=SURFACE2, corner_radius=10)
 		queue_outer.grid(row=2, column=0, sticky='nsew', padx=PAD_LG, pady=(0, PAD_SM))
@@ -321,13 +320,12 @@ class LabelView(ctk.CTkFrame):
 			row=1, column=0, sticky='ew', padx=PAD_LG, pady=(0, PAD_SM)
 		)
 
-		if self._wholesale_bar_built:
-			return
-
-		self._wholesale_bar_built = True
 		bar = self._wholesale_bar
 		for w in bar.winfo_children():
-			w.destroy()
+			try:
+				w.destroy()
+			except Exception:
+				pass
 
 		inner = ctk.CTkFrame(bar, fg_color='transparent')
 		inner.pack(fill='x', padx=PAD_MD, pady=PAD_SM)

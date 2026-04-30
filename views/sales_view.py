@@ -63,7 +63,7 @@ _DISCOUNT_PRESETS = [5, 10, 15, 20]
 class SalesView(BaseView):
 	def __init__(self, master, ctx: AppContext, context_data=None):
 		super().__init__(master, ctx)
-		self._context_data = context_data  # reservado para pre-cargar artículos
+		self._context_data = context_data
 		self.sales_ctrl = SalesController(ctx.db_engine)
 		self.db_engine = ctx.db_engine
 		self.cart = []
@@ -71,7 +71,7 @@ class SalesView(BaseView):
 		self._discount_pct = Decimal('0')
 		self._discount_amount = Decimal('0')
 		self._preset_btns: list = []
-		self._paid_amount = None  # CORRECCIÓN: Variable vital para el vuelto en el PDF
+		self._paid_amount = None
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=2)
@@ -90,6 +90,7 @@ class SalesView(BaseView):
 		self.db_variants = []
 		self.touch_buttons = []
 		self._barcode_timer = None
+		self._msg_timer_id = None
 
 		self.after(50, self.load_data)
 		self.setup_shortcuts()
@@ -677,12 +678,12 @@ class SalesView(BaseView):
 
 	def _set_msg(self, text: str, color: str = None):
 		self.lbl_msg.configure(text=text, text_color=color or GREEN_TEXT)
-		if hasattr(self, '_msg_after_id') and self._msg_after_id:
+		if hasattr(self, '_msg_timer_id') and self._msg_timer_id:
 			try:
-				self.after_cancel(self._msg_after_id)
+				self.after_cancel(self._msg_timer_id)
 			except Exception:
 				pass
-		self._msg_after_id = self.after(3000, lambda: self.lbl_msg.configure(text=''))
+		self._msg_timer_id = self.after(3000, lambda: self.lbl_msg.configure(text=''))
 
 	# =========================================================
 	# CARGA DE DATOS
@@ -701,14 +702,22 @@ class SalesView(BaseView):
 			pass
 
 	def load_data(self):
+		current_customer = None
+		if hasattr(self, 'customers_combo') and self.customers_combo.get():
+			current_customer = self.customers_combo.get()
+
 		tenant_id = self.ctx.tenant_id
 		self.db_variants = self.sales_ctrl.get_articles_for_sale(tenant_id)
 
 		customers = self.sales_ctrl.get_customers(tenant_id)
 		self.customer_map = {c.get('name'): c for c in customers}
+
 		if self.customer_map:
 			self.customers_combo.configure(values=list(self.customer_map.keys()))
-			self.customers_combo.set('Consumidor Final')
+			if current_customer and current_customer in self.customer_map:
+				self.customers_combo.set(current_customer)
+			else:
+				self.customers_combo.set('Consumidor Final')
 		else:
 			self.customers_combo.configure(values=['Consumidor Final'])
 			self.customers_combo.set('Consumidor Final')
@@ -813,12 +822,10 @@ class SalesView(BaseView):
 		self.entry_barcode.focus()
 		self._check_cash_status()
 
-		# CORRECCIÓN: Autocompletar el carrito si se está modificando un ticket anulado
 		if self._context_data and 'restore_sale' in self._context_data:
 			self._load_restored_sale(self._context_data['restore_sale'])
 			self._context_data = None
 
-	# CORRECCIÓN: Restauramos el método que carga tickets anulados
 	def _load_restored_sale(self, sale_data):
 		"""Reconstruye el carrito visual a partir de los datos de un ticket devuelto/anulado."""
 		try:
@@ -845,12 +852,17 @@ class SalesView(BaseView):
 							RED_TEXT,
 						)
 				else:
+					self.entry_fast_desc.delete(0, 'end')
 					self.entry_fast_desc.insert(
 						0, item.get('description', 'Venta Libre')
 					)
+
+					self.entry_fast_price.delete(0, 'end')
 					self.entry_fast_price.insert(0, str(item.get('unit_price', 0)))
+
 					self.entry_fast_qty.delete(0, 'end')
 					self.entry_fast_qty.insert(0, str(qty))
+
 					self.add_fast_to_cart()
 
 			self._set_msg('✏️ Ticket listo para modificar', ORANGE_TEXT)
@@ -874,8 +886,6 @@ class SalesView(BaseView):
 		"""
 		discount_pct = _cfg_mgr.get_wholesale_discount(float(total_qty))
 		if discount_pct > 0:
-			from decimal import Decimal
-
 			factor = Decimal(str(1 - discount_pct / 100))
 			return (base_price * factor).quantize(Decimal('0.01')), discount_pct
 		return base_price, 0.0
@@ -1121,10 +1131,6 @@ class SalesView(BaseView):
 				'subtotal': float(subtotal),
 			}
 		)
-		if wholesale_pct > 0:
-			self._set_msg(
-				f'\U0001f4e6 Precio mayorista aplicado ({wholesale_pct:.0f}% dto.)'
-			)
 		self._flash_new_item(item_id, alt_tag)
 		self.update_total()
 		self.entry_barcode.delete(0, 'end')
@@ -1328,9 +1334,17 @@ class SalesView(BaseView):
 			self.entry_barcode.focus()
 
 	# =========================================================
-	# POP-UP DE COBRO (Optimizado para teclado y monitores chicos)
+	# POP-UP DE COBRO
 	# =========================================================
 	def process_sale(self):
+		if (
+			hasattr(self, 'popup')
+			and self.popup is not None
+			and self.popup.winfo_exists()
+		):
+			self.popup.focus()
+			return
+
 		if not self.cart:
 			self._set_msg('⚠ Agregá productos antes de cobrar', RED_TEXT)
 			return
@@ -1779,7 +1793,6 @@ class SalesView(BaseView):
 		tenant_id = self.ctx.tenant_id
 		user_id = self.ctx.user_id
 
-		# CORRECCIÓN: Pasamos paid_amount al controlador para que lo reciba el generador del PDF
 		success, msg = self.sales_ctrl.process_sale(
 			tenant_id,
 			user_id,
@@ -1813,11 +1826,31 @@ class SalesView(BaseView):
 	# =========================================================
 	def setup_shortcuts(self):
 		top = self.winfo_toplevel()
-		top.bind('<F5>', lambda e: self.process_sale())
-		top.bind('<F6>', lambda e: self.entry_barcode.focus())
-		top.bind('<F7>', lambda e: self.entry_fast_desc.focus())
-		top.bind('<Delete>', lambda e: self.remove_from_cart())
-		top.bind('<Control-Delete>', lambda e: self.clear_entire_cart())
+		top.bind('<F5>', lambda e: self.process_sale() if self.winfo_exists() else None)
+		top.bind(
+			'<F6>',
+			lambda e: (
+				self.entry_barcode.focus()
+				if self.winfo_exists() and self.entry_barcode.winfo_exists()
+				else None
+			),
+		)
+		top.bind(
+			'<F7>',
+			lambda e: (
+				self.entry_fast_desc.focus()
+				if self.winfo_exists() and self.entry_fast_desc.winfo_exists()
+				else None
+			),
+		)
+		top.bind(
+			'<Delete>',
+			lambda e: self.remove_from_cart() if self.winfo_exists() else None,
+		)
+		top.bind(
+			'<Control-Delete>',
+			lambda e: self.clear_entire_cart() if self.winfo_exists() else None,
+		)
 		self.bind(
 			'<Destroy>', lambda e: self.destroy_custom() if e.widget is self else None
 		)
@@ -1829,3 +1862,11 @@ class SalesView(BaseView):
 				top.unbind(key)
 			except Exception:
 				pass
+
+		if hasattr(self, '_barcode_timer') and self._barcode_timer is not None:
+			self.after_cancel(self._barcode_timer)
+			self._barcode_timer = None
+
+		if hasattr(self, '_msg_timer_id') and self._msg_timer_id is not None:
+			self.after_cancel(self._msg_timer_id)
+			self._msg_timer_id = None
