@@ -1,7 +1,6 @@
 from tkinter import ttk
 
 import customtkinter as ctk
-from CTkMessagebox import CTkMessagebox
 
 from controllers.customer_controller import CustomerController
 from core.base_view import BaseView
@@ -34,6 +33,8 @@ class CustomersView(BaseView):
 		self.controller = CustomerController(ctx.db_engine)
 
 		self._search_timer = None
+		self.customer_map = {}
+		self._all_customers = []
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=2)
@@ -41,7 +42,15 @@ class CustomersView(BaseView):
 
 		apply_treeview_style()
 
-		# ── Panel izquierdo: Acciones ────────────────────────────────────
+		self._build_left_panel()
+		self._build_right_panel()
+
+		self.after(100, self.load_data)
+
+	# =========================================================
+	# PANEL IZQUIERDO: FORMULARIOS
+	# =========================================================
+	def _build_left_panel(self):
 		self.left_panel = ctk.CTkFrame(
 			self,
 			fg_color=SURFACE2,
@@ -51,7 +60,7 @@ class CustomersView(BaseView):
 		)
 		self.left_panel.grid(row=0, column=0, sticky='nsew', padx=(16, 8), pady=16)
 
-		# Sección: Nuevo cliente
+		# ── Sección: Nuevo Cliente ──
 		ctk.CTkLabel(
 			self.left_panel,
 			text='Nuevo Cliente',
@@ -66,9 +75,10 @@ class CustomersView(BaseView):
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(padx=20, anchor='w', pady=(0, 2))
+
 		self.entry_name = ctk.CTkEntry(
 			self.left_panel,
-			placeholder_text='Nombre Completo',
+			placeholder_text='Ej: Juan Pérez',
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
@@ -83,9 +93,10 @@ class CustomersView(BaseView):
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(padx=20, anchor='w', pady=(0, 2))
+
 		self.entry_phone = ctk.CTkEntry(
 			self.left_panel,
-			placeholder_text='Teléfono (Opcional)',
+			placeholder_text='Ej: 3512345678',
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
@@ -112,7 +123,7 @@ class CustomersView(BaseView):
 			fill='x', padx=14, pady=(0, 16)
 		)
 
-		# Sección: Cobrar deuda
+		# ── Sección: Cobrar Deuda ──
 		ctk.CTkLabel(
 			self.left_panel,
 			text='Cobrar Deuda (Fiado)',
@@ -152,6 +163,9 @@ class CustomersView(BaseView):
 			height=36,
 		)
 		self.entry_payment.pack(pady=(0, 12), padx=20, fill='x')
+		self.entry_payment.bind(
+			'<FocusIn>', lambda e: self.entry_payment.select_range(0, 'end')
+		)
 
 		self.btn_pay = ctk.CTkButton(
 			self.left_panel,
@@ -167,7 +181,10 @@ class CustomersView(BaseView):
 		)
 		self.btn_pay.pack(pady=(0, 20), padx=20, fill='x')
 
-		# ── Panel derecho: Directorio ────────────────────────────────────
+	# =========================================================
+	# PANEL DERECHO: DIRECTORIO Y TABLA
+	# =========================================================
+	def _build_right_panel(self):
 		self.right_panel = ctk.CTkFrame(
 			self,
 			fg_color=SURFACE2,
@@ -179,6 +196,7 @@ class CustomersView(BaseView):
 
 		hdr = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		hdr.pack(fill='x', padx=16, pady=(16, 4))
+
 		ctk.CTkLabel(
 			hdr,
 			text='Directorio de Clientes y Cuentas',
@@ -189,12 +207,12 @@ class CustomersView(BaseView):
 
 		ctk.CTkLabel(
 			self.right_panel,
-			text='El saldo indica la deuda acumulada total del cliente.',
+			text='Hacé doble clic en un cliente para ver su Estado de Cuenta.',
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).pack(anchor='w', padx=16, pady=(0, 6))
 
-		# ── Barra de búsqueda en tiempo real ──────────────────────────────
+		# ── Buscador ──
 		search_row = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		search_row.pack(fill='x', padx=14, pady=(0, 6))
 
@@ -221,6 +239,7 @@ class CustomersView(BaseView):
 		)
 		self.lbl_count.pack(side='right', padx=(8, 0))
 
+		# ── Tabla ──
 		self.table_container = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		self.table_container.pack(fill='both', expand=True, padx=14, pady=(0, 14))
 
@@ -238,29 +257,34 @@ class CustomersView(BaseView):
 		for col in columns:
 			self.tree.heading(col, text=col)
 			if col == 'Nombre':
-				self.tree.column(col, anchor='w', width=200)
+				self.tree.column(col, anchor='w', width=240)
 			elif col == 'Deuda Acumulada':
-				self.tree.column(col, anchor='center', width=120)
+				self.tree.column(col, anchor='e', width=120)
+			elif col == 'ID':
+				self.tree.column(col, anchor='center', width=50)
 			else:
-				self.tree.column(col, anchor='center', width=80)
+				self.tree.column(col, anchor='center', width=100)
 
 		self.tree_scroll.pack(side='right', fill='y')
 		self.tree.pack(side='left', fill='both', expand=True)
 
+		# Tags de colores para saldos
 		self.tree.tag_configure('deudor', foreground=RED_TEXT)
+		self.tree.tag_configure('a_favor', foreground=GREEN_TEXT)
 
-		self.tree.bind('<Double-1>', lambda e: self._select_for_payment())
+		# Evento de doble clic (Abre el Modal de Estado de Cuenta)
+		self.tree.bind('<Double-1>', self._open_customer_ledger_modal)
 
-		# Label empty state
+		# ── Estado Vacío (Empty State) ──
 		self.lbl_empty_customers = ctk.CTkLabel(
 			self.table_container,
-			text='👤\nNo hay clientes registrados.\nAgregá el primero con el formulario.',
+			text='👤\nNo hay clientes registrados.\nAgregá el primero usando el panel izquierdo.',
 			font=FONT_NAV,
 			text_color=TEXT_MUTED,
 			justify='center',
 		)
 
-		# ── Botón Seleccionar para Cobro ─────────────────────────────────
+		# ── Botón Inferior ──
 		btn_row = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		btn_row.pack(fill='x', padx=14, pady=(4, 14))
 
@@ -278,26 +302,161 @@ class CustomersView(BaseView):
 			command=self._select_for_payment,
 		).pack(side='left', fill='x', expand=True)
 
-		self.customer_map = {}
-		self._all_customers = []
-		self.after(100, self.load_data)
-
+	# =========================================================
+	# LÓGICA Y FUNCIONES
+	# =========================================================
 	def _select_for_payment(self):
-		"""Carga el cliente seleccionado en la tabla al combo de Cobro."""
+		"""Carga el cliente seleccionado en la tabla al combo de Cobro del panel izquierdo."""
 		selected = self.tree.selection()
 		if not selected:
-			CTkMessagebox(
-				title='Selección',
-				message='Seleccioná un cliente de la tabla primero.',
-				icon='info',
+			self.show_warning(
+				'Seleccioná un cliente de la tabla primero.', 'Selección requerida'
 			)
 			return
+
 		values = self.tree.item(selected[0], 'values')
 		name = values[1] if len(values) > 1 else ''
+
 		if name and name in self.customer_map:
 			self.combo_customers.set(name)
 			self.on_customer_select(name)
-			self.entry_payment.focus()
+			self.entry_payment.focus_set()  # Foco visual inmediato
+
+	def _open_customer_ledger_modal(self, event=None):
+		"""Abre un modal con el Estado de Cuenta detallado del cliente seleccionado."""
+		selected = self.tree.selection()
+		if not selected:
+			return
+
+		values = self.tree.item(selected[0], 'values')
+		customer_id = str(values[0])
+		name = values[1]
+		phone = values[2]
+
+		# Limpiamos el texto para obtener el balance real
+		balance_str = values[3].replace('$', '').replace('A favor: ', '').strip()
+		balance = float(balance_str)
+
+		# Si en la tabla dice 'A favor', lo convertimos de vuelta a negativo para la lógica
+		if 'A favor' in values[3]:
+			balance = -abs(balance)
+
+		# Crear el Modal
+		modal = ctk.CTkToplevel(self)
+		modal.title(f'Estado de Cuenta - {name}')
+		modal.geometry('750x550')
+		modal.attributes('-topmost', True)
+		modal.grab_set()
+
+		# Cabecera
+		header = ctk.CTkFrame(modal, fg_color=SURFACE2)
+		header.pack(fill='x', padx=16, pady=16)
+
+		ctk.CTkLabel(
+			header, text=name, font=('Arial', 20, 'bold'), text_color=TEXT_PRIMARY
+		).pack(side='left', padx=16, pady=12)
+
+		color_saldo = RED_TEXT if balance > 0 else GREEN_TEXT
+		texto_saldo = (
+			f'DEUDA: ${balance:.2f}' if balance > 0 else f'A FAVOR: ${abs(balance):.2f}'
+		)
+		if balance == 0:
+			color_saldo = TEXT_PRIMARY
+			texto_saldo = 'SALDO: $0.00'
+
+		ctk.CTkLabel(
+			header, text=texto_saldo, font=('Arial', 20, 'bold'), text_color=color_saldo
+		).pack(side='right', padx=16)
+
+		# Tabla de Historial
+		table_frame = ctk.CTkFrame(modal, fg_color='transparent')
+		table_frame.pack(fill='both', expand=True, padx=16)
+
+		scroll = ttk.Scrollbar(table_frame, orient='vertical')
+		cols = ('Fecha', 'Concepto', 'Cargo (Compró)', 'Abono (Pagó)')
+		tree_history = ttk.Treeview(
+			table_frame, columns=cols, show='headings', yscrollcommand=scroll.set
+		)
+		scroll.configure(command=tree_history.yview)
+
+		tree_history.heading('Fecha', text='Fecha')
+		tree_history.heading('Concepto', text='Concepto')
+		tree_history.heading('Cargo (Compró)', text='Cargo (Deuda)')
+		tree_history.heading('Abono (Pagó)', text='Abono (Pago)')
+
+		tree_history.column('Fecha', width=120, anchor='center')
+		tree_history.column('Concepto', width=280, anchor='w')
+		tree_history.column('Cargo (Compró)', width=110, anchor='e')
+		tree_history.column('Abono (Pagó)', width=110, anchor='e')
+
+		tree_history.tag_configure('cargo', foreground=RED_TEXT)
+		tree_history.tag_configure('abono', foreground=GREEN_TEXT)
+
+		scroll.pack(side='right', fill='y')
+		tree_history.pack(side='left', fill='both', expand=True)
+
+		# Cargar datos desde el controlador
+		ledger = self.controller.get_customer_ledger(self.ctx.tenant_id, customer_id)
+		for row in ledger:
+			date_str = (
+				row['date'].strftime('%d/%m/%Y %H:%M')
+				if hasattr(row['date'], 'strftime')
+				else str(row['date'])[:16]
+			)
+			if row['type'] == 'cargo':
+				tree_history.insert(
+					'',
+					'end',
+					values=(date_str, row['concept'], f'${row["amount"]:.2f}', '-'),
+					tags=('cargo',),
+				)
+			else:
+				tree_history.insert(
+					'',
+					'end',
+					values=(date_str, row['concept'], '-', f'${row["amount"]:.2f}'),
+					tags=('abono',),
+				)
+
+		# Footer
+		footer = ctk.CTkFrame(modal, fg_color='transparent')
+		footer.pack(fill='x', padx=16, pady=16)
+
+		btn_export = ctk.CTkButton(
+			footer,
+			text='📄 Exportar PDF',
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_PRIMARY,
+			border_width=1,
+			border_color=BORDER,
+			height=36,
+			command=lambda: self._export_ledger(name, phone, balance, ledger),
+		)
+		btn_export.pack(side='left')
+
+		ctk.CTkButton(
+			footer,
+			text='Cerrar',
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_PRIMARY,
+			border_width=1,
+			border_color=BORDER,
+			height=36,
+			command=modal.destroy,
+		).pack(side='right')
+
+	def _export_ledger(self, name, phone, balance, ledger):
+		"""Llama al controlador de recibos para exportar el PDF."""
+		from controllers.receipt_controller import ReceiptController
+
+		rc = ReceiptController()
+		success, msg = rc.export_account_statement(name, phone, balance, ledger)
+		if success:
+			self.show_success('PDF generado y abierto correctamente.')
+		else:
+			self.show_error(msg)
 
 	def _on_search_change(self, *args):
 		"""Aplica un retraso (debounce) a la búsqueda para no saturar la UI."""
@@ -319,21 +478,31 @@ class CustomersView(BaseView):
 			else self._all_customers
 		)
 
-		for item in self.tree.get_children():
+		for item in list(self.tree.get_children()):
 			self.tree.delete(item)
 
 		for c in matches:
 			balance = float(c.get('current_balance') or 0.0)
-			saldo_str = f'${balance:.2f}'
-			item_id = self.tree.insert(
+
+			# MEJORA UX: Formateo claro para saldos a favor
+			if balance > 0:
+				saldo_str = f'${balance:.2f}'
+				tags = ('deudor',)
+			elif balance < 0:
+				saldo_str = f'A favor: ${abs(balance):.2f}'
+				tags = ('a_favor',)
+			else:
+				saldo_str = '$0.00'
+				tags = ()
+
+			self.tree.insert(
 				'',
 				'end',
 				values=(c['id'], c['name'], c.get('phone') or '-', saldo_str),
+				tags=tags,
 			)
-			if balance > 0:
-				self.tree.item(item_id, tags=('deudor',))
 
-		# Mostrar / ocultar empty state
+		# Ocultar o mostrar empty state
 		if hasattr(self, 'lbl_empty_customers'):
 			if not matches:
 				self.tree.pack_forget()
@@ -375,6 +544,8 @@ class CustomersView(BaseView):
 			cliente = self.customer_map[selected_name]
 			balance = float(cliente.get('current_balance') or 0.0)
 			self.entry_payment.delete(0, 'end')
+
+			# Solo auto-llenamos el monto si realmente debe dinero
 			if balance > 0:
 				self.entry_payment.insert(0, f'{balance:.2f}')
 
@@ -383,11 +554,7 @@ class CustomersView(BaseView):
 		phone = self.entry_phone.get().strip()
 
 		if not name:
-			CTkMessagebox(
-				title='Faltan datos',
-				message='El nombre del cliente es obligatorio.',
-				icon='warning',
-			)
+			self.show_warning('El nombre del cliente es obligatorio.', 'Faltan datos')
 			return
 
 		tenant_id = self.ctx.tenant_id
@@ -401,22 +568,20 @@ class CustomersView(BaseView):
 			self.btn_add.configure(state='normal', text='➕  Guardar Cliente')
 
 		if success:
-			self.show_toast(msg, 'success')
+			self.show_success(msg)
 			self.entry_name.delete(0, 'end')
 			self.entry_phone.delete(0, 'end')
 			self.load_data()
 		else:
-			self.show_toast(msg, 'error')
+			self.show_error(msg)
 
 	def pay_debt(self):
 		name = self.combo_customers.get()
 		amount_str = self.entry_payment.get().strip().replace(',', '.')
 
 		if name not in self.customer_map or not amount_str:
-			CTkMessagebox(
-				title='Atención',
-				message='Seleccioná un cliente y escribí el monto que abona.',
-				icon='warning',
+			self.show_warning(
+				'Seleccioná un cliente y escribí el monto que abona.', 'Atención'
 			)
 			return
 
@@ -427,39 +592,34 @@ class CustomersView(BaseView):
 			if amount <= 0:
 				raise ValueError
 		except ValueError:
-			CTkMessagebox(
-				title='Error de Monto',
-				message='Ingresá un número mayor a cero (Ej: 150.50).',
-				icon='cancel',
+			self.show_warning(
+				'Ingresá un número mayor a cero (Ej: 150.50).', 'Error de Monto'
 			)
 			return
 
-		msg_box = CTkMessagebox(
-			title='Confirmar Abono',
-			message=f'Registrar un abono de ${amount:.2f} para {customer["name"]}?',
-			icon='question',
-			option_1='Cancelar',
-			option_2='Confirmar',
-		)
-		if msg_box.get() != 'Confirmar':
+		if not self.confirm(
+			f'¿Registrar un abono de ${amount:.2f} para {customer["name"]}?',
+			'Confirmar Abono',
+		):
 			return
 
 		tenant_id = self.ctx.tenant_id
+		user_id = self.ctx.user_id
 
 		self.btn_pay.configure(state='disabled', text='⏳ Procesando...')
 		self.update_idletasks()
 
 		try:
-			success, msg = self.controller.register_payment(
-				tenant_id, customer['id'], amount
+			success, msg = self.controller.pay_debt(
+				tenant_id, user_id, customer['id'], amount
 			)
 		finally:
 			self.btn_pay.configure(state='normal', text='💰  Registrar Abono')
 
 		if success:
-			self.show_toast(msg, 'success')
+			self.show_success(msg)
 			self.entry_payment.delete(0, 'end')
 			self.combo_customers.set('Seleccionar cliente...')
 			self.load_data()
 		else:
-			self.show_toast(msg, 'error')
+			self.show_error(msg)

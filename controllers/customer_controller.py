@@ -1,9 +1,13 @@
 import logging
 import re
-from decimal import Decimal, InvalidOperation
+from datetime import datetime
+from decimal import Decimal
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from controllers.base import BaseController
-from database.models import CashMovement, CashSession, Customer
+
+# Asegúrate de importar 'Sale' para poder buscar las compras a crédito
+from database.models import CashMovement, CashSession, Customer, Sale
 from utils.config import make_engine
 from utils.shared import parse_decimal
 
@@ -17,20 +21,25 @@ class CustomerController(BaseController):
 		engine = db_engine if db_engine is not None else _default_engine
 		super().__init__(engine)
 
-	def _parse_decimal(self, value):
+	def _parse_decimal(self, value: Any) -> Optional[Decimal]:
 		return parse_decimal(value, default=None)
 
 	@staticmethod
-	def _validate_phone(phone):
-		"""Valida que el teléfono solo contenga caracteres permitidos. Retorna None si está vacío."""
+	def _validate_phone(phone: Any) -> Tuple[bool, Optional[str]]:
+		"""
+		Valida que el teléfono solo contenga caracteres permitidos.
+		Retorna (es_valido, telefono_limpio).
+		"""
 		if not phone:
-			return None
+			return True, None
+
 		phone_clean = str(phone).strip()
 		if phone_clean and not re.match(r'^[0-9\s\-\+\(\)]{6,}$', phone_clean):
-			return False
-		return phone_clean
+			return False, phone_clean
 
-	def get_customers(self, tenant_id):
+		return True, phone_clean
+
+	def get_customers(self, tenant_id: int) -> List[Dict[str, Any]]:
 		"""Retorna clientes activos del tenant ordenados por nombre."""
 		with self._Session() as session:
 			try:
@@ -42,7 +51,9 @@ class CustomerController(BaseController):
 						'current_balance': c.current_balance,
 					}
 					for c in session.query(Customer)
-					.filter(Customer.tenant_id == tenant_id, Customer.is_active == True)  # noqa: E712
+					.filter(
+						Customer.tenant_id == tenant_id, Customer.is_active.is_(True)
+					)
 					.order_by(Customer.name)
 					.all()
 				]
@@ -50,14 +61,17 @@ class CustomerController(BaseController):
 				logger.error(f'Error al obtener clientes: {e}', exc_info=True)
 				return []
 
-	def add_customer(self, tenant_id, name, phone):
+	def add_customer(
+		self, tenant_id: int, name: str, phone: Optional[str]
+	) -> Tuple[bool, str]:
 		"""Crea un cliente nuevo o reactiva uno dado de baja lógicamente."""
 		if not name or not str(name).strip():
 			return False, 'El nombre del cliente es obligatorio.'
 
 		name_clean = str(name).strip()
-		phone_clean = self._validate_phone(phone)
-		if phone and phone_clean is False:
+		is_valid_phone, phone_clean = self._validate_phone(phone)
+
+		if not is_valid_phone:
 			return False, 'Número de teléfono con formato inválido.'
 
 		with self._Session() as session:
@@ -67,14 +81,18 @@ class CustomerController(BaseController):
 					.filter_by(name=name_clean, tenant_id=tenant_id)
 					.first()
 				)
+
 				if exist:
 					if exist.is_active:
 						return False, 'Ese cliente ya existe en el sistema.'
+
+					# Reactivación
 					exist.is_active = True
 					exist.phone = phone_clean
 					session.commit()
 					return True, 'Cliente reactivado con éxito.'
 
+				# Creación nueva
 				session.add(
 					Customer(
 						tenant_id=tenant_id,
@@ -90,10 +108,16 @@ class CustomerController(BaseController):
 				logger.error(f'Error al crear cliente: {e}', exc_info=True)
 				return False, 'Error interno al intentar crear el cliente.'
 
-	def pay_debt(self, tenant_id, user_id, customer_id, amount):
+	def pay_debt(
+		self,
+		tenant_id: int,
+		user_id: int,
+		customer_id: int,
+		amount: Union[str, float, Decimal],
+	) -> Tuple[bool, str]:
 		"""
 		Registra el pago de cuenta corriente de forma atómica.
-		Requiere caja abierta. Bloquea el registro del cliente con FOR UPDATE.
+		Permite saldos a favor (montos mayores a la deuda).
 		"""
 		amount_dec = self._parse_decimal(amount)
 		if amount_dec is None or amount_dec <= Decimal('0.0'):
@@ -115,15 +139,13 @@ class CustomerController(BaseController):
 					.with_for_update()
 					.first()
 				)
-				if not customer:
-					return False, 'Cliente no encontrado o no autorizado.'
+				if not customer or not customer.is_active:
+					return False, 'Cliente no encontrado o inactivo.'
 
-				if customer.current_balance < amount_dec:
-					return (
-						False,
-						f'Saldo insuficiente. Saldo actual: ${customer.current_balance:.2f}',
-					)
+				# SOLUCIÓN APLICADA: Se remueve la restricción de 'customer.current_balance < amount_dec'
+				# Esto permite que si debe $100 y paga $150, la cuenta quede en -$50 (Saldo a favor)
 				customer.current_balance -= amount_dec
+
 				session.add(
 					CashMovement(
 						session_id=active_cash.id,
@@ -132,11 +154,16 @@ class CustomerController(BaseController):
 						description=f'Abono de Cuenta Corriente: {customer.name}',
 					)
 				)
+
 				session.commit()
-				return (
-					True,
-					f'Pago de ${amount_dec:.2f} registrado. Nuevo saldo: ${customer.current_balance:.2f}',
-				)
+
+				# Mensaje dinámico según si quedó con saldo a favor o deuda
+				if customer.current_balance < 0:
+					msg = f'Pago registrado. El cliente tiene un saldo A FAVOR de ${abs(customer.current_balance):.2f}'
+				else:
+					msg = f'Pago registrado. Deuda restante: ${customer.current_balance:.2f}'
+
+				return True, msg
 			except Exception as e:
 				session.rollback()
 				logger.error(
@@ -144,3 +171,81 @@ class CustomerController(BaseController):
 					exc_info=True,
 				)
 				return False, 'Error interno al procesar el pago. Intente de nuevo.'
+
+	def get_customer_ledger(
+		self, tenant_id: int, customer_id: int
+	) -> List[Dict[str, Any]]:
+		"""
+		Retorna el historial cronológico de un cliente: Compras a crédito (fiado) y Pagos.
+		Ideal para el modal de 'Estado de Cuenta'.
+		"""
+		with self._Session() as session:
+			try:
+				# 1. Buscar las compras a crédito (fiado) del cliente
+				sales = (
+					session.query(Sale)
+					.filter_by(
+						tenant_id=tenant_id,
+						customer_id=customer_id,
+						payment_method='fiado',
+					)
+					.all()
+				)
+
+				# Obtenemos los datos del cliente para buscar sus abonos en los movimientos de caja
+				customer = (
+					session.query(Customer)
+					.filter_by(id=customer_id, tenant_id=tenant_id)
+					.first()
+				)
+				if not customer:
+					return []
+
+				# 2. Buscar los abonos/pagos (buscando el patrón exacto que se guarda en pay_debt)
+				desc_filter = f'%Abono de Cuenta Corriente: {customer.name}%'
+				payments = (
+					session.query(CashMovement)
+					.join(CashSession, CashMovement.session_id == CashSession.id)
+					.filter(
+						CashSession.tenant_id == tenant_id,
+						CashMovement.description.ilike(desc_filter),
+					)
+					.all()
+				)
+
+				# 3. Unificar y estructurar datos
+				ledger = []
+				for s in sales:
+					ledger.append(
+						{
+							'date': getattr(s, 'date', None) or datetime.now(),
+							'type': 'cargo',  # Aumenta la deuda
+							'concept': f'Compra a crédito - Ticket #{s.id}',
+							'amount': s.total_amount,
+						}
+					)
+
+				for p in payments:
+					# Diferentes ORMs usan date o created_at. Nos aseguramos de obtener la fecha.
+					p_date = getattr(
+						p, 'created_at', getattr(p, 'date', datetime.now())
+					)
+					ledger.append(
+						{
+							'date': p_date,
+							'type': 'abono',  # Reduce la deuda
+							'concept': 'Abono / Pago en Caja',
+							'amount': p.amount,
+						}
+					)
+
+				# 4. Ordenar del más reciente al más antiguo (para que lo último aparezca arriba en la tabla)
+				ledger.sort(key=lambda x: x['date'], reverse=True)
+				return ledger
+
+			except Exception as e:
+				logger.error(
+					f'Error al obtener historial del cliente {customer_id}: {e}',
+					exc_info=True,
+				)
+				return []

@@ -2,6 +2,7 @@ import logging
 import os
 import platform
 import subprocess
+from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -745,3 +746,136 @@ class ReceiptController:
 				exc_info=True,
 			)
 			return False, 'Error interno al generar la nota de crédito.'
+
+	# =========================================================
+	# 6. EXPORTAR ESTADO DE CUENTA (NUEVO)
+	# =========================================================
+	def export_account_statement(
+		self,
+		customer_name: str,
+		phone: str,
+		balance: float,
+		ledger: List[Dict],
+	) -> Tuple[bool, str]:
+		"""Genera un PDF tamaño A4 con el estado de cuenta detallado del cliente."""
+		try:
+			# Formato A4 (210 x 297 mm) para mejor lectura en pantalla/papel grande
+			pdf = FPDF(format='A4')
+			pdf.add_page()
+			pdf.set_margins(15, 15, 15)
+
+			# Encabezado Comercial
+			business_name = settings_manager.get('company_name', 'Mi Negocio')
+			pdf.set_font('helvetica', 'B', 18)
+			pdf.cell(0, 10, business_name, new_x='LMARGIN', new_y='NEXT', align='C')
+
+			pdf.set_font('helvetica', 'B', 14)
+			pdf.set_text_color(100, 100, 100)
+			pdf.cell(0, 8, 'ESTADO DE CUENTA', new_x='LMARGIN', new_y='NEXT', align='C')
+			pdf.set_text_color(0, 0, 0)
+			pdf.ln(5)
+
+			# Datos del Cliente
+			pdf.set_font('helvetica', 'B', 11)
+			pdf.cell(30, 6, 'Cliente:', align='L')
+			pdf.set_font('helvetica', '', 11)
+			pdf.cell(0, 6, customer_name, new_x='LMARGIN', new_y='NEXT')
+
+			pdf.set_font('helvetica', 'B', 11)
+			pdf.cell(30, 6, 'Teléfono:', align='L')
+			pdf.set_font('helvetica', '', 11)
+			pdf.cell(0, 6, phone or 'No registrado', new_x='LMARGIN', new_y='NEXT')
+
+			pdf.ln(2)
+
+			# Saldo
+			pdf.set_font('helvetica', 'B', 12)
+			if balance > 0:
+				pdf.set_text_color(200, 40, 40)  # Rojo
+				pdf.cell(
+					0,
+					10,
+					f'SALDO PENDIENTE A PAGAR: ${balance:.2f}',
+					new_x='LMARGIN',
+					new_y='NEXT',
+				)
+			elif balance < 0:
+				pdf.set_text_color(40, 160, 40)  # Verde
+				pdf.cell(
+					0,
+					10,
+					f'SALDO A FAVOR: ${abs(balance):.2f}',
+					new_x='LMARGIN',
+					new_y='NEXT',
+				)
+			else:
+				pdf.set_text_color(0, 0, 0)
+				pdf.cell(0, 10, 'SALDO: $0.00 (Al día)', new_x='LMARGIN', new_y='NEXT')
+
+			pdf.set_text_color(0, 0, 0)
+			pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+			pdf.ln(5)
+
+			# Cabecera de la tabla de movimientos
+			pdf.set_fill_color(230, 230, 230)
+			pdf.set_font('helvetica', 'B', 10)
+			pdf.cell(40, 8, 'Fecha', border=1, align='C', fill=True)
+			pdf.cell(80, 8, 'Concepto', border=1, align='C', fill=True)
+			pdf.cell(30, 8, 'Cargo', border=1, align='C', fill=True)
+			pdf.cell(30, 8, 'Abono', border=1, align='C', fill=True)
+			pdf.ln()
+
+			# Filas de la tabla
+			pdf.set_font('helvetica', '', 9)
+			for row in ledger:
+				# Parseo seguro de fecha
+				date_val = row.get('date')
+				date_str = (
+					date_val.strftime('%d/%m/%Y %H:%M')
+					if hasattr(date_val, 'strftime')
+					else str(date_val)[:16]
+				)
+
+				concept = str(row.get('concept', ''))[:45]
+				amount = float(row.get('amount', 0.0))
+
+				pdf.cell(40, 8, date_str, border=1, align='C')
+				pdf.cell(80, 8, f' {concept}', border=1, align='L')
+
+				if row.get('type') == 'cargo':
+					# Deuda que asume el cliente (Rojo)
+					pdf.set_text_color(180, 0, 0)
+					pdf.cell(30, 8, f'${amount:.2f}', border=1, align='R')
+					pdf.set_text_color(0, 0, 0)
+					pdf.cell(30, 8, '-', border=1, align='C')
+				else:
+					# Pago realizado (Verde)
+					pdf.cell(30, 8, '-', border=1, align='C')
+					pdf.set_text_color(0, 150, 0)
+					pdf.cell(30, 8, f'${amount:.2f}', border=1, align='R')
+					pdf.set_text_color(0, 0, 0)
+
+				pdf.ln()
+
+			# Footer con marca de tiempo de la auditoría
+			pdf.ln(10)
+			pdf.set_font('helvetica', 'I', 8)
+			pdf.set_text_color(150, 150, 150)
+			timestamp = datetime.now().strftime('%d/%m/%Y a las %H:%M:%S')
+			pdf.cell(0, 5, f'Documento generado el {timestamp}', align='C')
+
+			# Limpiar nombre para el archivo
+			safe_name = (
+				''.join(c for c in customer_name if c.isalnum() or c in (' ', '_'))
+				.strip()
+				.replace(' ', '_')
+			)
+			filepath = os.path.join(self.receipts_dir, f'Estado_Cuenta_{safe_name}.pdf')
+
+			pdf.output(filepath)
+			self.print_receipt(filepath)
+			return True, 'Estado de cuenta exportado correctamente.'
+
+		except Exception as e:
+			logger.error(f'Error exportando estado de cuenta: {e}', exc_info=True)
+			return False, 'Error interno al generar el PDF del estado de cuenta.'
