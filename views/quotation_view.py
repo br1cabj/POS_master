@@ -58,9 +58,10 @@ STATUS_OPTIONS = ['borrador', 'enviada', 'aceptada', 'rechazada', 'vencida']
 
 
 class QuotationView(ctk.CTkFrame):
-	def __init__(self, master, ctx: AppContext, **kwargs):
+	def __init__(self, master, ctx: AppContext, show_toast=None, **kwargs):
 		super().__init__(master, fg_color=SURFACE1, **kwargs)
 		self.ctx = ctx
+		self.show_toast = show_toast
 		self._ctrl = QuotationController(ctx.db_engine)
 		self._all_quotes: list[dict] = []
 		self._selected_id: int | None = None
@@ -70,16 +71,29 @@ class QuotationView(ctk.CTkFrame):
 		self._entry_disc = None
 		self._tot_frame = None
 		self._customers: list[dict] = []
+		self._in_form_mode = False
 
 		self._build()
 		self.after(100, self._load_list)
 
-	# ─────────────────────────────────────────────────────────────────────────
-	# Layout Principal
-	# ─────────────────────────────────────────────────────────────────────────
+	def set_initial_focus(self):
+		if hasattr(self, '_entry_search') and self._entry_search.winfo_exists():
+			self._entry_search.focus_set()
+
+	def has_unsaved_changes(self) -> bool:
+		return self._in_form_mode
+
+	def _notify(self, message: str, type_: str = 'success'):
+		if self.show_toast:
+			self.show_toast(message, type_=type_)
+		else:
+			CTkMessagebox(
+				title='Aviso',
+				message=message,
+				icon='check' if type_ == 'success' else 'warning',
+			)
 
 	def _build(self):
-		# CORRECCIÓN: Layout responsivo 25% izquierda / 75% derecha
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=3)
 		self.grid_rowconfigure(0, weight=1)
@@ -87,8 +101,6 @@ class QuotationView(ctk.CTkFrame):
 		self._build_right()
 
 	def _build_left(self):
-		"""Construye el panel lateral izquierdo con la lista de cotizaciones y filtros."""
-		# CORRECCIÓN: Eliminado el width fijo y el grid_propagate(False)
 		left = ctk.CTkFrame(self, fg_color=SURFACE0, corner_radius=0)
 		left.grid(row=0, column=0, sticky='nsew')
 		left.grid_rowconfigure(2, weight=1)
@@ -154,7 +166,6 @@ class QuotationView(ctk.CTkFrame):
 		self._list_frame.grid_columnconfigure(0, weight=1)
 
 	def _build_right(self):
-		"""Inicializa el contenedor del panel derecho (detalle/formulario)."""
 		self._right = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=0)
 		self._right.grid(row=0, column=1, sticky='nsew')
 		self._right.grid_columnconfigure(0, weight=1)
@@ -162,7 +173,6 @@ class QuotationView(ctk.CTkFrame):
 		self._show_empty_state()
 
 	def _clear_right(self):
-		"""Elimina todos los widgets del panel derecho."""
 		if not self.winfo_exists():
 			return
 		for w in list(self._right.winfo_children()):
@@ -172,7 +182,7 @@ class QuotationView(ctk.CTkFrame):
 				pass
 
 	def _show_empty_state(self):
-		"""Muestra la vista predeterminada cuando no hay ninguna cotización seleccionada."""
+		self._in_form_mode = False
 		self._clear_right()
 		f = ctk.CTkFrame(self._right, fg_color='transparent')
 		f.place(relx=0.5, rely=0.5, anchor='center')
@@ -193,10 +203,6 @@ class QuotationView(ctk.CTkFrame):
 			fg_color=ACCENT,
 			hover_color=ACCENT_HOVER,
 		).pack(pady=PAD_XS)
-
-	# ─────────────────────────────────────────────────────────────────────────
-	# Lista y Búsqueda
-	# ─────────────────────────────────────────────────────────────────────────
 
 	def _load_list(self):
 		if not self.winfo_exists():
@@ -304,15 +310,24 @@ class QuotationView(ctk.CTkFrame):
 		_bind_all(card)
 
 	def _select(self, qid: int):
+		if self._in_form_mode:
+			msg = CTkMessagebox(
+				title='Cambios sin guardar',
+				message='Estás editando una cotización. ¿Descartar los cambios?',
+				icon='warning',
+				option_1='Cancelar',
+				option_2='Descartar',
+			)
+			if msg.get() != 'Descartar':
+				return
+
+		self._in_form_mode = False
 		self._selected_id = qid
 		self._apply_filter()
 		self._show_detail(qid)
 
-	# ─────────────────────────────────────────────────────────────────────────
-	# Vista de Detalle
-	# ─────────────────────────────────────────────────────────────────────────
-
 	def _show_detail(self, qid: int):
+		self._in_form_mode = False
 		data = self._ctrl.get_quotation(qid)
 		if not data:
 			return
@@ -534,11 +549,9 @@ class QuotationView(ctk.CTkFrame):
 				justify='left',
 			).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
-	# ─────────────────────────────────────────────────────────────────────────
-	# Formulario (Crear/Editar)
-	# ─────────────────────────────────────────────────────────────────────────
-
 	def _open_form_new(self):
+		if self._in_form_mode:
+			return
 		self._edit_id = None
 		self._items = []
 		self._item_widgets = []
@@ -551,6 +564,7 @@ class QuotationView(ctk.CTkFrame):
 		self._render_form(prefill=data)
 
 	def _render_form(self, prefill: dict | None):
+		self._in_form_mode = True
 		self._clear_right()
 		self._entry_disc = None
 		self._tot_frame = None
@@ -585,7 +599,6 @@ class QuotationView(ctk.CTkFrame):
 			pady=(PAD_SM, PAD_XS),
 		)
 
-		# CORRECCIÓN: Usando el make_form_label
 		make_form_label(gen, 'Cliente (opcional)').grid(
 			row=1, column=0, sticky='w', padx=PAD_MD
 		)
@@ -778,6 +791,8 @@ class QuotationView(ctk.CTkFrame):
 			command=self._cancel_form,
 		).pack(side='left')
 
+		self.after(50, self._entry_art_search.focus_set)
+
 	def _load_customers(self) -> list[dict]:
 		try:
 			from sqlalchemy.orm import sessionmaker
@@ -796,8 +811,6 @@ class QuotationView(ctk.CTkFrame):
 		except Exception as e:
 			logger.error('Error al cargar clientes en la vista: %s', e)
 			return []
-
-	# ── Búsqueda de artículos ─────────────────────────────────────────────────
 
 	def _on_art_search(self, event=None):
 		if not self.winfo_exists():
@@ -891,6 +904,7 @@ class QuotationView(ctk.CTkFrame):
 		self._close_art_results()
 		if self._entry_art_search.winfo_exists():
 			self._entry_art_search.delete(0, 'end')
+			self._entry_art_search.focus_set()
 		self._rebuild_items_table()
 
 	def _add_item_row(self):
@@ -905,8 +919,6 @@ class QuotationView(ctk.CTkFrame):
 			}
 		)
 		self._rebuild_items_table(focus_last=True)
-
-	# ── Tabla de ítems del formulario ─────────────────────────────────────────
 
 	def _rebuild_items_table(self, focus_last=False):
 		if not self.winfo_exists():
@@ -1141,10 +1153,6 @@ class QuotationView(ctk.CTkFrame):
 			self._items[idx]['unit_price'] = price
 			self._items[idx]['subtotal'] = sub
 
-	# ─────────────────────────────────────────────────────────────────────────
-	# Guardar Configuración
-	# ─────────────────────────────────────────────────────────────────────────
-
 	def _save_form(self):
 		self._sync_items_from_widgets()
 
@@ -1214,6 +1222,7 @@ class QuotationView(ctk.CTkFrame):
 				notes=notes,
 				discount_amount=disc,
 			)
+			msg_success = 'Cotización actualizada'
 		else:
 			ok, result = self._ctrl.create_quotation(
 				tenant_id=self.ctx.tenant_id,
@@ -1224,36 +1233,43 @@ class QuotationView(ctk.CTkFrame):
 				notes=notes,
 				discount_amount=disc,
 			)
+			msg_success = 'Cotización creada'
 
 		if ok:
 			new_id = result['id']
 			self._edit_id = None
+			self._in_form_mode = False
 			self._load_list()
 			self._selected_id = new_id
 			self._apply_filter()
 			self._show_detail(new_id)
+			self._notify(msg_success)
 		else:
 			CTkMessagebox(title='Error al guardar', message=str(result), icon='cancel')
 
 	def _cancel_form(self):
+		if self._in_form_mode:
+			msg = CTkMessagebox(
+				title='Cambios sin guardar',
+				message='¿Seguro querés descartar esta cotización?',
+				icon='warning',
+				option_1='Volver',
+				option_2='Descartar',
+			)
+			if msg.get() != 'Descartar':
+				return
+
+		self._in_form_mode = False
 		self._edit_id = None
 		if self._selected_id:
 			self._show_detail(self._selected_id)
 		else:
 			self._show_empty_state()
 
-	# ─────────────────────────────────────────────────────────────────────────
-	# Acciones Extras
-	# ─────────────────────────────────────────────────────────────────────────
-
 	def _export_pdf(self, qid: int):
 		ok, result = self._ctrl.generate_pdf(qid)
 		if ok:
-			CTkMessagebox(
-				title='PDF generado',
-				message='El PDF se abrió automáticamente.',
-				icon='check',
-			)
+			self._notify('PDF generado y abierto automáticamente')
 		else:
 			CTkMessagebox(
 				title='Error al generar PDF', message=str(result), icon='cancel'
@@ -1266,11 +1282,7 @@ class QuotationView(ctk.CTkFrame):
 			self._selected_id = result['id']
 			self._apply_filter()
 			self._show_detail(result['id'])
-			CTkMessagebox(
-				title='Cotización duplicada',
-				message=f'Se creó {result["number"]} como borrador.',
-				icon='check',
-			)
+			self._notify(f'Cotización duplicada como {result["number"]}')
 		else:
 			CTkMessagebox(title='Error', message=str(result), icon='cancel')
 
@@ -1296,6 +1308,7 @@ class QuotationView(ctk.CTkFrame):
 			self._selected_id = None
 			self._load_list()
 			self._show_empty_state()
+			self._notify('Cotización eliminada')
 		else:
 			CTkMessagebox(title='Error', message=result, icon='cancel')
 
@@ -1322,8 +1335,7 @@ class QuotationView(ctk.CTkFrame):
 
 		popup = ctk.CTkToplevel(self)
 		popup.title('Convertir a Venta')
-		# CORRECCIÓN: Ajustamos un poco la altura para que el padding fluya mejor
-		popup.geometry('380x260')
+		popup.geometry('380x280')
 		popup.resizable(False, False)
 		popup.grab_set()
 		popup.focus_set()
@@ -1357,7 +1369,7 @@ class QuotationView(ctk.CTkFrame):
 		).pack(pady=(PAD_MD, PAD_XS))
 
 		pay_var = ctk.StringVar(value='efectivo')
-		ctk.CTkOptionMenu(
+		combo = ctk.CTkOptionMenu(
 			popup,
 			values=['efectivo', 'transferencia', 'tarjeta', 'fiado'],
 			variable=pay_var,
@@ -1367,9 +1379,10 @@ class QuotationView(ctk.CTkFrame):
 			text_color=TEXT_PRIMARY,
 			font=FONT_BODY,
 			height=36,
-		).pack(padx=40, fill='x')
+		)
+		combo.pack(padx=40, fill='x')
 
-		def _do():
+		def _do(event=None):
 			ok, result = self._ctrl.convert_to_sale(
 				quotation_id=qid,
 				user_id=self.ctx.user_id,
@@ -1377,22 +1390,22 @@ class QuotationView(ctk.CTkFrame):
 			)
 			popup.destroy()
 			if ok:
-				CTkMessagebox(
-					title='Venta generada',
-					message=f'Venta #{result} creada correctamente.',
-					icon='check',
-				)
+				self._notify(f'Venta #{result} generada')
 				self._load_list()
 				self._show_detail(qid)
 			else:
 				CTkMessagebox(title='Error', message=result, icon='cancel')
 
-		ctk.CTkButton(
+		btn = ctk.CTkButton(
 			popup,
-			text='✔  Confirmar y crear venta',
+			text='✔  Confirmar (Enter)',
 			fg_color=GREEN,
 			hover_color='#15803d',
 			font=FONT_BODY_BOLD,
 			height=36,
 			command=_do,
-		).pack(pady=PAD_LG)
+		)
+		btn.pack(pady=PAD_LG)
+
+		popup.bind('<Return>', _do)
+		popup.bind('<Escape>', lambda e: popup.destroy())
