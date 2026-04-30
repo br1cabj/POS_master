@@ -60,7 +60,7 @@ class LoginView(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			self.login_frame,
-			text='CloudPOS',
+			text='☁ CloudPOS',
 			font=FONT_LOGO,
 			text_color=ACCENT_TEXT,
 		).pack(pady=(24, 0))
@@ -144,6 +144,14 @@ class LoginView(ctk.CTkFrame):
 
 		self.entry_username.bind('<Return>', self._handle_username_return)
 		self.entry_password.bind('<Return>', lambda e: self.trigger_login())
+
+		self.entry_username.bind(
+			'<FocusIn>', lambda e: self.entry_username.select_range(0, 'end')
+		)
+		self.entry_password.bind(
+			'<FocusIn>', lambda e: self.entry_password.select_range(0, 'end')
+		)
+
 		self.entry_username.focus()
 
 	# ── Login Normal ──────────────────────────────────────────────────────────
@@ -165,7 +173,11 @@ class LoginView(ctk.CTkFrame):
 			self.show_error('Por favor, completa todos los campos.')
 			return
 
+		# Bloquear inputs y botón mientras carga
 		self.btn_login.configure(state='disabled', text='CONECTANDO...')
+		self.entry_username.configure(state='disabled')
+		self.entry_password.configure(state='disabled')
+
 		tenant_id = self.auth_ctrl.get_first_tenant_id()
 		self.after(50, lambda: self._execute_login(tenant_id, user, pwd))
 
@@ -177,7 +189,11 @@ class LoginView(ctk.CTkFrame):
 				return  # LoginView puede destruirse aquí — no tocar widgets
 			if not self.winfo_exists():
 				return
+
 			self.show_error('Usuario o contraseña incorrectos.')
+			self.entry_password.focus()
+			self.entry_password.select_range(0, 'end')
+
 		except Exception as e:
 			logger.error(f'Error inesperado durante el login: {e}', exc_info=True)
 			if self.winfo_exists():
@@ -188,6 +204,8 @@ class LoginView(ctk.CTkFrame):
 			return
 		self.lbl_error.configure(text=message)
 		self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
+		self.entry_username.configure(state='normal')
+		self.entry_password.configure(state='normal')
 
 	# ── Diálogo Recuperación de Contraseña ────────────────────────────────────
 	def _open_recovery_dialog(self):
@@ -217,7 +235,7 @@ class LoginView(ctk.CTkFrame):
 			justify='center',
 		).pack(pady=(0, 16))
 
-		make_form_label(container, 'NOMBRE DE USUARIO', required=True).pack(
+		make_form_label(container, 'NOMBRE DE USUARIO', required=True)[0].pack(
 			padx=32, anchor='w', pady=(0, 2)
 		)
 		entry_username = ctk.CTkEntry(
@@ -235,7 +253,7 @@ class LoginView(ctk.CTkFrame):
 			entry_username.insert(0, current_user)
 		entry_username.focus()
 
-		make_form_label(container, 'PIN DE RECUPERACIÓN', required=True).pack(
+		make_form_label(container, 'PIN DE RECUPERACIÓN', required=True)[0].pack(
 			padx=32, anchor='w', pady=(0, 2)
 		)
 		entry_pin = ctk.CTkEntry(
@@ -249,7 +267,7 @@ class LoginView(ctk.CTkFrame):
 		)
 		entry_pin.pack(padx=32, fill='x', pady=(0, 8))
 
-		make_form_label(container, 'NUEVA CONTRASEÑA', required=True).pack(
+		make_form_label(container, 'NUEVA CONTRASEÑA', required=True)[0].pack(
 			padx=32, anchor='w', pady=(0, 2)
 		)
 		entry_new_pass = ctk.CTkEntry(
@@ -263,7 +281,7 @@ class LoginView(ctk.CTkFrame):
 		)
 		entry_new_pass.pack(padx=32, fill='x', pady=(0, 8))
 
-		make_form_label(container, 'CONFIRMAR NUEVA CONTRASEÑA', required=True).pack(
+		make_form_label(container, 'CONFIRMAR NUEVA CONTRASEÑA', required=True)[0].pack(
 			padx=32, anchor='w', pady=(0, 2)
 		)
 		entry_confirm = ctk.CTkEntry(
@@ -282,7 +300,7 @@ class LoginView(ctk.CTkFrame):
 		)
 		lbl_err.pack(pady=(0, 4))
 
-		def _do_recovery():
+		def _do_recovery(event=None):
 			username = entry_username.get().strip()
 			pin = entry_pin.get().strip()
 			new_pass = entry_new_pass.get().strip()
@@ -319,6 +337,8 @@ class LoginView(ctk.CTkFrame):
 			else:
 				lbl_err.configure(text=msg)
 				btn_recover.configure(state='normal', text='Restablecer Contraseña')
+
+		entry_confirm.bind('<Return>', _do_recovery)
 
 		btn_recover = ctk.CTkButton(
 			container,

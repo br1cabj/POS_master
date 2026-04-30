@@ -1,9 +1,16 @@
+"""
+views/label_view.py
+===================
+Vista para gestionar y previsualizar la impresión masiva de etiquetas.
+"""
+
 import logging
 import tkinter as tk
 
 import customtkinter as ctk
 from sqlalchemy.orm import sessionmaker
 
+import utils.settings_manager as _cfg_mgr
 from controllers.label_controller import TEMPLATES, LabelController
 from core.context import AppContext
 from utils.settings_manager import fmt_price
@@ -19,6 +26,8 @@ from utils.styles import (
 	FONT_LABEL,
 	FONT_LABEL_BOLD,
 	GREEN,
+	GREEN_HOVER,
+	ORANGE_TEXT,
 	PAD_LG,
 	PAD_MD,
 	PAD_SM,
@@ -50,15 +59,39 @@ class LabelView(ctk.CTkFrame):
 		self._queue: list[dict] = []
 		self._tpl_key = 'supermercado'
 		self._search_timer = None
+		self._load_wholesale_cfg()
 
 		self._build()
 
 		self.after(120, self._load_catalog)
 		self.after(100, self._setup_bindings)
+		self.after(150, self._refresh_wholesale_bar)
+
+		self.after(200, lambda: self._entry_search.focus())
 
 	# ─────────────────────────────────────────────────────────────────────────
 	# Layout Principal
 	# ─────────────────────────────────────────────────────────────────────────
+
+	def _load_wholesale_cfg(self):
+		"""Carga configuración mayorista y genera la lista de opciones de precio."""
+		cfg = _cfg_mgr.load()
+		self._wholesale_enabled = cfg.get('wholesale_enabled', False)
+		raw = cfg.get('wholesale_rules', [])
+		self._wholesale_rules = sorted(
+			raw, key=lambda r: r.get('min_qty', 0), reverse=True
+		)
+		# Lista de (mode_key, label_visual, precio_multiplicador)
+		self._price_options: list[tuple] = [('retail', 'Minorista', 1.0)]
+		for i, r in enumerate(self._wholesale_rules):
+			try:
+				min_qty = int(r.get('min_qty', 0))
+				pct = int(r.get('discount_pct', 0))
+				label = f'Mayorista ≥{min_qty}u  −{pct}%'
+				factor = 1 - pct / 100
+				self._price_options.append((f'wholesale_{i}', label, factor))
+			except (TypeError, ValueError):
+				continue
 
 	def _build(self):
 		self.grid_columnconfigure(0, weight=1)
@@ -140,7 +173,7 @@ class LabelView(ctk.CTkFrame):
 		right = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=0)
 		right.grid(row=0, column=1, sticky='nsew')
 		right.grid_columnconfigure(0, weight=1)
-		right.grid_rowconfigure(1, weight=1)
+		right.grid_rowconfigure(2, weight=1)
 
 		tpl_outer = ctk.CTkFrame(right, fg_color=SURFACE2, corner_radius=10)
 		tpl_outer.grid(row=0, column=0, sticky='ew', padx=PAD_LG, pady=(PAD_LG, PAD_SM))
@@ -154,7 +187,7 @@ class LabelView(ctk.CTkFrame):
 		).grid(
 			row=0,
 			column=0,
-			columnspan=len(TEMPLATES),
+			colspan=len(TEMPLATES),
 			sticky='w',
 			padx=PAD_MD,
 			pady=(PAD_SM, PAD_XS),
@@ -177,7 +210,7 @@ class LabelView(ctk.CTkFrame):
 				f,
 				width=90,
 				height=60,
-				bg=SURFACE3 if key != self._tpl_key else '#1a274a',
+				bg=SURFACE3 if key != self._tpl_key else ACCENT_DIM,
 				highlightthickness=0,
 			)
 			cv.pack(padx=PAD_SM, pady=(PAD_SM, PAD_XS))
@@ -206,8 +239,11 @@ class LabelView(ctk.CTkFrame):
 				widget.bind('<Button-1>', lambda e, k=key: self._select_template(k))
 			cv.bind('<Button-1>', lambda e, k=key: self._select_template(k))
 
+		self._wholesale_bar = ctk.CTkFrame(right, fg_color=SURFACE2, corner_radius=8)
+		self._wholesale_bar_built = False
+
 		queue_outer = ctk.CTkFrame(right, fg_color=SURFACE2, corner_radius=10)
-		queue_outer.grid(row=1, column=0, sticky='nsew', padx=PAD_LG, pady=(0, PAD_SM))
+		queue_outer.grid(row=2, column=0, sticky='nsew', padx=PAD_LG, pady=(0, PAD_SM))
 		queue_outer.grid_columnconfigure(0, weight=1)
 		queue_outer.grid_rowconfigure(1, weight=1)
 
@@ -253,7 +289,7 @@ class LabelView(ctk.CTkFrame):
 		self._queue_frame.grid_columnconfigure(0, weight=1)
 
 		footer = ctk.CTkFrame(right, fg_color='transparent')
-		footer.grid(row=2, column=0, sticky='ew', padx=PAD_LG, pady=(0, PAD_MD))
+		footer.grid(row=3, column=0, sticky='ew', padx=PAD_LG, pady=(0, PAD_MD))
 		footer.grid_columnconfigure(0, weight=1)
 
 		self._btn_print = ctk.CTkButton(
@@ -261,11 +297,90 @@ class LabelView(ctk.CTkFrame):
 			text='🖨  Generar PDF de etiquetas (Ctrl+P)',
 			height=46,
 			fg_color=GREEN,
-			hover_color='#15803d',
+			hover_color=GREEN_HOVER,
 			font=FONT_BODY_BOLD,
 			command=self._print_labels,
 		)
 		self._btn_print.grid(row=0, column=0, sticky='ew')
+
+	# ─────────────────────────────────────────────────────────────────────────
+	# Barra de modo de precio (Mayorista / Minorista)
+	# ─────────────────────────────────────────────────────────────────────────
+
+	def _refresh_wholesale_bar(self):
+		"""Muestra u oculta la barra de modo de precio según configuración."""
+		if not self.winfo_exists():
+			return
+		self._load_wholesale_cfg()
+
+		if not self._wholesale_enabled or len(self._price_options) <= 1:
+			self._wholesale_bar.grid_forget()
+			return
+
+		self._wholesale_bar.grid(
+			row=1, column=0, sticky='ew', padx=PAD_LG, pady=(0, PAD_SM)
+		)
+
+		if self._wholesale_bar_built:
+			return
+
+		self._wholesale_bar_built = True
+		bar = self._wholesale_bar
+		for w in bar.winfo_children():
+			w.destroy()
+
+		inner = ctk.CTkFrame(bar, fg_color='transparent')
+		inner.pack(fill='x', padx=PAD_MD, pady=PAD_SM)
+		inner.grid_columnconfigure(0, weight=1)
+
+		ctk.CTkLabel(
+			inner,
+			text='💰  Precio en etiquetas',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_SECONDARY,
+		).grid(row=0, column=0, sticky='w', pady=(0, PAD_XS))
+
+		btn_row = ctk.CTkFrame(inner, fg_color='transparent')
+		btn_row.grid(row=1, column=0, sticky='ew')
+
+		self._mode_btns: dict[str, ctk.CTkButton] = {}
+		for col, (key, label, _factor) in enumerate(self._price_options):
+			btn = ctk.CTkButton(
+				btn_row,
+				text=label,
+				height=28,
+				font=FONT_LABEL_BOLD,
+				fg_color=ACCENT if key == 'retail' else SURFACE3,
+				hover_color=ACCENT_HOVER if key == 'retail' else SURFACE4,
+				text_color=TEXT_PRIMARY,
+				border_width=1,
+				border_color=ACCENT if key == 'retail' else BORDER,
+				corner_radius=6,
+				command=lambda k=key: self._set_global_price_mode(k),
+			)
+			btn.pack(side='left', padx=(0, PAD_XS))
+			self._mode_btns[key] = btn
+
+		self._current_price_mode = 'retail'
+
+	def _set_global_price_mode(self, mode_key: str):
+		"""Aplica el modo de precio a todos los items de la cola."""
+		self._current_price_mode = mode_key
+
+		for k, btn in self._mode_btns.items():
+			if not btn.winfo_exists():
+				continue
+			active = k == mode_key
+			btn.configure(
+				fg_color=ACCENT if active else SURFACE3,
+				hover_color=ACCENT_HOVER if active else SURFACE4,
+				border_color=ACCENT if active else BORDER,
+			)
+
+		for item in self._queue:
+			item['price_mode'] = mode_key
+
+		self._render_queue()
 
 	# ─────────────────────────────────────────────────────────────────────────
 	# Renderizado y Visualización de Templates
@@ -371,7 +486,7 @@ class LabelView(ctk.CTkFrame):
 				continue
 			active = k == key
 			f.configure(fg_color=ACCENT_DIM if active else SURFACE3)
-			cv_bg = '#1a274a' if active else SURFACE3
+			cv_bg = ACCENT_DIM if active else SURFACE3
 
 			if self._tpl_canvases[k].winfo_exists():
 				self._tpl_canvases[k].configure(bg=cv_bg)
@@ -405,10 +520,15 @@ class LabelView(ctk.CTkFrame):
 			or q in v['attribute'].lower()
 			or q in v['barcode'].lower()
 		]
+
 		if filtered:
 			self._add_one_to_queue(filtered[0], render=True)
 			self._entry_search.delete(0, 'end')
 			self._filter_catalog()
+		else:
+			# MEJORA UX: Feedback visual si el código escaneado no existe
+			self._entry_search.configure(border_color=RED)
+			self.after(800, lambda: self._entry_search.configure(border_color=BORDER))
 
 	def _load_catalog(self):
 		if not self.winfo_exists():
@@ -486,7 +606,7 @@ class LabelView(ctk.CTkFrame):
 
 		for i, v in enumerate(variants):
 			check_var = ctk.BooleanVar(value=False)
-			bg = SURFACE2 if i % 2 == 0 else '#1c1c1c'
+			bg = SURFACE2 if i % 2 == 0 else SURFACE1
 
 			row = ctk.CTkFrame(self._catalog_frame, fg_color=bg, corner_radius=6)
 			row.pack(fill='x', pady=2, padx=4)
@@ -584,7 +704,8 @@ class LabelView(ctk.CTkFrame):
 				if render:
 					self._render_queue()
 				return
-		self._queue.append({**variant, 'copies': 1})
+		mode = getattr(self, '_current_price_mode', 'retail')
+		self._queue.append({**variant, 'copies': 1, 'price_mode': mode})
 		if render:
 			self._render_queue()
 
@@ -599,6 +720,17 @@ class LabelView(ctk.CTkFrame):
 				text=f'{total} etiqueta{"s" if total != 1 else ""}',
 				text_color=ACCENT_TEXT if total > 0 else TEXT_MUTED,
 			)
+
+	def _get_item_display_price(self, item: dict) -> float:
+		"""Retorna el precio a mostrar según el modo de precio del item."""
+		base = float(item.get('price', 0))
+		mode = item.get('price_mode', 'retail')
+		if mode == 'retail' or not self._wholesale_enabled:
+			return base
+		for key, _label, factor in self._price_options:
+			if key == mode:
+				return round(base * factor, 2)
+		return base
 
 	def _render_queue(self):
 		if not self.winfo_exists():
@@ -640,7 +772,7 @@ class LabelView(ctk.CTkFrame):
 		hd.grid_columnconfigure(0, weight=1)
 
 		for idx, item in enumerate(self._queue):
-			bg = SURFACE2 if idx % 2 == 0 else '#1c1c1c'
+			bg = SURFACE2 if idx % 2 == 0 else SURFACE1
 			row = ctk.CTkFrame(self._queue_frame, fg_color=bg, corner_radius=4)
 			row.pack(fill='x', pady=1)
 			row.grid_columnconfigure(0, weight=1)
@@ -650,11 +782,18 @@ class LabelView(ctk.CTkFrame):
 				row, text=name_txt, font=FONT_LABEL, text_color=TEXT_PRIMARY, anchor='w'
 			).grid(row=0, column=0, padx=PAD_SM, pady=5, sticky='w')
 
+			# ── Precio (calculado según modo) ────────────────────────────────
+			display_price = self._get_item_display_price(item)
+			price_color = (
+				ORANGE_TEXT
+				if item.get('price_mode', 'retail') != 'retail'
+				else ACCENT_TEXT
+			)
 			ctk.CTkLabel(
 				row,
-				text=fmt_price(item['price']),
+				text=fmt_price(display_price),
 				font=FONT_LABEL,
-				text_color=ACCENT_TEXT,
+				text_color=price_color,
 				width=80,
 				anchor='e',
 			).grid(row=0, column=1, padx=4)
@@ -671,6 +810,11 @@ class LabelView(ctk.CTkFrame):
 				fg_color=SURFACE1,
 				border_color=BORDER,
 				text_color=TEXT_PRIMARY,
+			)
+
+			# MEJORA UX: Autoseleccionar contenido al hacer clic para facilitar la carga rápida
+			entry_copies.bind(
+				'<FocusIn>', lambda e, ent=entry_copies: ent.select_range(0, 'end')
 			)
 
 			def _on_copy_edit(e, i=idx, ent=entry_copies):

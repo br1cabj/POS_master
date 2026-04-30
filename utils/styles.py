@@ -31,6 +31,9 @@ ACCENT_TEXT = '#60a5fa'
 GREEN = '#16a34a'
 GREEN_TEXT = '#4ade80'
 GREEN_DIM = '#052e16'
+GREEN_HOVER = '#15803d'  # Hover state for green buttons
+GREEN_MID = '#14532d'  # New-item flash in cart treeview
+
 ORANGE = '#d97706'
 ORANGE_TEXT = '#fbbf24'
 ORANGE_DIM = '#2d1b00'
@@ -71,6 +74,15 @@ FONT_NAV_BOLD = ('Arial', 13, 'bold')
 FONT_STAT = ('Arial', 32, 'bold')
 FONT_STAT_LG = ('Arial', 40, 'bold')
 FONT_MONO = ('Consolas', 11)
+# ── Extended Font Scale ───────────────────────────────────────────────────────
+FONT_SUBHEADING_BOLD = ('Arial', 15, 'bold')  # Panel sub-headers, section titles
+FONT_TITLE_SM = ('Arial', 16, 'bold')  # Modal action buttons
+FONT_INPUT_LG = ('Arial', 18)  # Large amount entry fields
+FONT_XL_BOLD = ('Arial', 20, 'bold')  # Primary CTA buttons (Cobrar)
+FONT_AMOUNT = ('Arial', 24)  # Cash amount input
+FONT_AMOUNT_BOLD = ('Arial', 24, 'bold')  # Change / vuelto display
+FONT_DISPLAY = ('Arial', 44, 'bold')  # Cart total large display
+FONT_DISPLAY_LG = ('Arial', 46, 'bold')  # Payment popup large total
 
 
 # ── Treeview Configuration ────────────────────────────────────────────────────
@@ -85,7 +97,7 @@ def apply_treeview_style(style_name: str = 'Treeview') -> None:
 		rowheight=32,
 		fieldbackground=SURFACE2,
 		borderwidth=0,
-		font=FONT_SMALL,  # CORREGIDO: Uso de constante
+		font=FONT_SMALL,
 	)
 	style.map(style_name, background=[('selected', ACCENT_DIM)])
 	style.map(style_name, foreground=[('selected', ACCENT_TEXT)])
@@ -94,7 +106,7 @@ def apply_treeview_style(style_name: str = 'Treeview') -> None:
 		background=SURFACE3,
 		foreground=TEXT_SECONDARY,
 		relief='flat',
-		font=FONT_LABEL_BOLD,  # CORREGIDO: Uso de constante
+		font=FONT_LABEL_BOLD,
 	)
 	style.map(
 		f'{style_name}.Heading',
@@ -158,7 +170,7 @@ def make_section_label(parent: Any, text: str) -> ctk.CTkLabel:
 	return ctk.CTkLabel(
 		parent,
 		text=text.upper(),
-		font=FONT_LABEL_BOLD,  # CORREGIDO: Uso de constante en lugar de hardcodeo
+		font=FONT_LABEL_BOLD,
 		text_color=TEXT_MUTED,
 		anchor='w',
 	)
