@@ -182,22 +182,29 @@ class LoginView(ctk.CTkFrame):
 		self.after(50, lambda: self._execute_login(tenant_id, user, pwd))
 
 	def _execute_login(self, tenant_id, username, pwd):
+		success = False
 		try:
 			user_dict = self.auth_ctrl.login(username, pwd, tenant_id=tenant_id)
 			if user_dict:
+				success = True
 				self.on_login_success(user_dict)
 				return  # LoginView puede destruirse aquí — no tocar widgets
-			if not self.winfo_exists():
-				return
 
-			self.show_error('Usuario o contraseña incorrectos.')
-			self.entry_password.focus()
-			self.entry_password.select_range(0, 'end')
+			if self.winfo_exists():
+				self.show_error('Usuario o contraseña incorrectos.')
+				self.entry_password.focus()
+				self.entry_password.select_range(0, 'end')
 
 		except Exception as e:
 			logger.error(f'Error inesperado durante el login: {e}', exc_info=True)
 			if self.winfo_exists():
 				self.show_error('Error de conexión a la base de datos.')
+		finally:
+			# Asegura la reactivación de inputs incluso si ocurre una excepción
+			if not success and self.winfo_exists():
+				self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
+				self.entry_username.configure(state='normal')
+				self.entry_password.configure(state='normal')
 
 	def show_error(self, message):
 		if not self.winfo_exists():
@@ -309,6 +316,13 @@ class LoginView(ctk.CTkFrame):
 			if not all([username, pin, new_pass, confirmed]):
 				lbl_err.configure(text='Todos los campos son obligatorios.')
 				return
+
+			if len(new_pass) < 6:
+				lbl_err.configure(
+					text='La contraseña debe tener al menos 6 caracteres.'
+				)
+				return
+
 			if new_pass != confirmed:
 				lbl_err.configure(text='Las contraseñas no coinciden.')
 				return

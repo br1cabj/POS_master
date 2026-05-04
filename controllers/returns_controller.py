@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 _default_engine = make_engine()
 
-_OPERABLE = {'completada', 'pendiente'}
+_OPERABLE = {'completada', 'pendiente', 'parcial'}
 
 
 class ReturnsController(BaseController):
@@ -236,18 +236,20 @@ class ReturnsController(BaseController):
 				# CORRECCIÓN: Factor de descuento para calcular reembolsos exactos
 				sale_total_gross = sum(Decimal(str(d.subtotal)) for d in sale.items)
 				discount_amount = Decimal(str(sale.discount_amount or 0))
-				discount_factor = (
-					(sale_total_gross - discount_amount) / sale_total_gross
-					if sale_total_gross > 0
-					else Decimal('1')
-				)
+				if sale_total_gross > 0:
+					raw_factor = (sale_total_gross - discount_amount) / sale_total_gross
+					# Clamp al rango (0, 1]: descuento nunca puede producir factor ≤ 0
+					discount_factor = max(Decimal('0.0001'), min(raw_factor, Decimal('1')))
+				else:
+					discount_factor = Decimal('1')
 
 				return_map = {}
 				refund_total = Decimal('0')
 				profit_reduction = Decimal('0')
 
 				for r in items_to_return:
-					did = int(r['detail_id'])
+					# detail_id es UUID string (String(36)) — nunca convertir a int
+					did = str(r['detail_id'])
 					qty = Decimal(str(r['qty_to_return']))
 
 					if did not in detail_map:
@@ -289,16 +291,12 @@ class ReturnsController(BaseController):
 					description=f'Devolución parcial Ticket #{sale_id}',
 				)
 
-				all_returned = all(
-					return_map.get(d.id, Decimal('0')) >= Decimal(str(d.quantity))
-					for d in sale.items
-				)
-				sale.status = 'devuelta' if all_returned else 'parcial'
-
-				sale.total_amount = Decimal(str(sale.total_amount or 0)) - refund_total
+				remaining_total = Decimal(str(sale.total_amount or 0)) - refund_total
+				sale.status = 'devuelta' if remaining_total <= Decimal('0') else 'parcial'
+				sale.total_amount = remaining_total
 				sale.profit = (
 					Decimal(str(sale.profit or 0)) - profit_reduction
-				)  # CORRECCIÓN: Ajuste contable de ganancia
+				)
 
 				session.commit()
 

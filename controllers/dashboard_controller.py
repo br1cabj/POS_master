@@ -1,5 +1,6 @@
 import logging
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import func
 
@@ -50,8 +51,8 @@ class DashboardController(BaseController):
 		with self._Session() as session:
 			try:
 				today = date.today()
-				daily_totals = {
-					(today - timedelta(days=i)).strftime('%d/%m'): 0.0
+				daily_totals: dict[str, Decimal] = {
+					(today - timedelta(days=i)).strftime('%d/%m'): Decimal('0')
 					for i in range(6, -1, -1)
 				}
 
@@ -67,15 +68,17 @@ class DashboardController(BaseController):
 					)
 					.all()
 				):
+					if not sale.date:
+						continue
 					day_str = (
 						sale.date.date()
 						if isinstance(sale.date, datetime)
 						else sale.date
 					).strftime('%d/%m')
 					if day_str in daily_totals:
-						daily_totals[day_str] += float(sale.total_amount or 0.0)
+						daily_totals[day_str] += Decimal(str(sale.total_amount or 0))
 
-				return list(daily_totals.keys()), list(daily_totals.values())
+				return list(daily_totals.keys()), [float(v) for v in daily_totals.values()]
 			except Exception as e:
 				logger.error(f'Error al generar gráfico semanal: {e}', exc_info=True)
 				return [], []
@@ -92,8 +95,11 @@ class DashboardController(BaseController):
 							func.sum(SaleDetail.quantity).label('total_qty'),
 						)
 						.join(Sale)
-						.filter(Sale.tenant_id == tenant_id)
-						.group_by(SaleDetail.description)
+						.filter(
+							Sale.tenant_id == tenant_id,
+							Sale.status.in_(['completada', 'parcial']),
+						)
+						.group_by(SaleDetail.variant_id, SaleDetail.description)
 						.order_by(func.sum(SaleDetail.quantity).desc())
 						.limit(limit)
 						.all()

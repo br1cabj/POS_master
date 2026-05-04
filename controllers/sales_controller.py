@@ -40,10 +40,11 @@ class SalesController(BaseController):
 		"""
 		with self._Session() as session:
 			try:
+				from database.models import Supplier as _Supplier
 				variants = (
 					session.query(ArticleVariant)
 					.options(
-						joinedload(ArticleVariant.article),
+						joinedload(ArticleVariant.article).joinedload(Article.supplier),
 						joinedload(ArticleVariant.stocks),
 						joinedload(ArticleVariant.ingredients)
 						.joinedload(ComboItem.ingredient)
@@ -112,6 +113,16 @@ class SalesController(BaseController):
 							'units_per_pack': units,
 							'pack_label': getattr(v, 'pack_label', None),
 							'base_variant_id': base_vid,
+							# Descuento por producto
+							'discount_pct': float(v.discount_pct) if v.discount_pct else 0.0,
+							'discount_until': v.discount_until,
+							# Descuento del distribuidor/proveedor
+							'supplier_discount_pct': float(v.article.supplier.discount_pct)
+							if v.article.supplier and v.article.supplier.discount_pct
+							else 0.0,
+							'supplier_discount_until': v.article.supplier.discount_until
+							if v.article.supplier
+							else None,
 						}
 					)
 				return result
@@ -125,7 +136,11 @@ class SalesController(BaseController):
 		with self._Session() as session:
 			try:
 				return [
-					{'id': c.id, 'name': c.name, 'current_balance': c.current_balance}
+					{
+						'id': c.id,
+						'name': c.name,
+						'current_balance': c.current_balance,
+					}
 					for c in session.query(Customer)
 					.filter_by(tenant_id=tenant_id, is_active=True)
 					.order_by(Customer.name)
@@ -142,9 +157,9 @@ class SalesController(BaseController):
 					{
 						'id': s.id,
 						'date': s.date,
-						'total_amount': s.total_amount,
+						'total_amount': float(s.total_amount or 0),
 						'discount_amount': float(s.discount_amount or 0),
-						'profit': s.profit,
+						'profit': float(s.profit or 0),
 						'payment_method': s.payment_method,
 						'payment_method_2': s.payment_method_2 or '',
 						'amount_method_2': float(s.amount_method_2 or 0),
@@ -371,6 +386,10 @@ class SalesController(BaseController):
 						price = self._parse_decimal(
 							item.get('price', variant.selling_price)
 						)
+						if price < Decimal('0'):
+							raise ValueError(
+								f'El precio no puede ser negativo: {variant.article.name}'
+							)
 
 						if variant.is_combo:
 							for ci in variant.ingredients:
@@ -381,9 +400,16 @@ class SalesController(BaseController):
 										f'Falta ingrediente para preparar: {variant.article.name}'
 									)
 								stock.quantity -= req_qty
+								# ci.ingredient puede ser None si el producto fue eliminado del catálogo
+								if ci.ingredient is None:
+									logger.warning(
+										'Ingrediente %s del combo %s no encontrado; costo omitido.',
+										ci.ingredient_id, variant.id,
+									)
 								cost_price += (
-									ci.ingredient.cost_price * ci.quantity_required
-								)
+									(ci.ingredient.cost_price if ci.ingredient else Decimal('0'))
+									or Decimal('0')
+								) * ci.quantity_required
 								session.add(
 									StockMovement(
 										movement_type='out',
@@ -514,8 +540,9 @@ class SalesController(BaseController):
 						try:
 							paid_dec = Decimal(str(paid_amount))
 							change_amt = max(paid_dec - final_total, Decimal('0'))
-						except Exception:
-							pass
+						except (ValueError, TypeError, Exception) as _e:
+							logger.debug('No se pudo calcular el vuelto: %s', _e)
+							change_amt = Decimal('0')
 
 					ReceiptController().generate_pdf(
 						tenant_id=tenant_id,

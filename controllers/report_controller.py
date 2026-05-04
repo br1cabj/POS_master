@@ -20,6 +20,7 @@ import logging
 import os
 import unicodedata
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 
 from fpdf import FPDF
 from sqlalchemy import func
@@ -123,10 +124,14 @@ class ReportController(BaseController):
 		avg = revenue / tickets if tickets > 0 else 0.0
 
 		by_method = {}
+		# Deduct amount_method_2 from method 1 totals so mixed-payment sales
+		# are correctly distributed across both methods
 		for pm, total, count in (
 			session.query(
 				Sale.payment_method,
-				func.coalesce(func.sum(Sale.total_amount), 0),
+				func.coalesce(
+					func.sum(Sale.total_amount - func.coalesce(Sale.amount_method_2, 0)), 0
+				),
 				func.count(Sale.id),
 			)
 			.filter(
@@ -141,6 +146,32 @@ class ReportController(BaseController):
 				'total': float(total or 0),
 				'count': int(count or 0),
 			}
+		# Add method 2 amounts separately
+		for pm2, total2, count2 in (
+			session.query(
+				Sale.payment_method_2,
+				func.coalesce(func.sum(Sale.amount_method_2), 0),
+				func.count(Sale.id),
+			)
+			.filter(
+				Sale.tenant_id == tenant_id,
+				Sale.date.between(dt_from, dt_to),
+				Sale.status.in_(_SOLD_STATUSES),
+				Sale.payment_method_2.isnot(None),
+				Sale.amount_method_2 > 0,
+			)
+			.group_by(Sale.payment_method_2)
+			.all()
+		):
+			key2 = pm2 or 'efectivo'
+			if key2 in by_method:
+				by_method[key2]['total'] += float(total2 or 0)
+				by_method[key2]['count'] += int(count2 or 0)
+			else:
+				by_method[key2] = {
+					'total': float(total2 or 0),
+					'count': int(count2 or 0),
+				}
 
 		return {
 			'revenue': revenue,
@@ -225,8 +256,9 @@ class ReportController(BaseController):
 			'ingresos': [
 				{'desc': r[1], 'amount': float(r[2]), 'time': r[3]} for r in ingresos
 			],
-			'total_gastos': sum(float(r[2]) for r in gastos),
-			'total_ingresos': sum(float(r[2]) for r in ingresos),
+			# Sumar con Decimal para evitar errores de precisión flotante, luego convertir
+			'total_gastos': float(sum(Decimal(str(r[2] or 0)) for r in gastos)),
+			'total_ingresos': float(sum(Decimal(str(r[2] or 0)) for r in ingresos)),
 		}
 
 	# =========================================================
@@ -341,7 +373,7 @@ class ReportController(BaseController):
 
 		# ── Top productos ────────────────────────────────────
 		if top:
-			self._pdf_section(pdf, f'TOP {len(top)} PRODUCTOS DEL PERIOD0')
+			self._pdf_section(pdf, f'TOP {len(top)} PRODUCTOS DEL PERIODO')
 			for i, item in enumerate(top, 1):
 				qty = item['quantity']
 				qty_str = f'{int(qty)}' if qty == int(qty) else f'{qty:.2f}'
@@ -420,7 +452,7 @@ class ReportController(BaseController):
 				session.query(Sale)
 				.options(joinedload(Sale.customer), joinedload(Sale.user))
 				.filter(
-					Sale.tenant_id == data.get('_tenant_id', 1),
+					Sale.tenant_id == data['_tenant_id'],
 					Sale.date.between(dt_from, dt_to),
 				)
 				.order_by(Sale.date)

@@ -9,10 +9,14 @@ from utils.config import SECRET_SALT
 
 logger = logging.getLogger(__name__)
 
+# Directorio raíz del proyecto (un nivel arriba de controllers/)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 class LicenseController:
 	def __init__(self):
-		self.license_file = 'license.dat'
+		# Path absoluto para que funcione independientemente del directorio de trabajo
+		self.license_file = os.path.join(_PROJECT_ROOT, 'license.dat')
 
 	def _generate_signature(self, license_type, expiration_date):
 		raw = f'{license_type}|{expiration_date}|{SECRET_SALT}'
@@ -56,15 +60,25 @@ class LicenseController:
 				return False, 'Formato de licencia inválido.'
 
 			l_type, exp_str, provided_sig = parts
+
+			if len(exp_str) != 8:
+				return False, 'Formato de licencia inválido.'
+
 			exp_date = f'{exp_str[:4]}-{exp_str[4:6]}-{exp_str[6:8]}'
+
+			try:
+				datetime.strptime(exp_date, '%Y-%m-%d')
+			except ValueError:
+				return False, 'La licencia contiene una fecha de vencimiento inválida.'
 
 			if provided_sig != self._generate_signature(l_type, exp_date):
 				return False, 'La licencia es falsa o ha sido alterada.'
 
+			stored_expiration = '2099-12-31' if l_type == 'FULL' else exp_date
 			data = {
 				'type': l_type,
-				'expiration': '2099-12-31' if l_type == 'FULL' else exp_date,
-				'signature': self._generate_signature(l_type, exp_date),
+				'expiration': stored_expiration,
+				'signature': self._generate_signature(l_type, stored_expiration),
 			}
 			self._write_license(data)
 			return True, f'¡Licencia {l_type} activada exitosamente!'

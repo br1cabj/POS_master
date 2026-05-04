@@ -38,7 +38,8 @@ class SalesHistoryView(BaseView):
 
 		self._active_idx = 0
 		self._tab_btns: list = []
-		self._frames: list = []
+		self._content_frame = None
+		self._loaded_views = {}  # Mapea idx -> (frame, view_instance)
 
 		# ── Tab bar ───────────────────────────────────────────────────────
 		tab_bar = ctk.CTkFrame(
@@ -73,26 +74,44 @@ class SalesHistoryView(BaseView):
 			self._tab_btns.append(btn)
 
 		# ── Contenedor de sub-vistas ──────────────────────────────────────
-		content = ctk.CTkFrame(self, fg_color='transparent', corner_radius=0)
-		content.pack(fill='both', expand=True)
+		self._content_frame = ctk.CTkFrame(
+			self, fg_color='transparent', corner_radius=0
+		)
+		self._content_frame.pack(fill='both', expand=True)
 
-		for _, _, view_cls in _TABS:
-			frame = ctk.CTkFrame(content, fg_color='transparent', corner_radius=0)
-			view_cls(frame, ctx).pack(fill='both', expand=True)
-			self._frames.append(frame)
-
+		# Cargar la primera pestaña por defecto
 		self._switch_tab(0)
 
 	# ─────────────────────────────────────────────────────────────────────
 	def _switch_tab(self, idx: int):
 		self._active_idx = idx
 
-		for i, frame in enumerate(self._frames):
-			if i == idx:
-				frame.pack(fill='both', expand=True)
-			else:
+		# 1. Ocultar todas las vistas cargadas excepto la activa
+		for i, (frame, _) in self._loaded_views.items():
+			if i != idx:
 				frame.pack_forget()
 
+		# 2. Lazy load: Instanciar la vista solo si no ha sido cargada previamente
+		if idx not in self._loaded_views:
+			_, _, view_cls = _TABS[idx]
+			frame = ctk.CTkFrame(
+				self._content_frame, fg_color='transparent', corner_radius=0
+			)
+			view_instance = view_cls(frame, self.ctx)
+			view_instance.pack(fill='both', expand=True)
+			self._loaded_views[idx] = (frame, view_instance)
+
+		# 3. Mostrar el frame contenedor de la vista
+		frame, view_instance = self._loaded_views[idx]
+		frame.pack(fill='both', expand=True)
+
+		# 4. Refrescar datos si la vista ya estaba cargada (Sincronización de estado)
+		if hasattr(view_instance, 'load_history'):
+			view_instance.load_history()
+		elif hasattr(view_instance, 'load_sales'):
+			view_instance.load_sales()
+
+		# 5. Actualizar estilos visuales de los botones de las pestañas
 		for i, btn in enumerate(self._tab_btns):
 			if i == idx:
 				btn.configure(
@@ -107,3 +126,13 @@ class SalesHistoryView(BaseView):
 					text_color=TEXT_MUTED,
 					border_width=0,
 				)
+
+		# 6. Mover el foco del teclado a la vista activa
+		self.set_initial_focus()
+
+	def set_initial_focus(self):
+		"""Delega el enfoque inicial a la sub-vista que esté activa actualmente."""
+		if self._active_idx in self._loaded_views:
+			_, view_instance = self._loaded_views[self._active_idx]
+			if hasattr(view_instance, 'set_initial_focus'):
+				view_instance.set_initial_focus()

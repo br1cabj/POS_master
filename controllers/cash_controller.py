@@ -146,17 +146,26 @@ class CashController(BaseController):
 				)
 				session.commit()
 
-				pdf_path = self._generate_z_report_pdf(
-					cash_session.id,
-					user_name,
-					opening,
-					ventas,
-					ingresos,
-					gastos,
-					expected,
-					parsed_declared,
-					difference,
-				)
+				# PDF generation is non-fatal: the session is already committed
+				pdf_path = None
+				try:
+					pdf_path = self._generate_z_report_pdf(
+						cash_session.id,
+						user_name,
+						opening,
+						ventas,
+						ingresos,
+						gastos,
+						expected,
+						parsed_declared,
+						difference,
+					)
+				except Exception as pdf_err:
+					logger.warning(
+						'Caja %s cerrada, pero falló la generación del Reporte Z: %s',
+						session_id,
+						pdf_err,
+					)
 
 				estado = (
 					'SOBRANTE'
@@ -166,11 +175,17 @@ class CashController(BaseController):
 					else 'CUADRE PERFECTO'
 				)
 
+				pdf_msg = (
+					f'\n\nReporte Z guardado en: {pdf_path}'
+					if pdf_path
+					else '\n\nAdvertencia: No se pudo generar el Reporte Z.'
+				)
+
 				return True, (
 					f'Caja cerrada correctamente.\n\n'
 					f'Resultado del Arqueo: {estado}\n'
-					f'Diferencia: ${abs(difference):,.2f}\n\n'
-					f'Reporte Z guardado en: {pdf_path}'
+					f'Diferencia: ${abs(difference):,.2f}'
+					+ pdf_msg
 				)
 			except Exception as e:
 				session.rollback()
@@ -211,11 +226,20 @@ class CashController(BaseController):
 					)
 
 			opened_at = cash_session.opened_at
+			if not opened_at:
+				# Caja sin fecha de apertura registrada: retornar ceros en lugar de crashear
+				logger.warning('Caja %s no tiene opened_at; se omite el cálculo de ventas.', session_id)
+				return Decimal('0.0'), totals['ingreso'], totals['gasto']
+
+			closed_at = cash_session.closed_at or datetime.now()
+
 			sales = (
 				session.query(Sale)
 				.filter(
 					Sale.tenant_id == tenant_id,
+					Sale.user_id == cash_session.user_id,
 					Sale.date >= opened_at,
+					Sale.date <= closed_at,
 					Sale.status.in_(['completada', 'parcial']),
 				)
 				.all()
@@ -252,6 +276,8 @@ class CashController(BaseController):
 			logger.error(
 				'Error al generar resumen de caja %s: %s', session_id, e, exc_info=True
 			)
+			if not db_session:
+				session.rollback()
 			return Decimal('0.0'), Decimal('0.0'), Decimal('0.0')
 		finally:
 			if not db_session:

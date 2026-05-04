@@ -176,6 +176,7 @@ class ReportView(BaseView):
 		)
 		self._entry_from.grid(row=0, column=7, padx=(0, 8))
 		self._entry_from.bind('<Return>', lambda e: self._on_generate_click())
+		self._entry_from.bind('<KeyRelease>', self._clear_quick_filters)
 
 		ctk.CTkLabel(bar, text='Hasta', font=FONT_LABEL, text_color=TEXT_MUTED).grid(
 			row=0, column=8, padx=(0, 2)
@@ -191,6 +192,7 @@ class ReportView(BaseView):
 		)
 		self._entry_to.grid(row=0, column=9, padx=(0, 8))
 		self._entry_to.bind('<Return>', lambda e: self._on_generate_click())
+		self._entry_to.bind('<KeyRelease>', self._clear_quick_filters)
 
 		self._btn_generate = ctk.CTkButton(
 			bar,
@@ -220,6 +222,12 @@ class ReportView(BaseView):
 				btn.configure(fg_color=ACCENT_DIM, text_color=ACCENT_TEXT)
 			else:
 				btn.configure(fg_color=SURFACE3, text_color=TEXT_SECONDARY)
+
+	def _clear_quick_filters(self, event=None):
+		"""Desmarca los botones de filtros rápidos si el usuario escribe manualmente."""
+		if event and event.keysym in ('Return', 'KP_Enter', 'Tab'):
+			return
+		self._highlight_quick_btn('')
 
 	# ─── Acciones rápidas ────────────────────────────────────────────────────
 	def _set_today(self):
@@ -260,21 +268,25 @@ class ReportView(BaseView):
 			self._date_from = datetime.strptime(df_str, '%d/%m/%Y').date()
 			self._date_to = datetime.strptime(dt_str, '%d/%m/%Y').date()
 		except ValueError:
-			self.show_warning(
-				'Ingresá las fechas en formato válido: dd/mm/aaaa',
-				title='Fecha inválida',
+			self.show_error(
+				'Formato de fecha inválido. Usá DD/MM/AAAA (ej: 02/05/2026)',
+				'Error de formato',
 			)
+			self._btn_pdf.configure(state='disabled')
+			self._btn_csv.configure(state='disabled')
 			return
 
 		if self._date_from > self._date_to:
-			self.show_warning(
+			self.show_error(
 				'La fecha "Desde" no puede ser mayor que "Hasta".',
-				title='Fecha inválida',
+				'Fechas incongruentes',
 			)
+			self._btn_pdf.configure(state='disabled')
+			self._btn_csv.configure(state='disabled')
 			return
 
 		self._highlight_quick_btn('')
-		self._load_report()
+		self._load_report(show_spinner=True)
 
 	# =========================================================
 	# CUERPO SCROLLABLE
@@ -320,6 +332,7 @@ class ReportView(BaseView):
 			text_color='white',
 			font=FONT_BODY_BOLD,
 			corner_radius=6,
+			state='disabled',
 			command=self._export_pdf,
 		)
 		self._btn_pdf.pack(side='left', padx=16, pady=10)
@@ -334,6 +347,7 @@ class ReportView(BaseView):
 			text_color='white',
 			font=FONT_BODY_BOLD,
 			corner_radius=6,
+			state='disabled',
 			command=self._export_csv,
 		)
 		self._btn_csv.pack(side='left', padx=4, pady=10)

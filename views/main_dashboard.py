@@ -4,6 +4,7 @@ import time
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
+from controllers.cash_controller import CashController
 from core.context import AppContext
 from utils.styles import (
 	ACCENT_DIM,
@@ -105,6 +106,10 @@ class MainDashboard(ctk.CTkFrame):
 		self._active_view_class = HomeView
 		self._nav_buttons: dict = {}
 		self._clock_job = None
+		self._active_toasts = []
+
+		# Instancia única para evitar fugas de conexión de DB
+		self._cash_ctrl = CashController(ctx.db_engine)
 
 		self.pack(fill='both', expand=True)
 
@@ -320,8 +325,7 @@ class MainDashboard(ctk.CTkFrame):
 
 	def _update_nav_highlight(self, active_view_class):
 		target_section = self._section_for_view(active_view_class)
-		if target_section != self._active_tab:
-			self._switch_tab(target_section)
+		self._switch_tab(target_section)
 
 		for view_cls, btn in self._nav_buttons.items():
 			if view_cls == active_view_class:
@@ -400,6 +404,22 @@ class MainDashboard(ctk.CTkFrame):
 			100, lambda: self.winfo_toplevel().bind('<F11>', self.toggle_fullscreen)
 		)
 
+	def _reposition_toasts(self):
+		"""Calcula el offset dinámico para apilar toasts sin superponerlos."""
+		base_rely = 0.95
+		offset = 0.09
+		for i, toast in enumerate(reversed(self._active_toasts)):
+			if toast.winfo_exists():
+				toast.place(relx=0.98, rely=base_rely - (i * offset), anchor='se')
+
+	def _remove_toast(self, toast):
+		"""Elimina el toast de la cola y actualiza las posiciones."""
+		if toast in self._active_toasts:
+			self._active_toasts.remove(toast)
+		if toast.winfo_exists():
+			toast.destroy()
+		self._reposition_toasts()
+
 	def show_toast(self, message: str, type_: str = 'success', duration: int = 3000):
 		if not self.winfo_exists():
 			return
@@ -420,9 +440,18 @@ class MainDashboard(ctk.CTkFrame):
 		)
 		lbl.pack(padx=20, pady=12)
 
-		toast.place(relx=0.98, rely=0.92, anchor='se')
+		self._active_toasts.append(toast)
+		self._reposition_toasts()
 
-		self.after(duration, toast.destroy)
+		self.after(duration, lambda t=toast: self._remove_toast(t))
+
+	def _delayed_destroy(self, view_instance):
+		"""Destrucción asíncrona segura para vistas con hilos de fondo."""
+		try:
+			if view_instance and view_instance.winfo_exists():
+				view_instance.destroy()
+		except Exception:
+			pass
 
 	def safe_switch_view(self, view_class, requires_admin=False, context_data=None):
 		if not self.winfo_exists():
@@ -452,12 +481,28 @@ class MainDashboard(ctk.CTkFrame):
 					return
 
 		if self.current_view:
-			self.current_view.destroy()
+			old_view = self.current_view
 			self.current_view = None
 
+			if hasattr(old_view, 'destroy_custom'):
+				try:
+					old_view.destroy_custom()
+				except Exception:
+					pass
+			elif hasattr(old_view, 'cleanup'):
+				try:
+					old_view.cleanup()
+				except Exception:
+					pass
+
+			old_view.pack_forget()
+			self.after(1500, lambda v=old_view: self._delayed_destroy(v))
+
+		# Limpieza residual
 		if self.main_area.winfo_exists():
 			for widget in list(self.main_area.winfo_children()):
-				widget.destroy()
+				widget.pack_forget()
+				self.after(1500, widget.destroy)
 
 		self._active_view_class = view_class
 		self._update_nav_highlight(view_class)
@@ -491,10 +536,10 @@ class MainDashboard(ctk.CTkFrame):
 		if not self.winfo_exists():
 			return
 		try:
-			from controllers.cash_controller import CashController
-
-			ctrl = CashController(self.ctx.db_engine)
-			session = ctrl.get_active_session(self.ctx.tenant_id, self.ctx.user_id)
+			# Reutiliza el controlador estático
+			session = self._cash_ctrl.get_active_session(
+				self.ctx.tenant_id, self.ctx.user_id
+			)
 			color = '#22c55e' if session else RED_TEXT
 			label = '● Abierta' if session else '● Cerrada'
 		except Exception:

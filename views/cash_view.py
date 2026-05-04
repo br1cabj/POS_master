@@ -1,10 +1,3 @@
-"""
-views/cash_view.py
-===================
-Vista para la gestión de apertura, cierre (arqueo ciego) y movimientos manuales de caja.
-Incluye historial de movimientos del turno y totales parciales visibles.
-"""
-
 from decimal import Decimal, InvalidOperation
 
 import customtkinter as ctk
@@ -50,6 +43,7 @@ class CashView(BaseView):
 		self.controller = CashController(ctx.db_engine)
 		self.active_session = None
 		self._mov_type = 'gasto'
+		self._poll_timer = None
 
 		self.grid_columnconfigure(0, weight=2)
 		self.grid_columnconfigure(1, weight=3)
@@ -58,11 +52,16 @@ class CashView(BaseView):
 		self._build_left_panel()
 		self._build_right_panel()
 
+		self.bind('<Destroy>', self._on_destroy_cash)
 		self.after(50, lambda: self._select_mov_type('gasto'))
 		self.after(100, self.refresh_view)
 
+	def _on_destroy_cash(self, event=None):
+		if hasattr(self, '_poll_timer') and self._poll_timer:
+			self.after_cancel(self._poll_timer)
+			self._poll_timer = None
+
 	def _build_left_panel(self):
-		"""Construye el panel izquierdo con la información y controles de estado de la caja."""
 		self.left_panel = ctk.CTkFrame(
 			self,
 			fg_color=SURFACE2,
@@ -189,7 +188,6 @@ class CashView(BaseView):
 		self.btn_action.grid(row=9, column=0, pady=(0, 24), padx=24, sticky='ew')
 
 	def _build_right_panel(self):
-		"""Construye el panel derecho con el formulario de movimientos y el historial."""
 		self.right_panel = ctk.CTkFrame(
 			self,
 			fg_color=SURFACE2,
@@ -325,9 +323,11 @@ class CashView(BaseView):
 		self.history_scroll.grid_columnconfigure(0, weight=1)
 
 	def refresh_view(self):
-		"""Sincroniza el estado visual con la sesión de caja activa en la base de datos."""
 		if not self.winfo_exists():
 			return
+
+		if hasattr(self, '_poll_timer') and self._poll_timer:
+			self.after_cancel(self._poll_timer)
 
 		tenant_id = self.ctx.tenant_id
 		user_id = self.ctx.user_id
@@ -338,8 +338,9 @@ class CashView(BaseView):
 		else:
 			self._show_closed_state()
 
+		self._poll_timer = self.after(15000, self.refresh_view)
+
 	def _show_open_state(self):
-		"""Configura la interfaz para el modo de caja operativa."""
 		sess = self.active_session
 		opening = float(sess.get('opening_balance', 0.0))
 		opening_time = sess.get('opening_time')
@@ -378,11 +379,9 @@ class CashView(BaseView):
 		)
 
 		self._set_form_state('normal')
-		self.entry_mov_desc.focus()
 		self._refresh_history(tenant_id, session_id)
 
 	def _show_closed_state(self):
-		"""Configura la interfaz para el modo previo a la apertura de caja."""
 		self.lbl_status.configure(text='CAJA CERRADA', text_color=ORANGE_TEXT)
 		self.lbl_session_info.configure(text='Abrí la caja para empezar a operar.')
 		self.lbl_blind_note.configure(text='')
@@ -401,11 +400,9 @@ class CashView(BaseView):
 		)
 
 		self._set_form_state('disabled')
-		self.entry_amount.focus()
 		self._clear_history()
 
 	def _refresh_history(self, tenant_id, session_id):
-		"""Actualiza la lista visual de movimientos manuales de la sesión actual."""
 		self._clear_history()
 		movements = self.controller.get_movements_list(tenant_id, session_id)
 
@@ -422,12 +419,10 @@ class CashView(BaseView):
 			self._build_movement_row(mov)
 
 	def _clear_history(self):
-		"""Limpia los widgets internos del contenedor de historial."""
 		for widget in self.history_scroll.winfo_children():
 			widget.destroy()
 
 	def _build_movement_row(self, mov):
-		"""Construye e inserta una fila de movimiento en el historial."""
 		is_gasto = mov['type'] == 'gasto'
 		amount_color = RED_TEXT if is_gasto else GREEN_TEXT
 		accent_color = RED if is_gasto else GREEN
@@ -477,13 +472,11 @@ class CashView(BaseView):
 		).grid(row=1, column=2, padx=(4, 12), pady=(0, 6), sticky='e')
 
 	def _set_preset_amount(self, amount):
-		"""Asigna un valor predeterminado al input de fondo de apertura."""
 		self.entry_amount.delete(0, 'end')
 		self.entry_amount.insert(0, str(amount))
 		self.entry_amount.focus()
 
 	def _set_form_state(self, state):
-		"""Habilita o deshabilita los controles del formulario de movimientos."""
 		for w in [
 			self.btn_tipo_gasto,
 			self.btn_tipo_ingreso,
@@ -497,7 +490,6 @@ class CashView(BaseView):
 				pass
 
 	def handle_action(self):
-		"""Procesa el evento del botón principal (Apertura o Cierre de turno)."""
 		tenant_id = self.ctx.tenant_id
 		user_id = self.ctx.user_id
 
@@ -530,7 +522,6 @@ class CashView(BaseView):
 				self.show_error(msg)
 
 	def _select_mov_type(self, mov_type: str):
-		"""Actualiza el estado visual del selector de tipo de movimiento."""
 		self._mov_type = mov_type
 		if mov_type == 'gasto':
 			self.btn_tipo_gasto.configure(
@@ -561,7 +552,6 @@ class CashView(BaseView):
 			self.entry_mov_desc.configure(border_color=GREEN)
 
 	def save_movement(self):
-		"""Valida y solicita al controlador la persistencia de un movimiento manual."""
 		self.clear_field_errors(self.entry_mov_desc, self.entry_mov_amount)
 
 		desc = self.entry_mov_desc.get().strip()
@@ -596,10 +586,13 @@ class CashView(BaseView):
 			self.show_error(msg)
 
 	def show_blind_close_popup(self):
-		"""Despliega la ventana modal interactiva para el arqueo ciego (Blind Close)."""
 		self.popup = ctk.CTkToplevel(self)
 		self.popup.title('Arqueo de Caja - Cierre de Turno')
-		self.popup.geometry('420x710')
+
+		screen_height = self.winfo_screenheight()
+		max_height = min(750, screen_height - 100)
+		self.popup.geometry(f'420x{max_height}')
+
 		self.popup.configure(fg_color=SURFACE1)
 		self.popup.attributes('-topmost', True)
 		self.popup.grab_set()
@@ -622,21 +615,33 @@ class CashView(BaseView):
 			justify='center',
 		).pack(pady=(0, 16))
 
-		denominations = [10000, 2000, 1000, 500, 200, 100, 50]
+		self.scroll_container = ctk.CTkScrollableFrame(
+			self.popup, fg_color='transparent', scrollbar_button_color=SURFACE3
+		)
+		self.scroll_container.pack(fill='both', expand=True, padx=10, pady=(0, 10))
+
+		bill_denominations = [10000, 5000, 2000, 1000, 500, 200, 100, 50, 20, 10]
+		coin_denominations = [5, 2, 1]
 		self.bill_entries = {}
 
-		grid_frame = ctk.CTkFrame(self.popup, fg_color='transparent')
-		grid_frame.pack(fill='x', padx=30)
+		grid_frame = ctk.CTkFrame(self.scroll_container, fg_color='transparent')
+		grid_frame.pack(fill='x', padx=10)
 		grid_frame.grid_columnconfigure(0, weight=1)
 
-		for i, denom in enumerate(denominations):
+		row_idx = 0
+		ctk.CTkLabel(
+			grid_frame, text='BILLETES', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
+		).grid(row=row_idx, column=0, columnspan=2, pady=(0, 5), sticky='w')
+		row_idx += 1
+
+		for denom in bill_denominations:
 			ctk.CTkLabel(
 				grid_frame,
 				text=f'Billetes de ${denom:,}:',
 				font=FONT_NAV,
 				text_color=TEXT_SECONDARY,
 				anchor='e',
-			).grid(row=i, column=0, sticky='e', pady=5, padx=10)
+			).grid(row=row_idx, column=0, sticky='e', pady=4, padx=10)
 
 			entry = ctk.CTkEntry(
 				grid_frame,
@@ -648,24 +653,69 @@ class CashView(BaseView):
 				border_color=BORDER_ACTIVE,
 				text_color=TEXT_PRIMARY,
 			)
-			entry.grid(row=i, column=1, pady=5)
+			entry.grid(row=row_idx, column=1, pady=4)
 			entry.insert(0, '0')
 			entry.bind('<KeyRelease>', self._calculate_realtime_total)
-
-			# Solución UX: Delay para asegurar la selección tras el click
 			entry.bind(
 				'<FocusIn>',
-				lambda e: e.widget.after(10, lambda: e.widget.select_range(0, 'end')),
+				lambda e: e.widget.after(
+					10, lambda w=e.widget: w.select_range(0, 'end')
+				),
 			)
 			self.bill_entries[denom] = entry
+			row_idx += 1
+
+		ctk.CTkLabel(
+			grid_frame, text='MONEDAS', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
+		).grid(row=row_idx, column=0, columnspan=2, pady=(15, 5), sticky='w')
+		row_idx += 1
+
+		for denom in coin_denominations:
+			ctk.CTkLabel(
+				grid_frame,
+				text=f'Monedas de ${denom:,}:',
+				font=FONT_NAV,
+				text_color=TEXT_SECONDARY,
+				anchor='e',
+			).grid(row=row_idx, column=0, sticky='e', pady=4, padx=10)
+
+			entry = ctk.CTkEntry(
+				grid_frame,
+				width=90,
+				height=36,
+				font=FONT_HEADING,
+				justify='center',
+				fg_color=SURFACE3,
+				border_color=BORDER_ACTIVE,
+				text_color=TEXT_PRIMARY,
+			)
+			entry.grid(row=row_idx, column=1, pady=4)
+			entry.insert(0, '0')
+			entry.bind('<KeyRelease>', self._calculate_realtime_total)
+			entry.bind(
+				'<FocusIn>',
+				lambda e: e.widget.after(
+					10, lambda w=e.widget: w.select_range(0, 'end')
+				),
+			)
+			self.bill_entries[denom] = entry
+			row_idx += 1
 
 		ctk.CTkLabel(
 			grid_frame,
-			text='Monedas / Otros ($):',
+			text='OTROS / AJUSTES',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+		).grid(row=row_idx, column=0, columnspan=2, pady=(15, 5), sticky='w')
+		row_idx += 1
+
+		ctk.CTkLabel(
+			grid_frame,
+			text='Ajuste manual ($):',
 			font=FONT_NAV,
 			text_color=TEXT_SECONDARY,
 			anchor='e',
-		).grid(row=len(denominations), column=0, sticky='e', pady=10, padx=10)
+		).grid(row=row_idx, column=0, sticky='e', pady=4, padx=10)
 
 		self.entry_otros = ctk.CTkEntry(
 			grid_frame,
@@ -677,24 +727,26 @@ class CashView(BaseView):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 		)
-		self.entry_otros.grid(row=len(denominations), column=1, pady=10)
+		self.entry_otros.grid(row=row_idx, column=1, pady=4)
 		self.entry_otros.insert(0, '0')
 		self.entry_otros.bind('<KeyRelease>', self._calculate_realtime_total)
 		self.entry_otros.bind(
 			'<FocusIn>',
-			lambda e: e.widget.after(10, lambda: e.widget.select_range(0, 'end')),
+			lambda e: e.widget.after(10, lambda w=e.widget: w.select_range(0, 'end')),
 		)
 
-		_ordered_entries = [self.bill_entries[d] for d in denominations] + [
+		all_denoms = bill_denominations + coin_denominations
+		_ordered_entries = [self.bill_entries[d] for d in all_denoms] + [
 			self.entry_otros
 		]
+
 		for _idx, _e in enumerate(_ordered_entries[:-1]):
 			_nxt = _ordered_entries[_idx + 1]
 			_e.bind(
 				'<Return>',
-				lambda evt, ne=_nxt: (
-					ne.focus(),
-					ne.after(10, lambda: ne.select_range(0, 'end')),
+				lambda evt, n=_nxt: (
+					n.focus(),
+					n.after(10, lambda target=n: target.select_range(0, 'end')),
 				),
 			)
 
@@ -706,12 +758,15 @@ class CashView(BaseView):
 			font=('Arial', 22, 'bold'),
 			text_color=ACCENT_TEXT,
 		)
-		self.lbl_popup_total.pack(pady=14)
+		self.lbl_popup_total.pack(pady=10)
 
 		self.current_counted_total = '0.00'
 
+		btn_frame = ctk.CTkFrame(self.popup, fg_color='transparent')
+		btn_frame.pack(fill='x', padx=30, pady=(0, 16))
+
 		ctk.CTkButton(
-			self.popup,
+			btn_frame,
 			text='CONFIRMAR Y CERRAR TURNO',
 			fg_color=RED_DIM,
 			hover_color=RED,
@@ -722,10 +777,10 @@ class CashView(BaseView):
 			font=FONT_HEADING,
 			corner_radius=8,
 			command=self._confirm_blind_close,
-		).pack(pady=(0, 8), padx=30, fill='x')
+		).pack(pady=(0, 8), fill='x')
 
 		ctk.CTkButton(
-			self.popup,
+			btn_frame,
 			text='Cancelar - Seguir operando',
 			fg_color=SURFACE3,
 			hover_color=SURFACE4,
@@ -735,16 +790,14 @@ class CashView(BaseView):
 			height=36,
 			corner_radius=8,
 			command=self._cancel_blind_close,
-		).pack(padx=30, fill='x')
+		).pack(fill='x')
 
 		self.after(100, lambda: _ordered_entries[0].focus())
 
 	def _cancel_blind_close(self):
-		"""Cierra la ventana modal de arqueo descartando los cálculos en progreso."""
 		self.popup.destroy()
 
 	def _calculate_realtime_total(self, event=None):
-		"""Calcula de forma dinámica el total en efectivo según las cantidades ingresadas."""
 		total = Decimal('0.0')
 		for denom, entry in self.bill_entries.items():
 			qty = entry.get().strip()
@@ -755,7 +808,6 @@ class CashView(BaseView):
 		if otros:
 			try:
 				val_otros = Decimal(otros)
-				# Corrección del bug de seguridad: Evitar inyección de montos negativos
 				if val_otros < Decimal('0.0'):
 					val_otros = Decimal('0.0')
 				total += val_otros
@@ -766,7 +818,6 @@ class CashView(BaseView):
 		self.current_counted_total = str(total)
 
 	def _confirm_blind_close(self):
-		"""Valida el total declarado y dispara el proceso de cierre definitivo de la caja."""
 		total = Decimal(self.current_counted_total)
 		if not self.confirm(
 			f'Vas a declarar ${total:,.2f} en caja.\n\n'
@@ -787,4 +838,4 @@ class CashView(BaseView):
 			self.show_success(msg, title='Turno Finalizado')
 			self.refresh_view()
 		else:
-			self.show_
+			self.show_error(msg)

@@ -155,6 +155,10 @@ class ArticleVariant(Base):
 	base_variant_id = Column(
 		String(36), ForeignKey('article_variants.id'), nullable=True, index=True
 	)
+
+	# Descuento por producto
+	discount_pct = Column(Numeric(5, 2), nullable=True)
+	discount_until = Column(DateTime, nullable=True)
 	base_variant = relationship(
 		'ArticleVariant',
 		foreign_keys='ArticleVariant.base_variant_id',
@@ -357,6 +361,10 @@ class Supplier(Base):
 	email = Column(String, nullable=True)
 	address = Column(String, nullable=True)
 	is_active = Column(Boolean, default=True)
+
+	# Descuento de distribuidor (aplica a todos sus productos)
+	discount_pct = Column(Numeric(5, 2), nullable=True)
+	discount_until = Column(DateTime, nullable=True)
 
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 	purchases = relationship('Purchase', back_populates='supplier')

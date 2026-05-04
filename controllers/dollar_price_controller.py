@@ -18,13 +18,17 @@ from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
 from database.models import Article, ArticleHistory, ArticleVariant
+from utils.config import make_engine
 
 logger = logging.getLogger(__name__)
 
+_default_engine = make_engine()
+
 
 class DollarPriceController(BaseController):
-	def __init__(self, db_engine):
-		super().__init__(db_engine)
+	def __init__(self, db_engine=None):
+		engine = db_engine if db_engine is not None else _default_engine
+		super().__init__(engine)
 
 	# ──────────────────────────────────────────────
 	# LECTURA
@@ -79,16 +83,18 @@ class DollarPriceController(BaseController):
 		Guarda el precio en dólares de una variante.
 		Pasar usd_price_str = '' o '0' para quitar el precio USD.
 		"""
-		try:
-			usd_str = str(usd_price_str).strip().replace(',', '.')
-			if not usd_str or usd_str == '0':
-				usd_val = None
-			else:
+		usd_str = str(usd_price_str).strip().replace(',', '.')
+		if not usd_str:
+			usd_val = None
+		else:
+			try:
 				usd_val = Decimal(usd_str)
-				if usd_val < 0:
-					return False, 'El precio en USD no puede ser negativo.'
-		except InvalidOperation:
-			return False, 'Ingresá un número válido (ej: 2.50).'
+			except InvalidOperation:
+				return False, 'Ingresá un número válido (ej: 2.50).'
+			if usd_val < 0:
+				return False, 'El precio en USD no puede ser negativo.'
+			if usd_val == Decimal('0'):
+				usd_val = None
 
 		with self._Session() as session:
 			try:
@@ -143,7 +149,8 @@ class DollarPriceController(BaseController):
 
 		try:
 			rate_d = Decimal(str(rate))
-			factor_d = Decimal(str(1 + margin_pct / 100))
+			# Evitar división float antes de Decimal: mantiene precisión total
+			factor_d = Decimal('1') + Decimal(str(margin_pct)) / Decimal('100')
 		except InvalidOperation:
 			return False, 'Valores inválidos.'
 
@@ -183,6 +190,18 @@ class DollarPriceController(BaseController):
 
 					v.cost_price = new_cost
 					v.selling_price = new_price
+
+					# Cascade cost to packaging child variants
+					child_packs = (
+						session.query(ArticleVariant)
+						.filter(
+							ArticleVariant.base_variant_id == v.id,
+							ArticleVariant.is_active == True,  # noqa: E712
+						)
+						.all()
+					)
+					for child in child_packs:
+						child.cost_price = new_cost * (child.units_per_pack or 1)
 
 					session.add(
 						ArticleHistory(

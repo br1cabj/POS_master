@@ -41,6 +41,7 @@ class PricesView(BaseView):
 		self._active_idx = 0
 		self._tab_btns: list = []
 		self._frames: list = []
+		self._loaded_views: dict = {}  # Rastreador de Lazy Loading
 
 		# ── Tab bar ───────────────────────────────────────────────────────
 		tab_bar = ctk.CTkFrame(
@@ -78,16 +79,22 @@ class PricesView(BaseView):
 		content = ctk.CTkFrame(self, fg_color='transparent', corner_radius=0)
 		content.pack(fill='both', expand=True)
 
-		for _, _, view_cls in _TABS:
+		for i, (_, _, _) in enumerate(_TABS):
 			frame = ctk.CTkFrame(content, fg_color='transparent', corner_radius=0)
-			view_cls(frame, ctx).pack(fill='both', expand=True)
 			self._frames.append(frame)
+			self._loaded_views[i] = False
 
 		self._switch_tab(0)
 
 	# ─────────────────────────────────────────────────────────────────────
 	def _switch_tab(self, idx: int):
 		self._active_idx = idx
+
+		# Lazy Loading: Si la vista no se ha instanciado, lo hacemos ahora
+		if not self._loaded_views[idx]:
+			_, _, view_cls = _TABS[idx]
+			view_cls(self._frames[idx], self.ctx).pack(fill='both', expand=True)
+			self._loaded_views[idx] = True
 
 		# Ocultar todos, mostrar el activo
 		for i, frame in enumerate(self._frames):

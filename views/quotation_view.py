@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 import customtkinter as ctk
 
 from controllers.quotation_controller import QuotationController
+from controllers.sales_controller import SalesController
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.settings_manager import fmt_price
@@ -62,6 +63,7 @@ class QuotationView(BaseView):
 		super().__init__(master, ctx, **kwargs)
 
 		self._ctrl = QuotationController(ctx.db_engine)
+		self._sales_ctrl = SalesController(ctx.db_engine)
 		self._all_quotes: list[dict] = []
 		self._selected_id: int | None = None
 		self._edit_id: int | None = None
@@ -623,7 +625,6 @@ class QuotationView(BaseView):
 			row=2, column=1, sticky='ew', padx=PAD_MD, pady=(PAD_XS, PAD_SM)
 		)
 
-		# MEJORA UX: Parseo seguro de fecha
 		if prefill and prefill.get('valid_until'):
 			try:
 				vu_date = datetime.strptime(
@@ -791,21 +792,9 @@ class QuotationView(BaseView):
 
 	def _load_customers(self) -> list[dict]:
 		try:
-			from sqlalchemy.orm import sessionmaker
-
-			from database.models import Customer
-
-			Session = sessionmaker(bind=self.ctx.db_engine)
-			with Session() as s:
-				rows = (
-					s.query(Customer)
-					.filter_by(tenant_id=self.ctx.tenant_id, is_active=True)
-					.order_by(Customer.name)
-					.all()
-				)
-				return [{'id': c.id, 'name': c.name} for c in rows]
+			return self._sales_ctrl.get_customers(self.ctx.tenant_id)
 		except Exception as e:
-			logger.error('Error al cargar clientes en la vista: %s', e)
+			logger.error('Error al cargar clientes en la vista de cotizaciones: %s', e)
 			return []
 
 	def _on_art_search(self):
@@ -928,7 +917,6 @@ class QuotationView(BaseView):
 		self._item_widgets = []
 
 		if not self._items:
-			# MEJORA UX: Estado vacío estilizado
 			self.show_empty_state(
 				self._items_table_frame, 'Agregá artículos desde el buscador', '🛒'
 			)
@@ -1174,9 +1162,9 @@ class QuotationView(BaseView):
 			if float(it.get('unit_price', 0)) == 0
 		]
 		if no_price:
-			self.show_warning(
-				f'El ítem #{no_price[0]} tiene precio $0. Verificá antes de guardar.',
-				'Falta información',
+			self.show_error(
+				f'El ítem #{no_price[0]} tiene precio $0. No se pueden guardar cotizaciones con ítems sin precio.',
+				'Precio en $0',
 			)
 			return
 
@@ -1296,9 +1284,11 @@ class QuotationView(BaseView):
 		if not data:
 			return
 
-		if data['status'] == 'rechazada':
+		if data['status'] in ('rechazada', 'vencida', 'aceptada'):
+			status_text = data['status'].capitalize()
 			self.show_warning(
-				'No se puede convertir una cotización rechazada.', 'No permitido'
+				f'No se puede convertir una cotización que ya está {status_text}.',
+				'Estado inválido',
 			)
 			return
 
@@ -1362,6 +1352,7 @@ class QuotationView(BaseView):
 				quotation_id=qid,
 				user_id=self.ctx.user_id,
 				payment_method=pay_var.get(),
+				warehouse_id=self.ctx.warehouse_id,
 			)
 			popup.destroy()
 			if ok:

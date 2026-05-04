@@ -73,6 +73,9 @@ class SalesView(BaseView):
 		self._preset_btns: list = []
 		self._paid_amount = None
 
+		self._is_loading_data = False
+		self._search_popup = None
+
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=2)
 		self.grid_columnconfigure(2, weight=1)
@@ -99,7 +102,6 @@ class SalesView(BaseView):
 	# HELPERS DE UX
 	# =========================================================
 	def _select_all_text(self, event):
-		"""Auto-selecciona el texto de un entry al recibir el foco."""
 		event.widget.select_range(0, 'end')
 		event.widget.icursor('end')
 
@@ -164,6 +166,7 @@ class SalesView(BaseView):
 		)
 		self.entry_manual_search.pack(fill='x', padx=14, pady=(4, 6))
 		self.entry_manual_search.bind('<Return>', self._manual_search_on_enter)
+		self.entry_manual_search.bind('<KeyRelease>', self._manual_search_on_key)
 
 		qty_row = ctk.CTkFrame(self.left_panel, fg_color='transparent')
 		qty_row.pack(fill='x', padx=14, pady=(0, 6))
@@ -182,7 +185,7 @@ class SalesView(BaseView):
 		self.qty_entry.pack(side='left')
 		self.qty_entry.insert(0, '1')
 		self.qty_entry.bind('<Return>', self._manual_search_on_enter)
-		self.qty_entry.bind('<FocusIn>', self._select_all_text)  # UX FIX
+		self.qty_entry.bind('<FocusIn>', self._select_all_text)
 
 		self.btn_add = ctk.CTkButton(
 			self.left_panel,
@@ -242,7 +245,7 @@ class SalesView(BaseView):
 		self.entry_fast_qty.pack(side='left')
 		self.entry_fast_qty.insert(0, '1')
 		self.entry_fast_qty.bind('<Return>', lambda e: self.add_fast_to_cart())
-		self.entry_fast_qty.bind('<FocusIn>', self._select_all_text)  # UX FIX
+		self.entry_fast_qty.bind('<FocusIn>', self._select_all_text)
 
 		self.btn_add_fast = ctk.CTkButton(
 			self.left_panel,
@@ -561,7 +564,6 @@ class SalesView(BaseView):
 		)
 		self.lbl_total.pack(anchor='w')
 
-		# ── Badge mayorista (oculto por defecto) ──
 		self._lbl_wholesale_badge = ctk.CTkLabel(
 			total_block,
 			text='',
@@ -571,7 +573,6 @@ class SalesView(BaseView):
 			corner_radius=6,
 			anchor='w',
 		)
-		# Se muestra/oculta dinamicamente desde update_total()
 
 	# =========================================================
 	# PANEL DERECHO — Accesos Rápidos
@@ -641,8 +642,10 @@ class SalesView(BaseView):
 
 		if pct == 0:
 			self._btn_clear_disc.configure(text_color=TEXT_MUTED, border_color=BORDER)
+			self._set_msg('🏷  Descuento eliminado', TEXT_MUTED)
 		else:
 			self._btn_clear_disc.configure(text_color=RED_TEXT, border_color=RED)
+			self._set_msg(f'🏷  Descuento del {pct}% aplicado', GREEN_TEXT)
 
 		self.update_total()
 
@@ -655,6 +658,7 @@ class SalesView(BaseView):
 			if pct < 0 or pct > 100:
 				raise ValueError
 			self._set_discount_pct(pct)
+			self._entry_custom_disc.configure(border_color=BORDER)
 		except (ValueError, InvalidOperation):
 			self._entry_custom_disc.configure(border_color=RED)
 			self.after(
@@ -702,132 +706,144 @@ class SalesView(BaseView):
 			pass
 
 	def load_data(self):
-		current_customer = None
-		if hasattr(self, 'customers_combo') and self.customers_combo.get():
-			current_customer = self.customers_combo.get()
+		self._is_loading_data = True
+		try:
+			current_customer = None
+			if hasattr(self, 'customers_combo') and self.customers_combo.get():
+				current_customer = self.customers_combo.get()
 
-		tenant_id = self.ctx.tenant_id
-		self.db_variants = self.sales_ctrl.get_articles_for_sale(tenant_id)
+			tenant_id = self.ctx.tenant_id
+			self.db_variants = self.sales_ctrl.get_articles_for_sale(tenant_id)
 
-		customers = self.sales_ctrl.get_customers(tenant_id)
-		self.customer_map = {c.get('name'): c for c in customers}
+			customers = self.sales_ctrl.get_customers(tenant_id)
+			self.customer_map = {c.get('name'): c for c in customers}
 
-		if self.customer_map:
-			self.customers_combo.configure(values=list(self.customer_map.keys()))
-			if current_customer and current_customer in self.customer_map:
-				self.customers_combo.set(current_customer)
-			else:
-				self.customers_combo.set('Consumidor Final')
-		else:
-			self.customers_combo.configure(values=['Consumidor Final'])
-			self.customers_combo.set('Consumidor Final')
-
-		for w in self.touch_scroll.winfo_children():
-			w.destroy()
-		self.touch_buttons.clear()
-
-		row, col = 0, 0
-		for v in self.db_variants:
-			if v.get('is_combo') or v.get('show_on_touch'):
-				stock = Decimal(str(v.get('total_stock', 0)))
-				price = Decimal(str(v.get('selling_price', 0)))
-				name = v.get('name', 'Promo')
-				is_disabled = stock <= 0
-
-				from utils.settings_manager import get as settings_get
-
-				low_threshold = settings_get('low_stock_threshold', 5)
-				stock_int = int(stock)
-				if is_disabled:
-					stock_label = 'Sin stock'
-					stock_color = TEXT_MUTED
-				elif stock_int <= low_threshold:
-					stock_label = f'Stock: {stock_int}'
-					stock_color = ORANGE_TEXT
+			if self.customer_map:
+				self.customers_combo.configure(values=list(self.customer_map.keys()))
+				if current_customer and current_customer in self.customer_map:
+					self.customers_combo.set(current_customer)
 				else:
-					stock_label = f'Stock: {stock_int}'
-					stock_color = TEXT_MUTED
+					self.customers_combo.set('Consumidor Final')
+			else:
+				self.customers_combo.configure(values=['Consumidor Final'])
+				self.customers_combo.set('Consumidor Final')
 
-				btn_frame = ctk.CTkFrame(
-					self.touch_scroll,
-					fg_color=SURFACE3 if is_disabled else ACCENT_DIM,
-					corner_radius=8,
-					border_width=1,
-					border_color=BORDER,
-					width=118,
-					height=80,
-				)
-				btn_frame.grid(row=row, column=col, padx=4, pady=4)
-				btn_frame.grid_propagate(False)
+			for w in self.touch_scroll.winfo_children():
+				w.destroy()
+			self.touch_buttons.clear()
 
-				if not is_disabled:
-					btn_frame.bind(
-						'<Button-1>',
-						lambda e, vid=v.get('variant_id'): self.add_from_touch(vid),
+			row, col = 0, 0
+			for v in self.db_variants:
+				if v.get('is_combo') or v.get('show_on_touch'):
+					stock = Decimal(str(v.get('total_stock', 0)))
+					price = Decimal(str(v.get('selling_price', 0)))
+					name = v.get('name', 'Promo')
+					is_disabled = stock <= 0
+
+					from utils.settings_manager import get as settings_get
+
+					low_threshold = settings_get('low_stock_threshold', 5)
+					stock_int = int(stock)
+					if is_disabled:
+						stock_label = 'Sin stock'
+						stock_color = TEXT_MUTED
+					elif stock_int <= low_threshold:
+						stock_label = f'Stock: {stock_int}'
+						stock_color = ORANGE_TEXT
+					else:
+						stock_label = f'Stock: {stock_int}'
+						stock_color = TEXT_MUTED
+
+					btn_frame = ctk.CTkFrame(
+						self.touch_scroll,
+						fg_color=SURFACE3 if is_disabled else ACCENT_DIM,
+						corner_radius=8,
+						border_width=1,
+						border_color=BORDER,
+						width=118,
+						height=80,
 					)
+					btn_frame.grid(row=row, column=col, padx=4, pady=4)
+					btn_frame.grid_propagate(False)
 
-				inner = ctk.CTkFrame(btn_frame, fg_color='transparent')
-				inner.place(relx=0.5, rely=0.5, anchor='center')
-
-				lbl_name = ctk.CTkLabel(
-					inner,
-					text=name,
-					font=FONT_BODY_BOLD,
-					text_color=TEXT_MUTED if is_disabled else ACCENT_TEXT,
-					wraplength=108,
-					justify='center',
-				)
-				lbl_name.pack()
-				lbl_price = ctk.CTkLabel(
-					inner,
-					text=f'${price:.2f}',
-					font=FONT_SMALL,
-					text_color=TEXT_MUTED if is_disabled else ACCENT_TEXT,
-				)
-				lbl_price.pack()
-				lbl_stock = ctk.CTkLabel(
-					inner,
-					text=stock_label,
-					font=FONT_LABEL,
-					text_color=stock_color,
-				)
-				lbl_stock.pack()
-
-				if not is_disabled:
-					for widget in [btn_frame, inner, lbl_name, lbl_price, lbl_stock]:
-						widget.bind(
+					if not is_disabled:
+						btn_frame.bind(
 							'<Button-1>',
 							lambda e, vid=v.get('variant_id'): self.add_from_touch(vid),
 						)
-						widget.configure(cursor='hand2')
 
-				self.touch_buttons.append(
-					{'variant_id': v.get('variant_id'), 'button': btn_frame}
-				)
+					inner = ctk.CTkFrame(btn_frame, fg_color='transparent')
+					inner.place(relx=0.5, rely=0.5, anchor='center')
 
-				col += 1
-				if col > 1:
-					col = 0
-					row += 1
+					lbl_name = ctk.CTkLabel(
+						inner,
+						text=name,
+						font=FONT_BODY_BOLD,
+						text_color=TEXT_MUTED if is_disabled else ACCENT_TEXT,
+						wraplength=108,
+						justify='center',
+					)
+					lbl_name.pack()
+					lbl_price = ctk.CTkLabel(
+						inner,
+						text=f'${price:.2f}',
+						font=FONT_SMALL,
+						text_color=TEXT_MUTED if is_disabled else ACCENT_TEXT,
+					)
+					lbl_price.pack()
+					lbl_stock = ctk.CTkLabel(
+						inner,
+						text=stock_label,
+						font=FONT_LABEL,
+						text_color=stock_color,
+					)
+					lbl_stock.pack()
 
-		if not self.touch_buttons:
-			ctk.CTkLabel(
-				self.touch_scroll,
-				text='Sin combos\nasignados',
-				font=FONT_BODY,
-				text_color=TEXT_MUTED,
-				justify='center',
-			).pack(pady=40)
+					if not is_disabled:
+						for widget in [
+							btn_frame,
+							inner,
+							lbl_name,
+							lbl_price,
+							lbl_stock,
+						]:
+							widget.bind(
+								'<Button-1>',
+								lambda e, vid=v.get('variant_id'): self.add_from_touch(
+									vid
+								),
+							)
+							widget.configure(cursor='hand2')
 
-		self.entry_barcode.focus()
-		self._check_cash_status()
+					self.touch_buttons.append(
+						{'variant_id': v.get('variant_id'), 'button': btn_frame}
+					)
 
-		if self._context_data and 'restore_sale' in self._context_data:
-			self._load_restored_sale(self._context_data['restore_sale'])
-			self._context_data = None
+					col += 1
+					if col > 1:
+						col = 0
+						row += 1
+
+			if not self.touch_buttons:
+				ctk.CTkLabel(
+					self.touch_scroll,
+					text='Sin combos\nasignados',
+					font=FONT_BODY,
+					text_color=TEXT_MUTED,
+					justify='center',
+				).pack(pady=40)
+
+			self.entry_barcode.focus()
+			self._check_cash_status()
+
+			if self._context_data and 'restore_sale' in self._context_data:
+				self._load_restored_sale(self._context_data['restore_sale'])
+				self._context_data = None
+		finally:
+			self._is_loading_data = False
 
 	def _load_restored_sale(self, sale_data):
-		"""Reconstruye el carrito visual a partir de los datos de un ticket devuelto/anulado."""
+		self._is_loading_data = True
 		try:
 			if (
 				sale_data.get('customer_name')
@@ -868,6 +884,8 @@ class SalesView(BaseView):
 			self._set_msg('✏️ Ticket listo para modificar', ORANGE_TEXT)
 		except Exception as e:
 			self._set_msg(f'Error restaurando ticket: {e}', RED_TEXT)
+		finally:
+			self._is_loading_data = False
 
 	# =========================================================
 	# LÓGICA DEL CARRITO
@@ -879,21 +897,69 @@ class SalesView(BaseView):
 			if item.get('variant_id') == variant_id
 		)
 
+	def _apply_product_discount(self, variant: dict, base_price: Decimal):
+		"""Aplica el descuento activo al precio: primero producto, luego distribuidor.
+		Retorna (precio_efectivo, pct_aplicado, etiqueta).
+		"""
+		from datetime import datetime as _dt
+
+		def _pct_active(pct, until):
+			if not pct or pct <= 0:
+				return 0.0
+			if until:
+				if isinstance(until, str):
+					try:
+						until = _dt.fromisoformat(until)
+					except Exception:
+						return 0.0
+				if until < _dt.now():
+					return 0.0
+			return pct
+
+		prod_pct = _pct_active(variant.get('discount_pct', 0), variant.get('discount_until'))
+		supp_pct = _pct_active(
+			variant.get('supplier_discount_pct', 0),
+			variant.get('supplier_discount_until'),
+		)
+
+		# El descuento de producto tiene prioridad; si no hay, aplica el del distribuidor
+		if prod_pct > 0:
+			factor = Decimal(str(1 - prod_pct / 100))
+			return (base_price * factor).quantize(Decimal('0.01')), prod_pct, 'producto'
+		if supp_pct > 0:
+			factor = Decimal(str(1 - supp_pct / 100))
+			return (base_price * factor).quantize(Decimal('0.01')), supp_pct, 'distribuidor'
+		return base_price, 0.0, ''
+
 	def _apply_wholesale(self, base_price, total_qty):
-		"""
-		Retorna (precio_final, discount_pct) aplicando reglas mayoristas si corresponde.
-		total_qty = cantidad ya en carrito + cantidad que se va a agregar.
-		"""
 		discount_pct = _cfg_mgr.get_wholesale_discount(float(total_qty))
 		if discount_pct > 0:
 			factor = Decimal(str(1 - discount_pct / 100))
 			return (base_price * factor).quantize(Decimal('0.01')), discount_pct
 		return base_price, 0.0
 
-	# ─── Búsqueda Manual Optimizado (Sin ComboBox bloqueante) ─────────────
+	# ─── Búsqueda Manual Optimizado ─────────────
+	def _manual_search_on_key(self, event=None):
+		if event and event.keysym in ('Return', 'KP_Enter'):
+			return
+		q = self.entry_manual_search.get().strip()
+		if (
+			not q
+			and getattr(self, '_search_popup', None)
+			and self._search_popup.winfo_exists()
+		):
+			self._search_popup.destroy()
+			self._search_popup = None
+
 	def _manual_search_on_enter(self, event=None):
 		q = self.entry_manual_search.get().lower().strip()
 		if not q:
+			if (
+				getattr(self, '_search_popup', None)
+				and self._search_popup.winfo_exists()
+			):
+				self._search_popup.destroy()
+				self._search_popup = None
 			return
 
 		matches = [
@@ -911,7 +977,11 @@ class SalesView(BaseView):
 			self._set_msg('⚠ No se encontraron artículos', RED_TEXT)
 
 	def _show_search_results_popup(self, matches):
+		if getattr(self, '_search_popup', None) and self._search_popup.winfo_exists():
+			self._search_popup.destroy()
+
 		popup = ctk.CTkToplevel(self)
+		self._search_popup = popup
 		popup.title('Resultados de búsqueda')
 		popup.geometry('450x350')
 		popup.attributes('-topmost', True)
@@ -966,40 +1036,79 @@ class SalesView(BaseView):
 			return
 
 		total_qty = current_cart_qty + qty_to_add
+		base_price, product_disc_pct, _disc_src = self._apply_product_discount(variant, base_price)
 		price, wholesale_pct = self._apply_wholesale(base_price, total_qty)
-		display_desc = f'\U0001f4e6 {desc}' if wholesale_pct > 0 else desc
-		subtotal = price * qty_to_add
-		qty_visual = (
-			f'{int(qty_to_add)}' if qty_to_add % 1 == 0 else f'{qty_to_add:.3f}'
+		if product_disc_pct > 0:
+			display_desc = f'🏷️ -{product_disc_pct:.4g}% {desc}'
+		elif wholesale_pct > 0:
+			display_desc = f'📦 {desc}'
+		else:
+			display_desc = desc
+
+		existing_item = next(
+			(i for i in self.cart if i.get('variant_id') == variant_id), None
 		)
 
-		row_idx = len(self.tree.get_children())
-		alt_tag = 'odd' if row_idx % 2 == 0 else 'even'
+		if existing_item:
+			existing_item['qty'] = float(total_qty)
+			existing_item['price'] = float(price)
+			existing_item['wholesale_pct'] = wholesale_pct
+			existing_item['product_disc_pct'] = product_disc_pct
+			existing_item['subtotal'] = float(price * total_qty)
 
-		item_id = self.tree.insert(
-			'',
-			'end',
-			values=(display_desc, qty_visual, f'${price:.2f}', f'${subtotal:.2f}'),
-			tags=(alt_tag,),
-		)
-
-		self.cart.append(
-			{
-				'tree_id': item_id,
-				'variant_id': variant_id,
-				'desc': display_desc,
-				'base_price': float(base_price),
-				'price': float(price),
-				'wholesale_pct': wholesale_pct,
-				'qty': float(qty_to_add),
-				'subtotal': float(subtotal),
-			}
-		)
-		if wholesale_pct > 0:
-			self._set_msg(
-				f'\U0001f4e6 Precio mayorista aplicado ({wholesale_pct:.0f}% dto.)'
+			qty_visual = (
+				f'{int(total_qty)}' if total_qty % 1 == 0 else f'{total_qty:.3f}'
 			)
-		self._flash_new_item(item_id, alt_tag)
+			self.tree.item(
+				existing_item['tree_id'],
+				values=(
+					display_desc,
+					qty_visual,
+					f'${price:.2f}',
+					f'${existing_item["subtotal"]:.2f}',
+				),
+			)
+			self._flash_new_item(
+				existing_item['tree_id'],
+				self.tree.item(existing_item['tree_id'], 'tags')[0],
+			)
+		else:
+			subtotal = price * qty_to_add
+			qty_visual = (
+				f'{int(qty_to_add)}' if qty_to_add % 1 == 0 else f'{qty_to_add:.3f}'
+			)
+			row_idx = len(self.tree.get_children())
+			alt_tag = 'odd' if row_idx % 2 == 0 else 'even'
+
+			item_id = self.tree.insert(
+				'',
+				'end',
+				values=(display_desc, qty_visual, f'${price:.2f}', f'${subtotal:.2f}'),
+				tags=(alt_tag,),
+			)
+
+			self.cart.append(
+				{
+					'tree_id': item_id,
+					'variant_id': variant_id,
+					'desc': display_desc,
+					'base_price': float(base_price),
+					'price': float(price),
+					'wholesale_pct': wholesale_pct,
+					'product_disc_pct': product_disc_pct,
+					'qty': float(qty_to_add),
+					'subtotal': float(subtotal),
+				}
+			)
+			self._flash_new_item(item_id, alt_tag)
+
+		if product_disc_pct > 0:
+			self._set_msg(f'🏷️ Descuento -{product_disc_pct:.4g}% aplicado en {desc}', ORANGE_TEXT)
+		elif wholesale_pct > 0:
+			self._set_msg(f'📦 Precio mayorista aplicado ({wholesale_pct:.0f}% dto.)')
+		else:
+			self._set_msg(f'✓  Agregado: {desc}')
+
 		self.update_total()
 		self.qty_entry.delete(0, 'end')
 		self.qty_entry.insert(0, '1')
@@ -1007,7 +1116,7 @@ class SalesView(BaseView):
 
 	# ─── Barcode helpers ──────────────────────────────────────────────────
 	def _barcode_on_enter(self, event=None):
-		if self._barcode_timer:
+		if self._barcode_timer is not None:
 			self.after_cancel(self._barcode_timer)
 			self._barcode_timer = None
 		self.add_by_barcode()
@@ -1015,11 +1124,13 @@ class SalesView(BaseView):
 	def _barcode_on_key(self, event=None):
 		if event and event.keysym in ('Return', 'KP_Enter'):
 			return
-		if self._barcode_timer:
+		if self._barcode_timer is not None:
 			self.after_cancel(self._barcode_timer)
+			self._barcode_timer = None
+
 		raw = self.entry_barcode.get().strip()
 		if len(raw) >= 4:
-			self._barcode_timer = self.after(500, self._barcode_auto_add)
+			self._barcode_timer = self.after(800, self._barcode_auto_add)
 
 	def _barcode_auto_add(self):
 		self._barcode_timer = None
@@ -1040,6 +1151,10 @@ class SalesView(BaseView):
 			pass
 
 	def add_by_barcode(self, event=None):
+		if getattr(self, '_is_loading_data', False):
+			self.after(100, self.add_by_barcode)
+			return
+
 		raw_code = self.entry_barcode.get().strip()
 		if not raw_code:
 			return
@@ -1092,13 +1207,16 @@ class SalesView(BaseView):
 			unit_price = base_price
 			subtotal = scale_price
 			wholesale_pct = 0.0
+			product_disc_pct = 0.0
+			total_qty = current_cart_qty + qty_to_add
 		else:
 			qty_to_add = Decimal('1')
 			total_qty = current_cart_qty + qty_to_add
-			unit_price, wholesale_pct = self._apply_wholesale(base_price, total_qty)
-			subtotal = unit_price * qty_to_add
+			effective_base, product_disc_pct, _disc_src = self._apply_product_discount(found_variant, base_price)
+			unit_price, wholesale_pct = self._apply_wholesale(effective_base, total_qty)
+			subtotal = unit_price * total_qty
 
-		if (current_cart_qty + qty_to_add) > total_stock:
+		if total_qty > total_stock:
 			self._set_msg(
 				f'⚠ Stock insuficiente — en carrito: {current_cart_qty:.0f}, disponible: {total_stock:.0f}',
 				RED_TEXT,
@@ -1106,42 +1224,88 @@ class SalesView(BaseView):
 			self.entry_barcode.delete(0, 'end')
 			return
 
-		display_name = f'\U0001f4e6 {name}' if wholesale_pct > 0 else name
-		qty_visual = (
-			f'{int(qty_to_add)}' if qty_to_add % 1 == 0 else f'{qty_to_add:.3f}'
-		)
-		row_idx = len(self.tree.get_children())
-		alt_tag = 'odd' if row_idx % 2 == 0 else 'even'
-		item_id = self.tree.insert(
-			'',
-			'end',
-			values=(display_name, qty_visual, f'${unit_price:.2f}', f'${subtotal:.2f}'),
-			tags=(alt_tag,),
+		if product_disc_pct > 0:
+			display_name = f'🏷️ -{product_disc_pct:.4g}% {name}'
+		elif wholesale_pct > 0:
+			display_name = f'📦 {name}'
+		else:
+			display_name = name
+		existing_item = next(
+			(i for i in self.cart if i.get('variant_id') == variant_id), None
 		)
 
-		self.cart.append(
-			{
-				'tree_id': item_id,
-				'variant_id': variant_id,
-				'desc': display_name,
-				'base_price': float(base_price),
-				'price': float(unit_price),
-				'wholesale_pct': wholesale_pct,
-				'qty': float(qty_to_add),
-				'subtotal': float(subtotal),
-			}
-		)
-		self._flash_new_item(item_id, alt_tag)
-		self.update_total()
-		self.entry_barcode.delete(0, 'end')
-		if wholesale_pct > 0:
-			self._set_msg(
-				f'\U0001f4e6 {name} — Precio mayorista ({wholesale_pct:.0f}% dto.)'
+		if existing_item and not is_scale_barcode:
+			existing_item['qty'] = float(total_qty)
+			existing_item['price'] = float(unit_price)
+			existing_item['wholesale_pct'] = wholesale_pct
+			existing_item['product_disc_pct'] = product_disc_pct
+			existing_item['subtotal'] = float(subtotal)
+
+			qty_visual = (
+				f'{int(total_qty)}' if total_qty % 1 == 0 else f'{total_qty:.3f}'
+			)
+			self.tree.item(
+				existing_item['tree_id'],
+				values=(
+					display_name,
+					qty_visual,
+					f'${unit_price:.2f}',
+					f'${existing_item["subtotal"]:.2f}',
+				),
+			)
+			self._flash_new_item(
+				existing_item['tree_id'],
+				self.tree.item(existing_item['tree_id'], 'tags')[0],
 			)
 		else:
-			self._set_msg(f'\u2713  {name}')
+			subtotal = unit_price * qty_to_add
+			qty_visual = (
+				f'{int(qty_to_add)}' if qty_to_add % 1 == 0 else f'{qty_to_add:.3f}'
+			)
+			row_idx = len(self.tree.get_children())
+			alt_tag = 'odd' if row_idx % 2 == 0 else 'even'
+
+			item_id = self.tree.insert(
+				'',
+				'end',
+				values=(
+					display_name,
+					qty_visual,
+					f'${unit_price:.2f}',
+					f'${subtotal:.2f}',
+				),
+				tags=(alt_tag,),
+			)
+
+			self.cart.append(
+				{
+					'tree_id': item_id,
+					'variant_id': variant_id,
+					'desc': display_name,
+					'base_price': float(base_price),
+					'price': float(unit_price),
+					'wholesale_pct': wholesale_pct,
+					'product_disc_pct': product_disc_pct,
+					'qty': float(qty_to_add),
+					'subtotal': float(subtotal),
+				}
+			)
+			self._flash_new_item(item_id, alt_tag)
+
+		self.update_total()
+		self.entry_barcode.delete(0, 'end')
+
+		if product_disc_pct > 0:
+			self._set_msg(f'🏷️ {name} — Descuento -{product_disc_pct:.4g}%', ORANGE_TEXT)
+		elif wholesale_pct > 0:
+			self._set_msg(f'📦 {name} — Precio mayorista ({wholesale_pct:.0f}% dto.)')
+		else:
+			self._set_msg(f'✓  {name}')
 
 	def add_from_touch(self, variant_id):
+		if getattr(self, '_is_loading_data', False):
+			return
+
 		found = next(
 			(v for v in self.db_variants if v['variant_id'] == variant_id), None
 		)
@@ -1159,38 +1323,74 @@ class SalesView(BaseView):
 		base_price = Decimal(str(found.get('selling_price', 0.0)))
 		name = found.get('name')
 
-		# ── Aplicar precio mayorista si corresponde ──
 		total_qty = current_cart_qty + qty_to_add
-		price, wholesale_pct = self._apply_wholesale(base_price, total_qty)
+		effective_base, product_disc_pct, _disc_src = self._apply_product_discount(found, base_price)
+		price, wholesale_pct = self._apply_wholesale(effective_base, total_qty)
 		is_wholesale = wholesale_pct > 0
-		display_name = f'📦 {name}' if is_wholesale else name
-		subtotal = price
+		if product_disc_pct > 0:
+			display_name = f'🏷️ -{product_disc_pct:.4g}% {name}'
+		elif is_wholesale:
+			display_name = f'📦 {name}'
+		else:
+			display_name = name
 
-		row_idx = len(self.tree.get_children())
-		alt_tag = 'odd' if row_idx % 2 == 0 else 'even'
-		item_id = self.tree.insert(
-			'',
-			'end',
-			values=(display_name, '1', f'${price:.2f}', f'${subtotal:.2f}'),
-			tags=(alt_tag,),
+		existing_item = next(
+			(i for i in self.cart if i.get('variant_id') == variant_id), None
 		)
 
-		self.cart.append(
-			{
-				'tree_id': item_id,
-				'variant_id': variant_id,
-				'desc': name,
-				'price': float(price),
-				'base_price': float(base_price),
-				'wholesale_pct': wholesale_pct,
-				'qty': 1.0,
-				'subtotal': float(subtotal),
-			}
-		)
+		if existing_item:
+			existing_item['qty'] = float(total_qty)
+			existing_item['price'] = float(price)
+			existing_item['wholesale_pct'] = wholesale_pct
+			existing_item['product_disc_pct'] = product_disc_pct
+			existing_item['subtotal'] = float(price * total_qty)
 
-		self._flash_new_item(item_id, alt_tag)
+			qty_visual = (
+				f'{int(total_qty)}' if total_qty % 1 == 0 else f'{total_qty:.3f}'
+			)
+			self.tree.item(
+				existing_item['tree_id'],
+				values=(
+					display_name,
+					qty_visual,
+					f'${price:.2f}',
+					f'${existing_item["subtotal"]:.2f}',
+				),
+			)
+			self._flash_new_item(
+				existing_item['tree_id'],
+				self.tree.item(existing_item['tree_id'], 'tags')[0],
+			)
+		else:
+			subtotal = price * qty_to_add
+			row_idx = len(self.tree.get_children())
+			alt_tag = 'odd' if row_idx % 2 == 0 else 'even'
+			item_id = self.tree.insert(
+				'',
+				'end',
+				values=(display_name, '1', f'${price:.2f}', f'${subtotal:.2f}'),
+				tags=(alt_tag,),
+			)
+
+			self.cart.append(
+				{
+					'tree_id': item_id,
+					'variant_id': variant_id,
+					'desc': display_name,
+					'price': float(price),
+					'base_price': float(base_price),
+					'wholesale_pct': wholesale_pct,
+					'product_disc_pct': product_disc_pct,
+					'qty': 1.0,
+					'subtotal': float(subtotal),
+				}
+			)
+			self._flash_new_item(item_id, alt_tag)
+
 		self.update_total()
-		if is_wholesale:
+		if product_disc_pct > 0:
+			self._set_msg(f'🏷️ Descuento -{product_disc_pct:.4g}% · {name}', ORANGE_TEXT)
+		elif is_wholesale:
 			self._set_msg(f'📦 Mayorista -{wholesale_pct:.4g}% · {name}', ORANGE_TEXT)
 		else:
 			self._set_msg(f'✓ Agregado: {name}')
@@ -1297,20 +1497,29 @@ class SalesView(BaseView):
 			self._disc_row.pack_forget()
 			self._divider_total.pack_forget()
 
-		# ── Badge mayorista ──
-		wholesale_items = [i for i in self.cart if i.get('wholesale_pct', 0) > 0]
-		if wholesale_items and hasattr(self, '_lbl_wholesale_badge'):
-			ahorro = sum(
-				(item['base_price'] - item['price']) * item['qty']
-				for item in wholesale_items
-				if 'base_price' in item
-			)
-			self._lbl_wholesale_badge.configure(
-				text=f'📦 Precio mayorista activo · Ahorro: {fmt_price(ahorro)}'
-			)
-			self._lbl_wholesale_badge.pack(fill='x', padx=4, pady=(0, 4))
-		elif hasattr(self, '_lbl_wholesale_badge'):
-			self._lbl_wholesale_badge.pack_forget()
+		# ── Badge mayorista / descuento producto ──
+		if hasattr(self, '_lbl_wholesale_badge'):
+			disc_items = [i for i in self.cart if i.get('product_disc_pct', 0) > 0]
+			wholesale_items = [i for i in self.cart if i.get('wholesale_pct', 0) > 0]
+			msgs = []
+			if disc_items:
+				ahorro_disc = sum(
+					(Decimal(str(i['base_price'])) - Decimal(str(i['price']))) * Decimal(str(i['qty']))
+					for i in disc_items
+				)
+				msgs.append(f'🏷️ Desc. producto · Ahorro: {fmt_price(float(ahorro_disc))}')
+			if wholesale_items:
+				ahorro_ws = sum(
+					(item['base_price'] - item['price']) * item['qty']
+					for item in wholesale_items
+					if 'base_price' in item
+				)
+				msgs.append(f'📦 Mayorista · Ahorro: {fmt_price(ahorro_ws)}')
+			if msgs:
+				self._lbl_wholesale_badge.configure(text='  ·  '.join(msgs))
+				self._lbl_wholesale_badge.pack(fill='x', padx=4, pady=(0, 4))
+			else:
+				self._lbl_wholesale_badge.pack_forget()
 
 	def clear_entire_cart(self):
 		if not self.cart:
@@ -1368,7 +1577,6 @@ class SalesView(BaseView):
 		self.popup.grab_set()
 		self.popup.update_idletasks()
 
-		# Tamaño más conservador para pantallas 1366x768 o 1024x768
 		pw, ph = 460, 620
 		rx = self.winfo_rootx() + (self.winfo_width() - pw) // 2
 		ry = self.winfo_rooty() + (self.winfo_height() - ph) // 2
@@ -1509,7 +1717,7 @@ class SalesView(BaseView):
 			command=self._toggle_mixto,
 		).pack(side='left')
 
-		# ── Sección mixto (oculta por defecto) ────────────────────────────
+		# ── Sección mixto ────────────────────────────
 		self._mixto_section = ctk.CTkFrame(
 			self.popup,
 			fg_color=SURFACE3,
@@ -1555,14 +1763,14 @@ class SalesView(BaseView):
 		)
 		self.entry_amount_2.pack(fill='x', pady=(4, 6))
 		self.entry_amount_2.bind('<KeyRelease>', self._on_amount2_change)
-		self.entry_amount_2.bind('<FocusIn>', self._select_all_text)  # UX FIX
+		self.entry_amount_2.bind('<FocusIn>', self._select_all_text)
 
 		self._lbl_amount_1_auto = ctk.CTkLabel(
 			_mx, text='', font=FONT_BODY_BOLD, text_color=GREEN_TEXT, anchor='e'
 		)
 		self._lbl_amount_1_auto.pack(fill='x')
 
-		# ── Sección efectivo (oculta cuando mixto ON) ─────────────────────
+		# ── Sección efectivo ─────────────────────
 		self._lbl_cash = ctk.CTkLabel(
 			self.popup,
 			text='EL CLIENTE ABONA (efectivo) - Presione Enter',
@@ -1583,9 +1791,8 @@ class SalesView(BaseView):
 		self.entry_paid.pack(pady=(6, 0), padx=24)
 		self.entry_paid.focus()
 		self.entry_paid.bind('<KeyRelease>', self._calculate_change)
-		self.entry_paid.bind('<FocusIn>', self._select_all_text)  # UX FIX
+		self.entry_paid.bind('<FocusIn>', self._select_all_text)
 
-		# Confirmación ultrarrápida con Teclado
 		self.entry_paid.bind('<Return>', lambda e: self._confirm_and_save(False))
 
 		self.lbl_change = ctk.CTkLabel(
@@ -1691,19 +1898,28 @@ class SalesView(BaseView):
 	def _on_amount2_change(self, event=None):
 		try:
 			raw2 = self.entry_amount_2.get().strip().replace(',', '.')
-			amt2 = Decimal(raw2) if raw2 else Decimal('0')
+			if not raw2:
+				self.entry_amount_2.configure(border_color=BORDER)
+				self._lbl_amount_1_auto.configure(text='')
+				return
+			amt2 = Decimal(raw2)
 			amt1 = self.current_total - amt2
 			method1 = self.combo_payment.get()
 			if amt1 < 0:
+				self.entry_amount_2.configure(border_color=RED)
 				self._lbl_amount_1_auto.configure(
 					text='⚠ El monto excede el total', text_color=RED_TEXT
 				)
 			else:
+				self.entry_amount_2.configure(border_color=BORDER)
 				self._lbl_amount_1_auto.configure(
 					text=f'{method1}: ${amt1:,.2f}', text_color=GREEN_TEXT
 				)
 		except (ValueError, InvalidOperation):
-			pass
+			self.entry_amount_2.configure(border_color=RED)
+			self._lbl_amount_1_auto.configure(
+				text='⚠ Monto inválido', text_color=RED_TEXT
+			)
 
 	def _confirm_and_save(self, is_fiado=False):
 		if (

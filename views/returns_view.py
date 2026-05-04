@@ -1,15 +1,5 @@
-"""
-views/returns_view.py
-=====================
-Módulo de Devoluciones y Anulaciones de Tickets.
-
-Layout: dos paneles
-  - Izquierdo: lista de tickets con búsqueda y filtros rápidos
-  - Derecho:  detalle del ticket seleccionado + botones de acción
-"""
-
 import logging
-import os
+from pathlib import Path
 from tkinter import ttk
 
 import customtkinter as ctk
@@ -494,7 +484,6 @@ class ReturnsView(BaseView):
 			s for s in self._all_sales if _matches_search(s) and _matches_filter(s)
 		]
 
-		# SOLUCIÓN APLICADA: Iterar sobre una copia de la lista usando list()
 		for iid in list(self.tree.get_children()):
 			self.tree.delete(iid)
 
@@ -541,7 +530,6 @@ class ReturnsView(BaseView):
 		if not sel:
 			return
 
-		# SOLUCIÓN APLICADA: Obtener datos por índice y no usar el ID de Tkinter
 		item_data = self.tree.item(sel[0])
 		sale_id = str(item_data['values'][0])
 
@@ -561,7 +549,7 @@ class ReturnsView(BaseView):
 
 		status = sale.get('status', 'completada')
 		pm = sale.get('payment_method', '')
-		operable = status in ('completada', 'pendiente')
+		operable = status in ('completada', 'pendiente', 'parcial')
 
 		self.lbl_ticket_title.configure(
 			text=f'Ticket  #{sale["id"]}',
@@ -594,7 +582,6 @@ class ReturnsView(BaseView):
 			text_color=_STATUS_COLORS.get(status, TEXT_PRIMARY),
 		)
 
-		# SOLUCIÓN APLICADA: Iterar sobre una copia de la lista usando list()
 		for iid in list(self.items_tree.get_children()):
 			self.items_tree.delete(iid)
 
@@ -704,6 +691,11 @@ class ReturnsView(BaseView):
 			self.show_warning('Este ticket no tiene ítems.')
 			return
 
+		total_amount = float(sale.get('total_amount', 0))
+		discount_amount = float(sale.get('discount_amount', 0))
+		subtotal_orig = total_amount + discount_amount
+		discount_factor = total_amount / subtotal_orig if subtotal_orig > 0 else 1.0
+
 		popup = ctk.CTkToplevel(self)
 		popup.title(f'Devolución Parcial — Ticket #{sale["id"]}')
 		popup.configure(fg_color=SURFACE1)
@@ -741,14 +733,13 @@ class ReturnsView(BaseView):
 			for cv, ent, it in row_data:
 				if cv.get():
 					try:
-						# SOLUCIÓN APLICADA: Limpiar los espacios extras
 						raw_val = ent.get().strip().replace(',', '.')
 						if not raw_val:
 							continue
 						q = float(raw_val)
 						q = min(max(q, 0), float(it['quantity']))
 						if q > 0:
-							total += float(it['unit_price']) * q
+							total += float(it['unit_price']) * q * discount_factor
 						else:
 							cv.set(False)
 					except (ValueError, TypeError):
@@ -876,7 +867,6 @@ class ReturnsView(BaseView):
 				if not cv.get():
 					continue
 				try:
-					# SOLUCIÓN APLICADA: Limpiar los espacios extras
 					raw_val = ent.get().strip().replace(',', '.')
 					if not raw_val:
 						continue
@@ -1007,18 +997,20 @@ class ReturnsView(BaseView):
 		if not self._selected_sale:
 			return
 		sale = self._selected_sale
-		status = sale.get('status', '')
-		note_type = 'Anulación' if status == 'anulada' else 'Devolución'
 
-		rc = ReceiptController()
-		filepath = os.path.join(
-			rc.receipts_dir,
-			f'tenant_{self.ctx.tenant_id}_NC_{sale["id"]}_{note_type[:3].lower()}.pdf',
-		)
-		if os.path.exists(filepath):
-			rc.print_receipt(filepath)
-		else:
-			self.show_warning(
-				f'No se encontró la nota de crédito del Ticket #{sale["id"]}.',
-				'Archivo no encontrado',
+		try:
+			rc = ReceiptController()
+			base_dir = Path(rc.receipts_dir)
+			matches = list(
+				base_dir.glob(f'tenant_{self.ctx.tenant_id}_NC_{sale["id"]}_*.pdf')
 			)
+
+			if matches:
+				rc.print_receipt(str(matches[0]))
+			else:
+				self.show_warning(
+					f'No se encontró la nota de crédito del Ticket #{sale["id"]}.',
+					'Archivo no encontrado',
+				)
+		except Exception as e:
+			self.show_error(f'Error al intentar abrir la nota de crédito: {str(e)}')

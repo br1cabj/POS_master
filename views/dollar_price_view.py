@@ -15,6 +15,7 @@ su precio en dólares (doble clic o botón "Asignar US$").
 """
 
 import logging
+import threading
 from tkinter import ttk
 
 import customtkinter as ctk
@@ -385,9 +386,18 @@ class DollarPriceView(BaseView):
 		self.lbl_ready_sub.pack(padx=14, pady=(0, 14))
 
 		# ── 6. Botón principal ───────────────────────────
+		ctk.CTkLabel(
+			scroll,
+			text='Verificá la proyección en la tabla a la derecha antes de guardar.',
+			font=FONT_SMALL,
+			text_color=ORANGE_TEXT,
+			wraplength=230,
+			justify='center',
+		).pack(padx=14, pady=(0, 8))
+
 		self.btn_update = ctk.CTkButton(
 			scroll,
-			text='ACTUALIZAR PRECIOS',
+			text='✅ CONFIRMAR Y GUARDAR',
 			font=FONT_NAV_BOLD,
 			fg_color=GREEN_DIM,
 			hover_color=GREEN,
@@ -779,9 +789,9 @@ class DollarPriceView(BaseView):
 			)
 			return
 
-		variant_id = int(selected[0])
+		variant_id = str(selected[0])
 		variant = next(
-			(v for v in self._all_variants if v['variant_id'] == variant_id), None
+			(v for v in self._all_variants if str(v['variant_id']) == variant_id), None
 		)
 		if not variant:
 			return
@@ -919,9 +929,9 @@ class DollarPriceView(BaseView):
 			)
 			return
 
-		variant_id = int(selected[0])
+		variant_id = str(selected[0])
 		variant = next(
-			(v for v in self._all_variants if v['variant_id'] == variant_id), None
+			(v for v in self._all_variants if str(v['variant_id']) == variant_id), None
 		)
 		if not variant or not (variant.get('cost_price_usd') or 0) > 0:
 			CTkMessagebox(
@@ -951,7 +961,7 @@ class DollarPriceView(BaseView):
 				self.show_toast(msg, 'error')
 
 	# ═══════════════════════════════════════════════════════
-	# ACTUALIZACIÓN MASIVA
+	# ACTUALIZACIÓN MASIVA ASÍNCRONA
 	# ═══════════════════════════════════════════════════════
 	def _confirm_and_update(self):
 		rate = self._current_rate()
@@ -988,7 +998,7 @@ class DollarPriceView(BaseView):
 				f'Margen de ganancia:     {margin:.0f}%\n'
 				f'Fórmula:                       US$ × ${rate:,.0f} × {factor:.2f}\n\n'
 				f'Productos a actualizar:   {with_usd}\n\n'
-				'¿Aplicar los nuevos precios?'
+				'¿Confirmás guardar los precios mostrados en la tabla?'
 			),
 			icon='warning',
 			option_1='Cancelar',
@@ -998,18 +1008,31 @@ class DollarPriceView(BaseView):
 		if confirm.get() != 'Sí, actualizar':
 			return
 
-		self.btn_update.configure(state='disabled', text='Actualizando...')
+		self.btn_update.configure(state='disabled', text='⏳ Guardando...')
 		self.update()
 		self._save_settings()
 
-		success, msg = self.controller.recalculate_prices(
-			tenant_id=self.ctx.tenant_id,
-			user_id=self.ctx.user_id,
-			rate=rate,
-			margin_pct=margin,
-		)
+		def worker():
+			try:
+				success, msg = self.controller.recalculate_prices(
+					tenant_id=self.ctx.tenant_id,
+					user_id=self.ctx.user_id,
+					rate=rate,
+					margin_pct=margin,
+				)
+			except Exception as e:
+				success, msg = False, f'Error del sistema: {str(e)}'
 
-		self.btn_update.configure(state='normal', text='ACTUALIZAR PRECIOS')
+			# Devolver a la UI en el main thread
+			self.after(0, lambda: self._on_update_done(success, msg))
+
+		threading.Thread(target=worker, daemon=True).start()
+
+	def _on_update_done(self, success: bool, msg: str):
+		if not self.winfo_exists():
+			return
+
+		self.btn_update.configure(state='normal', text='✅ CONFIRMAR Y GUARDAR')
 
 		if success:
 			self.show_toast(msg, 'success')

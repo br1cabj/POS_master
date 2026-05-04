@@ -25,6 +25,8 @@ def run_migrations(engine) -> None:
 	_v5_create_quotations(engine)
 	_v6_add_packaging_variants(engine)
 	_v7_add_quotation_number_to_sales(engine)
+	_v8_add_product_discount_fields(engine)
+	_v9_add_supplier_discount_fields(engine)
 
 
 def _v1_add_cost_price_usd(engine) -> None:
@@ -160,6 +162,43 @@ def _v5_create_quotations(engine) -> None:
 		logger.info(
 			'Migración v5 aplicada: tablas quotations y quotation_items creadas.'
 		)
+
+
+def _v8_add_product_discount_fields(engine) -> None:
+	"""
+	v8: Agrega campos de descuento por producto a article_variants.
+	  - discount_pct: porcentaje de descuento (ej: 15.00 = 15%)
+	  - discount_until: fecha/hora de vencimiento (NULL = sin vencimiento)
+	"""
+	with engine.connect() as conn:
+		for sql in [
+			'ALTER TABLE article_variants ADD COLUMN discount_pct NUMERIC(5,2) DEFAULT NULL',
+			'ALTER TABLE article_variants ADD COLUMN discount_until DATETIME DEFAULT NULL',
+		]:
+			try:
+				conn.execute(text(sql))
+				conn.commit()
+			except Exception:
+				pass
+		logger.info('Migración v8 aplicada: discount_pct y discount_until en article_variants.')
+
+
+def _v9_add_supplier_discount_fields(engine) -> None:
+	"""
+	v9: Agrega discount_pct y discount_until a suppliers.
+	Un distribuidor puede tener un descuento activo que aplica a todos sus productos.
+	"""
+	with engine.connect() as conn:
+		for sql in [
+			'ALTER TABLE suppliers ADD COLUMN discount_pct NUMERIC(5,2) DEFAULT NULL',
+			'ALTER TABLE suppliers ADD COLUMN discount_until DATETIME DEFAULT NULL',
+		]:
+			try:
+				conn.execute(text(sql))
+				conn.commit()
+			except Exception:
+				pass
+		logger.info('Migración v9 aplicada: discount_pct y discount_until en suppliers.')
 
 
 def _v7_add_quotation_number_to_sales(engine) -> None:

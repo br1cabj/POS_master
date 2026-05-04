@@ -30,6 +30,7 @@ class PurchasesView(BaseView):
 		super().__init__(master, ctx)
 		self.controller = PurchasesController(ctx.db_engine)
 		self.cart = []
+		self._filter_timer = None
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=2)
@@ -96,6 +97,7 @@ class PurchasesView(BaseView):
 			dropdown_text_color=TEXT_PRIMARY,
 		)
 		self.articles_combo.pack(pady=(2, 10), padx=20, fill='x')
+		self.articles_combo.bind('<KeyRelease>', self._debounce_filter_articles)
 
 		self.cost_entry = ctk.CTkEntry(
 			self.left_panel,
@@ -116,6 +118,7 @@ class PurchasesView(BaseView):
 			height=36,
 		)
 		self.qty_entry.pack(pady=(0, 16), padx=20, fill='x')
+		self.qty_entry.bind('<Return>', lambda e: self.add_to_cart())
 
 		self.btn_add = ctk.CTkButton(
 			self.left_panel,
@@ -227,7 +230,11 @@ class PurchasesView(BaseView):
 			self.supplier_combo.set('No hay proveedores activos')
 
 		variants = self.controller.get_variants(tenant_id)
-		self.variant_map = {v['name']: v for v in variants if v.get('name')}
+		self.variant_map = {}
+		for v in variants:
+			if v.get('name'):
+				display_name = f'{v["name"]} | Cód: {v.get("barcode", "S/N")} (ID: {v["variant_id"]})'
+				self.variant_map[display_name] = v
 
 		if self.variant_map:
 			self.articles_combo.configure(values=list(self.variant_map.keys()))
@@ -235,6 +242,26 @@ class PurchasesView(BaseView):
 		else:
 			self.articles_combo.configure(values=['Sin Artículos'])
 			self.articles_combo.set('No hay artículos activos')
+
+	def _debounce_filter_articles(self, event=None):
+		if event and event.keysym in ('Return', 'Tab', 'Up', 'Down'):
+			return
+		if self._filter_timer:
+			self.after_cancel(self._filter_timer)
+		self._filter_timer = self.after(300, self._filter_articles)
+
+	def _filter_articles(self):
+		if not self.winfo_exists():
+			return
+		q = self.articles_combo.get().lower().strip()
+		if not q or q == 'seleccionar artículo...':
+			self.articles_combo.configure(values=list(self.variant_map.keys()))
+			return
+
+		matches = [k for k in self.variant_map.keys() if q in k.lower()]
+		if not matches:
+			matches = ['Sin coincidencias']
+		self.articles_combo.configure(values=matches)
 
 	def on_article_select(self, selected_name):
 		if selected_name in self.variant_map:
@@ -252,7 +279,7 @@ class PurchasesView(BaseView):
 		if desc not in self.variant_map or not cost_str or not qty_str:
 			CTkMessagebox(
 				title='Faltan datos',
-				message='Seleccioná un producto, costo y cantidad.',
+				message='Seleccioná un producto válido, costo y cantidad.',
 				icon='warning',
 			)
 			return
@@ -295,6 +322,7 @@ class PurchasesView(BaseView):
 		self.cost_entry.delete(0, 'end')
 		self.qty_entry.delete(0, 'end')
 		self.articles_combo.set('Seleccionar Artículo...')
+		self.articles_combo.focus()
 
 	def remove_from_cart(self):
 		selected_item = self.tree.selection()
@@ -322,6 +350,9 @@ class PurchasesView(BaseView):
 		self.lbl_total.configure(text=f'TOTAL A PAGAR: ${total:.2f}')
 
 	def process_purchase(self):
+		if self.btn_pay.cget('state') == 'disabled':
+			return
+
 		if not self.cart:
 			CTkMessagebox(
 				title='Carrito vacío', message='Agregá productos.', icon='warning'
@@ -352,16 +383,23 @@ class PurchasesView(BaseView):
 		tenant_id = self.ctx.tenant_id
 		user_id = self.ctx.user_id
 
-		success, msg = self.controller.process_purchase(
-			tenant_id, user_id, supplier_id, self.cart
-		)
+		orig_text = self.btn_pay.cget('text')
+		self.btn_pay.configure(state='disabled', text='⏳ Procesando...')
+		self.update_idletasks()
 
-		if success:
-			self.show_toast(msg, 'success')
-			self.cart = []
-			for item in self.tree.get_children():
-				self.tree.delete(item)
-			self.update_total()
-			self.load_combos()
-		else:
-			self.show_toast(msg, 'error')
+		try:
+			success, msg = self.controller.process_purchase(
+				tenant_id, user_id, supplier_id, self.cart
+			)
+
+			if success:
+				self.show_toast(msg, 'success')
+				self.cart = []
+				for item in self.tree.get_children():
+					self.tree.delete(item)
+				self.update_total()
+				self.load_combos()
+			else:
+				self.show_toast(msg, 'error')
+		finally:
+			self.btn_pay.configure(state='normal', text=orig_text)

@@ -84,6 +84,9 @@ class ArticleController(BaseController):
 						'units_per_pack': v.units_per_pack or 1,
 						'pack_label': v.pack_label,
 						'base_variant_id': v.base_variant_id,
+						# Descuento por producto
+						'discount_pct': float(v.discount_pct) if v.discount_pct else 0.0,
+						'discount_until': v.discount_until,
 					}
 					for v in variants
 				]
@@ -101,6 +104,8 @@ class ArticleController(BaseController):
 		selling_price,
 		initial_stock,
 		supplier_id=None,
+		discount_pct=None,
+		discount_until=None,
 	):
 		if not name or not str(name).strip():
 			return False, 'El nombre es obligatorio.'
@@ -148,6 +153,8 @@ class ArticleController(BaseController):
 					cost_price=cost_price,
 					selling_price=selling_price,
 					article_id=article.id,
+					discount_pct=Decimal(str(discount_pct)) if discount_pct and float(discount_pct) > 0 else None,
+					discount_until=discount_until,
 				)
 				session.add(variant)
 				session.flush()
@@ -189,6 +196,8 @@ class ArticleController(BaseController):
 		cost_price,
 		selling_price,
 		supplier_id=None,
+		discount_pct=None,
+		discount_until=None,
 	):
 		if not name or not str(name).strip():
 			return False, 'El nombre es obligatorio.'
@@ -245,22 +254,33 @@ class ArticleController(BaseController):
 				variant.article.name = str(name).strip()
 				variant.article.supplier_id = supplier_id
 
+				# Descuento por producto
+				variant.discount_pct = (
+					Decimal(str(discount_pct)) if discount_pct and float(discount_pct) > 0 else None
+				)
+				variant.discount_until = discount_until
+
 				if old_cost != cost_price:
 					child_variants = (
 						session.query(ArticleVariant)
 						.filter(
 							ArticleVariant.base_variant_id == variant.id,
-							ArticleVariant.is_active,
+							ArticleVariant.is_active == True,  # noqa: E712
 						)
 						.all()
 					)
 					for child in child_variants:
-						child.cost_price = cost_price * child.units_per_pack
+						child.cost_price = cost_price * (child.units_per_pack or 1)
 
 				if old_cost != cost_price or old_price != selling_price:
-					if selling_price > old_price or cost_price > old_cost:
+					cost_up = cost_price > old_cost
+					price_up = selling_price > old_price
+					cost_down = cost_price < old_cost
+					price_down = selling_price < old_price
+
+					if (cost_up or price_up) and not (cost_down or price_down):
 						action_type = 'AUMENTO MANUAL'
-					elif selling_price < old_price or cost_price < old_cost:
+					elif (cost_down or price_down) and not (cost_up or price_up):
 						action_type = 'REDUCCIÓN MANUAL'
 					else:
 						action_type = 'MODIFICACIÓN MANUAL'
@@ -307,8 +327,10 @@ class ArticleController(BaseController):
 					sum(s.quantity for s in variant.stocks) if variant.stocks else 0
 				)
 				if total_stock > 0:
-					logger.warning(
-						f'Variante {variant_id} desactivada con stock positivo ({total_stock}).'
+					return (
+						False,
+						f'No se puede eliminar un artículo con stock positivo ({total_stock} unidades). '
+						'Ajuste el stock primero o realice una salida manual.',
 					)
 
 				variant.is_active = False
@@ -354,15 +376,23 @@ class ArticleController(BaseController):
 						else old_price
 					)
 
+					if new_price == old_price and new_cost == old_cost:
+						continue  # No actual change, skip update and history
+
 					variant.cost_price = new_cost
 					variant.selling_price = new_price
 
-					if new_price > old_price or new_cost > old_cost:
+					price_up = new_price > old_price
+					price_down = new_price < old_price
+					cost_up = new_cost > old_cost
+					cost_down = new_cost < old_cost
+
+					if (price_up or cost_up) and not (price_down or cost_down):
 						action_type = 'AUMENTO MASIVO'
-					elif new_price < old_price or new_cost < old_cost:
+					elif (price_down or cost_down) and not (price_up or cost_up):
 						action_type = 'REDUCCIÓN MASIVA'
 					else:
-						action_type = 'SIN CAMBIO'
+						action_type = 'MODIFICACIÓN MASIVA'
 
 					session.add(
 						ArticleHistory(
@@ -546,7 +576,7 @@ class ArticleController(BaseController):
 					.join(Article)
 					.filter(
 						ArticleVariant.id == variant_id,
-						ArticleVariant.base_variant_id != None,  # noqa: E711
+						ArticleVariant.base_variant_id.isnot(None),
 						Article.tenant_id == tenant_id,
 					)
 					.first()
@@ -572,7 +602,7 @@ class ArticleController(BaseController):
 						return False, f'El codigo "{bc}" ya esta en uso.'
 
 				# Recalcular costo proporcional desde la variante base
-				base = session.query(ArticleVariant).get(variant.base_variant_id)
+				base = session.get(ArticleVariant, variant.base_variant_id)
 				variant.pack_label = str(pack_label).strip()
 				variant.units_per_pack = units_per_pack
 				variant.selling_price = selling_price
@@ -596,7 +626,7 @@ class ArticleController(BaseController):
 					.join(Article)
 					.filter(
 						ArticleVariant.id == variant_id,
-						ArticleVariant.base_variant_id != None,  # noqa: E711
+						ArticleVariant.base_variant_id.isnot(None),
 						Article.tenant_id == tenant_id,
 					)
 					.first()
@@ -610,3 +640,64 @@ class ArticleController(BaseController):
 				session.rollback()
 				logger.error(f'Error al eliminar presentacion: {e}', exc_info=True)
 				return False, 'Error interno.'
+
+	def set_discount(self, tenant_id, variant_id, discount_pct, discount_until):
+		"""Actualiza o elimina el descuento de una variante."""
+		with self._Session() as session:
+			try:
+				variant = (
+					session.query(ArticleVariant)
+					.join(Article)
+					.filter(
+						ArticleVariant.id == variant_id,
+						Article.tenant_id == tenant_id,
+					)
+					.first()
+				)
+				if not variant:
+					return False, 'Artículo no encontrado.'
+				variant.discount_pct = (
+					Decimal(str(discount_pct)) if discount_pct and float(discount_pct) > 0 else None
+				)
+				variant.discount_until = discount_until
+				session.commit()
+				return True, 'Descuento actualizado.'
+			except Exception as e:
+				session.rollback()
+				logger.error(f'Error al actualizar descuento: {e}', exc_info=True)
+				return False, 'Error interno al actualizar el descuento.'
+
+	def set_supplier_discount(self, tenant_id, supplier_id, discount_pct, discount_until):
+		"""Configura o elimina el descuento de un distribuidor/proveedor completo."""
+		with self._Session() as session:
+			try:
+				supplier = (
+					session.query(Supplier)
+					.filter_by(id=supplier_id, tenant_id=tenant_id, is_active=True)
+					.first()
+				)
+				if not supplier:
+					return False, 'Proveedor no encontrado.'
+				supplier.discount_pct = (
+					Decimal(str(discount_pct)) if discount_pct and float(discount_pct) > 0 else None
+				)
+				supplier.discount_until = discount_until
+				session.commit()
+				return True, f"Descuento de distribuidor '{supplier.name}' actualizado."
+			except Exception as e:
+				session.rollback()
+				logger.error(f'Error al actualizar descuento de proveedor: {e}', exc_info=True)
+				return False, 'Error interno al actualizar el descuento del distribuidor.'
+
+	def get_supplier_discount(self, tenant_id, supplier_id):
+		"""Retorna el descuento activo de un proveedor, o (0, None) si no tiene."""
+		with self._Session() as session:
+			try:
+				s = session.query(Supplier).filter_by(
+					id=supplier_id, tenant_id=tenant_id
+				).first()
+				if not s:
+					return 0.0, None
+				return float(s.discount_pct or 0), s.discount_until
+			except Exception:
+				return 0.0, None

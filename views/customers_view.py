@@ -17,12 +17,14 @@ from utils.styles import (
 	GREEN_DIM,
 	GREEN_TEXT,
 	ORANGE_TEXT,
+	RED,
 	RED_TEXT,
 	SURFACE2,
 	SURFACE3,
 	SURFACE4,
 	TEXT_MUTED,
 	TEXT_PRIMARY,
+	TEXT_SECONDARY,
 	apply_treeview_style,
 )
 
@@ -35,6 +37,7 @@ class CustomersView(BaseView):
 		self._search_timer = None
 		self.customer_map = {}
 		self._all_customers = []
+		self._editing_customer_id = None
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=2)
@@ -60,13 +63,14 @@ class CustomersView(BaseView):
 		)
 		self.left_panel.grid(row=0, column=0, sticky='nsew', padx=(16, 8), pady=16)
 
-		# ── Sección: Nuevo Cliente ──
-		ctk.CTkLabel(
+		# ── Sección: Nuevo / Editar Cliente ──
+		self.lbl_form_title = ctk.CTkLabel(
 			self.left_panel,
 			text='Nuevo Cliente',
 			font=('Arial', 17, 'bold'),
 			text_color=TEXT_PRIMARY,
-		).pack(pady=(22, 16))
+		)
+		self.lbl_form_title.pack(pady=(22, 16))
 
 		ctk.CTkLabel(
 			self.left_panel,
@@ -85,6 +89,10 @@ class CustomersView(BaseView):
 			height=36,
 		)
 		self.entry_name.pack(pady=(0, 6), padx=20, fill='x')
+		self.entry_name.bind(
+			'<KeyRelease>',
+			lambda e: self.entry_name.configure(border_color=BORDER_ACTIVE),
+		)
 
 		ctk.CTkLabel(
 			self.left_panel,
@@ -117,6 +125,20 @@ class CustomersView(BaseView):
 			command=self.add_customer,
 		)
 		self.btn_add.pack(pady=(0, 20), padx=20, fill='x')
+
+		self.btn_cancel_edit = ctk.CTkButton(
+			self.left_panel,
+			text='Cancelar Edición',
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_SECONDARY,
+			border_width=1,
+			border_color=BORDER,
+			height=38,
+			corner_radius=8,
+			command=self._cancel_edit,
+		)
+		# Oculto por defecto, se muestra solo al editar
 
 		# Divisor
 		ctk.CTkFrame(self.left_panel, height=1, fg_color=BORDER, corner_radius=0).pack(
@@ -153,6 +175,15 @@ class CustomersView(BaseView):
 			dropdown_text_color=TEXT_PRIMARY,
 		)
 		self.combo_customers.pack(pady=(2, 8), padx=20, fill='x')
+
+		self.lbl_debt_info = ctk.CTkLabel(
+			self.left_panel,
+			text='',
+			font=('Arial', 11),
+			text_color=ORANGE_TEXT,
+			anchor='w',
+		)
+		self.lbl_debt_info.pack(padx=20, anchor='w', pady=(0, 4))
 
 		self.entry_payment = ctk.CTkEntry(
 			self.left_panel,
@@ -290,7 +321,7 @@ class CustomersView(BaseView):
 
 		ctk.CTkButton(
 			btn_row,
-			text='💰  Seleccionar para Cobro',
+			text='💰  Cobrar Deuda',
 			fg_color=GREEN_DIM,
 			hover_color=GREEN,
 			text_color=GREEN_TEXT,
@@ -300,7 +331,21 @@ class CustomersView(BaseView):
 			corner_radius=8,
 			cursor='hand2',
 			command=self._select_for_payment,
-		).pack(side='left', fill='x', expand=True)
+		).pack(side='left', fill='x', expand=True, padx=(0, 5))
+
+		ctk.CTkButton(
+			btn_row,
+			text='✏️  Editar Cliente',
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			border_width=1,
+			border_color=ACCENT,
+			height=36,
+			corner_radius=8,
+			cursor='hand2',
+			command=self._edit_selected,
+		).pack(side='left', fill='x', expand=True, padx=(5, 0))
 
 	# =========================================================
 	# LÓGICA Y FUNCIONES
@@ -320,7 +365,54 @@ class CustomersView(BaseView):
 		if name and name in self.customer_map:
 			self.combo_customers.set(name)
 			self.on_customer_select(name)
-			self.entry_payment.focus_set()  # Foco visual inmediato
+			self.entry_payment.focus_set()
+
+	def _edit_selected(self):
+		"""Prepara el formulario de la izquierda para editar un cliente existente."""
+		selected = self.tree.selection()
+		if not selected:
+			self.show_warning(
+				'Seleccioná un cliente de la tabla para editar.', 'Selección requerida'
+			)
+			return
+
+		values = self.tree.item(selected[0], 'values')
+		customer_id = str(values[0])
+
+		customer_data = next(
+			(c for c in self._all_customers if str(c['id']) == customer_id), None
+		)
+		if not customer_data:
+			return
+
+		self._editing_customer_id = customer_data['id']
+
+		self.lbl_form_title.configure(text='Editar Cliente', text_color=ACCENT_TEXT)
+
+		self.entry_name.delete(0, 'end')
+		self.entry_name.insert(0, customer_data.get('name', ''))
+		self.entry_name.configure(border_color=BORDER_ACTIVE)
+
+		self.entry_phone.delete(0, 'end')
+		self.entry_phone.insert(0, customer_data.get('phone', '') or '')
+
+		self.btn_add.configure(text='💾  Actualizar Cliente')
+		self.btn_add.pack(pady=(0, 8), padx=20, fill='x')
+		self.btn_cancel_edit.pack(pady=(0, 20), padx=20, fill='x', after=self.btn_add)
+
+		self.entry_name.focus_set()
+
+	def _cancel_edit(self):
+		"""Limpia el formulario de edición y regresa al modo de nuevo cliente."""
+		self._editing_customer_id = None
+		self.lbl_form_title.configure(text='Nuevo Cliente', text_color=TEXT_PRIMARY)
+		self.entry_name.delete(0, 'end')
+		self.entry_name.configure(border_color=BORDER_ACTIVE)
+		self.entry_phone.delete(0, 'end')
+
+		self.btn_add.configure(text='➕  Guardar Cliente')
+		self.btn_add.pack(pady=(0, 20), padx=20, fill='x')
+		self.btn_cancel_edit.pack_forget()
 
 	def _open_customer_ledger_modal(self, event=None):
 		"""Abre un modal con el Estado de Cuenta detallado del cliente seleccionado."""
@@ -333,13 +425,14 @@ class CustomersView(BaseView):
 		name = values[1]
 		phone = values[2]
 
-		# Limpiamos el texto para obtener el balance real
-		balance_str = values[3].replace('$', '').replace('A favor: ', '').strip()
-		balance = float(balance_str)
-
-		# Si en la tabla dice 'A favor', lo convertimos de vuelta a negativo para la lógica
-		if 'A favor' in values[3]:
-			balance = -abs(balance)
+		# Extraemos el balance desde los datos originales en lugar de parsear el texto
+		customer_data = next(
+			(c for c in self._all_customers if str(c['id']) == customer_id), None
+		)
+		if customer_data:
+			balance = float(customer_data.get('current_balance') or 0.0)
+		else:
+			balance = 0.0
 
 		# Crear el Modal
 		modal = ctk.CTkToplevel(self)
@@ -539,41 +632,58 @@ class CustomersView(BaseView):
 
 		self._filter_tree()
 
-	def on_customer_select(self, selected_name):
-		if selected_name in self.customer_map:
-			cliente = self.customer_map[selected_name]
-			balance = float(cliente.get('current_balance') or 0.0)
-			self.entry_payment.delete(0, 'end')
-
-			# Solo auto-llenamos el monto si realmente debe dinero
-			if balance > 0:
-				self.entry_payment.insert(0, f'{balance:.2f}')
-
 	def add_customer(self):
 		name = self.entry_name.get().strip()
 		phone = self.entry_phone.get().strip()
 
 		if not name:
+			self.entry_name.configure(border_color=RED)
+			self.entry_name.focus_set()
 			self.show_warning('El nombre del cliente es obligatorio.', 'Faltan datos')
 			return
 
 		tenant_id = self.ctx.tenant_id
 
+		orig_text = self.btn_add.cget('text')
 		self.btn_add.configure(state='disabled', text='⏳ Procesando...')
 		self.update_idletasks()
 
 		try:
-			success, msg = self.controller.add_customer(tenant_id, name, phone)
+			if self._editing_customer_id:
+				success, msg = self.controller.update_customer(
+					tenant_id, self._editing_customer_id, name, phone
+				)
+			else:
+				success, msg = self.controller.add_customer(tenant_id, name, phone)
 		finally:
-			self.btn_add.configure(state='normal', text='➕  Guardar Cliente')
+			self.btn_add.configure(state='normal', text=orig_text)
 
 		if success:
 			self.show_success(msg)
-			self.entry_name.delete(0, 'end')
-			self.entry_phone.delete(0, 'end')
+			self._cancel_edit()
 			self.load_data()
 		else:
+			self.entry_name.configure(border_color=RED)
+			self.entry_name.focus_set()
 			self.show_error(msg)
+
+	def on_customer_select(self, name: str):
+		"""Actualiza el label de deuda al seleccionar un cliente en el combo."""
+		customer = self.customer_map.get(name)
+		if not customer:
+			self.lbl_debt_info.configure(text='')
+			return
+		balance = float(customer.get('current_balance') or 0.0)
+		if balance > 0:
+			self.lbl_debt_info.configure(
+				text=f'Deuda actual: ${balance:.2f}', text_color=ORANGE_TEXT
+			)
+		elif balance < 0:
+			self.lbl_debt_info.configure(
+				text=f'A favor: ${abs(balance):.2f}', text_color=GREEN_TEXT
+			)
+		else:
+			self.lbl_debt_info.configure(text='Sin deuda', text_color=TEXT_MUTED)
 
 	def pay_debt(self):
 		name = self.combo_customers.get()
@@ -606,6 +716,7 @@ class CustomersView(BaseView):
 		tenant_id = self.ctx.tenant_id
 		user_id = self.ctx.user_id
 
+		orig_text = self.btn_pay.cget('text')
 		self.btn_pay.configure(state='disabled', text='⏳ Procesando...')
 		self.update_idletasks()
 
@@ -614,7 +725,7 @@ class CustomersView(BaseView):
 				tenant_id, user_id, customer['id'], amount
 			)
 		finally:
-			self.btn_pay.configure(state='normal', text='💰  Registrar Abono')
+			self.btn_pay.configure(state='normal', text=orig_text)
 
 		if success:
 			self.show_success(msg)

@@ -10,6 +10,7 @@ import logging
 import os
 import platform
 import subprocess
+import threading
 from tkinter import filedialog
 
 import customtkinter as ctk
@@ -411,12 +412,13 @@ class DataSyncView(BaseView):
 	# ===========================================================
 	def _on_import_type_changed(self, choice):
 		"""Invalida el archivo cargado para prevenir la inyección cruzada de datos entre entidades."""
+		self._clear_preview()
+
 		self.selected_file = None
 		self.lbl_file_path.configure(
 			text='Ningún archivo seleccionado', text_color=TEXT_MUTED
 		)
 		self.btn_import.configure(state='disabled')
-		self._clear_preview()
 
 		ctk.CTkLabel(
 			self.frame_preview,
@@ -619,6 +621,7 @@ class DataSyncView(BaseView):
 	def handle_export(self):
 		"""Verifica parámetros, bloquea el hilo gráfico y solicita el volcado Excel al controlador."""
 		from datetime import datetime
+
 		entity_type = self.combo_export_type.get()
 		tenant_id = self.ctx.tenant_id
 
@@ -627,12 +630,24 @@ class DataSyncView(BaseView):
 			f'Exportacion_{entity_type}_{datetime.now().strftime("%Y%m%d_%H%M")}.xlsx',
 		)
 
-		self.btn_export.configure(state='disabled', text='Generando archivo...')
-		self.update_idletasks()
+		self.btn_export.configure(state='disabled', text='⏳ Generando archivo...')
 
-		success, msg = self.controller.export_template(
-			tenant_id, entity_type, file_path
-		)
+		def worker():
+			try:
+				success, msg = self.controller.export_template(
+					tenant_id, entity_type, file_path
+				)
+			except Exception as e:
+				success, msg = False, f'Error del sistema: {str(e)}'
+
+			self.after(0, lambda: self._on_export_done(success, msg, file_path))
+
+		threading.Thread(target=worker, daemon=True).start()
+
+	def _on_export_done(self, success, msg, file_path):
+		if not self.winfo_exists():
+			return
+
 		self.btn_export.configure(
 			state='normal', text='Descargar Archivo Excel (Ctrl+E)'
 		)
@@ -668,31 +683,42 @@ class DataSyncView(BaseView):
 		if confirm.get() != 'Sí, Importar':
 			return
 
-		# Congelamiento intencional de la UI durante procesamiento
+		# Congelamiento intencional de la UI durante procesamiento asíncrono
 		self.btn_import.configure(
 			state='disabled', text='⏳ Procesando... Por favor, esperá.'
 		)
 		self.btn_select_file.configure(state='disabled')
-		self.update_idletasks()
 
 		tenant_id = self.ctx.tenant_id
 		user_id = self.ctx.user_id
 
-		if entity_type == 'Articulos':
-			success, msg = self.controller.import_articles_from_excel(
-				tenant_id, user_id, self.selected_file
-			)
-		elif entity_type == 'Clientes':
-			success, msg = self.controller.import_customers_from_excel(
-				tenant_id, self.selected_file
-			)
-		else:
-			success, msg = False, 'Tipo de importación no soportado.'
+		def worker():
+			try:
+				if entity_type == 'Articulos':
+					success, msg = self.controller.import_articles_from_excel(
+						tenant_id, user_id, self.selected_file
+					)
+				elif entity_type == 'Clientes':
+					success, msg = self.controller.import_customers_from_excel(
+						tenant_id, self.selected_file
+					)
+				else:
+					success, msg = False, 'Tipo de importación no soportado.'
+			except Exception as e:
+				success, msg = False, f'Error en procesamiento: {str(e)}'
+
+			self.after(0, lambda: self._on_import_done(success, msg, entity_type))
+
+		threading.Thread(target=worker, daemon=True).start()
+
+	def _on_import_done(self, success, msg, entity_type):
+		if not self.winfo_exists():
+			return
 
 		self.btn_select_file.configure(state='normal')
 
 		if success:
-			self.show_toast(msg, 'success')
+			CTkMessagebox(title='Importación Finalizada', message=msg, icon='check')
 			self._on_import_type_changed(entity_type)
 		else:
 			self.show_toast(msg, 'error')

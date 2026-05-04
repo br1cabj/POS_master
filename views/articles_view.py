@@ -75,6 +75,10 @@ class ArticlesView(BaseView):
 		self._var_cost_str = ctk.StringVar(value='')
 		self._var_price_str = ctk.StringVar(value='')
 
+		self._var_discount_enabled = ctk.BooleanVar(value=False)
+		self._var_discount_pct = ctk.StringVar(value='')
+		self._var_discount_until = ctk.StringVar(value='')
+
 		self._var_cost_str.trace_add('write', self._on_cost_or_margin_changed)
 		self._var_margin.trace_add('write', self._on_cost_or_margin_changed)
 		self._var_iva_included.trace_add('write', self._on_cost_or_margin_changed)
@@ -179,6 +183,12 @@ class ArticlesView(BaseView):
 		self.entry_barcode.pack(fill='x', pady=(0, PAD_SM))
 		self.entry_barcode.bind('<Return>', self.on_barcode_scanned)
 
+		self.lbl_barcode_msg = ctk.CTkLabel(
+			parent, text='', font=FONT_LABEL, text_color=GREEN_TEXT
+		)
+		self.lbl_barcode_msg.pack(anchor='w', pady=(0, PAD_SM))
+		self.lbl_barcode_msg.pack_forget()
+
 		make_form_label(parent, 'NOMBRE DEL PRODUCTO', required=True)[0].pack(
 			anchor='w', pady=(PAD_SM, PAD_XS)
 		)
@@ -190,17 +200,43 @@ class ArticlesView(BaseView):
 		)
 		self.entry_name.pack(fill='x', pady=(0, PAD_SM))
 
-		make_form_label(parent, 'PROVEEDOR', required=False)[0].pack(
+		make_form_label(parent, 'PROVEEDOR / DISTRIBUIDOR', required=False)[0].pack(
 			anchor='w', pady=(PAD_SM, PAD_XS)
 		)
 		self.combo_supplier = ctk.CTkComboBox(
-			parent, values=['Cargando...'], height=40, font=FONT_BODY
+			parent, values=['Cargando...'], height=40, font=FONT_BODY,
+			command=self._on_supplier_changed,
 		)
-		self.combo_supplier.pack(fill='x', pady=(0, PAD_SM))
+		self.combo_supplier.pack(fill='x', pady=(0, PAD_XS))
 
-		make_form_label(parent, 'STOCK INICIAL', required=False)[0].pack(
-			anchor='w', pady=(PAD_SM, PAD_XS)
+		# Descuento activo del distribuidor seleccionado
+		self._lbl_supplier_discount = ctk.CTkLabel(
+			parent,
+			text='',
+			font=FONT_LABEL_BOLD,
+			text_color=ORANGE_TEXT,
+			anchor='w',
 		)
+		self._lbl_supplier_discount.pack(anchor='w', pady=(0, PAD_XS))
+
+		# Botón para configurar descuento del distribuidor
+		self._btn_supplier_discount = ctk.CTkButton(
+			parent,
+			text='🏷️  Configurar descuento del distribuidor',
+			fg_color='transparent',
+			hover_color=ORANGE_DIM,
+			text_color=ORANGE_TEXT,
+			border_width=1,
+			border_color=ORANGE,
+			height=30,
+			corner_radius=6,
+			font=FONT_LABEL_BOLD,
+			command=self._open_supplier_discount_dialog,
+		)
+		self._btn_supplier_discount.pack(fill='x', pady=(0, PAD_SM))
+
+		self.lbl_stock = make_form_label(parent, 'STOCK INICIAL', required=False)[0]
+		self.lbl_stock.pack(anchor='w', pady=(PAD_SM, PAD_XS))
 		self.entry_stock = ctk.CTkEntry(
 			parent, placeholder_text='0', height=40, font=FONT_BODY_BOLD
 		)
@@ -284,6 +320,72 @@ class ArticlesView(BaseView):
 			text_color=ACCENT_TEXT,
 		)
 		self._lbl_formula_expr.pack(padx=PAD_MD, pady=PAD_MD)
+
+		# ── Sección Descuento ──────────────────────────────────────────────
+		ctk.CTkFrame(parent, height=1, fg_color=BORDER, corner_radius=0).pack(
+			fill='x', pady=(PAD_MD, PAD_SM)
+		)
+
+		self._chk_discount = ctk.CTkCheckBox(
+			parent,
+			text='🏷️  Activar descuento en este producto',
+			variable=self._var_discount_enabled,
+			font=FONT_BODY_BOLD,
+			text_color=ORANGE_TEXT,
+			fg_color=ORANGE,
+			hover_color=ORANGE_DIM,
+			command=self._toggle_discount_section,
+		)
+		self._chk_discount.pack(anchor='w', pady=(0, PAD_XS))
+
+		self._frame_discount_fields = ctk.CTkFrame(
+			parent,
+			fg_color=ORANGE_DIM,
+			corner_radius=8,
+			border_width=1,
+			border_color=ORANGE,
+		)
+
+		disc_inner = ctk.CTkFrame(self._frame_discount_fields, fg_color='transparent')
+		disc_inner.pack(fill='x', padx=PAD_SM, pady=PAD_SM)
+		disc_inner.grid_columnconfigure(0, weight=1)
+		disc_inner.grid_columnconfigure(1, weight=1)
+
+		frame_dpct = ctk.CTkFrame(disc_inner, fg_color='transparent')
+		frame_dpct.grid(row=0, column=0, sticky='nsew', padx=(0, PAD_XS))
+		make_form_label(frame_dpct, 'DESCUENTO (%)')[0].pack(anchor='w', pady=(0, PAD_XS))
+		self.entry_discount_pct = ctk.CTkEntry(
+			frame_dpct,
+			placeholder_text='Ej: 15',
+			height=40,
+			font=FONT_HEADING,
+			text_color=ORANGE_TEXT,
+			textvariable=self._var_discount_pct,
+		)
+		self.entry_discount_pct.pack(fill='x')
+
+		frame_duntil = ctk.CTkFrame(disc_inner, fg_color='transparent')
+		frame_duntil.grid(row=0, column=1, sticky='nsew', padx=(PAD_XS, 0))
+		make_form_label(frame_duntil, 'VÁLIDO HASTA (opcional)')[0].pack(
+			anchor='w', pady=(0, PAD_XS)
+		)
+		self.entry_discount_until = ctk.CTkEntry(
+			frame_duntil,
+			placeholder_text='DD/MM/AAAA',
+			height=40,
+			font=FONT_BODY,
+			textvariable=self._var_discount_until,
+		)
+		self.entry_discount_until.pack(fill='x')
+
+		self._lbl_disc_preview = ctk.CTkLabel(
+			self._frame_discount_fields,
+			text='',
+			font=FONT_LABEL_BOLD,
+			text_color=ORANGE_TEXT,
+			anchor='w',
+		)
+		self._lbl_disc_preview.pack(padx=PAD_SM, anchor='w', pady=(0, PAD_SM))
 
 	def _build_tab_empaque(self, parent):
 		self.frame_packaging = ctk.CTkFrame(parent, fg_color='transparent')
@@ -461,6 +563,147 @@ class ArticlesView(BaseView):
 	# LÓGICA DE NEGOCIO Y EVENTOS
 	# ─────────────────────────────────────────────────────────────────────────
 
+	def _toggle_discount_section(self):
+		if self._var_discount_enabled.get():
+			self._frame_discount_fields.pack(fill='x', pady=(PAD_XS, PAD_SM))
+		else:
+			self._frame_discount_fields.pack_forget()
+			self._var_discount_pct.set('')
+			self._var_discount_until.set('')
+
+	def _on_supplier_changed(self, value=None):
+		"""Actualiza el label con el descuento activo del proveedor seleccionado."""
+		from datetime import datetime as _dt
+		supplier_id = self.suppliers_map.get(self.combo_supplier.get())
+		if not supplier_id:
+			self._lbl_supplier_discount.configure(text='')
+			return
+		pct, until = self.controller.get_supplier_discount(self.ctx.tenant_id, supplier_id)
+		if pct and pct > 0:
+			if until and until < _dt.now():
+				self._lbl_supplier_discount.configure(
+					text=f'⚠️  Descuento {pct:.4g}% VENCIDO', text_color=RED_TEXT
+				)
+			elif until:
+				self._lbl_supplier_discount.configure(
+					text=f'🏷️  Descuento activo: -{pct:.4g}%  (hasta {until.strftime("%d/%m/%Y")})',
+					text_color=ORANGE_TEXT,
+				)
+			else:
+				self._lbl_supplier_discount.configure(
+					text=f'🏷️  Descuento activo: -{pct:.4g}%  (sin vencimiento)',
+					text_color=ORANGE_TEXT,
+				)
+		else:
+			self._lbl_supplier_discount.configure(text='Sin descuento configurado', text_color=TEXT_MUTED)
+
+	def _open_supplier_discount_dialog(self):
+		"""Abre un diálogo para configurar el descuento de un distribuidor."""
+		from datetime import datetime as _dt
+		supplier_name = self.combo_supplier.get()
+		supplier_id = self.suppliers_map.get(supplier_name)
+		if not supplier_id:
+			self.show_warning('Seleccioná un proveedor primero.', 'Sin proveedor')
+			return
+
+		current_pct, current_until = self.controller.get_supplier_discount(
+			self.ctx.tenant_id, supplier_id
+		)
+
+		dialog = ctk.CTkToplevel(self)
+		dialog.title(f'Descuento de Distribuidor — {supplier_name}')
+		dialog.geometry('420x320')
+		dialog.resizable(False, False)
+		dialog.grab_set()
+		dialog.focus()
+		dialog.attributes('-topmost', True)
+
+		ctk.CTkLabel(
+			dialog, text=f'🏷️  {supplier_name}', font=FONT_TITLE, text_color=ORANGE_TEXT
+		).pack(pady=(PAD_LG, PAD_XS))
+		ctk.CTkLabel(
+			dialog,
+			text='Este descuento aplica automáticamente a todos los productos de este distribuidor.',
+			font=FONT_BODY,
+			text_color=TEXT_MUTED,
+			wraplength=370,
+			justify='center',
+		).pack(pady=(0, PAD_MD))
+
+		make_form_label(dialog, 'DESCUENTO (%) — 0 para eliminar')[0].pack(
+			padx=PAD_LG, anchor='w'
+		)
+		var_pct = ctk.StringVar(value=f'{current_pct:.4g}' if current_pct else '')
+		entry_pct = ctk.CTkEntry(
+			dialog, placeholder_text='Ej: 15', height=40, font=FONT_HEADING,
+			text_color=ORANGE_TEXT, textvariable=var_pct,
+		)
+		entry_pct.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
+		entry_pct.focus()
+
+		make_form_label(dialog, 'VÁLIDO HASTA (opcional — dejar vacío = sin vencimiento)')[0].pack(
+			padx=PAD_LG, anchor='w'
+		)
+		var_until = ctk.StringVar(
+			value=current_until.strftime('%d/%m/%Y') if current_until else ''
+		)
+		entry_until = ctk.CTkEntry(
+			dialog, placeholder_text='DD/MM/AAAA', height=36, font=FONT_BODY,
+			textvariable=var_until,
+		)
+		entry_until.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
+
+		lbl_err = ctk.CTkLabel(dialog, text='', font=FONT_LABEL_BOLD, text_color=RED_TEXT)
+		lbl_err.pack(pady=(0, PAD_XS))
+
+		def _do_save():
+			raw_pct = var_pct.get().strip().replace(',', '.')
+			raw_until = var_until.get().strip()
+			try:
+				pct = float(raw_pct) if raw_pct else 0.0
+				if pct < 0 or pct >= 100:
+					raise ValueError
+			except ValueError:
+				lbl_err.configure(text='Porcentaje inválido (0-99).')
+				return
+
+			until = None
+			if raw_until:
+				for fmt in ('%d/%m/%Y', '%d/%m/%y', '%Y-%m-%d'):
+					try:
+						until = _dt.strptime(raw_until, fmt).replace(hour=23, minute=59, second=59)
+						break
+					except ValueError:
+						continue
+				if until is None:
+					lbl_err.configure(text='Fecha inválida. Usá DD/MM/AAAA.')
+					return
+
+			success, msg = self.controller.set_supplier_discount(
+				self.ctx.tenant_id, supplier_id, pct if pct > 0 else None, until
+			)
+			if success:
+				dialog.destroy()
+				self._on_supplier_changed()
+				self.show_success(msg)
+			else:
+				lbl_err.configure(text=msg)
+
+		ctk.CTkButton(
+			dialog,
+			text='Guardar Descuento',
+			fg_color=ORANGE_DIM,
+			hover_color=ORANGE,
+			text_color=ORANGE_TEXT,
+			border_width=1,
+			border_color=ORANGE,
+			height=40,
+			corner_radius=8,
+			font=FONT_BODY_BOLD,
+			command=_do_save,
+		).pack(padx=PAD_LG, fill='x')
+		entry_until.bind('<Return>', lambda e: _do_save())
+
 	def _get_cost_real(self) -> Decimal | None:
 		try:
 			cost = Decimal(self._var_cost_str.get().replace(',', '.'))
@@ -538,6 +781,7 @@ class ArticlesView(BaseView):
 		else:
 			self.combo_supplier.configure(values=['Sin Proveedor'])
 		self.combo_supplier.set('Sin Proveedor')
+		self._on_supplier_changed()
 
 		self.current_variants = self.controller.get_all_variants(tenant_id)
 		self._filter_tree()
@@ -660,9 +904,35 @@ class ArticlesView(BaseView):
 		self.combo_supplier.set(
 			supplier_name if supplier_name in self.suppliers_map else 'Sin Proveedor'
 		)
+		self._on_supplier_changed()
 
+		self.lbl_stock.configure(text='STOCK ACTUAL')
 		self.entry_stock.insert(0, f'Stock actual: {variant.get("total_stock", 0)} u')
 		self.entry_stock.configure(state='disabled')
+
+		# Descuento
+		disc_pct = variant.get('discount_pct', 0) or 0
+		if disc_pct > 0:
+			self._var_discount_enabled.set(True)
+			self._var_discount_pct.set(f'{disc_pct:.4g}')
+			disc_until = variant.get('discount_until')
+			if disc_until:
+				from datetime import datetime as _dt
+				if isinstance(disc_until, str):
+					try:
+						disc_until = _dt.fromisoformat(disc_until)
+					except Exception:
+						disc_until = None
+				if disc_until:
+					self._var_discount_until.set(disc_until.strftime('%d/%m/%Y'))
+			else:
+				self._var_discount_until.set('')
+			self._frame_discount_fields.pack(fill='x', pady=(PAD_XS, PAD_SM))
+		else:
+			self._var_discount_enabled.set(False)
+			self._var_discount_pct.set('')
+			self._var_discount_until.set('')
+			self._frame_discount_fields.pack_forget()
 
 		self.lbl_form_title.configure(
 			text='✏️ Editando Producto', text_color=ACCENT_TEXT
@@ -671,6 +941,7 @@ class ArticlesView(BaseView):
 
 		self.tabview.set('General')
 		self._show_packaging_panel(variant['variant_id'])
+		self.lbl_pack_hint.pack_forget()
 
 	def reset_form(self, keep_barcode=False):
 		self.editing_variant_id = None
@@ -679,6 +950,9 @@ class ArticlesView(BaseView):
 		self.entry_barcode.delete(0, 'end')
 		if keep_barcode:
 			self.entry_barcode.insert(0, barcode_temp)
+
+		self.lbl_barcode_msg.pack_forget()
+		self.lbl_barcode_msg.configure(text='')
 
 		self.entry_name.delete(0, 'end')
 
@@ -690,6 +964,7 @@ class ArticlesView(BaseView):
 		self._lbl_formula_expr.configure(text='Costo Real: $0.00 | Ganancia: $0.00')
 		self._calc_lock = False
 
+		self.lbl_stock.configure(text='STOCK INICIAL')
 		self.entry_stock.configure(state='normal')
 		self.entry_stock.delete(0, 'end')
 		self.combo_supplier.set('Sin Proveedor')
@@ -697,6 +972,15 @@ class ArticlesView(BaseView):
 		self.lbl_form_title.configure(text='📦 Nuevo Producto', text_color=TEXT_PRIMARY)
 		self.btn_add.configure(text='💾 Guardar Producto (Ctrl+G)')
 
+		# Descuento por producto
+		self._var_discount_enabled.set(False)
+		self._var_discount_pct.set('')
+		self._var_discount_until.set('')
+		self._frame_discount_fields.pack_forget()
+		self.combo_supplier.set('Sin Proveedor')
+		self._on_supplier_changed()
+
+		self.lbl_pack_hint.configure(text='(Guarda el producto base primero)')
 		self.lbl_pack_hint.pack(pady=PAD_LG)
 		self.frame_pack_list.pack_forget()
 
@@ -707,16 +991,29 @@ class ArticlesView(BaseView):
 	def has_unsaved_changes(self) -> bool:
 		return bool(self.entry_name.get().strip())
 
+	def _generate_unique_barcode(self):
+		while True:
+			new_code = f'99{random.randint(1000000000, 9999999999)}'
+			found = next(
+				(v for v in self.current_variants if str(v.get('barcode')) == new_code),
+				None,
+			)
+			if not found:
+				return new_code
+
 	def save_article(self):
 		self.clear_field_errors(self.entry_name, self.entry_barcode)
 
 		name = self.entry_name.get().strip()
 		raw_barcode = self.entry_barcode.get().strip().lstrip('0')
-		barcode = (
-			raw_barcode
-			if raw_barcode
-			else f'99{random.randint(1000000000, 9999999999)}'
-		)
+
+		assigned_random_code = False
+		if raw_barcode:
+			barcode = raw_barcode
+		else:
+			barcode = self._generate_unique_barcode()
+			assigned_random_code = True
+
 		supplier_name = self.combo_supplier.get()
 		supplier_id = self.suppliers_map.get(supplier_name)
 
@@ -754,6 +1051,37 @@ class ArticlesView(BaseView):
 			self.show_error(msg)
 			return
 
+		# Leer campos de descuento
+		discount_pct = None
+		discount_until = None
+		if self._var_discount_enabled.get():
+			raw_dpct = self._var_discount_pct.get().strip().replace(',', '.')
+			try:
+				discount_pct = float(raw_dpct) if raw_dpct else None
+				if discount_pct is not None and (discount_pct <= 0 or discount_pct >= 100):
+					self.show_warning('El descuento debe ser entre 0 y 100%.', 'Dato inválido')
+					return
+			except ValueError:
+				self.show_warning('El porcentaje de descuento no es válido.', 'Dato inválido')
+				return
+
+			raw_duntil = self._var_discount_until.get().strip()
+			if raw_duntil:
+				from datetime import datetime as _dt
+				for fmt in ('%d/%m/%Y', '%d/%m/%y', '%Y-%m-%d'):
+					try:
+						discount_until = _dt.strptime(raw_duntil, fmt).replace(
+							hour=23, minute=59, second=59
+						)
+						break
+					except ValueError:
+						continue
+				if discount_until is None:
+					self.show_warning(
+						'Fecha de vencimiento inválida. Usá DD/MM/AAAA.', 'Dato inválido'
+					)
+					return
+
 		tenant_id = self.ctx.tenant_id
 		user_id = self.ctx.user_id
 
@@ -772,6 +1100,8 @@ class ArticlesView(BaseView):
 					cost,
 					price,
 					supplier_id,
+					discount_pct=discount_pct,
+					discount_until=discount_until,
 				)
 			else:
 				success, msg = self.controller.add_simple_article(
@@ -783,6 +1113,8 @@ class ArticlesView(BaseView):
 					price,
 					initial_stock,
 					supplier_id,
+					discount_pct=discount_pct,
+					discount_until=discount_until,
 				)
 		finally:
 			self.set_loading(self.btn_add, False, original_text)
@@ -790,27 +1122,48 @@ class ArticlesView(BaseView):
 		if success:
 			self.show_success(msg)
 			self.reset_form()
+			if assigned_random_code:
+				self.lbl_barcode_msg.configure(text=f'Código asignado: {barcode}')
+				self.lbl_barcode_msg.pack(
+					anchor='w',
+					pady=(0, PAD_SM),
+					before=self.entry_name.master.winfo_children()[2],
+				)
 			self.load_data()
 			self.entry_barcode.focus()
 		else:
 			self.show_error(msg)
 
 	def delete_article(self):
-		selected = self.tree.selection()
-		if not selected:
+		selected_items = self.tree.selection()
+		if not selected_items:
 			return
 
-		if self.confirm('¿Seguro que deseas eliminar este producto?', 'Confirmar'):
-			variant_id = self.tree.item(selected[0], 'values')[0]
-			success, msg_response = self.controller.delete_variant(
-				self.ctx.tenant_id, variant_id
-			)
-			if success:
+		count = len(selected_items)
+		item_text = 'este producto' if count == 1 else f'estos {count} productos'
+
+		if self.confirm(f'¿Seguro que deseas eliminar {item_text}?', 'Confirmar'):
+			success_count = 0
+			error_msg = ''
+			for item in selected_items:
+				variant_id = self.tree.item(item, 'values')[0]
+				success, msg_response = self.controller.delete_variant(
+					self.ctx.tenant_id, variant_id
+				)
+				if success:
+					success_count += 1
+				else:
+					error_msg = msg_response
+
+			if success_count > 0:
 				self.load_data()
 				self.reset_form()
-				self.show_success(msg_response)
+				msg = f'{success_count} producto(s) eliminado(s) correctamente.'
+				if error_msg:
+					msg += f' Hubo un error con al menos uno: {error_msg}'
+				self.show_success(msg)
 			else:
-				self.show_error(msg_response)
+				self.show_error(error_msg or 'Error al eliminar productos.')
 
 	def print_labels(self):
 		selected_items = self.tree.selection()

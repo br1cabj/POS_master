@@ -108,6 +108,55 @@ class CustomerController(BaseController):
 				logger.error(f'Error al crear cliente: {e}', exc_info=True)
 				return False, 'Error interno al intentar crear el cliente.'
 
+	def update_customer(
+		self,
+		tenant_id: int,
+		customer_id: str,
+		name: str,
+		phone: Optional[str],
+	) -> Tuple[bool, str]:
+		"""Actualiza nombre, teléfono y tipo de un cliente existente."""
+		if not name or not str(name).strip():
+			return False, 'El nombre del cliente es obligatorio.'
+
+		name_clean = str(name).strip()
+		is_valid_phone, phone_clean = self._validate_phone(phone)
+		if not is_valid_phone:
+			return False, 'Número de teléfono con formato inválido.'
+
+		with self._Session() as session:
+			try:
+				customer = (
+					session.query(Customer)
+					.filter_by(id=customer_id, tenant_id=tenant_id, is_active=True)
+					.first()
+				)
+				if not customer:
+					return False, 'Cliente no encontrado.'
+
+				# Verificar duplicado de nombre (excluyendo el mismo cliente)
+				conflict = (
+					session.query(Customer)
+					.filter(
+						Customer.tenant_id == tenant_id,
+						Customer.name == name_clean,
+						Customer.is_active.is_(True),
+						Customer.id != customer_id,
+					)
+					.first()
+				)
+				if conflict:
+					return False, 'Ya existe otro cliente con ese nombre.'
+
+				customer.name = name_clean
+				customer.phone = phone_clean
+				session.commit()
+				return True, f"Cliente '{name_clean}' actualizado con éxito."
+			except Exception as e:
+				session.rollback()
+				logger.error(f'Error al actualizar cliente {customer_id}: {e}', exc_info=True)
+				return False, 'Error interno al actualizar el cliente.'
+
 	def pay_debt(
 		self,
 		tenant_id: int,

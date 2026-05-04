@@ -33,6 +33,7 @@ class SuppliersView(BaseView):
 
 		self.editing_id = None
 		self.suppliers_list = []
+		self._search_timer = None
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=2)
@@ -128,8 +129,36 @@ class SuppliersView(BaseView):
 			text='Doble clic para editar',
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
-		).pack(anchor='w', padx=16, pady=(0, 10))
+		).pack(anchor='w', padx=16, pady=(0, 6))
 
+		# ── Buscador ──
+		search_row = ctk.CTkFrame(self.right_panel, fg_color='transparent')
+		search_row.pack(fill='x', padx=14, pady=(0, 6))
+
+		self._search_var = ctk.StringVar()
+		self._search_var.trace_add('write', self._on_search_change)
+
+		ctk.CTkEntry(
+			search_row,
+			textvariable=self._search_var,
+			placeholder_text='🔍 Buscar por nombre, teléfono o email...',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=34,
+		).pack(side='left', fill='x', expand=True)
+
+		self.lbl_count = ctk.CTkLabel(
+			search_row,
+			text='',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			width=100,
+			anchor='e',
+		)
+		self.lbl_count.pack(side='right', padx=(8, 0))
+
+		# ── Tabla ──
 		self.table_container = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		self.table_container.pack(fill='both', expand=True, padx=14, pady=(0, 8))
 
@@ -151,6 +180,8 @@ class SuppliersView(BaseView):
 			self.tree.column(col, anchor='w' if col != 'ID' else 'center', width=width)
 
 		self.tree.bind('<Double-1>', self.on_tree_double_click)
+		self.tree.bind('<<TreeviewSelect>>', self._on_tree_select)
+
 		self.tree_scroll.pack(side='right', fill='y')
 		self.tree.pack(side='left', fill='both', expand=True)
 
@@ -164,23 +195,60 @@ class SuppliersView(BaseView):
 			border_color=RED,
 			height=36,
 			corner_radius=8,
+			state='disabled',
 			command=self.delete_supplier,
 		)
 		self.btn_delete.pack(pady=(4, 14), padx=14, fill='x')
 
 		self.after(100, self.load_data)
 
-	def load_data(self):
+	# =========================================================
+	# LÓGICA Y EVENTOS
+	# =========================================================
+	def _on_search_change(self, *args):
+		if self._search_timer:
+			self.after_cancel(self._search_timer)
+		self._search_timer = self.after(300, self._filter_tree)
+
+	def _filter_tree(self, *args):
+		q = self._search_var.get().lower().strip()
+		matches = [
+			s
+			for s in self.suppliers_list
+			if q in (s.get('name') or '').lower()
+			or q in (s.get('phone') or '').lower()
+			or q in (s.get('email') or '').lower()
+		]
+
 		for item in self.tree.get_children():
 			self.tree.delete(item)
-		tenant_id = self.ctx.tenant_id
-		self.suppliers_list = self.controller.get_all_suppliers(tenant_id)
-		for s in self.suppliers_list:
+
+		for s in matches:
 			self.tree.insert(
 				'',
 				'end',
 				values=(s['id'], s['name'], s['phone'], s['email'], s['address']),
 			)
+
+		total = len(self.suppliers_list)
+		shown = len(matches)
+		if hasattr(self, 'lbl_count'):
+			self.lbl_count.configure(
+				text=f'{shown} de {total}' if q else f'{total} prov.'
+			)
+
+		self._on_tree_select()
+
+	def _on_tree_select(self, event=None):
+		if self.tree.selection():
+			self.btn_delete.configure(state='normal')
+		else:
+			self.btn_delete.configure(state='disabled')
+
+	def load_data(self):
+		tenant_id = self.ctx.tenant_id
+		self.suppliers_list = self.controller.get_all_suppliers(tenant_id)
+		self._filter_tree()
 
 	def on_tree_double_click(self, event):
 		selected = self.tree.selection()

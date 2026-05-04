@@ -83,7 +83,20 @@ class QuotationController(BaseController):
 			try:
 				n = int(last.number.split('-')[-1]) + 1
 			except Exception:
-				n = last.id + 1
+				# Fallback: recorrer todos los números y tomar el máximo sufijo numérico
+				all_numbers = [
+					row[0]
+					for row in session.query(Quotation.number)
+					.filter_by(tenant_id=tenant_id)
+					.all()
+				]
+				max_n = 0
+				for num in all_numbers:
+					try:
+						max_n = max(max_n, int(num.split('-')[-1]))
+					except Exception:
+						pass
+				n = max_n + 1
 		return f'COT-{n:04d}'
 
 	def _row_to_dict(self, q: Quotation) -> dict:
@@ -250,7 +263,7 @@ class QuotationController(BaseController):
 				)
 				return False, 'Error interno al actualizar la cotización.'
 
-	def set_status(self, quotation_id: int, new_status: str) -> tuple[bool, str]:
+	def set_status(self, quotation_id: int, new_status: str, tenant_id: int = None) -> tuple[bool, str]:
 		"""Actualiza el estado (borrador, aceptada, etc.) de una cotización."""
 		valid = set(self.STATUS_LABELS.keys())
 		if new_status not in valid:
@@ -261,6 +274,8 @@ class QuotationController(BaseController):
 				q = s.get(Quotation, quotation_id)
 				if not q:
 					return False, 'Cotización no encontrada.'
+				if tenant_id is not None and q.tenant_id != tenant_id:
+					return False, 'Cotización no encontrada.'
 				q.status = new_status
 				s.commit()
 				return True, new_status
@@ -269,12 +284,14 @@ class QuotationController(BaseController):
 				logger.error('Error cambiando estado: %s', e, exc_info=True)
 				return False, 'Error interno al modificar estado.'
 
-	def delete_quotation(self, quotation_id: int) -> tuple[bool, str]:
+	def delete_quotation(self, quotation_id: int, tenant_id: int = None) -> tuple[bool, str]:
 		"""Elimina físicamente una cotización y todos sus ítems asociados."""
 		with self._Session() as s:
 			try:
 				q = s.get(Quotation, quotation_id)
 				if not q:
+					return False, 'Cotización no encontrada.'
+				if tenant_id is not None and q.tenant_id != tenant_id:
 					return False, 'Cotización no encontrada.'
 				s.delete(q)
 				s.commit()
@@ -345,19 +362,31 @@ class QuotationController(BaseController):
 		user_id: int,
 		payment_method: str = 'efectivo',
 		warehouse_id: int = None,
+		tenant_id: int = None,
 	) -> tuple[bool, str]:
 		"""
 		Transforma una cotización en una venta firme.
 		Descuenta stock, registra la ganancia real basada en el costo,
 		e ingresa el movimiento en la caja del usuario especificado.
+		Pasar tenant_id activa la verificación de propiedad del documento.
 		"""
 		with self._Session() as s:
 			try:
 				q = s.get(Quotation, quotation_id)
 				if not q:
 					return False, 'Cotización no encontrada.'
-				if q.status == 'rechazada':
-					return False, 'No se puede convertir una cotización rechazada.'
+				# Verificar que la cotización pertenece al tenant que ejecuta la acción
+				if tenant_id is not None and q.tenant_id != tenant_id:
+					logger.warning(
+						'Intento de convertir cotización %s de tenant ajeno (esperado %s, real %s).',
+						quotation_id, tenant_id, q.tenant_id,
+					)
+					return False, 'Cotización no encontrada.'
+				if q.status in ('rechazada', 'aceptada', 'vencida'):
+					return (
+						False,
+						f'No se puede convertir una cotización en estado "{self.STATUS_LABELS.get(q.status, q.status)}".',
+					)
 
 				# Calcular el costo real para la rentabilidad de la venta
 				total_cost = Decimal('0')
@@ -375,7 +404,9 @@ class QuotationController(BaseController):
 
 					items_data.append({'ref': it, 'unit_cost': unit_cost})
 
-				real_profit = q.total_amount - total_cost
+				real_profit = (q.total_amount - total_cost).quantize(
+					Decimal('0.01'), ROUND_HALF_UP
+				)
 
 				sale = Sale(
 					tenant_id=q.tenant_id,
@@ -405,7 +436,11 @@ class QuotationController(BaseController):
 					s.add(sd)
 
 					# Manejo del inventario: si no existe stock previo, se crea en negativo
-					if it.variant_id and warehouse_id:
+					if it.variant_id:
+						if not warehouse_id:
+							raise ValueError(
+								f'Se requiere un depósito para descontar el stock de "{it.description}".'
+							)
 						stock_row = (
 							s.query(Stock)
 							.filter_by(

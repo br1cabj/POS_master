@@ -148,8 +148,8 @@ class PurchasesController(BaseController):
 
 					if qty <= 0:
 						raise ValueError('La cantidad no puede ser nula o negativa.')
-					if new_cost < 0:
-						raise ValueError('El costo no puede ser negativo.')
+					if new_cost <= 0:
+						raise ValueError('El costo debe ser mayor a cero.')
 
 					variant = variants_db.get(variant_id)
 					if not variant:
@@ -158,8 +158,8 @@ class PurchasesController(BaseController):
 						)
 
 					total += qty * new_cost
-					variant.cost_price = new_cost
 
+					# Stock primero: si falla (ej. no hay depósito), el costo NO se modifica
 					stock = stocks_db.get(variant_id)
 					if stock:
 						stock.quantity += qty
@@ -177,6 +177,22 @@ class PurchasesController(BaseController):
 							)
 						)
 						warehouse_id = default_warehouse.id
+
+					# Actualizar costo solo para variantes base; las presentaciones
+					# derivan su costo de la base mediante cascada
+					if not variant.base_variant_id:
+						variant.cost_price = new_cost
+
+						child_packs = (
+							session.query(ArticleVariant)
+							.filter(
+								ArticleVariant.base_variant_id == variant_id,
+								ArticleVariant.is_active == True,  # noqa: E712
+							)
+							.all()
+						)
+						for child in child_packs:
+							child.cost_price = new_cost * (child.units_per_pack or 1)
 
 					mov = StockMovement(
 						movement_type='in',

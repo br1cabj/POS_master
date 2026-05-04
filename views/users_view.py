@@ -33,6 +33,7 @@ from utils.styles import (
 	SURFACE4,
 	TEXT_MUTED,
 	TEXT_PRIMARY,
+	TEXT_SECONDARY,
 	apply_treeview_style,
 	make_form_label,
 )
@@ -42,12 +43,14 @@ class UsersView(BaseView):
 	def __init__(self, master, ctx: AppContext):
 		super().__init__(master, ctx)
 		self.controller = UserController(ctx.db_engine)
+		self._all_users = []
+		self._editing_user_id = None
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=2)
 		self.grid_rowconfigure(0, weight=1)
 
-		# ── Panel izquierdo: Nuevo empleado ──────────────────────────────────
+		# ── Panel izquierdo: Nuevo / Editar empleado ──────────────────────────────────
 		self.left_panel = ctk.CTkFrame(
 			self,
 			fg_color=SURFACE2,
@@ -59,12 +62,13 @@ class UsersView(BaseView):
 			row=0, column=0, sticky='nsew', padx=(PAD_LG, PAD_SM), pady=PAD_LG
 		)
 
-		ctk.CTkLabel(
+		self.lbl_form_title = ctk.CTkLabel(
 			self.left_panel,
 			text='🛠  Nuevo Empleado',
 			font=FONT_TITLE,
 			text_color=TEXT_PRIMARY,
-		).pack(pady=(PAD_LG, PAD_SM))
+		)
+		self.lbl_form_title.pack(pady=(PAD_LG, PAD_SM))
 
 		# Usuario
 		make_form_label(self.left_panel, 'NOMBRE DE USUARIO', required=True)[0].pack(
@@ -81,12 +85,16 @@ class UsersView(BaseView):
 		)
 		self.entry_user.pack(pady=(0, PAD_SM), padx=PAD_LG, fill='x')
 
+		# Contenedor para Password y PIN (ocultable en modo edición)
+		self.pass_pin_container = ctk.CTkFrame(self.left_panel, fg_color='transparent')
+		self.pass_pin_container.pack(fill='x')
+
 		# Contraseña
-		make_form_label(self.left_panel, 'CONTRASEÑA', required=True)[0].pack(
+		make_form_label(self.pass_pin_container, 'CONTRASEÑA', required=True)[0].pack(
 			padx=PAD_LG, anchor='w', pady=(PAD_XS, PAD_XS)
 		)
 		self.entry_pass = ctk.CTkEntry(
-			self.left_panel,
+			self.pass_pin_container,
 			placeholder_text='Mínimo 6 caracteres',
 			show='*',
 			fg_color=SURFACE3,
@@ -99,7 +107,7 @@ class UsersView(BaseView):
 
 		# PIN de recuperación
 		pin_frame = ctk.CTkFrame(
-			self.left_panel,
+			self.pass_pin_container,
 			fg_color=ORANGE_DIM,
 			corner_radius=8,
 			border_width=1,
@@ -137,11 +145,14 @@ class UsersView(BaseView):
 		).pack(padx=PAD_MD, anchor='w', pady=(0, PAD_SM))
 
 		# Rol
-		make_form_label(self.left_panel, 'ROL DE ACCESO', required=True)[0].pack(
+		self.role_container = ctk.CTkFrame(self.left_panel, fg_color='transparent')
+		self.role_container.pack(fill='x')
+
+		make_form_label(self.role_container, 'ROL DE ACCESO', required=True)[0].pack(
 			padx=PAD_LG, anchor='w', pady=(PAD_XS, PAD_XS)
 		)
 		self.combo_role = ctk.CTkComboBox(
-			self.left_panel,
+			self.role_container,
 			values=['Cajero', 'Administrador'],
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
@@ -168,7 +179,22 @@ class UsersView(BaseView):
 			font=FONT_BODY_BOLD,
 			command=self.add_user,
 		)
-		self.btn_add.pack(pady=(0, PAD_LG), padx=PAD_LG, fill='x')
+		self.btn_add.pack(pady=(0, PAD_SM), padx=PAD_LG, fill='x')
+
+		self.btn_cancel_edit = ctk.CTkButton(
+			self.left_panel,
+			text='Cancelar Edición',
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_SECONDARY,
+			border_width=1,
+			border_color=BORDER,
+			height=40,
+			corner_radius=8,
+			font=FONT_BODY_BOLD,
+			command=self._cancel_edit,
+		)
+		# Oculto por defecto
 
 		# ── Panel derecho: Lista de usuarios ─────────────────────────────────
 		self.right_panel = ctk.CTkFrame(
@@ -234,9 +260,24 @@ class UsersView(BaseView):
 		btns = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		btns.pack(fill='x', padx=PAD_SM, pady=(0, PAD_MD))
 
+		self.btn_edit = ctk.CTkButton(
+			btns,
+			text='✏️ Editar Rol / Usuario',
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			border_width=1,
+			border_color=ACCENT,
+			height=36,
+			corner_radius=8,
+			font=FONT_BODY_BOLD,
+			command=self._edit_selected,
+		)
+		self.btn_edit.pack(side='left', expand=True, fill='x', padx=(0, PAD_SM))
+
 		self.btn_reset_pass = ctk.CTkButton(
 			btns,
-			text='🔑  Restablecer Contraseña',
+			text='🔑 Restablecer Contraseña',
 			fg_color=ORANGE_DIM,
 			hover_color=ORANGE,
 			text_color=ORANGE_TEXT,
@@ -251,12 +292,12 @@ class UsersView(BaseView):
 
 		self.btn_update_pin = ctk.CTkButton(
 			btns,
-			text='🔐  Actualizar PIN',
-			fg_color=ACCENT_DIM,
-			hover_color=ACCENT,
-			text_color=ACCENT_TEXT,
+			text='🔐 Actualizar PIN',
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_PRIMARY,
 			border_width=1,
-			border_color=ACCENT,
+			border_color=BORDER,
 			height=36,
 			corner_radius=8,
 			font=FONT_BODY_BOLD,
@@ -266,7 +307,7 @@ class UsersView(BaseView):
 
 		self.btn_delete = ctk.CTkButton(
 			btns,
-			text='🗑  Eliminar',
+			text='🗑 Eliminar',
 			fg_color=RED_DIM,
 			hover_color=RED,
 			text_color=RED_TEXT,
@@ -289,9 +330,9 @@ class UsersView(BaseView):
 			self.tree.delete(item)
 
 		tenant_id = self.ctx.tenant_id
-		users = self.controller.get_users(tenant_id)
+		self._all_users = self.controller.get_users(tenant_id)
 
-		for idx, u in enumerate(users):
+		for idx, u in enumerate(self._all_users):
 			role_display = '👑 Admin' if u.get('role') == 'admin' else '👤 Cajero'
 			pin_display = '✅ Configurado' if u.get('has_recovery_pin') else '⚠ Sin PIN'
 
@@ -302,46 +343,106 @@ class UsersView(BaseView):
 			)
 
 	# =========================================================
-	# CREAR USUARIO
+	# CREAR / EDITAR USUARIO
 	# =========================================================
+	def _edit_selected(self):
+		selected = self.tree.selection()
+		if not selected:
+			self.show_warning('Seleccioná un empleado de la tabla para editar.')
+			return
+
+		values = self.tree.item(selected[0], 'values')
+		user_id = values[0]
+
+		user_data = next(
+			(u for u in self._all_users if str(u.get('id')) == str(user_id)), None
+		)
+		if not user_data:
+			return
+
+		self._editing_user_id = user_id
+		self.lbl_form_title.configure(text='✏️ Editar Empleado', text_color=ACCENT_TEXT)
+
+		self.entry_user.delete(0, 'end')
+		self.entry_user.insert(0, user_data.get('username', ''))
+
+		role_str = 'Administrador' if user_data.get('role') == 'admin' else 'Cajero'
+		self.combo_role.set(role_str)
+
+		# Ocultamos contraseñas y pines, se gestionan con los botones dedicados
+		self.pass_pin_container.pack_forget()
+
+		self.btn_add.configure(text='💾  Actualizar Empleado')
+		self.btn_cancel_edit.pack(pady=(0, PAD_LG), padx=PAD_LG, fill='x')
+		self.entry_user.focus_set()
+
+	def _cancel_edit(self):
+		self._editing_user_id = None
+		self.lbl_form_title.configure(text='🛠  Nuevo Empleado', text_color=TEXT_PRIMARY)
+
+		self.entry_user.delete(0, 'end')
+		self.entry_pass.delete(0, 'end')
+		self.entry_pin.delete(0, 'end')
+		self.combo_role.set('Cajero')
+
+		self.btn_cancel_edit.pack_forget()
+		self.pass_pin_container.pack(after=self.entry_user, fill='x')
+		self.btn_add.configure(text='➕  Crear Cuenta')
+
 	def add_user(self):
 		username = self.entry_user.get().strip()
-		password = self.entry_pass.get().strip()
-
 		role_ui = self.combo_role.get()
 		role = 'admin' if role_ui == 'Administrador' else 'cajero'
 
-		pin = self.entry_pin.get().strip() or None
-
-		if not username or not password:
-			self.show_warning('Usuario y contraseña son obligatorios.')
-			return
-
-		if len(password) < 6:
-			self.show_warning('La contraseña debe tener al menos 6 caracteres.')
-			return
-
-		if pin and (not pin.isdigit() or len(pin) < 4):
-			self.show_warning('El PIN debe tener al menos 4 dígitos numéricos.')
+		if not username:
+			self.show_warning('El nombre de usuario es obligatorio.')
 			return
 
 		tenant_id = self.ctx.tenant_id
-		success, msg = self.controller.add_user(
-			tenant_id, username, password, role, recovery_pin=pin
-		)
 
-		if success:
-			if pin:
-				self.show_success(
-					f'{msg}\n\nPIN de recuperación guardado correctamente.\nAsegurate de que el empleado lo recuerde.',
-					'Empleado creado',
+		orig_text = self.btn_add.cget('text')
+		self.btn_add.configure(state='disabled', text='⏳ Procesando...')
+		self.update_idletasks()
+
+		try:
+			if self._editing_user_id:
+				success, msg = self.controller.update_user(
+					tenant_id, self._editing_user_id, username=username, role=role
 				)
 			else:
-				self.show_success(msg)
+				password = self.entry_pass.get().strip()
+				pin = self.entry_pin.get().strip() or None
 
-			self.entry_user.delete(0, 'end')
-			self.entry_pass.delete(0, 'end')
-			self.entry_pin.delete(0, 'end')
+				if not password or len(password) < 6:
+					self.show_warning('La contraseña debe tener al menos 6 caracteres.')
+					return
+
+				if pin and (not pin.isdigit() or len(pin) < 4):
+					self.show_warning('El PIN debe tener al menos 4 dígitos numéricos.')
+					return
+
+				success, msg = self.controller.add_user(
+					tenant_id, username, password, role, recovery_pin=pin
+				)
+		except Exception as e:
+			success, msg = False, f'Error del sistema: {str(e)}'
+		finally:
+			self.btn_add.configure(state='normal', text=orig_text)
+
+		if success:
+			if self._editing_user_id:
+				self.show_success(msg, 'Empleado actualizado')
+			else:
+				pin = self.entry_pin.get().strip() or None
+				if pin:
+					self.show_success(
+						f'{msg}\n\nPIN de recuperación guardado correctamente.\nAsegurate de que el empleado lo recuerde.',
+						'Empleado creado',
+					)
+				else:
+					self.show_success(msg)
+
+			self._cancel_edit()
 			self.load_data()
 		else:
 			self.show_error(msg)
@@ -357,7 +458,11 @@ class UsersView(BaseView):
 
 		values = self.tree.item(selected[0], 'values')
 		target_id = values[0]
-		target_name = values[1]
+
+		user_data = next(
+			(u for u in self._all_users if str(u.get('id')) == str(target_id)), None
+		)
+		target_name = user_data.get('username') if user_data else str(values[1])
 
 		popup = ctk.CTkToplevel(self)
 		popup.title('Restablecer Contraseña')
@@ -434,6 +539,12 @@ class UsersView(BaseView):
 				lbl_err.configure(text='Las contraseñas no coinciden.')
 				return
 
+			if not self.confirm(
+				f'¿Confirmás el cambio de contraseña para el usuario {target_name}?',
+				'Confirmar Acción',
+			):
+				return
+
 			success, msg = self.controller.reset_password_by_admin(
 				self.ctx.tenant_id, target_id, new_pass
 			)
@@ -469,7 +580,11 @@ class UsersView(BaseView):
 
 		values = self.tree.item(selected[0], 'values')
 		target_id = values[0]
-		target_name = values[1]
+
+		user_data = next(
+			(u for u in self._all_users if str(u.get('id')) == str(target_id)), None
+		)
+		target_name = user_data.get('username') if user_data else str(values[1])
 
 		popup = ctk.CTkToplevel(self)
 		popup.title('Actualizar PIN de Recuperación')
@@ -544,6 +659,12 @@ class UsersView(BaseView):
 				lbl_err.configure(text='Los PINs no coinciden.')
 				return
 
+			if not self.confirm(
+				f'¿Confirmás la actualización del PIN para el usuario {target_name}?',
+				'Confirmar Acción',
+			):
+				return
+
 			success, msg = self.controller.set_recovery_pin(
 				self.ctx.tenant_id, target_id, pin
 			)
@@ -579,7 +700,12 @@ class UsersView(BaseView):
 
 		values = self.tree.item(selected[0], 'values')
 		user_id = values[0]
-		selected_username = values[1]
+
+		user_data = next(
+			(u for u in self._all_users if str(u.get('id')) == str(user_id)), None
+		)
+		selected_username = user_data.get('username') if user_data else str(values[1])
+
 		current_username = self.ctx.username
 
 		if selected_username == current_username:

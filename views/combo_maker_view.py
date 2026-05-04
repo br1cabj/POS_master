@@ -1,3 +1,4 @@
+import logging
 from decimal import Decimal, InvalidOperation
 from tkinter import ttk
 
@@ -41,6 +42,8 @@ from utils.styles import (
 	make_form_label,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ComboMakerView(BaseView):
 	def __init__(self, master, ctx: AppContext):
@@ -51,6 +54,7 @@ class ComboMakerView(BaseView):
 		self.db_variants = []
 		self.variant_map = {}
 		self.ingredients_cart = []
+		self.editing_combo_id = None
 
 		self.pack(fill='both', expand=True, padx=PAD_MD, pady=PAD_MD)
 
@@ -100,7 +104,12 @@ class ComboMakerView(BaseView):
 		self.db_variants = self.article_ctrl.get_all_variants(tenant_id)
 
 		normal_items = [v for v in self.db_variants if not v.get('is_combo')]
-		self.variant_map = {v.get('name'): v for v in normal_items if v.get('name')}
+		self.variant_map = {}
+		for v in normal_items:
+			if v.get('name'):
+				# Prevención de colisiones: Clave única con ID
+				display_name = f'{v["name"]} | Cód: {v.get("barcode", "S/N")} (ID: {v["variant_id"]})'
+				self.variant_map[display_name] = v
 
 		if self.variant_map:
 			vals = list(self.variant_map.keys())
@@ -111,6 +120,22 @@ class ComboMakerView(BaseView):
 		else:
 			self.combo_ingredient.configure(values=['Sin productos'])
 			self.combo_sueltos.configure(values=['Sin productos'])
+
+		# Cargar Directorio de Combos Existentes
+		for item in self.tree_directory.get_children():
+			self.tree_directory.delete(item)
+
+		combos = [v for v in self.db_variants if v.get('is_combo')]
+		for c in combos:
+			self.tree_directory.insert(
+				'',
+				'end',
+				values=(
+					c['variant_id'],
+					c['name'],
+					f'${float(c.get("selling_price", 0)):.2f}',
+				),
+			)
 
 	# =========================================================
 	# PESTAÑA 1: CREADOR DE COMBOS
@@ -129,12 +154,13 @@ class ComboMakerView(BaseView):
 		)
 		left.grid(row=0, column=0, sticky='nsew', padx=(0, PAD_SM), pady=PAD_SM)
 
-		ctk.CTkLabel(
+		self.lbl_form_title = ctk.CTkLabel(
 			left,
 			text='1.  Datos de la Promo',
 			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
-		).pack(pady=(PAD_LG, PAD_MD))
+		)
+		self.lbl_form_title.pack(pady=(PAD_LG, PAD_MD))
 
 		self.entry_combo_name = ctk.CTkEntry(
 			left,
@@ -221,15 +247,24 @@ class ComboMakerView(BaseView):
 			font=FONT_BODY_BOLD,
 		).pack(pady=(0, PAD_LG), padx=PAD_LG, fill='x')
 
-		# ── PANEL DERECHO ──
+		# ── CONTENEDOR DERECHO ──
+		right_container = ctk.CTkFrame(self.tab_combos, fg_color='transparent')
+		right_container.grid(
+			row=0, column=1, sticky='nsew', padx=(PAD_SM, 0), pady=PAD_SM
+		)
+		right_container.grid_rowconfigure(0, weight=3)  # Receta
+		right_container.grid_rowconfigure(1, weight=2)  # Directorio
+		right_container.grid_columnconfigure(0, weight=1)
+
+		# ── RECETA ──
 		right = ctk.CTkFrame(
-			self.tab_combos,
+			right_container,
 			fg_color=SURFACE2,
 			corner_radius=10,
 			border_width=1,
 			border_color=BORDER,
 		)
-		right.grid(row=0, column=1, sticky='nsew', padx=(PAD_SM, 0), pady=PAD_SM)
+		right.grid(row=0, column=0, sticky='nsew', pady=(0, PAD_SM))
 
 		ctk.CTkLabel(
 			right,
@@ -243,7 +278,7 @@ class ComboMakerView(BaseView):
 			right,
 			columns=('Producto', 'Cantidad', 'Costo Parcial'),
 			show='headings',
-			height=10,
+			height=6,
 		)
 		self.init_treeview(self.tree_recipe)
 
@@ -277,8 +312,11 @@ class ComboMakerView(BaseView):
 			command=self.remove_ingredient,
 		).pack(pady=(PAD_XS, PAD_SM), padx=PAD_MD, fill='x')
 
-		ctk.CTkButton(
-			right,
+		btn_row = ctk.CTkFrame(right, fg_color='transparent')
+		btn_row.pack(pady=(0, PAD_MD), padx=PAD_MD, fill='x')
+
+		self.btn_save_combo = ctk.CTkButton(
+			btn_row,
 			text='💾  GUARDAR COMBO Y CREAR BOTÓN (Ctrl+G)',
 			fg_color=GREEN_DIM,
 			hover_color=GREEN,
@@ -289,7 +327,185 @@ class ComboMakerView(BaseView):
 			font=FONT_BODY_BOLD,
 			corner_radius=8,
 			command=self.save_combo,
-		).pack(pady=(0, PAD_MD), padx=PAD_MD, fill='x')
+		)
+		self.btn_save_combo.pack(side='left', expand=True, fill='x', padx=(0, PAD_SM))
+
+		ctk.CTkButton(
+			btn_row,
+			text='✕ Cancelar',
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_SECONDARY,
+			border_width=1,
+			border_color=BORDER,
+			height=50,
+			corner_radius=8,
+			command=self.reset_form,
+		).pack(side='left', fill='x')
+
+		# ── DIRECTORIO DE COMBOS EXISTENTES ──
+		dir_panel = ctk.CTkFrame(
+			right_container,
+			fg_color=SURFACE2,
+			corner_radius=10,
+			border_width=1,
+			border_color=BORDER,
+		)
+		dir_panel.grid(row=1, column=0, sticky='nsew')
+
+		ctk.CTkLabel(
+			dir_panel,
+			text='Directorio de Combos',
+			font=FONT_HEADING,
+			text_color=TEXT_PRIMARY,
+		).pack(pady=(PAD_LG, PAD_SM))
+
+		self.tree_directory = ttk.Treeview(
+			dir_panel, columns=('ID', 'Nombre', 'Precio'), show='headings', height=5
+		)
+		self.tree_directory.heading('ID', text='ID')
+		self.tree_directory.heading('Nombre', text='Nombre Promo')
+		self.tree_directory.heading('Precio', text='Precio')
+		self.tree_directory.column('ID', width=40, anchor='center')
+		self.tree_directory.column('Nombre', width=200, anchor='w')
+		self.tree_directory.column('Precio', width=80, anchor='e')
+		self.tree_directory.pack(fill='both', expand=True, padx=PAD_MD, pady=PAD_XS)
+		self.tree_directory.bind('<Double-1>', self.edit_combo)
+
+		dir_btn_row = ctk.CTkFrame(dir_panel, fg_color='transparent')
+		dir_btn_row.pack(fill='x', padx=PAD_MD, pady=(PAD_XS, PAD_MD))
+
+		ctk.CTkButton(
+			dir_btn_row,
+			text='✏️ Editar',
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			border_width=1,
+			border_color=ACCENT,
+			height=32,
+			command=self.edit_combo,
+		).pack(side='left', expand=True, fill='x', padx=(0, PAD_SM))
+
+		ctk.CTkButton(
+			dir_btn_row,
+			text='🗑 Eliminar',
+			fg_color=RED_DIM,
+			hover_color=RED,
+			text_color=RED_TEXT,
+			border_width=1,
+			border_color=RED,
+			height=32,
+			command=self.delete_combo,
+		).pack(side='left', expand=True, fill='x')
+
+	def reset_form(self):
+		"""Purga el formulario y el carrito asegurando limpieza entre creaciones."""
+		self.editing_combo_id = None
+		self.entry_combo_name.delete(0, 'end')
+		self.entry_combo_price.delete(0, 'end')
+		self.combo_color.set(list(self.color_map.keys())[0])
+
+		for item in self.tree_recipe.get_children():
+			self.tree_recipe.delete(item)
+		self.ingredients_cart.clear()
+		self._update_recipe_cost()
+
+		if self.variant_map:
+			self.combo_ingredient.set('Seleccionar Ingrediente...')
+
+		self.lbl_form_title.configure(text='1.  Datos de la Promo')
+		self.btn_save_combo.configure(text='💾  GUARDAR COMBO Y CREAR BOTÓN (Ctrl+G)')
+
+	def edit_combo(self, event=None):
+		selected = self.tree_directory.selection()
+		if not selected:
+			return
+
+		combo_id = self.tree_directory.item(selected[0], 'values')[0]
+		combo = next(
+			(c for c in self.db_variants if str(c.get('variant_id')) == str(combo_id)),
+			None,
+		)
+
+		if not combo:
+			return
+
+		self.reset_form()
+		self.editing_combo_id = combo['variant_id']
+		self.lbl_form_title.configure(text='✏️ Editando Promo')
+		self.btn_save_combo.configure(text='💾  ACTUALIZAR COMBO (Ctrl+G)')
+
+		self.entry_combo_name.insert(0, combo.get('name', ''))
+		self.entry_combo_price.insert(0, f'{combo.get("selling_price", 0):.2f}')
+
+		try:
+			ingredients = self.combo_ctrl.get_combo_ingredients(
+				self.ctx.tenant_id, combo['variant_id']
+			)
+			for ing in ingredients:
+				vid = ing.get('variant_id') or ing.get('ingredient_id')
+				qty = Decimal(str(ing.get('quantity', 1)))
+
+				orig_v = next(
+					(v for v in self.db_variants if v.get('variant_id') == vid), None
+				)
+				if orig_v:
+					desc = orig_v.get('name', 'Desconocido')
+					# Formatear el display para match con la UI
+					display_desc = (
+						f'{desc} | Cód: {orig_v.get("barcode", "S/N")} (ID: {vid})'
+					)
+
+					cost = Decimal(str(orig_v.get('cost_price', 0)))
+					subtotal = cost * qty
+
+					item_id = self.insert_tree_row(
+						self.tree_recipe,
+						len(self.tree_recipe.get_children()),
+						values=(display_desc, f'{qty:g}', f'${subtotal:,.2f}'),
+					)
+					self.ingredients_cart.append(
+						{
+							'tree_id': item_id,
+							'variant_id': vid,
+							'qty': qty,
+							'cost_price': cost,
+						}
+					)
+		except Exception as e:
+			logger.error(f'Error cargando ingredientes del combo: {e}')
+			self.show_warning('Ocurrió un error al cargar la receta completa.')
+
+		self._update_recipe_cost()
+
+	def delete_combo(self):
+		selected = self.tree_directory.selection()
+		if not selected:
+			self.show_warning('Seleccioná un combo de la lista para eliminarlo.')
+			return
+
+		combo_id = self.tree_directory.item(selected[0], 'values')[0]
+		combo_name = self.tree_directory.item(selected[0], 'values')[1]
+
+		if not self.confirm(f'¿Seguro que deseás eliminar el combo "{combo_name}"?'):
+			return
+
+		try:
+			# Fallback seguro: un combo es una variante en db
+			success, msg = self.article_ctrl.delete_variant(
+				self.ctx.tenant_id, combo_id
+			)
+		except Exception as e:
+			success, msg = False, str(e)
+
+		if success:
+			self.show_success('Combo eliminado correctamente.')
+			if str(self.editing_combo_id) == str(combo_id):
+				self.reset_form()
+			self.load_data()
+		else:
+			self.show_error(msg)
 
 	def _filter_ingredients(self, event):
 		if event.keysym in ('Up', 'Down', 'Return', 'Tab', 'Shift_L', 'Shift_R'):
@@ -402,18 +618,42 @@ class ComboMakerView(BaseView):
 			for i in self.ingredients_cart
 		]
 
-		success, msg = self.combo_ctrl.create_combo(
-			tenant_id, name, price_str, btn_color, cart_for_ctrl
-		)
+		orig_text = self.btn_save_combo.cget('text')
+		self.set_loading(self.btn_save_combo, True)
+		self.update_idletasks()
+
+		try:
+			if self.editing_combo_id:
+				success, msg = self.combo_ctrl.update_combo(
+					tenant_id,
+					self.editing_combo_id,
+					name,
+					price_str,
+					btn_color,
+					cart_for_ctrl,
+				)
+			else:
+				success, msg = self.combo_ctrl.create_combo(
+					tenant_id, name, price_str, btn_color, cart_for_ctrl
+				)
+		except AttributeError:
+			if self.editing_combo_id:
+				success, msg = (
+					False,
+					'La función de actualizar no está implementada en el backend actual.',
+				)
+			else:
+				success, msg = self.combo_ctrl.create_combo(
+					tenant_id, name, price_str, btn_color, cart_for_ctrl
+				)
+		except Exception as e:
+			success, msg = False, str(e)
+		finally:
+			self.set_loading(self.btn_save_combo, False, orig_text)
 
 		if success:
 			self.show_success(msg, '¡Combo Guardado!')
-			self.entry_combo_name.delete(0, 'end')
-			self.entry_combo_price.delete(0, 'end')
-			for item in self.tree_recipe.get_children():
-				self.tree_recipe.delete(item)
-			self.ingredients_cart.clear()
-			self._update_recipe_cost()
+			self.reset_form()
 			self.load_data()
 		else:
 			self.show_error(msg)

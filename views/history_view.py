@@ -1,6 +1,6 @@
 import csv
-import os
-from datetime import date, timedelta
+import tkinter.filedialog as filedialog
+from datetime import date, datetime, timedelta
 from tkinter import ttk
 
 import customtkinter as ctk
@@ -20,6 +20,7 @@ from utils.styles import (
 	FONT_SMALL_BOLD,
 	GREEN_TEXT,
 	ORANGE_TEXT,
+	RED_TEXT,
 	SURFACE1,
 	SURFACE2,
 	SURFACE3,
@@ -38,6 +39,9 @@ class HistoryView(BaseView):
 
 		self._all_sales = []
 		self._active_filter = 'all'
+
+		self._custom_start = None
+		self._custom_end = None
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_rowconfigure(0, weight=0)
@@ -108,7 +112,9 @@ class HistoryView(BaseView):
 			('today', 'Hoy'),
 			('week', 'Esta Semana'),
 			('fiado', 'Solo Fiados'),
+			('anuladas', 'Anuladas / Devueltas'),
 			('cotizacion', '📋 Cotizaciones'),
+			('custom', 'Personalizado'),
 		]
 
 		for fkey, flabel in _filters:
@@ -121,6 +127,37 @@ class HistoryView(BaseView):
 			)
 			btn.pack(side='left', padx=(0, 6))
 			self._filter_btns[fkey] = btn
+
+		# ── Date Picker Personalizado (oculto por defecto) ──
+		self._custom_date_frame = ctk.CTkFrame(filter_row, fg_color='transparent')
+		self._entry_date_start = ctk.CTkEntry(
+			self._custom_date_frame,
+			width=95,
+			placeholder_text='DD/MM/AAAA',
+			height=28,
+			font=FONT_SMALL,
+		)
+		self._entry_date_start.pack(side='left', padx=2)
+		ctk.CTkLabel(
+			self._custom_date_frame, text='-', font=FONT_SMALL, text_color=TEXT_MUTED
+		).pack(side='left')
+		self._entry_date_end = ctk.CTkEntry(
+			self._custom_date_frame,
+			width=95,
+			placeholder_text='DD/MM/AAAA',
+			height=28,
+			font=FONT_SMALL,
+		)
+		self._entry_date_end.pack(side='left', padx=2)
+		ctk.CTkButton(
+			self._custom_date_frame,
+			text='Aplicar',
+			width=60,
+			height=28,
+			font=FONT_SMALL,
+			command=self._apply_custom_dates,
+		).pack(side='left', padx=(4, 0))
+		self._custom_date_frame.pack_forget()
 
 		ctk.CTkButton(
 			filter_row,
@@ -204,6 +241,9 @@ class HistoryView(BaseView):
 		self.tree.tag_configure('completada', foreground=GREEN_TEXT)
 		self.tree.tag_configure('has_disc', foreground=ORANGE_TEXT)
 		self.tree.tag_configure('cotizacion', foreground=ACCENT_TEXT)
+		self.tree.tag_configure('anulada', foreground=RED_TEXT)
+		self.tree.tag_configure('devuelta', foreground=ORANGE_TEXT)
+		self.tree.tag_configure('parcial', foreground=ORANGE_TEXT)
 
 		# ── Actions ───────────────────────────────────────────────────────
 		btn_row = ctk.CTkFrame(self, fg_color='transparent')
@@ -237,7 +277,24 @@ class HistoryView(BaseView):
 				text_color=TEXT_PRIMARY if active else TEXT_SECONDARY,
 				border_color=BORDER_ACTIVE if active else BORDER,
 			)
-		self._filter_tree()
+
+		if key == 'custom':
+			self._custom_date_frame.pack(side='left', padx=(10, 0))
+		else:
+			self._custom_date_frame.pack_forget()
+			self._filter_tree()
+
+	def _apply_custom_dates(self):
+		start_str = self._entry_date_start.get().strip()
+		end_str = self._entry_date_end.get().strip()
+		try:
+			self._custom_start = datetime.strptime(start_str, '%d/%m/%Y').date()
+			self._custom_end = datetime.strptime(end_str, '%d/%m/%Y').date()
+			self._filter_tree()
+		except ValueError:
+			self.show_error(
+				'Formato de fecha inválido. Usá el formato DD/MM/AAAA', 'Error en Fecha'
+			)
 
 	def _filter_tree(self, *args):
 		q = self._search_var.get().lower()
@@ -256,8 +313,17 @@ class HistoryView(BaseView):
 				return sale_date is not None and sale_date >= week_start
 			if self._active_filter == 'fiado':
 				return s.get('payment_method') == 'fiado'
+			if self._active_filter == 'anuladas':
+				return s.get('status') in ('anulada', 'devuelta', 'parcial')
 			if self._active_filter == 'cotizacion':
 				return bool(s.get('quotation_number'))
+			if self._active_filter == 'custom':
+				if not self._custom_start or not self._custom_end:
+					return True
+				return (
+					sale_date is not None
+					and self._custom_start <= sale_date <= self._custom_end
+				)
 			return True
 
 		matches = [
@@ -291,12 +357,20 @@ class HistoryView(BaseView):
 			status = sale.get('status', '') or ''
 			quotation_number = sale.get('quotation_number', '') or ''
 
-			# Columna Origen
 			origen_label = (
 				f'📋 {quotation_number}' if quotation_number else '🛒 Directa'
 			)
 
-			if pm == 'fiado':
+			if quotation_number:
+				estado_label = '📋 Cotización'
+				row_color = 'cotizacion'
+			elif status == 'anulada':
+				estado_label, row_color = '🚫 Anulada', 'anulada'
+			elif status == 'devuelta':
+				estado_label, row_color = '↩ Devuelta', 'devuelta'
+			elif status == 'parcial':
+				estado_label, row_color = '↩ Parcial', 'parcial'
+			elif pm == 'fiado':
 				estado_label, row_color = '💳 Fiado', 'fiado'
 			elif status == 'pendiente':
 				estado_label, row_color = '⏳ Pendiente', 'pendiente'
@@ -308,12 +382,12 @@ class HistoryView(BaseView):
 					'completada',
 				)
 
-			# Las filas de cotización tienen su propio color de resaltado
-			if quotation_number:
-				row_color = 'cotizacion'
-
 			disc_str = f'-${discount_amount:.2f}' if discount_amount > 0 else '—'
-			tags = ('has_disc',) if discount_amount > 0 else (row_color,)
+			tags = (
+				('has_disc',)
+				if discount_amount > 0 and row_color == 'completada'
+				else (row_color,)
+			)
 
 			self.insert_tree_row(
 				tree=self.tree,
@@ -357,7 +431,19 @@ class HistoryView(BaseView):
 			return
 
 		try:
-			filepath = os.path.join(get_reports_path(), 'historial_ventas.csv')
+			default_filename = (
+				f'historial_ventas_{datetime.now().strftime("%Y%m%d_%H%M")}.csv'
+			)
+			filepath = filedialog.asksaveasfilename(
+				initialdir=get_reports_path(),
+				initialfile=default_filename,
+				defaultextension='.csv',
+				filetypes=[('Archivos CSV', '*.csv'), ('Todos los archivos', '*.*')],
+				title='Guardar Historial de Ventas',
+			)
+
+			if not filepath:
+				return
 
 			with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
 				w = csv.writer(f)
@@ -416,9 +502,11 @@ class HistoryView(BaseView):
 		popup = ctk.CTkToplevel(self)
 		popup.title(f'Detalle Venta #{sale_id}')
 
-		popup.minsize(560, 400)
-		popup.maxsize(560, 600)
-		popup.geometry('560x500')
+		screen_height = self.winfo_screenheight()
+		req_height = 320 + len(details) * 45
+		ph = min(req_height, screen_height - 100)
+		popup.geometry(f'560x{ph}')
+
 		popup.configure(fg_color=SURFACE1)
 		popup.attributes('-topmost', True)
 

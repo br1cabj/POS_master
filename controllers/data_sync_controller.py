@@ -155,20 +155,35 @@ def _normalize_df_columns(df):
 	"""
 	Renombra las columnas del DataFrame a sus nombres canonicos via _COLUMN_ALIASES.
 	Retorna (df_renombrado, rename_map) donde rename_map es {original: canonical}.
+	Si dos columnas del CSV mapean al mismo nombre canónico, la primera gana y se
+	registra un warning para la segunda para facilitar depuración.
 	"""
 	rename_map = {}
-	used_canonicals = set()
+	used_canonicals: dict[str, str] = {}  # canonical -> columna original que lo reclamó
+
 	for col in df.columns:
 		col_clean = _clean_col(col)
+		matched_canonical = None
+
 		for canonical, aliases in _COLUMN_ALIASES.items():
-			if canonical in used_canonicals:
-				continue
 			if col_clean == _clean_col(canonical) or col_clean in [
 				_clean_col(a) for a in aliases
 			]:
-				rename_map[col] = canonical
-				used_canonicals.add(canonical)
+				matched_canonical = canonical
 				break
+
+		if matched_canonical is None:
+			continue  # columna desconocida, se ignora
+
+		if matched_canonical in used_canonicals:
+			logger.warning(
+				'Columna "%s" ignorada: el canónico "%s" ya fue mapeado desde la columna "%s".',
+				col, matched_canonical, used_canonicals[matched_canonical],
+			)
+		else:
+			rename_map[col] = matched_canonical
+			used_canonicals[matched_canonical] = col
+
 	return df.rename(columns=rename_map), rename_map
 
 
@@ -193,7 +208,7 @@ class DataSyncController(BaseController):
 			return None
 		warehouse = (
 			session.query(Warehouse)
-			.filter_by(branch_id=branch.id, name='Deposito General')
+			.filter_by(branch_id=branch.id, name='Depósito General')
 			.first()
 		)
 		return warehouse.id if warehouse else None
@@ -258,7 +273,7 @@ class DataSyncController(BaseController):
 						.filter(
 							Article.tenant_id == tenant_id,
 							ArticleVariant.is_active,
-							ArticleVariant.base_variant_id == None,  # noqa: E711
+							ArticleVariant.base_variant_id.is_(None),
 						)
 						.all()
 					)
@@ -360,11 +375,15 @@ class DataSyncController(BaseController):
 				for idx, row in df.iterrows():
 					row_num = idx + 2  # +2 por encabezado y base-0
 					name = str(row['Nombre']).strip()
-					# Normalizar codigos de barras: evita exponencial o flotantes de pandas
+					# Normalizar codigos de barras: pandas convierte enteros a float (ej: "7790000000001.0")
 					raw_bc = str(row['Codigo_Barras']).strip()
-					# Remover decimales .0 que pandas agrega a numeros enteros
-					if raw_bc.endswith('.0'):
-						raw_bc = raw_bc[:-2]
+					try:
+						bc_dec = Decimal(raw_bc)
+						# Si es un entero exacto (sin parte fraccionaria real), formatear sin decimales
+						if bc_dec == bc_dec.to_integral_value():
+							raw_bc = str(int(bc_dec))
+					except InvalidOperation:
+						pass  # No es numérico: conservar como string (ej: "ABC-001")
 					barcode = raw_bc
 
 					if not name or not barcode or barcode in ('', 'nan'):
@@ -401,6 +420,7 @@ class DataSyncController(BaseController):
 						.filter(
 							Article.tenant_id == tenant_id,
 							ArticleVariant.barcode == barcode,
+							ArticleVariant.is_active == True,  # noqa: E712
 						)
 						.first()
 					)
@@ -477,6 +497,11 @@ class DataSyncController(BaseController):
 									variant_id=variant.id,
 									user_id=user_id,
 								)
+							)
+						elif stock_val > 0:
+							skip_reasons.append(
+								f'Fila {row_num} ({name}): artículo creado sin stock inicial '
+								'(depósito predeterminado no encontrado).'
 							)
 						created += 1
 

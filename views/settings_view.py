@@ -4,6 +4,7 @@ views/settings_view.py
 Panel de configuración del sistema.
 """
 
+import glob
 import logging
 import os
 import shutil
@@ -57,6 +58,7 @@ class SettingsView(BaseView):
 		self.db_engine = ctx.db_engine
 		self._settings = cfg.load()
 		self._saved = True
+		self._is_rebuilding = False
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_rowconfigure(1, weight=1)
@@ -145,6 +147,9 @@ class SettingsView(BaseView):
 		return card
 
 	def _mark_dirty(self, event=None):
+		if self._is_rebuilding:
+			return
+
 		if self._saved:
 			self._saved = False
 			self.btn_save.configure(fg_color=GREEN, text_color='white')
@@ -272,13 +277,23 @@ class SettingsView(BaseView):
 		if os.path.getsize(path) > 2 * 1024 * 1024:
 			self.show_warning('El logo debe pesar menos de 2 MB.', 'Archivo muy grande')
 			return
+
 		dest_dir = os.path.join(
 			os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'assets'
 		)
 		os.makedirs(dest_dir, exist_ok=True)
+
+		# Purgado de logos anteriores
+		for old_logo in glob.glob(os.path.join(dest_dir, 'logo.*')):
+			try:
+				os.remove(old_logo)
+			except Exception as e:
+				logger.warning(f'No se pudo limpiar logo antiguo {old_logo}: {e}')
+
 		ext = os.path.splitext(path)[1].lower()
 		dest = os.path.join(dest_dir, f'logo{ext}')
 		shutil.copy2(path, dest)
+
 		self._settings['company_logo_path'] = dest
 		self._mark_dirty()
 		self._lbl_logo_name.configure(
@@ -680,12 +695,18 @@ class SettingsView(BaseView):
 		hdr.grid_columnconfigure(1, weight=1)
 		hdr.grid_columnconfigure(2, minsize=36)
 		ctk.CTkLabel(
-			hdr, text='Cant. mínima (uds.)', font=FONT_LABEL_BOLD,
-			text_color=TEXT_MUTED, anchor='w',
+			hdr,
+			text='Cant. mínima (uds.)',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+			anchor='w',
 		).grid(row=0, column=0, sticky='w')
 		ctk.CTkLabel(
-			hdr, text='Descuento (%)', font=FONT_LABEL_BOLD,
-			text_color=TEXT_MUTED, anchor='w',
+			hdr,
+			text='Descuento (%)',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+			anchor='w',
 		).grid(row=0, column=1, sticky='w', padx=(PAD_SM, 0))
 
 		self._wholesale_rules_frame = ctk.CTkScrollableFrame(
@@ -717,67 +738,91 @@ class SettingsView(BaseView):
 		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_MD))
 
 	def _rebuild_rules_ui(self):
-		for w in self._wholesale_rules_frame.winfo_children():
-			w.destroy()
-		self._wholesale_rule_widgets.clear()
+		self._is_rebuilding = True
+		try:
+			for w in self._wholesale_rules_frame.winfo_children():
+				w.destroy()
+			self._wholesale_rule_widgets.clear()
 
-		if not self._wholesale_rules:
-			ctk.CTkLabel(
-				self._wholesale_rules_frame,
-				text='Sin reglas. Agrega un nivel con el botón de abajo.',
-				font=FONT_LABEL,
-				text_color=TEXT_MUTED,
-			).grid(row=0, column=0, columnspan=3, sticky='w', pady=PAD_XS)
-			return
+			if not self._wholesale_rules:
+				ctk.CTkLabel(
+					self._wholesale_rules_frame,
+					text='Sin reglas. Agrega un nivel con el botón de abajo.',
+					font=FONT_LABEL,
+					text_color=TEXT_MUTED,
+				).grid(row=0, column=0, columnspan=3, sticky='w', pady=PAD_XS)
+				return
 
-		for idx, rule in enumerate(self._wholesale_rules):
-			row_frame = ctk.CTkFrame(
-				self._wholesale_rules_frame, fg_color='transparent'
-			)
-			row_frame.grid(row=idx, column=0, columnspan=3, sticky='ew', pady=2)
-			row_frame.grid_columnconfigure(0, weight=1)
-			row_frame.grid_columnconfigure(1, weight=1)
-			row_frame.grid_columnconfigure(2, minsize=36)
+			for idx, rule in enumerate(self._wholesale_rules):
+				row_frame = ctk.CTkFrame(
+					self._wholesale_rules_frame, fg_color='transparent'
+				)
+				row_frame.grid(row=idx, column=0, columnspan=3, sticky='ew', pady=2)
+				row_frame.grid_columnconfigure(0, weight=1)
+				row_frame.grid_columnconfigure(1, weight=1)
+				row_frame.grid_columnconfigure(2, minsize=36)
 
-			qty_entry = ctk.CTkEntry(
-				row_frame, height=30, fg_color=SURFACE3,
-				border_color=BORDER_ACTIVE, text_color=TEXT_PRIMARY,
-				font=FONT_BODY, placeholder_text='ej: 6',
-			)
-			qty_entry.insert(0, str(rule.get('min_qty', '')))
-			qty_entry.grid(row=0, column=0, sticky='ew', padx=(0, PAD_XS))
-			qty_entry.bind('<KeyRelease>', self._mark_dirty)
+				qty_entry = ctk.CTkEntry(
+					row_frame,
+					height=30,
+					fg_color=SURFACE3,
+					border_color=BORDER_ACTIVE,
+					text_color=TEXT_PRIMARY,
+					font=FONT_BODY,
+					placeholder_text='ej: 6',
+				)
+				qty_entry.insert(0, str(rule.get('min_qty', '')))
+				qty_entry.grid(row=0, column=0, sticky='ew', padx=(0, PAD_XS))
+				qty_entry.bind('<KeyRelease>', self._mark_dirty)
 
-			pct_entry = ctk.CTkEntry(
-				row_frame, height=30, fg_color=SURFACE3,
-				border_color=BORDER_ACTIVE, text_color=TEXT_PRIMARY,
-				font=FONT_BODY, placeholder_text='ej: 10',
-			)
-			pct_entry.insert(0, str(rule.get('discount_pct', '')))
-			pct_entry.grid(row=0, column=1, sticky='ew', padx=(0, PAD_XS))
-			pct_entry.bind('<KeyRelease>', self._mark_dirty)
+				pct_entry = ctk.CTkEntry(
+					row_frame,
+					height=30,
+					fg_color=SURFACE3,
+					border_color=BORDER_ACTIVE,
+					text_color=TEXT_PRIMARY,
+					font=FONT_BODY,
+					placeholder_text='ej: 10',
+				)
+				pct_entry.insert(0, str(rule.get('discount_pct', '')))
+				pct_entry.grid(row=0, column=1, sticky='ew', padx=(0, PAD_XS))
+				pct_entry.bind('<KeyRelease>', self._mark_dirty)
 
-			del_btn = ctk.CTkButton(
-				row_frame, text='✕', width=30, height=30,
-				font=FONT_LABEL_BOLD, corner_radius=6,
-				fg_color='transparent', hover_color=SURFACE4,
-				text_color=TEXT_MUTED, border_width=1, border_color=BORDER,
-				command=lambda i=idx: self._delete_wholesale_rule(i),
-			)
-			del_btn.grid(row=0, column=2)
+				# Pasamos la referencia del row_frame en lugar del índice i
+				del_btn = ctk.CTkButton(
+					row_frame,
+					text='✕',
+					width=30,
+					height=30,
+					font=FONT_LABEL_BOLD,
+					corner_radius=6,
+					fg_color='transparent',
+					hover_color=SURFACE4,
+					text_color=TEXT_MUTED,
+					border_width=1,
+					border_color=BORDER,
+					command=lambda rf=row_frame: self._delete_wholesale_rule(rf),
+				)
+				del_btn.grid(row=0, column=2)
 
-			self._wholesale_rule_widgets.append((row_frame, qty_entry, pct_entry))
+				self._wholesale_rule_widgets.append((row_frame, qty_entry, pct_entry))
+		finally:
+			self._is_rebuilding = False
 
 	def _add_wholesale_rule(self):
 		self._wholesale_rules.append({'min_qty': 0, 'discount_pct': 0})
 		self._rebuild_rules_ui()
 		self._mark_dirty()
 
-	def _delete_wholesale_rule(self, idx):
-		if 0 <= idx < len(self._wholesale_rules):
-			self._wholesale_rules.pop(idx)
-			self._rebuild_rules_ui()
-			self._mark_dirty()
+	def _delete_wholesale_rule(self, target_row_frame):
+		# Buscamos el elemento visual a borrar
+		for i, (row_frame, _, _) in enumerate(self._wholesale_rule_widgets):
+			if row_frame == target_row_frame:
+				self._wholesale_rules.pop(i)
+				break
+
+		self._rebuild_rules_ui()
+		self._mark_dirty()
 
 	def _on_wholesale_toggle(self):
 		self._mark_dirty()
@@ -792,14 +837,14 @@ class SettingsView(BaseView):
 				min_qty = float(qty_str)
 				discount_pct = float(pct_str)
 				if min_qty <= 0:
-					errors.append(f'Regla {i+1}: cantidad mínima debe ser mayor a 0.')
+					errors.append(f'Regla {i + 1}: cantidad mínima debe ser mayor a 0.')
 					continue
 				if not (0 < discount_pct <= 100):
-					errors.append(f'Regla {i+1}: descuento debe estar entre 0 y 100.')
+					errors.append(f'Regla {i + 1}: descuento debe estar entre 0 y 100.')
 					continue
 				rules.append({'min_qty': min_qty, 'discount_pct': discount_pct})
 			except (ValueError, TypeError):
-				errors.append(f'Regla {i+1}: valores inválidos, se omitirá.')
+				errors.append(f'Regla {i + 1}: valores inválidos, se omitirá.')
 		rules.sort(key=lambda r: r['min_qty'], reverse=True)
 		return rules, errors
 
