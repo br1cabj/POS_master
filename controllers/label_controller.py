@@ -90,7 +90,7 @@ def _split_text(text: str, max_chars: int) -> list:
 
 class LabelController:
 	def __init__(self):
-		self._tmp_dir = os.path.join(tempfile.gettempdir(), 'MiERP_Etiquetas')
+		self._tmp_dir = os.path.join(tempfile.gettempdir(), 'CloudPOS_Etiquetas')
 		os.makedirs(self._tmp_dir, exist_ok=True)
 		self._bc_cache: dict = {}
 

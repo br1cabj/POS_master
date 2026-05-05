@@ -67,7 +67,7 @@ class QuotationController(BaseController):
 
 	def __init__(self, db_engine):
 		super().__init__(db_engine)
-		self._pdf_dir = os.path.join(tempfile.gettempdir(), 'MiERP_Cotizaciones')
+		self._pdf_dir = os.path.join(tempfile.gettempdir(), 'CloudPOS_Cotizaciones')
 		os.makedirs(self._pdf_dir, exist_ok=True)
 
 	def _next_number(self, session: Session, tenant_id: int) -> str:
@@ -263,7 +263,9 @@ class QuotationController(BaseController):
 				)
 				return False, 'Error interno al actualizar la cotización.'
 
-	def set_status(self, quotation_id: int, new_status: str, tenant_id: int = None) -> tuple[bool, str]:
+	def set_status(
+		self, quotation_id: int, new_status: str, tenant_id: int = None
+	) -> tuple[bool, str]:
 		"""Actualiza el estado (borrador, aceptada, etc.) de una cotización."""
 		valid = set(self.STATUS_LABELS.keys())
 		if new_status not in valid:
@@ -284,7 +286,9 @@ class QuotationController(BaseController):
 				logger.error('Error cambiando estado: %s', e, exc_info=True)
 				return False, 'Error interno al modificar estado.'
 
-	def delete_quotation(self, quotation_id: int, tenant_id: int = None) -> tuple[bool, str]:
+	def delete_quotation(
+		self, quotation_id: int, tenant_id: int = None
+	) -> tuple[bool, str]:
 		"""Elimina físicamente una cotización y todos sus ítems asociados."""
 		with self._Session() as s:
 			try:
@@ -379,7 +383,9 @@ class QuotationController(BaseController):
 				if tenant_id is not None and q.tenant_id != tenant_id:
 					logger.warning(
 						'Intento de convertir cotización %s de tenant ajeno (esperado %s, real %s).',
-						quotation_id, tenant_id, q.tenant_id,
+						quotation_id,
+						tenant_id,
+						q.tenant_id,
 					)
 					return False, 'Cotización no encontrada.'
 				if q.status in ('rechazada', 'aceptada', 'vencida'):
