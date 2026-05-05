@@ -7,14 +7,22 @@ from utils.config import make_engine
 
 logger = logging.getLogger(__name__)
 
-_default_engine = make_engine()
+_default_engine = None
+
+
+def _get_default_engine():
+	global _default_engine
+	if _default_engine is None:
+		_default_engine = make_engine()
+	return _default_engine
+
 
 _EMAIL_PATTERN = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 
 
 class SupplierController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _default_engine
+		engine = db_engine if db_engine is not None else _get_default_engine()
 		super().__init__(engine)
 
 	def get_all_suppliers(self, tenant_id):

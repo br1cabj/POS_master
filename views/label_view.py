@@ -5,6 +5,7 @@ Vista para gestionar y previsualizar la impresión masiva de etiquetas.
 """
 
 import logging
+import threading
 import tkinter as tk
 
 import customtkinter as ctk
@@ -57,6 +58,7 @@ class LabelView(BaseView):
 		self._ctrl = LabelController()
 		self._variants: list[dict] = []
 		self._queue: list[dict] = []
+		self._selected_variants: set = set()
 		self._tpl_key = 'supermercado'
 		self._search_timer = None
 		self._load_wholesale_cfg()
@@ -66,22 +68,15 @@ class LabelView(BaseView):
 		self.after(120, self._load_catalog)
 		self.after(100, self._setup_bindings)
 		self.after(150, self._refresh_wholesale_bar)
-
 		self.after(200, lambda: self._entry_search.focus())
 
-	# ─────────────────────────────────────────────────────────────────────────
-	# Layout Principal
-	# ─────────────────────────────────────────────────────────────────────────
-
 	def _load_wholesale_cfg(self):
-		"""Carga configuración mayorista y genera la lista de opciones de precio."""
 		cfg = _cfg_mgr.load()
 		self._wholesale_enabled = cfg.get('wholesale_enabled', False)
 		raw = cfg.get('wholesale_rules', [])
 		self._wholesale_rules = sorted(
 			raw, key=lambda r: r.get('min_qty', 0), reverse=True
 		)
-		# Lista de (mode_key, label_visual, precio_multiplicador)
 		self._price_options: list[tuple] = [('retail', 'Minorista', 1.0)]
 		for i, r in enumerate(self._wholesale_rules):
 			try:
@@ -232,9 +227,6 @@ class LabelView(BaseView):
 				wraplength=130,
 			).pack(padx=PAD_XS, pady=(0, PAD_SM))
 
-			def _sel(k=key):
-				self._select_template(k)
-
 			for widget in (f,):
 				widget.bind('<Button-1>', lambda e, k=key: self._select_template(k))
 			cv.bind('<Button-1>', lambda e, k=key: self._select_template(k))
@@ -302,12 +294,7 @@ class LabelView(BaseView):
 		)
 		self._btn_print.grid(row=0, column=0, sticky='ew')
 
-	# ─────────────────────────────────────────────────────────────────────────
-	# Barra de modo de precio (Mayorista / Minorista)
-	# ─────────────────────────────────────────────────────────────────────────
-
 	def _refresh_wholesale_bar(self):
-		"""Muestra u oculta la barra de modo de precio según configuración."""
 		if not self.winfo_exists():
 			return
 		self._load_wholesale_cfg()
@@ -362,7 +349,6 @@ class LabelView(BaseView):
 		self._current_price_mode = 'retail'
 
 	def _set_global_price_mode(self, mode_key: str):
-		"""Aplica el modo de precio a todos los items de la cola."""
 		self._current_price_mode = mode_key
 
 		for k, btn in self._mode_btns.items():
@@ -380,10 +366,6 @@ class LabelView(BaseView):
 
 		self._render_queue()
 
-	# ─────────────────────────────────────────────────────────────────────────
-	# Renderizado y Visualización de Templates
-	# ─────────────────────────────────────────────────────────────────────────
-
 	def _draw_template_preview(self, cv: tk.Canvas, key: str):
 		if not cv.winfo_exists():
 			return
@@ -392,8 +374,8 @@ class LabelView(BaseView):
 		tpl = TEMPLATES[key]
 		W, H = 90, 60
 
-		lw = tpl['w_mm']
-		lh = tpl['h_mm']
+		lw = max(1, tpl['w_mm'])
+		lh = max(1, tpl['h_mm'])
 		scale = min((W - 16) / lw, (H - 12) / lh)
 		lw_px = lw * scale
 		lh_px = lh * scale
@@ -403,7 +385,6 @@ class LabelView(BaseView):
 		cv.create_rectangle(
 			x0, y0, x0 + lw_px, y0 + lh_px, fill='#f4f4f5', outline='#cbd5e1', width=2
 		)
-
 		cx = x0 + lw_px / 2
 
 		if key == 'supermercado':
@@ -499,10 +480,6 @@ class LabelView(BaseView):
 							text_color=ACCENT_TEXT if active else TEXT_SECONDARY
 						)
 
-	# ─────────────────────────────────────────────────────────────────────────
-	# Catálogo y Lógica de Búsqueda
-	# ─────────────────────────────────────────────────────────────────────────
-
 	def _debounced_search(self, event=None):
 		if self._search_timer:
 			self.after_cancel(self._search_timer)
@@ -524,47 +501,63 @@ class LabelView(BaseView):
 			self._entry_search.delete(0, 'end')
 			self._filter_catalog()
 		else:
-			# MEJORA UX: Feedback visual si el código escaneado no existe
 			self._entry_search.configure(border_color=RED)
 			self.after(800, lambda: self._entry_search.configure(border_color=BORDER))
 
 	def _load_catalog(self):
 		if not self.winfo_exists():
 			return
-		try:
-			from database.models import Article, ArticleVariant
 
-			Session = sessionmaker(bind=self.ctx.db_engine)
-			with Session() as s:
-				rows = (
-					s.query(ArticleVariant)
-					.join(Article)
-					.filter(
-						Article.tenant_id == self.ctx.tenant_id,
-						Article.is_active,
-						ArticleVariant.is_active,
-					)
-					.order_by(Article.name)
-					.all()
-				)
-				self._variants = []
-				for v in rows:
-					name = v.article.name
-					attr = ' '.join(filter(None, [v.attribute_1, v.attribute_2]))
-					self._variants.append(
-						{
-							'variant_id': v.id,
-							'name': name,
-							'attribute': attr,
-							'barcode': v.barcode or '',
-							'price': float(v.selling_price),
-							'display': f'{name}{"  –  " + attr if attr else ""}',
-						}
-					)
-		except Exception as e:
-			logger.error(f'Error cargando catálogo: {e}', exc_info=True)
-			self._variants = []
+		def _fetch_data():
+			try:
+				from database.models import Article, ArticleVariant
 
+				Session = sessionmaker(bind=self.ctx.db_engine)
+				with Session() as s:
+					rows = (
+						s.query(
+							ArticleVariant.id,
+							Article.name,
+							ArticleVariant.attribute_1,
+							ArticleVariant.attribute_2,
+							ArticleVariant.barcode,
+							ArticleVariant.selling_price,
+						)
+						.join(Article)
+						.filter(
+							Article.tenant_id == self.ctx.tenant_id,
+							Article.is_active == True,  # noqa: E712
+							ArticleVariant.is_active == True,  # noqa: E712
+						)
+						.order_by(Article.name)
+						.all()
+					)
+
+					variants_data = []
+					for v_id, a_name, a1, a2, barcode, price in rows:
+						attr = ' '.join(filter(None, [a1, a2]))
+						variants_data.append(
+							{
+								'variant_id': v_id,
+								'name': a_name,
+								'attribute': attr,
+								'barcode': barcode or '',
+								'price': float(price),
+								'display': f'{a_name}{"  –  " + attr if attr else ""}',
+							}
+						)
+
+					if self.winfo_exists():
+						self.after(0, lambda: self._on_catalog_loaded(variants_data))
+			except Exception as e:
+				logger.error(f'Error cargando catálogo: {e}', exc_info=True)
+				if self.winfo_exists():
+					self.after(0, lambda: self._on_catalog_loaded([]))
+
+		threading.Thread(target=_fetch_data, daemon=True).start()
+
+	def _on_catalog_loaded(self, data: list[dict]):
+		self._variants = data
 		self._filter_catalog()
 
 	def _filter_catalog(self):
@@ -602,13 +595,23 @@ class LabelView(BaseView):
 			).pack(pady=20)
 			return
 
-		for i, v in enumerate(variants):
-			check_var = ctk.BooleanVar(value=False)
-			bg = SURFACE2 if i % 2 == 0 else SURFACE1
+		render_limit = 50
+		display_variants = variants[:render_limit]
 
+		for i, v in enumerate(display_variants):
+			bg = SURFACE2 if i % 2 == 0 else SURFACE1
 			row = ctk.CTkFrame(self._catalog_frame, fg_color=bg, corner_radius=6)
 			row.pack(fill='x', pady=2, padx=4)
 			row.grid_columnconfigure(1, weight=1)
+
+			is_checked = v['variant_id'] in self._selected_variants
+			check_var = ctk.BooleanVar(value=is_checked)
+
+			def _on_check_toggle(var=check_var, vid=v['variant_id']):
+				if var.get():
+					self._selected_variants.add(vid)
+				else:
+					self._selected_variants.discard(vid)
 
 			ctk.CTkCheckBox(
 				row,
@@ -620,6 +623,7 @@ class LabelView(BaseView):
 				hover_color=ACCENT_HOVER,
 				border_color=SURFACE4,
 				checkmark_color='white',
+				command=_on_check_toggle,
 			).grid(row=0, column=0, padx=(PAD_SM, PAD_XS), pady=PAD_XS)
 
 			info = ctk.CTkFrame(row, fg_color='transparent')
@@ -671,15 +675,30 @@ class LabelView(BaseView):
 
 			self._catalog_rows.append({'check_var': check_var, 'data': v})
 
+		if len(variants) > render_limit:
+			ctk.CTkLabel(
+				self._catalog_frame,
+				text=f'Mostrando {render_limit} de {len(variants)} resultados. Refiná la búsqueda.',
+				font=FONT_LABEL,
+				text_color=TEXT_MUTED,
+			).pack(pady=10)
+
 	def _add_selected_to_queue(self):
-		selected = [r['data'] for r in self._catalog_rows if r['check_var'].get()]
-		if not selected:
+		if not self._selected_variants:
 			self.show_warning(
 				'Marcá los artículos que querés agregar.', 'Sin selección'
 			)
 			return
-		for v in selected:
+
+		selected_data = [
+			v for v in self._variants if v['variant_id'] in self._selected_variants
+		]
+
+		for v in selected_data:
 			self._add_one_to_queue(v, render=False)
+
+		self._selected_variants.clear()
+		self._filter_catalog()
 		self._render_queue()
 
 	def _add_all_to_queue(self):
@@ -707,10 +726,6 @@ class LabelView(BaseView):
 		if render:
 			self._render_queue()
 
-	# ─────────────────────────────────────────────────────────────────────────
-	# Configuración de Cola y Entradas Dinámicas
-	# ─────────────────────────────────────────────────────────────────────────
-
 	def _update_queue_total(self):
 		total = sum(it['copies'] for it in self._queue)
 		if self._lbl_total.winfo_exists():
@@ -720,7 +735,6 @@ class LabelView(BaseView):
 			)
 
 	def _get_item_display_price(self, item: dict) -> float:
-		"""Retorna el precio a mostrar según el modo de precio del item."""
 		base = float(item.get('price', 0))
 		mode = item.get('price_mode', 'retail')
 		if mode == 'retail' or not self._wholesale_enabled:
@@ -771,8 +785,9 @@ class LabelView(BaseView):
 
 		for idx, item in enumerate(self._queue):
 			bg = SURFACE2 if idx % 2 == 0 else SURFACE1
+
 			row = ctk.CTkFrame(self._queue_frame, fg_color=bg, corner_radius=4)
-			row.pack(fill='x', pady=1)
+			row.pack(fill='x', pady=(2, 0))
 			row.grid_columnconfigure(0, weight=1)
 
 			name_txt = item['display'][:36]
@@ -780,16 +795,24 @@ class LabelView(BaseView):
 				row, text=name_txt, font=FONT_LABEL, text_color=TEXT_PRIMARY, anchor='w'
 			).grid(row=0, column=0, padx=PAD_SM, pady=5, sticky='w')
 
-			# ── Precio (calculado según modo) ────────────────────────────────
 			display_price = self._get_item_display_price(item)
+			has_discount = bool(item.get('discount_price'))
 			price_color = (
-				ORANGE_TEXT
+				RED_TEXT
+				if has_discount
+				else ORANGE_TEXT
 				if item.get('price_mode', 'retail') != 'retail'
 				else ACCENT_TEXT
 			)
+			price_display_txt = (
+				f'~{fmt_price(display_price)}'
+				if has_discount
+				else fmt_price(display_price)
+			)
+
 			ctk.CTkLabel(
 				row,
-				text=fmt_price(display_price),
+				text=price_display_txt,
 				font=FONT_LABEL,
 				text_color=price_color,
 				width=80,
@@ -809,8 +832,6 @@ class LabelView(BaseView):
 				border_color=BORDER,
 				text_color=TEXT_PRIMARY,
 			)
-
-			# MEJORA UX: Autoseleccionar contenido al hacer clic para facilitar la carga rápida
 			entry_copies.bind(
 				'<FocusIn>', lambda e, ent=entry_copies: ent.select_range(0, 'end')
 			)
@@ -866,6 +887,75 @@ class LabelView(BaseView):
 				command=lambda i=idx: self._remove_from_queue(i),
 			).grid(row=0, column=3, padx=(PAD_XS, PAD_SM))
 
+			disc_bg = SURFACE0
+			disc_row = ctk.CTkFrame(
+				self._queue_frame, fg_color=disc_bg, corner_radius=0
+			)
+			disc_row.pack(fill='x', pady=(0, 2))
+
+			ctk.CTkLabel(
+				disc_row,
+				text='%  Descuento:',
+				font=FONT_LABEL,
+				text_color=TEXT_MUTED,
+				width=95,
+				anchor='w',
+			).pack(side='left', padx=(PAD_MD, PAD_XS), pady=3)
+
+			entry_disc = ctk.CTkEntry(
+				disc_row,
+				width=75,
+				height=22,
+				font=FONT_LABEL,
+				placeholder_text='precio desc.',
+				fg_color=SURFACE2,
+				border_color=BORDER,
+				text_color=RED_TEXT,
+			)
+			if item.get('discount_price'):
+				entry_disc.insert(0, str(item['discount_price']))
+			entry_disc.pack(side='left', padx=(0, PAD_SM))
+
+			ctk.CTkLabel(
+				disc_row,
+				text='Válido hasta:',
+				font=FONT_LABEL,
+				text_color=TEXT_MUTED,
+				width=80,
+				anchor='w',
+			).pack(side='left', padx=(0, PAD_XS))
+
+			entry_until = ctk.CTkEntry(
+				disc_row,
+				width=90,
+				height=22,
+				font=FONT_LABEL,
+				placeholder_text='DD/MM/AAAA',
+				fg_color=SURFACE2,
+				border_color=BORDER,
+				text_color=TEXT_PRIMARY,
+			)
+			if item.get('discount_until'):
+				entry_until.insert(0, str(item['discount_until']))
+			entry_until.pack(side='left', padx=(0, PAD_SM))
+
+			def _on_disc_change(e, i=idx, de=entry_disc, du=entry_until):
+				try:
+					val = float(de.get())
+					self._queue[i]['discount_price'] = val if val > 0 else None
+				except (ValueError, TypeError):
+					self._queue[i]['discount_price'] = None
+				self._queue[i]['discount_until'] = du.get().strip()
+
+			entry_disc.bind('<KeyRelease>', _on_disc_change)
+			entry_until.bind('<KeyRelease>', _on_disc_change)
+			entry_disc.bind(
+				'<FocusIn>', lambda e, ent=entry_disc: ent.select_range(0, 'end')
+			)
+			entry_until.bind(
+				'<FocusIn>', lambda e, ent=entry_until: ent.select_range(0, 'end')
+			)
+
 	def _inc_copies(self, idx: int, ent: ctk.CTkEntry):
 		if 0 <= idx < len(self._queue):
 			self._queue[idx]['copies'] = min(999, self._queue[idx]['copies'] + 1)
@@ -893,10 +983,6 @@ class LabelView(BaseView):
 		self._queue.clear()
 		self._render_queue()
 
-	# ─────────────────────────────────────────────────────────────────────────
-	# Integración con el Controlador y Atajos del Entorno
-	# ─────────────────────────────────────────────────────────────────────────
-
 	def _setup_bindings(self):
 		if not self.winfo_exists():
 			return
@@ -905,7 +991,9 @@ class LabelView(BaseView):
 
 	def _handle_print_shortcut(self, event=None):
 		if self.winfo_exists():
-			self._print_labels()
+			focus_widget = self.focus_displayof()
+			if focus_widget and str(focus_widget).startswith(str(self)):
+				self._print_labels()
 
 	def _print_labels(self):
 		if not self._queue:
@@ -918,16 +1006,25 @@ class LabelView(BaseView):
 		tpl = TEMPLATES[self._tpl_key]
 
 		if self._btn_print.winfo_exists():
-			self._btn_print.configure(text='Generando PDF...', state='disabled')
-			self.update_idletasks()
+			self._btn_print.configure(text='⏳  Generando PDF...', state='disabled')
 
-		ok, result = self._ctrl.generate_pdf(self._queue, self._tpl_key)
+		items_snapshot = [dict(it) for it in self._queue]
+		tpl_key = self._tpl_key
 
+		def _run():
+			ok, result = self._ctrl.generate_pdf(items_snapshot, tpl_key)
+			if self.winfo_exists():
+				self.after(0, lambda: self._on_pdf_done(ok, result, total, tpl))
+
+		threading.Thread(target=_run, daemon=True).start()
+
+	def _on_pdf_done(self, ok: bool, result: str, total: int, tpl: dict):
+		if not self.winfo_exists():
+			return
 		if self._btn_print.winfo_exists():
 			self._btn_print.configure(
 				text='🖨  Generar PDF de etiquetas (Ctrl+P)', state='normal'
 			)
-
 		if ok:
 			self.show_success(
 				f'{total} etiqueta{"s" if total != 1 else ""} en formato "{tpl["label"]}" abierta{"s" if total != 1 else ""} automáticamente.',

@@ -22,12 +22,19 @@ from utils.shared import parse_decimal
 
 logger = logging.getLogger(__name__)
 
-_default_engine = make_engine()
+_default_engine = None
+
+
+def _get_default_engine():
+	global _default_engine
+	if _default_engine is None:
+		_default_engine = make_engine()
+	return _default_engine
 
 
 class SalesController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _default_engine
+		engine = db_engine if db_engine is not None else _get_default_engine()
 		super().__init__(engine)
 
 	def _parse_decimal(self, value):
@@ -438,7 +445,7 @@ class SalesController(BaseController):
 									f'Stock insuficiente para {variant.article.name}'
 								)
 							stock.quantity -= deduct_qty
-							cost_price = variant.cost_price / Decimal(str(units))
+							cost_price = variant.cost_price
 							session.add(
 								StockMovement(
 									movement_type='out',

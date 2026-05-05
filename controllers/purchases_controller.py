@@ -22,12 +22,19 @@ from utils.shared import parse_decimal
 
 logger = logging.getLogger(__name__)
 
-_default_engine = make_engine()
+_default_engine = None
+
+
+def _get_default_engine():
+	global _default_engine
+	if _default_engine is None:
+		_default_engine = make_engine()
+	return _default_engine
 
 
 class PurchasesController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _default_engine
+		engine = db_engine if db_engine is not None else _get_default_engine()
 		super().__init__(engine)
 
 	def _parse_decimal(self, value):
@@ -63,7 +70,7 @@ class PurchasesController(BaseController):
 						.join(Article)
 						.filter(
 							Article.tenant_id == tenant_id,
-							ArticleVariant.is_active,
+							ArticleVariant.is_active == True,  # noqa: E712
 						)
 						.all()
 					)

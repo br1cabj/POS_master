@@ -175,7 +175,7 @@ class ArticleHistory(Base):
 	__tablename__ = 'article_history'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
-	date = Column(DateTime, default=datetime.utcnow, index=True)
+	date = Column(DateTime, default=datetime.now, index=True)
 	user_id = Column(String(36), ForeignKey('users.id'), nullable=False)
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 
@@ -226,7 +226,7 @@ class Stock(Base):
 class StockMovement(Base):
 	__tablename__ = 'stock_movements'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	date = Column(DateTime, default=datetime.utcnow, index=True)
+	date = Column(DateTime, default=datetime.now, index=True)
 
 	movement_type = Column(String, nullable=False)
 	quantity = Column(Numeric(12, 4), nullable=False)
@@ -270,7 +270,7 @@ class Customer(Base):
 class Sale(Base):
 	__tablename__ = 'sales'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	date = Column(DateTime, default=datetime.utcnow, index=True)
+	date = Column(DateTime, default=datetime.now, index=True)
 	total_amount = Column(Numeric(10, 2), nullable=False)
 	discount_amount = Column(
 		Numeric(10, 2), default=0.0
@@ -319,7 +319,7 @@ class CashSession(Base):
 	user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 
-	opened_at = Column(DateTime, default=datetime.utcnow)
+	opened_at = Column(DateTime, default=datetime.now)
 	closed_at = Column(DateTime, nullable=True)
 	is_open = Column(Boolean, default=True)
 
@@ -340,7 +340,7 @@ class CashMovement(Base):
 	movement_type = Column(String, nullable=False)
 	amount = Column(Numeric(10, 2), nullable=False)
 	description = Column(String, nullable=True)
-	time = Column(DateTime, default=datetime.utcnow)
+	time = Column(DateTime, default=datetime.now)
 
 	session_id = Column(
 		String(36), ForeignKey('cash_sessions.id'), nullable=False, index=True
@@ -373,7 +373,7 @@ class Supplier(Base):
 class Purchase(Base):
 	__tablename__ = 'purchases'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	date = Column(DateTime, default=datetime.utcnow, index=True)
+	date = Column(DateTime, default=datetime.now, index=True)
 	total_amount = Column(Numeric(10, 2), nullable=False)
 	invoice_number = Column(String, nullable=True)
 	status = Column(String, default='pagada')
@@ -424,7 +424,7 @@ class Quotation(Base):
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
 	number = Column(String, nullable=False)  # e.g. "COT-0001"
-	date = Column(DateTime, default=datetime.utcnow, index=True)
+	date = Column(DateTime, default=datetime.now, index=True)
 	valid_until = Column(Date, nullable=True)  # fecha de vencimiento
 
 	status = Column(

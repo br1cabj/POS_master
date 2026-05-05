@@ -17,12 +17,19 @@ from utils.shared import get_or_create_default_warehouse
 
 logger = logging.getLogger(__name__)
 
-_default_engine = make_engine()
+_default_engine = None
+
+
+def _get_default_engine():
+	global _default_engine
+	if _default_engine is None:
+		_default_engine = make_engine()
+	return _default_engine
 
 
 class ArticleController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _default_engine
+		engine = db_engine if db_engine is not None else _get_default_engine()
 		super().__init__(engine)
 
 	def _get_or_create_default_warehouse(self, session, tenant_id):
@@ -334,6 +341,13 @@ class ArticleController(BaseController):
 					)
 
 				variant.is_active = False
+				all_variants = (
+					session.query(ArticleVariant)
+					.filter_by(article_id=variant.article_id)
+					.all()
+				)
+				if all(not v.is_active for v in all_variants):
+					variant.article.is_active = False
 				session.commit()
 				return True, 'Artículo eliminado correctamente.'
 			except Exception as e:

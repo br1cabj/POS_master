@@ -37,7 +37,16 @@ from utils.config import make_engine
 from utils.settings_manager import get_reports_path
 
 logger = logging.getLogger(__name__)
-_default_engine = make_engine()
+
+_default_engine = None
+
+
+def _get_default_engine():
+	global _default_engine
+	if _default_engine is None:
+		_default_engine = make_engine()
+	return _default_engine
+
 
 _SOLD_STATUSES = ('completada', 'parcial')
 
@@ -55,7 +64,7 @@ def _sanitize(text: str) -> str:
 
 class ReportController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _default_engine
+		engine = db_engine if db_engine is not None else _get_default_engine()
 		super().__init__(engine)
 
 	# =========================================================
@@ -243,6 +252,7 @@ class ReportController(BaseController):
 				CashSession.tenant_id == tenant_id,
 				CashMovement.movement_type.in_(('gasto', 'ingreso')),
 				CashMovement.time.between(dt_from, dt_to),
+				~CashMovement.description.ilike('%Ticket #%'),
 			)
 			.order_by(CashMovement.time)
 			.all()

@@ -13,6 +13,24 @@ from sqlalchemy import text
 logger = logging.getLogger(__name__)
 
 
+def _run_alter(conn, sql: str, label: str) -> bool:
+	"""
+	Ejecuta un ALTER TABLE. Retorna True si se aplicó, False si ya existía.
+	Lanza la excepción si el error no es 'duplicate column' (fallo real).
+	"""
+	try:
+		conn.execute(text(sql))
+		conn.commit()
+		logger.info(f'Migración aplicada: {label}')
+		return True
+	except Exception as e:
+		msg = str(e).lower()
+		if 'duplicate column' in msg or 'already exists' in msg:
+			return False
+		logger.warning(f'Error inesperado en migración ({label}): {e}')
+		return False
+
+
 def run_migrations(engine) -> None:
 	"""
 	Ejecuta todas las migraciones pendientes.
@@ -30,92 +48,56 @@ def run_migrations(engine) -> None:
 
 
 def _v1_add_cost_price_usd(engine) -> None:
-	"""
-	v1: Agrega la columna cost_price_usd a article_variants.
-	"""
+	"""v1: Agrega la columna cost_price_usd a article_variants."""
 	with engine.connect() as conn:
-		try:
-			conn.execute(
-				text(
-					'ALTER TABLE article_variants '
-					'ADD COLUMN cost_price_usd NUMERIC(10, 4) DEFAULT NULL'
-				)
-			)
-			conn.commit()
-			logger.info(
-				'Migración v1 aplicada: cost_price_usd agregado a article_variants.'
-			)
-		except Exception:
-			pass
+		_run_alter(
+			conn,
+			'ALTER TABLE article_variants ADD COLUMN cost_price_usd NUMERIC(10, 4) DEFAULT NULL',
+			'cost_price_usd en article_variants',
+		)
 
 
 def _v2_add_recovery_pin_hash(engine) -> None:
-	"""
-	v2: Agrega la columna recovery_pin_hash a users.
-	Almacena (hasheado con bcrypt) el PIN de recuperación de contraseña.
-	Es nullable: usuarios existentes no tienen PIN hasta que lo configuren.
-	"""
+	"""v2: Agrega la columna recovery_pin_hash a users."""
 	with engine.connect() as conn:
-		try:
-			conn.execute(
-				text(
-					'ALTER TABLE users ADD COLUMN recovery_pin_hash VARCHAR DEFAULT NULL'
-				)
-			)
-			conn.commit()
-			logger.info('Migración v2 aplicada: recovery_pin_hash agregado a users.')
-		except Exception:
-			pass
+		_run_alter(
+			conn,
+			'ALTER TABLE users ADD COLUMN recovery_pin_hash VARCHAR DEFAULT NULL',
+			'recovery_pin_hash en users',
+		)
 
 
 def _v3_add_discount_amount(engine) -> None:
-	"""
-	v3: Agrega la columna discount_amount a sales.
-	Guarda el monto total de descuento aplicado en la venta.
-	Es nullable/default 0: ventas existentes se tratan como sin descuento.
-	"""
+	"""v3: Agrega la columna discount_amount a sales."""
 	with engine.connect() as conn:
-		try:
-			conn.execute(
-				text(
-					'ALTER TABLE sales ADD COLUMN discount_amount NUMERIC(10, 2) DEFAULT 0.0'
-				)
-			)
-			conn.commit()
-			logger.info('Migración v3 aplicada: discount_amount agregado a sales.')
-		except Exception:
-			pass
+		_run_alter(
+			conn,
+			'ALTER TABLE sales ADD COLUMN discount_amount NUMERIC(10, 2) DEFAULT 0.0',
+			'discount_amount en sales',
+		)
 
 
 def _v4_add_mixto_fields(engine) -> None:
-	"""
-	v4: Agrega payment_method_2 y amount_method_2 a sales.
-	Permiten registrar ventas con dos métodos de pago (pago mixto).
-	Nullable: ventas existentes se tratan como pago simple.
-	"""
+	"""v4: Agrega payment_method_2 y amount_method_2 a sales."""
 	with engine.connect() as conn:
-		for sql in [
+		_run_alter(
+			conn,
 			'ALTER TABLE sales ADD COLUMN payment_method_2 VARCHAR DEFAULT NULL',
+			'payment_method_2 en sales',
+		)
+		_run_alter(
+			conn,
 			'ALTER TABLE sales ADD COLUMN amount_method_2 NUMERIC(10, 2) DEFAULT NULL',
-		]:
-			try:
-				conn.execute(text(sql))
-				conn.commit()
-			except Exception:
-				pass
-		logger.info(
-			'Migración v4 aplicada: payment_method_2 y amount_method_2 en sales.'
+			'amount_method_2 en sales',
 		)
 
 
 def _v5_create_quotations(engine) -> None:
-	"""
-	v5: Crea las tablas quotations y quotation_items si no existen.
-	Adaptado para usar UUIDs (VARCHAR(36)).
-	"""
+	"""v5: Crea las tablas quotations y quotation_items si no existen."""
 	with engine.connect() as conn:
-		conn.execute(
-			text("""
+		try:
+			conn.execute(
+				text("""
                 CREATE TABLE IF NOT EXISTS quotations (
                     id              VARCHAR(36) PRIMARY KEY,
                     number          VARCHAR NOT NULL,
@@ -131,9 +113,9 @@ def _v5_create_quotations(engine) -> None:
                     UNIQUE(tenant_id, number)
                 )
             """)
-		)
-		conn.execute(
-			text("""
+			)
+			conn.execute(
+				text("""
                 CREATE TABLE IF NOT EXISTS quotation_items (
                     id            VARCHAR(36) PRIMARY KEY,
                     description   VARCHAR NOT NULL,
@@ -144,96 +126,81 @@ def _v5_create_quotations(engine) -> None:
                     variant_id    VARCHAR(36) REFERENCES article_variants(id)
                 )
             """)
-		)
-		conn.execute(
-			text(
-				'CREATE INDEX IF NOT EXISTS ix_quotations_tenant_id ON quotations(tenant_id)'
 			)
-		)
-		conn.execute(
-			text('CREATE INDEX IF NOT EXISTS ix_quotations_date ON quotations(date)')
-		)
-		conn.execute(
-			text(
-				'CREATE INDEX IF NOT EXISTS ix_quotation_items_quotation_id ON quotation_items(quotation_id)'
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_quotations_tenant_id ON quotations(tenant_id)'
+				)
 			)
+			conn.execute(
+				text('CREATE INDEX IF NOT EXISTS ix_quotations_date ON quotations(date)')
+			)
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_quotation_items_quotation_id ON quotation_items(quotation_id)'
+				)
+			)
+			conn.commit()
+			logger.info('Migración v5: tablas quotations y quotation_items listas.')
+		except Exception as e:
+			logger.warning(f'Error inesperado en migración v5: {e}')
+
+
+def _v6_add_packaging_variants(engine) -> None:
+	"""v6: Agrega soporte de presentaciones/empaque a article_variants."""
+	with engine.connect() as conn:
+		_run_alter(
+			conn,
+			'ALTER TABLE article_variants ADD COLUMN units_per_pack INTEGER DEFAULT 1',
+			'units_per_pack en article_variants',
 		)
-		conn.commit()
-		logger.info(
-			'Migración v5 aplicada: tablas quotations y quotation_items creadas.'
+		_run_alter(
+			conn,
+			'ALTER TABLE article_variants ADD COLUMN pack_label VARCHAR DEFAULT NULL',
+			'pack_label en article_variants',
+		)
+		_run_alter(
+			conn,
+			'ALTER TABLE article_variants ADD COLUMN base_variant_id VARCHAR(36) DEFAULT NULL REFERENCES article_variants(id)',
+			'base_variant_id en article_variants',
+		)
+
+
+def _v7_add_quotation_number_to_sales(engine) -> None:
+	"""v7: Agrega quotation_number a sales."""
+	with engine.connect() as conn:
+		_run_alter(
+			conn,
+			'ALTER TABLE sales ADD COLUMN quotation_number VARCHAR DEFAULT NULL',
+			'quotation_number en sales',
 		)
 
 
 def _v8_add_product_discount_fields(engine) -> None:
-	"""
-	v8: Agrega campos de descuento por producto a article_variants.
-	  - discount_pct: porcentaje de descuento (ej: 15.00 = 15%)
-	  - discount_until: fecha/hora de vencimiento (NULL = sin vencimiento)
-	"""
+	"""v8: Agrega discount_pct y discount_until a article_variants."""
 	with engine.connect() as conn:
-		for sql in [
+		_run_alter(
+			conn,
 			'ALTER TABLE article_variants ADD COLUMN discount_pct NUMERIC(5,2) DEFAULT NULL',
+			'discount_pct en article_variants',
+		)
+		_run_alter(
+			conn,
 			'ALTER TABLE article_variants ADD COLUMN discount_until DATETIME DEFAULT NULL',
-		]:
-			try:
-				conn.execute(text(sql))
-				conn.commit()
-			except Exception:
-				pass
-		logger.info('Migración v8 aplicada: discount_pct y discount_until en article_variants.')
+			'discount_until en article_variants',
+		)
 
 
 def _v9_add_supplier_discount_fields(engine) -> None:
-	"""
-	v9: Agrega discount_pct y discount_until a suppliers.
-	Un distribuidor puede tener un descuento activo que aplica a todos sus productos.
-	"""
+	"""v9: Agrega discount_pct y discount_until a suppliers."""
 	with engine.connect() as conn:
-		for sql in [
+		_run_alter(
+			conn,
 			'ALTER TABLE suppliers ADD COLUMN discount_pct NUMERIC(5,2) DEFAULT NULL',
+			'discount_pct en suppliers',
+		)
+		_run_alter(
+			conn,
 			'ALTER TABLE suppliers ADD COLUMN discount_until DATETIME DEFAULT NULL',
-		]:
-			try:
-				conn.execute(text(sql))
-				conn.commit()
-			except Exception:
-				pass
-		logger.info('Migración v9 aplicada: discount_pct y discount_until en suppliers.')
-
-
-def _v7_add_quotation_number_to_sales(engine) -> None:
-	"""
-	v7: Agrega quotation_number a sales.
-	Almacena el número legible de la cotización de origen (ej: COT-2024-001).
-	Nullable: ventas directas no tienen cotización asociada.
-	"""
-	with engine.connect() as conn:
-		try:
-			conn.execute(
-				text('ALTER TABLE sales ADD COLUMN quotation_number VARCHAR DEFAULT NULL')
-			)
-			conn.commit()
-			logger.info('Migración v7 aplicada: quotation_number agregado a sales.')
-		except Exception:
-			pass
-
-
-def _v6_add_packaging_variants(engine) -> None:
-	"""
-	v6: Agrega soporte de presentaciones/empaque a article_variants.
-	Adaptado para que base_variant_id sea VARCHAR(36) (UUID).
-	"""
-	with engine.connect() as conn:
-		for sql in [
-			'ALTER TABLE article_variants ADD COLUMN units_per_pack INTEGER DEFAULT 1',
-			'ALTER TABLE article_variants ADD COLUMN pack_label VARCHAR DEFAULT NULL',
-			'ALTER TABLE article_variants ADD COLUMN base_variant_id VARCHAR(36) DEFAULT NULL REFERENCES article_variants(id)',
-		]:
-			try:
-				conn.execute(text(sql))
-				conn.commit()
-			except Exception:
-				pass
-		logger.info(
-			'Migración v6 aplicada: units_per_pack, pack_label, base_variant_id en article_variants.'
+			'discount_until en suppliers',
 		)

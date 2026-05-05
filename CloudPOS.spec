@@ -5,8 +5,14 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('venv\\Lib\\site-packages\\customtkinter', 'customtkinter/')],
-    hiddenimports=[],
+    datas=[
+        ('venv\\Lib\\site-packages\\customtkinter', 'customtkinter/'),
+        ('venv\\Lib\\site-packages\\CTkMessagebox', 'CTkMessagebox/'),
+        ('icono.ico', '.'),
+    ],
+    hiddenimports=[
+        'controllers.receipt_controller',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

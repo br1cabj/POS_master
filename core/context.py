@@ -43,7 +43,4 @@ class AppContext:
 
 	@property
 	def is_admin(self) -> bool:
-		return (
-			str(self.role).strip().lower() in ('admin', 'gerente')
-			or str(self.username).strip().lower() == 'admin'
-		)
+		return str(self.role).strip().lower() in ('admin', 'gerente')

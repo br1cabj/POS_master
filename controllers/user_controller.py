@@ -8,7 +8,15 @@ from utils.config import make_engine
 
 logger = logging.getLogger(__name__)
 
-_default_engine = make_engine()
+_default_engine = None
+
+
+def _get_default_engine():
+	global _default_engine
+	if _default_engine is None:
+		_default_engine = make_engine()
+	return _default_engine
+
 
 ALLOWED_ROLES = ['admin', 'cajero', 'gerente']
 _PIN_MIN_LEN = 4
@@ -16,7 +24,7 @@ _PIN_MIN_LEN = 4
 
 class UserController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _default_engine
+		engine = db_engine if db_engine is not None else _get_default_engine()
 		super().__init__(engine)
 
 	# =========================================================
@@ -48,11 +56,11 @@ class UserController(BaseController):
 		if not username_clean:
 			return False, 'El nombre de usuario es obligatorio.'
 		if not password or len(str(password).strip()) < 6:
-			return False, 'La contrasena debe tener al menos 6 caracteres.'
+			return False, 'La contraseña debe tener al menos 6 caracteres.'
 
 		role_clean = str(role).strip().lower()
 		if role_clean not in ALLOWED_ROLES:
-			return False, 'Rol invalido o no permitido en el sistema.'
+			return False, 'Rol inválido o no permitido en el sistema.'
 
 		pin_hash = None
 		if recovery_pin:
@@ -60,7 +68,7 @@ class UserController(BaseController):
 			if len(pin_clean) < _PIN_MIN_LEN:
 				return (
 					False,
-					f'El PIN de recuperacion debe tener al menos {_PIN_MIN_LEN} digitos.',
+					f'El PIN de recuperación debe tener al menos {_PIN_MIN_LEN} dígitos.',
 				)
 			pin_hash = bcrypt.hashpw(
 				pin_clean.encode('utf-8'), bcrypt.gensalt()
@@ -82,7 +90,7 @@ class UserController(BaseController):
 					if exist.is_active:
 						return (
 							False,
-							'Ese nombre de usuario ya esta en uso en su negocio.',
+							'Ese nombre de usuario ya está en uso en su negocio.',
 						)
 					exist.is_active = True
 					exist.password_hash = hashed_pw
@@ -90,7 +98,7 @@ class UserController(BaseController):
 					if pin_hash:
 						exist.recovery_pin_hash = pin_hash
 					session.commit()
-					return True, f'Empleado {username_clean} reactivado con exito.'
+					return True, f'Empleado {username_clean} reactivado con éxito.'
 
 				new_user = User(
 					tenant_id=tenant_id,
@@ -115,7 +123,7 @@ class UserController(BaseController):
 	# =========================================================
 	def reset_password_by_admin(self, tenant_id, target_user_id, new_password):
 		if not new_password or len(str(new_password).strip()) < 6:
-			return False, 'La nueva contrasena debe tener al menos 6 caracteres.'
+			return False, 'La nueva contraseña debe tener al menos 6 caracteres.'
 
 		with self._Session() as session:
 			try:
@@ -133,7 +141,7 @@ class UserController(BaseController):
 				session.commit()
 				return (
 					True,
-					f'Contrasena de {user.username} restablecida correctamente.',
+					f'Contraseña de {user.username} restablecida correctamente.',
 				)
 
 			except Exception as e:
@@ -141,7 +149,7 @@ class UserController(BaseController):
 				logger.error(
 					f'Error al restablecer contrasena (admin): {e}', exc_info=True
 				)
-				return False, 'Error interno al restablecer la contrasena.'
+				return False, 'Error interno al restablecer la contraseña.'
 
 	# =========================================================
 	# RESET CON PIN (auto-servicio)
@@ -151,7 +159,7 @@ class UserController(BaseController):
 			return False, 'Todos los campos son obligatorios.'
 
 		if len(str(new_password).strip()) < 6:
-			return False, 'La nueva contrasena debe tener al menos 6 caracteres.'
+			return False, 'La nueva contraseña debe tener al menos 6 caracteres.'
 
 		with self._Session() as session:
 			try:
@@ -182,13 +190,13 @@ class UserController(BaseController):
 					str(new_password).strip().encode('utf-8'), bcrypt.gensalt()
 				).decode('utf-8')
 				session.commit()
-				logger.info(f'Contrasena restablecida via PIN para: {user.username}')
-				return True, 'Contrasena restablecida. Ya podes iniciar sesion.'
+				logger.info(f'Contraseña restablecida via PIN para: {user.username}')
+				return True, 'Contraseña restablecida. Ya podés iniciar sesión.'
 
 			except Exception as e:
 				session.rollback()
-				logger.error(f'Error en recuperacion con PIN: {e}', exc_info=True)
-				return False, 'Error interno al procesar la recuperacion.'
+				logger.error(f'Error en recuperación con PIN: {e}', exc_info=True)
+				return False, 'Error interno al procesar la recuperación.'
 
 	# =========================================================
 	# ACTUALIZAR PIN
@@ -196,7 +204,7 @@ class UserController(BaseController):
 	def set_recovery_pin(self, tenant_id, user_id, recovery_pin):
 		pin_clean = str(recovery_pin).strip()
 		if len(pin_clean) < _PIN_MIN_LEN:
-			return False, f'El PIN debe tener al menos {_PIN_MIN_LEN} digitos.'
+			return False, f'El PIN debe tener al menos {_PIN_MIN_LEN} dígitos.'
 
 		with self._Session() as session:
 			try:
@@ -212,7 +220,7 @@ class UserController(BaseController):
 					pin_clean.encode('utf-8'), bcrypt.gensalt()
 				).decode('utf-8')
 				session.commit()
-				return True, f'PIN de recuperacion actualizado para {user.username}.'
+				return True, f'PIN de recuperación actualizado para {user.username}.'
 
 			except Exception as e:
 				session.rollback()
@@ -226,7 +234,7 @@ class UserController(BaseController):
 		if current_user_id and str(user_id) == str(current_user_id):
 			return (
 				False,
-				'No puedes eliminar tu propia cuenta mientras tienes la sesion iniciada.',
+				'No puedes eliminar tu propia cuenta mientras tienes la sesión iniciada.',
 			)
 
 		with self._Session() as session:

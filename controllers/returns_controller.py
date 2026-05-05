@@ -14,6 +14,7 @@ import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
@@ -31,14 +32,22 @@ from utils.config import make_engine
 
 logger = logging.getLogger(__name__)
 
-_default_engine = make_engine()
+_default_engine = None
+
+
+def _get_default_engine():
+	global _default_engine
+	if _default_engine is None:
+		_default_engine = make_engine()
+	return _default_engine
+
 
 _OPERABLE = {'completada', 'pendiente', 'parcial'}
 
 
 class ReturnsController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _default_engine
+		engine = db_engine if db_engine is not None else _get_default_engine()
 		super().__init__(engine)
 
 	def get_sales_for_returns(self, tenant_id, filter_key='all', limit=300):
@@ -406,18 +415,24 @@ class ReturnsController(BaseController):
 							f'Sin registro de stock para ingrediente de "{detail.description}".'
 						)
 			else:
+				target_vid = variant.base_variant_id or detail.variant_id
+				restore_qty = (
+					qty * Decimal(str(variant.units_per_pack or 1))
+					if variant.base_variant_id
+					else qty
+				)
 				stock = (
-					session.query(Stock).filter_by(variant_id=detail.variant_id).first()
+					session.query(Stock).filter_by(variant_id=target_vid).first()
 				)
 				if stock:
-					stock.quantity += qty
+					stock.quantity += restore_qty
 					session.add(
 						StockMovement(
 							movement_type='in',
-							quantity=qty,
+							quantity=restore_qty,
 							reference=f'{label} Ticket #{sale_id}',
 							dest_warehouse_id=stock.warehouse_id,
-							variant_id=detail.variant_id,
+							variant_id=target_vid,
 							user_id=user_id,
 						)
 					)
@@ -452,10 +467,9 @@ class ReturnsController(BaseController):
 					.first()
 				)
 				if not active_cash:
-					logger.warning(
-						f'No hay caja abierta para registrar el reembolso de {split_amount} en {method}.'
+					raise RuntimeError(
+						f'No hay caja abierta. Abrí la caja antes de registrar una devolución en {method}.'
 					)
-					return
 				session.add(
 					CashMovement(
 						session_id=active_cash.id,
@@ -470,11 +484,23 @@ class ReturnsController(BaseController):
 
 		if pm2 and sale.amount_method_2:
 			amt_m2 = Decimal(str(sale.amount_method_2))
-			sale_total_approx = Decimal(str(sale.total_amount or 0))
-			if sale_total_approx <= 0:
-				sale_total_approx = amount
+			# Reconstruir el total original sumando lo ya devuelto (gastos de caja de esta venta).
+			# Esto garantiza un ratio constante aunque se hagan múltiples devoluciones parciales.
+			refunded_so_far = (
+				session.query(func.sum(CashMovement.amount))
+				.join(CashSession, CashMovement.session_id == CashSession.id)
+				.filter(
+					CashSession.tenant_id == tenant_id,
+					CashMovement.movement_type == 'gasto',
+					CashMovement.description.like(f'%Ticket #{sale.id}%'),
+				)
+				.scalar()
+			) or Decimal('0')
+			original_total = Decimal(str(sale.total_amount or 0)) + Decimal(str(refunded_so_far))
+			if original_total <= 0:
+				original_total = amount
 
-			ratio_m2 = min(amt_m2 / sale_total_approx, Decimal('1'))
+			ratio_m2 = min(amt_m2 / original_total, Decimal('1'))
 			refund_m2 = (amount * ratio_m2).quantize(Decimal('0.01'))
 			refund_m1 = amount - refund_m2
 

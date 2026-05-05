@@ -15,14 +15,21 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
-from database.models import CashMovement, CashSession, Sale
+from database.models import CashMovement, CashSession
 from utils.config import make_engine
 from utils.settings_manager import get_reports_path
 from utils.shared import parse_decimal
 
 logger = logging.getLogger(__name__)
 
-_default_engine = make_engine()
+_default_engine = None
+
+
+def _get_default_engine():
+	global _default_engine
+	if _default_engine is None:
+		_default_engine = make_engine()
+	return _default_engine
 
 
 def _sanitize(text: str) -> str:
@@ -38,7 +45,7 @@ def _sanitize(text: str) -> str:
 
 class CashController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _default_engine
+		engine = db_engine if db_engine is not None else _get_default_engine()
 		super().__init__(engine)
 
 	def _parse_decimal(self, value):
@@ -225,50 +232,21 @@ class CashController(BaseController):
 						Decimal(str(amount)) if amount else Decimal('0.0')
 					)
 
-			opened_at = cash_session.opened_at
-			if not opened_at:
-				# Caja sin fecha de apertura registrada: retornar ceros en lugar de crashear
-				logger.warning('Caja %s no tiene opened_at; se omite el cálculo de ventas.', session_id)
-				return Decimal('0.0'), totals['ingreso'], totals['gasto']
-
-			closed_at = cash_session.closed_at or datetime.now()
-
-			sales = (
-				session.query(Sale)
+			# Sumar los movimientos de tipo 'venta' en efectivo de esta sesión.
+			# Usar CashMovements (inmutables) en lugar de sale.total_amount (se modifica
+			# al registrar devoluciones), para evitar doble descuento: si se devuelve $X,
+			# sale.total_amount baja $X Y también se crea un 'gasto' de $X — contar ambos
+			# restaría el reembolso dos veces del expected_amount.
+			_raw_ventas = (
+				session.query(func.sum(CashMovement.amount))
 				.filter(
-					Sale.tenant_id == tenant_id,
-					Sale.user_id == cash_session.user_id,
-					Sale.date >= opened_at,
-					Sale.date <= closed_at,
-					Sale.status.in_(['completada', 'parcial']),
+					CashMovement.session_id == session_id,
+					CashMovement.movement_type == 'venta',
+					CashMovement.description.ilike('%Efectivo%'),
 				)
-				.all()
+				.scalar()
 			)
-
-			total_ventas = Decimal('0.0')
-			for sale in sales:
-				method1 = (sale.payment_method or '').lower()
-				method2 = (sale.payment_method_2 or '').lower()
-				amt2 = (
-					Decimal(str(sale.amount_method_2))
-					if sale.amount_method_2
-					else Decimal('0.0')
-				)
-
-				monto_base = (
-					Decimal(str(getattr(sale, 'paid_amount', sale.total_amount)))
-					if sale.status == 'parcial'
-					else Decimal(str(sale.total_amount))
-				)
-
-				if method1 == 'efectivo' and not method2:
-					total_ventas += monto_base
-				elif method1 == 'efectivo' and method2 == 'efectivo':
-					total_ventas += monto_base
-				elif method1 == 'efectivo' and method2:
-					total_ventas += max(Decimal('0.0'), monto_base - amt2)
-				elif method2 == 'efectivo':
-					total_ventas += amt2
+			total_ventas = Decimal(str(_raw_ventas)) if _raw_ventas else Decimal('0.0')
 
 			return total_ventas, totals['ingreso'], totals['gasto']
 

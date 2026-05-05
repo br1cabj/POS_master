@@ -75,7 +75,7 @@ class QuotationController(BaseController):
 		last = (
 			session.query(Quotation)
 			.filter_by(tenant_id=tenant_id)
-			.order_by(Quotation.id.desc())
+			.order_by(Quotation.number.desc())
 			.first()
 		)
 		n = 1
@@ -435,7 +435,6 @@ class QuotationController(BaseController):
 					)
 					s.add(sd)
 
-					# Manejo del inventario: si no existe stock previo, se crea en negativo
 					if it.variant_id:
 						if not warehouse_id:
 							raise ValueError(
@@ -449,15 +448,17 @@ class QuotationController(BaseController):
 							.with_for_update()
 							.first()
 						)
-						if stock_row:
-							stock_row.quantity -= it.quantity
-						else:
-							new_stock = Stock(
-								variant_id=it.variant_id,
-								warehouse_id=warehouse_id,
-								quantity=-it.quantity,
+						if not stock_row:
+							raise ValueError(
+								f'No hay stock registrado para "{it.description}" en el depósito seleccionado. '
+								'Registra el producto en inventario antes de convertir la cotización.'
 							)
-							s.add(new_stock)
+						if stock_row.quantity < it.quantity:
+							raise ValueError(
+								f'Stock insuficiente para "{it.description}": '
+								f'disponible {float(stock_row.quantity):.2f}, requerido {float(it.quantity):.2f}.'
+							)
+						stock_row.quantity -= it.quantity
 
 				# Registro del ingreso en caja, asegurando que sea la del usuario que ejecuta
 				cash_session = (

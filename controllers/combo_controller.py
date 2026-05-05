@@ -15,7 +15,14 @@ from utils.config import make_engine
 
 logger = logging.getLogger(__name__)
 
-_default_engine = make_engine()
+_default_engine = None
+
+
+def _get_default_engine():
+	global _default_engine
+	if _default_engine is None:
+		_default_engine = make_engine()
+	return _default_engine
 
 
 class ComboController(BaseController):
@@ -25,7 +32,7 @@ class ComboController(BaseController):
 	"""
 
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _default_engine
+		engine = db_engine if db_engine is not None else _get_default_engine()
 		super().__init__(engine)
 
 	def create_combo(self, tenant_id, name, price, btn_color, ingredients_list):

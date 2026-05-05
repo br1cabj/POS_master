@@ -204,7 +204,10 @@ class ArticlesView(BaseView):
 			anchor='w', pady=(PAD_SM, PAD_XS)
 		)
 		self.combo_supplier = ctk.CTkComboBox(
-			parent, values=['Cargando...'], height=40, font=FONT_BODY,
+			parent,
+			values=['Cargando...'],
+			height=40,
+			font=FONT_BODY,
 			command=self._on_supplier_changed,
 		)
 		self.combo_supplier.pack(fill='x', pady=(0, PAD_XS))
@@ -235,8 +238,10 @@ class ArticlesView(BaseView):
 		)
 		self._btn_supplier_discount.pack(fill='x', pady=(0, PAD_SM))
 
-		self.lbl_stock = make_form_label(parent, 'STOCK INICIAL', required=False)[0]
-		self.lbl_stock.pack(anchor='w', pady=(PAD_SM, PAD_XS))
+		_stock_label_frame, self.lbl_stock = make_form_label(
+			parent, 'STOCK INICIAL', required=False
+		)
+		_stock_label_frame.pack(anchor='w', pady=(PAD_SM, PAD_XS))
 		self.entry_stock = ctk.CTkEntry(
 			parent, placeholder_text='0', height=40, font=FONT_BODY_BOLD
 		)
@@ -353,7 +358,9 @@ class ArticlesView(BaseView):
 
 		frame_dpct = ctk.CTkFrame(disc_inner, fg_color='transparent')
 		frame_dpct.grid(row=0, column=0, sticky='nsew', padx=(0, PAD_XS))
-		make_form_label(frame_dpct, 'DESCUENTO (%)')[0].pack(anchor='w', pady=(0, PAD_XS))
+		make_form_label(frame_dpct, 'DESCUENTO (%)')[0].pack(
+			anchor='w', pady=(0, PAD_XS)
+		)
 		self.entry_discount_pct = ctk.CTkEntry(
 			frame_dpct,
 			placeholder_text='Ej: 15',
@@ -574,11 +581,14 @@ class ArticlesView(BaseView):
 	def _on_supplier_changed(self, value=None):
 		"""Actualiza el label con el descuento activo del proveedor seleccionado."""
 		from datetime import datetime as _dt
+
 		supplier_id = self.suppliers_map.get(self.combo_supplier.get())
 		if not supplier_id:
 			self._lbl_supplier_discount.configure(text='')
 			return
-		pct, until = self.controller.get_supplier_discount(self.ctx.tenant_id, supplier_id)
+		pct, until = self.controller.get_supplier_discount(
+			self.ctx.tenant_id, supplier_id
+		)
 		if pct and pct > 0:
 			if until and until < _dt.now():
 				self._lbl_supplier_discount.configure(
@@ -595,11 +605,14 @@ class ArticlesView(BaseView):
 					text_color=ORANGE_TEXT,
 				)
 		else:
-			self._lbl_supplier_discount.configure(text='Sin descuento configurado', text_color=TEXT_MUTED)
+			self._lbl_supplier_discount.configure(
+				text='Sin descuento configurado', text_color=TEXT_MUTED
+			)
 
 	def _open_supplier_discount_dialog(self):
 		"""Abre un diálogo para configurar el descuento de un distribuidor."""
 		from datetime import datetime as _dt
+
 		supplier_name = self.combo_supplier.get()
 		supplier_id = self.suppliers_map.get(supplier_name)
 		if not supplier_id:
@@ -635,25 +648,34 @@ class ArticlesView(BaseView):
 		)
 		var_pct = ctk.StringVar(value=f'{current_pct:.4g}' if current_pct else '')
 		entry_pct = ctk.CTkEntry(
-			dialog, placeholder_text='Ej: 15', height=40, font=FONT_HEADING,
-			text_color=ORANGE_TEXT, textvariable=var_pct,
+			dialog,
+			placeholder_text='Ej: 15',
+			height=40,
+			font=FONT_HEADING,
+			text_color=ORANGE_TEXT,
+			textvariable=var_pct,
 		)
 		entry_pct.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
 		entry_pct.focus()
 
-		make_form_label(dialog, 'VÁLIDO HASTA (opcional — dejar vacío = sin vencimiento)')[0].pack(
-			padx=PAD_LG, anchor='w'
-		)
+		make_form_label(
+			dialog, 'VÁLIDO HASTA (opcional — dejar vacío = sin vencimiento)'
+		)[0].pack(padx=PAD_LG, anchor='w')
 		var_until = ctk.StringVar(
 			value=current_until.strftime('%d/%m/%Y') if current_until else ''
 		)
 		entry_until = ctk.CTkEntry(
-			dialog, placeholder_text='DD/MM/AAAA', height=36, font=FONT_BODY,
+			dialog,
+			placeholder_text='DD/MM/AAAA',
+			height=36,
+			font=FONT_BODY,
 			textvariable=var_until,
 		)
 		entry_until.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
 
-		lbl_err = ctk.CTkLabel(dialog, text='', font=FONT_LABEL_BOLD, text_color=RED_TEXT)
+		lbl_err = ctk.CTkLabel(
+			dialog, text='', font=FONT_LABEL_BOLD, text_color=RED_TEXT
+		)
 		lbl_err.pack(pady=(0, PAD_XS))
 
 		def _do_save():
@@ -671,7 +693,9 @@ class ArticlesView(BaseView):
 			if raw_until:
 				for fmt in ('%d/%m/%Y', '%d/%m/%y', '%Y-%m-%d'):
 					try:
-						until = _dt.strptime(raw_until, fmt).replace(hour=23, minute=59, second=59)
+						until = _dt.strptime(raw_until, fmt).replace(
+							hour=23, minute=59, second=59
+						)
 						break
 					except ValueError:
 						continue
@@ -918,6 +942,7 @@ class ArticlesView(BaseView):
 			disc_until = variant.get('discount_until')
 			if disc_until:
 				from datetime import datetime as _dt
+
 				if isinstance(disc_until, str):
 					try:
 						disc_until = _dt.fromisoformat(disc_until)
@@ -1058,16 +1083,23 @@ class ArticlesView(BaseView):
 			raw_dpct = self._var_discount_pct.get().strip().replace(',', '.')
 			try:
 				discount_pct = float(raw_dpct) if raw_dpct else None
-				if discount_pct is not None and (discount_pct <= 0 or discount_pct >= 100):
-					self.show_warning('El descuento debe ser entre 0 y 100%.', 'Dato inválido')
+				if discount_pct is not None and (
+					discount_pct <= 0 or discount_pct >= 100
+				):
+					self.show_warning(
+						'El descuento debe ser entre 0 y 100%.', 'Dato inválido'
+					)
 					return
 			except ValueError:
-				self.show_warning('El porcentaje de descuento no es válido.', 'Dato inválido')
+				self.show_warning(
+					'El porcentaje de descuento no es válido.', 'Dato inválido'
+				)
 				return
 
 			raw_duntil = self._var_discount_until.get().strip()
 			if raw_duntil:
 				from datetime import datetime as _dt
+
 				for fmt in ('%d/%m/%Y', '%d/%m/%y', '%Y-%m-%d'):
 					try:
 						discount_until = _dt.strptime(raw_duntil, fmt).replace(
@@ -1078,7 +1110,8 @@ class ArticlesView(BaseView):
 						continue
 				if discount_until is None:
 					self.show_warning(
-						'Fecha de vencimiento inválida. Usá DD/MM/AAAA.', 'Dato inválido'
+						'Fecha de vencimiento inválida. Usá DD/MM/AAAA.',
+						'Dato inválido',
 					)
 					return
 

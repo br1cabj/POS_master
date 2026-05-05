@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
@@ -46,7 +47,8 @@ class PosApp(ctk.CTk):
 		self.geometry('1000x600')
 
 		try:
-			self.iconbitmap('icono.ico')
+			_base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+			self.iconbitmap(os.path.join(_base, 'icono.ico'))
 		except FileNotFoundError:
 			logger.warning('Archivo de icono no encontrado: icono.ico')
 		except Exception as e:

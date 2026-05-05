@@ -1036,8 +1036,8 @@ class SalesView(BaseView):
 			return
 
 		total_qty = current_cart_qty + qty_to_add
-		base_price, product_disc_pct, _disc_src = self._apply_product_discount(variant, base_price)
-		price, wholesale_pct = self._apply_wholesale(base_price, total_qty)
+		effective_base, product_disc_pct, _disc_src = self._apply_product_discount(variant, base_price)
+		price, wholesale_pct = self._apply_wholesale(effective_base, total_qty)
 		if product_disc_pct > 0:
 			display_desc = f'🏷️ -{product_disc_pct:.4g}% {desc}'
 		elif wholesale_pct > 0:

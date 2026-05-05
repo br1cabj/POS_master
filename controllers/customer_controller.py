@@ -13,12 +13,19 @@ from utils.shared import parse_decimal
 
 logger = logging.getLogger(__name__)
 
-_default_engine = make_engine()
+_default_engine = None
+
+
+def _get_default_engine():
+	global _default_engine
+	if _default_engine is None:
+		_default_engine = make_engine()
+	return _default_engine
 
 
 class CustomerController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _default_engine
+		engine = db_engine if db_engine is not None else _get_default_engine()
 		super().__init__(engine)
 
 	def _parse_decimal(self, value: Any) -> Optional[Decimal]:
@@ -39,7 +46,7 @@ class CustomerController(BaseController):
 
 		return True, phone_clean
 
-	def get_customers(self, tenant_id: int) -> List[Dict[str, Any]]:
+	def get_customers(self, tenant_id: str) -> List[Dict[str, Any]]:
 		"""Retorna clientes activos del tenant ordenados por nombre."""
 		with self._Session() as session:
 			try:
@@ -62,7 +69,7 @@ class CustomerController(BaseController):
 				return []
 
 	def add_customer(
-		self, tenant_id: int, name: str, phone: Optional[str]
+		self, tenant_id: str, name: str, phone: Optional[str]
 	) -> Tuple[bool, str]:
 		"""Crea un cliente nuevo o reactiva uno dado de baja lógicamente."""
 		if not name or not str(name).strip():
@@ -110,7 +117,7 @@ class CustomerController(BaseController):
 
 	def update_customer(
 		self,
-		tenant_id: int,
+		tenant_id: str,
 		customer_id: str,
 		name: str,
 		phone: Optional[str],
@@ -159,9 +166,9 @@ class CustomerController(BaseController):
 
 	def pay_debt(
 		self,
-		tenant_id: int,
-		user_id: int,
-		customer_id: int,
+		tenant_id: str,
+		user_id: str,
+		customer_id: str,
 		amount: Union[str, float, Decimal],
 	) -> Tuple[bool, str]:
 		"""
@@ -200,7 +207,7 @@ class CustomerController(BaseController):
 						session_id=active_cash.id,
 						movement_type='ingreso',
 						amount=amount_dec,
-						description=f'Abono de Cuenta Corriente: {customer.name}',
+						description=f'Abono de Cuenta Corriente: {customer.name} [cid:{customer_id}]',
 					)
 				)
 
@@ -222,7 +229,7 @@ class CustomerController(BaseController):
 				return False, 'Error interno al procesar el pago. Intente de nuevo.'
 
 	def get_customer_ledger(
-		self, tenant_id: int, customer_id: int
+		self, tenant_id: str, customer_id: str
 	) -> List[Dict[str, Any]]:
 		"""
 		Retorna el historial cronológico de un cliente: Compras a crédito (fiado) y Pagos.
@@ -230,7 +237,7 @@ class CustomerController(BaseController):
 		"""
 		with self._Session() as session:
 			try:
-				# 1. Buscar las compras a crédito (fiado) del cliente
+				# 1. Buscar las compras a crédito (fiado) del cliente (excluyendo anuladas)
 				sales = (
 					session.query(Sale)
 					.filter_by(
@@ -238,6 +245,7 @@ class CustomerController(BaseController):
 						customer_id=customer_id,
 						payment_method='fiado',
 					)
+					.filter(Sale.status != 'anulada')
 					.all()
 				)
 
@@ -250,14 +258,19 @@ class CustomerController(BaseController):
 				if not customer:
 					return []
 
-				# 2. Buscar los abonos/pagos (buscando el patrón exacto que se guarda en pay_debt)
-				desc_filter = f'%Abono de Cuenta Corriente: {customer.name}%'
+				# 2. Buscar los abonos/pagos. Se busca por ID de cliente (nuevo formato)
+				# y por nombre (compatibilidad con registros anteriores al fix).
+				id_filter = f'%[cid:{customer_id}]%'
+				name_filter = f'%Abono de Cuenta Corriente: {customer.name}%'
 				payments = (
 					session.query(CashMovement)
 					.join(CashSession, CashMovement.session_id == CashSession.id)
 					.filter(
 						CashSession.tenant_id == tenant_id,
-						CashMovement.description.ilike(desc_filter),
+						(
+							CashMovement.description.ilike(id_filter)
+							| CashMovement.description.ilike(name_filter)
+						),
 					)
 					.all()
 				)
