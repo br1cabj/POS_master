@@ -6,6 +6,7 @@ from tkinter import ttk
 import customtkinter as ctk
 
 from controllers.sales_controller import SalesController
+from utils.date_picker import CTkDatePicker
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.settings_manager import get_reports_path
@@ -130,23 +131,15 @@ class HistoryView(BaseView):
 
 		# ── Date Picker Personalizado (oculto por defecto) ──
 		self._custom_date_frame = ctk.CTkFrame(filter_row, fg_color='transparent')
-		self._entry_date_start = ctk.CTkEntry(
-			self._custom_date_frame,
-			width=95,
-			placeholder_text='DD/MM/AAAA',
-			height=28,
-			font=FONT_SMALL,
+		self._entry_date_start = CTkDatePicker(
+			self._custom_date_frame, width=175, height=28
 		)
 		self._entry_date_start.pack(side='left', padx=2)
 		ctk.CTkLabel(
 			self._custom_date_frame, text='-', font=FONT_SMALL, text_color=TEXT_MUTED
 		).pack(side='left')
-		self._entry_date_end = ctk.CTkEntry(
-			self._custom_date_frame,
-			width=95,
-			placeholder_text='DD/MM/AAAA',
-			height=28,
-			font=FONT_SMALL,
+		self._entry_date_end = CTkDatePicker(
+			self._custom_date_frame, width=175, height=28
 		)
 		self._entry_date_end.pack(side='left', padx=2)
 		ctk.CTkButton(

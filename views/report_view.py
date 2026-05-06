@@ -26,6 +26,7 @@ from datetime import date, datetime, timedelta
 import customtkinter as ctk
 
 from controllers.report_controller import ReportController
+from utils.date_picker import CTkDatePicker
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.styles import (
@@ -165,15 +166,7 @@ class ReportView(BaseView):
 		ctk.CTkLabel(bar, text='Desde', font=FONT_LABEL, text_color=TEXT_MUTED).grid(
 			row=0, column=6, padx=(8, 2)
 		)
-		self._entry_from = ctk.CTkEntry(
-			bar,
-			width=95,
-			placeholder_text='dd/mm/aaaa',
-			fg_color=SURFACE3,
-			border_color=BORDER_ACTIVE,
-			text_color=TEXT_PRIMARY,
-			font=FONT_SMALL,
-		)
+		self._entry_from = CTkDatePicker(bar, width=175, height=32)
 		self._entry_from.grid(row=0, column=7, padx=(0, 8))
 		self._entry_from.bind('<Return>', lambda e: self._on_generate_click())
 		self._entry_from.bind('<KeyRelease>', self._clear_quick_filters)
@@ -181,15 +174,7 @@ class ReportView(BaseView):
 		ctk.CTkLabel(bar, text='Hasta', font=FONT_LABEL, text_color=TEXT_MUTED).grid(
 			row=0, column=8, padx=(0, 2)
 		)
-		self._entry_to = ctk.CTkEntry(
-			bar,
-			width=95,
-			placeholder_text='dd/mm/aaaa',
-			fg_color=SURFACE3,
-			border_color=BORDER_ACTIVE,
-			text_color=TEXT_PRIMARY,
-			font=FONT_SMALL,
-		)
+		self._entry_to = CTkDatePicker(bar, width=175, height=32)
 		self._entry_to.grid(row=0, column=9, padx=(0, 8))
 		self._entry_to.bind('<Return>', lambda e: self._on_generate_click())
 		self._entry_to.bind('<KeyRelease>', self._clear_quick_filters)
@@ -211,10 +196,8 @@ class ReportView(BaseView):
 		self._sync_date_entries()
 
 	def _sync_date_entries(self):
-		self._entry_from.delete(0, 'end')
-		self._entry_from.insert(0, self._date_from.strftime('%d/%m/%Y'))
-		self._entry_to.delete(0, 'end')
-		self._entry_to.insert(0, self._date_to.strftime('%d/%m/%Y'))
+		self._entry_from.set_date(self._date_from)
+		self._entry_to.set_date(self._date_to)
 
 	def _highlight_quick_btn(self, active_label: str):
 		for label, btn in self._quick_buttons.items():

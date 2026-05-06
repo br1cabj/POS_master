@@ -88,16 +88,26 @@ class ComboMakerView(BaseView):
 		self._setup_tab_combos()
 		self._setup_tab_sueltos()
 
-		self.bind(
+		self.winfo_toplevel().bind(
 			'<Control-g>',
 			lambda e: (
-				self.save_combo()
-				if self.tabs.get() == '🍔  Crear Combos y Promos'
-				else self.save_suelto()
+				(
+					self.save_combo()
+					if self.tabs.get() == '🍔  Crear Combos y Promos'
+					else self.save_suelto()
+				)
+				if self.winfo_exists()
+				else None
 			),
 		)
 
 		self.after(100, self.load_data)
+
+	def destroy_custom(self):
+		try:
+			self.winfo_toplevel().unbind('<Control-g>')
+		except Exception:
+			pass
 
 	def load_data(self):
 		tenant_id = self.ctx.tenant_id

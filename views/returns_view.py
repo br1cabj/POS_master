@@ -699,167 +699,365 @@ class ReturnsView(BaseView):
 		popup = ctk.CTkToplevel(self)
 		popup.title(f'Devolución Parcial — Ticket #{sale["id"]}')
 		popup.configure(fg_color=SURFACE1)
+		popup.resizable(False, False)
 		popup.attributes('-topmost', True)
 		popup.grab_set()
 
+		# ── Dimensiones y posición centrada en pantalla ──
 		popup.update_idletasks()
-		pw, ph = 600, 100 + len(items) * 60 + 150
-		ph = min(ph, 700)
-		rx = self.winfo_rootx() + (self.winfo_width() - pw) // 2
-		ry = self.winfo_rooty() + (self.winfo_height() - ph) // 2
+		pw = 640
+		sh = popup.winfo_screenheight()
+		ph = min(120 + len(items) * 68 + 190, int(sh * 0.88))
+		ph = max(ph, 480)
+		sx = popup.winfo_screenwidth()
+		rx = max(0, (sx - pw) // 2)
+		ry = max(0, (sh - ph) // 2)
 		popup.geometry(f'{pw}x{ph}+{rx}+{ry}')
 
-		ctk.CTkLabel(
-			popup,
-			text='Seleccioná los ítems a devolver',
-			font=('Arial', 16, 'bold'),
-			text_color=TEXT_PRIMARY,
-		).pack(pady=(18, 4))
+		# ── HEADER ──────────────────────────────────────────────────
+		header = ctk.CTkFrame(
+			popup, fg_color=SURFACE2, corner_radius=0, border_width=0
+		)
+		header.pack(fill='x')
+		header.grid_columnconfigure(0, weight=1)
 
 		ctk.CTkLabel(
-			popup,
-			text='Ajustá la cantidad a devolver usando los botones + y -',
+			header,
+			text=f'↩  Devolución Parcial  —  Ticket #{sale["id"]}',
+			font=FONT_HEADING,
+			text_color=ORANGE_TEXT,
+			anchor='w',
+		).grid(row=0, column=0, sticky='w', padx=20, pady=(16, 2))
+
+		info_parts = []
+		client = sale.get('customer_name') or 'Consumidor Final'
+		info_parts.append(f'Cliente: {client}')
+		info_parts.append(f'Total cobrado: ${total_amount:.2f}')
+		if discount_amount > 0:
+			info_parts.append(f'Descuento aplicado: ${discount_amount:.2f}')
+
+		ctk.CTkLabel(
+			header,
+			text='  ·  '.join(info_parts),
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
-		).pack(pady=(0, 12))
+			anchor='w',
+		).grid(row=1, column=0, sticky='w', padx=20, pady=(0, 10))
 
-		scroll_frame = ctk.CTkScrollableFrame(popup, fg_color='transparent')
-		scroll_frame.pack(fill='both', expand=True, padx=20)
+		# ── BARRA DE ACCIONES RÁPIDAS ────────────────────────────────
+		action_bar = ctk.CTkFrame(popup, fg_color=SURFACE3, corner_radius=0)
+		action_bar.pack(fill='x')
+
+		ctk.CTkLabel(
+			action_bar,
+			text='ÍTEMS A DEVOLVER',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+		).pack(side='left', padx=(20, 0), pady=8)
+
+		def _select_all():
+			for cv, ent, it in row_data:
+				max_q = float(it['quantity'])
+				ent.delete(0, 'end')
+				ent.insert(0, f'{int(max_q)}' if float(max_q).is_integer() else f'{max_q:.3f}')
+				cv.set(True)
+			_update_refund_and_btn()
+
+		def _clear_all():
+			for cv, ent, _ in row_data:
+				ent.delete(0, 'end')
+				ent.insert(0, '0')
+				cv.set(False)
+			_update_refund_and_btn()
+
+		ctk.CTkButton(
+			action_bar,
+			text='Seleccionar Todo',
+			height=26,
+			width=130,
+			font=FONT_LABEL_BOLD,
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			border_width=1,
+			border_color=ACCENT,
+			corner_radius=6,
+			command=_select_all,
+		).pack(side='right', padx=(4, 20), pady=6)
+
+		ctk.CTkButton(
+			action_bar,
+			text='Limpiar',
+			height=26,
+			width=70,
+			font=FONT_LABEL,
+			fg_color='transparent',
+			hover_color=SURFACE4,
+			text_color=TEXT_MUTED,
+			border_width=1,
+			border_color=BORDER,
+			corner_radius=6,
+			command=_clear_all,
+		).pack(side='right', padx=(0, 4), pady=6)
+
+		# ── FOOTER FIJO (se pack-ea ANTES del scroll para garantizar visibilidad) ──
+		footer = ctk.CTkFrame(
+			popup, fg_color=SURFACE2, corner_radius=0, border_width=0
+		)
+		footer.pack(side='bottom', fill='x')
+		footer.grid_columnconfigure(0, weight=1)
+
+		# Separador
+		ctk.CTkFrame(footer, height=1, fg_color=BORDER_ACTIVE, corner_radius=0).grid(
+			row=0, column=0, sticky='ew'
+		)
+
+		# Resumen del reembolso
+		summary_row = ctk.CTkFrame(footer, fg_color='transparent')
+		summary_row.grid(row=1, column=0, sticky='ew', padx=20, pady=(12, 8))
+		summary_row.grid_columnconfigure(0, weight=1)
+
+		lbl_selection_hint = ctk.CTkLabel(
+			summary_row,
+			text='Seleccioná al menos un ítem para continuar',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			anchor='w',
+		)
+		lbl_selection_hint.grid(row=0, column=0, sticky='w')
+
+		lbl_refund = ctk.CTkLabel(
+			summary_row,
+			text='$0.00',
+			font=('Arial', 26, 'bold'),
+			text_color=ORANGE_TEXT,
+			anchor='e',
+		)
+		lbl_refund.grid(row=0, column=1, sticky='e')
+
+		ctk.CTkLabel(
+			summary_row,
+			text='Reembolso estimado',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			anchor='e',
+		).grid(row=1, column=1, sticky='e')
+
+		# Botones
+		btn_row = ctk.CTkFrame(footer, fg_color='transparent')
+		btn_row.grid(row=2, column=0, sticky='ew', padx=20, pady=(0, 16))
+		btn_row.grid_columnconfigure(0, weight=1)
+
+		btn_confirm = ctk.CTkButton(
+			btn_row,
+			text='Seleccioná ítems para continuar',
+			fg_color=SURFACE3,
+			hover_color=SURFACE3,
+			text_color=TEXT_MUTED,
+			border_width=1,
+			border_color=BORDER,
+			height=46,
+			font=FONT_BODY_BOLD,
+			corner_radius=8,
+			state='disabled',
+		)
+		btn_confirm.grid(row=0, column=0, sticky='ew', pady=(0, 6))
+
+		ctk.CTkButton(
+			btn_row,
+			text='Cancelar',
+			fg_color='transparent',
+			hover_color=SURFACE3,
+			text_color=TEXT_SECONDARY,
+			border_width=1,
+			border_color=BORDER,
+			height=34,
+			corner_radius=8,
+			font=FONT_LABEL_BOLD,
+			command=popup.destroy,
+		).grid(row=1, column=0, sticky='ew')
+
+		# ── ÁREA SCROLLABLE DE ÍTEMS ─────────────────────────────────
+		scroll_frame = ctk.CTkScrollableFrame(
+			popup,
+			fg_color='transparent',
+			scrollbar_button_color=SURFACE3,
+			scrollbar_button_hover_color=SURFACE4,
+		)
+		scroll_frame.pack(fill='both', expand=True, padx=16, pady=(8, 0))
 
 		row_data = []
 
-		def _update_refund(*args):
+		def _update_refund_and_btn(*_args):
 			total = 0.0
+			selected_count = 0
 			for cv, ent, it in row_data:
 				if cv.get():
 					try:
-						raw_val = ent.get().strip().replace(',', '.')
-						if not raw_val:
-							continue
-						q = float(raw_val)
+						q = float(ent.get().strip().replace(',', '.') or '0')
 						q = min(max(q, 0), float(it['quantity']))
 						if q > 0:
 							total += float(it['unit_price']) * q * discount_factor
+							selected_count += 1
 						else:
 							cv.set(False)
 					except (ValueError, TypeError):
 						pass
-			lbl_refund.configure(text=f'Reembolso estimado: ${total:.2f}')
+
+			lbl_refund.configure(text=f'${total:.2f}')
+
+			if selected_count > 0:
+				lbl_selection_hint.configure(
+					text=f'{selected_count} ítem{"s" if selected_count > 1 else ""} seleccionado{"s" if selected_count > 1 else ""}',
+					text_color=ORANGE_TEXT,
+				)
+				btn_confirm.configure(
+					text=f'✓  Confirmar Devolución  —  ${total:.2f}',
+					fg_color=GREEN_DIM,
+					hover_color=GREEN,
+					text_color=GREEN_TEXT,
+					border_color=GREEN,
+					state='normal',
+					command=_confirm_return,
+				)
+			else:
+				lbl_selection_hint.configure(
+					text='Seleccioná al menos un ítem para continuar',
+					text_color=TEXT_MUTED,
+				)
+				btn_confirm.configure(
+					text='Seleccioná ítems para continuar',
+					fg_color=SURFACE3,
+					hover_color=SURFACE3,
+					text_color=TEXT_MUTED,
+					border_color=BORDER,
+					state='disabled',
+				)
 
 		for item in items:
 			qty_orig_float = float(item['quantity'])
 			qty_str = (
 				f'{int(qty_orig_float)}'
-				if qty_orig_float.is_integer()
+				if float(qty_orig_float).is_integer()
 				else f'{qty_orig_float:.3f}'
 			)
 
-			row = ctk.CTkFrame(scroll_frame, fg_color=SURFACE2, corner_radius=8)
+			row = ctk.CTkFrame(
+				scroll_frame,
+				fg_color=SURFACE2,
+				corner_radius=10,
+				border_width=1,
+				border_color=BORDER,
+			)
 			row.pack(fill='x', pady=(0, 6))
 			row.grid_columnconfigure(1, weight=1)
 
 			check_var = ctk.BooleanVar(value=False)
+
+			def _on_checkbox(cv=check_var, ent_ref=None, max_q=qty_orig_float):
+				if cv.get() and ent_ref is not None:
+					current_val = ent_ref.get().strip().replace(',', '.')
+					try:
+						if float(current_val) == 0:
+							ent_ref.delete(0, 'end')
+							ent_ref.insert(
+								0,
+								f'{int(max_q)}' if float(max_q).is_integer() else f'{max_q:.3f}',
+							)
+					except (ValueError, TypeError):
+						pass
+				_update_refund_and_btn()
+
 			cb = ctk.CTkCheckBox(
 				row,
 				text='',
 				variable=check_var,
 				width=30,
-				fg_color=ACCENT_DIM,
-				hover_color=ACCENT,
-				checkmark_color=ACCENT_TEXT,
-				command=_update_refund,
+				fg_color=ORANGE_DIM,
+				hover_color=ORANGE,
+				checkmark_color=ORANGE_TEXT,
+				border_color=BORDER_ACTIVE,
 			)
-			cb.grid(row=0, column=0, padx=(10, 4), pady=12)
+			cb.grid(row=0, column=0, padx=(12, 6), pady=14, rowspan=2)
 
 			ctk.CTkLabel(
 				row,
-				text=f'{item["description"][:28]}',
-				font=FONT_BODY,
+				text=item['description'][:34],
+				font=FONT_BODY_BOLD,
 				text_color=TEXT_PRIMARY,
 				anchor='w',
-			).grid(row=0, column=1, sticky='w', padx=4)
+			).grid(row=0, column=1, sticky='w', padx=(0, 8), pady=(10, 0))
 
 			ctk.CTkLabel(
 				row,
-				text=f'x{qty_str}  ·  ${item["unit_price"]:.2f}',
+				text=f'Precio: ${item["unit_price"]:.2f}  ·  Cantidad original: {qty_str}  ·  Subtotal: ${item["subtotal"]:.2f}',
 				font=FONT_LABEL,
 				text_color=TEXT_MUTED,
-				anchor='e',
-			).grid(row=0, column=2, padx=10)
+				anchor='w',
+			).grid(row=1, column=1, sticky='w', padx=(0, 8), pady=(0, 10))
 
 			ctrl_frame = ctk.CTkFrame(row, fg_color='transparent')
-			ctrl_frame.grid(row=0, column=3, padx=(0, 10))
+			ctrl_frame.grid(row=0, column=2, rowspan=2, padx=(0, 12), pady=8)
 
 			entry = ctk.CTkEntry(
 				ctrl_frame,
-				width=50,
+				width=52,
 				justify='center',
 				fg_color=SURFACE3,
 				border_color=BORDER_ACTIVE,
 				text_color=TEXT_PRIMARY,
-				height=32,
+				font=FONT_BODY_BOLD,
+				height=36,
+				corner_radius=6,
 			)
 			entry.insert(0, '0')
 			entry.bind('<FocusIn>', lambda e, ent=entry: ent.select_range(0, 'end'))
+
+			cb.configure(command=lambda cv=check_var, e=entry, m=qty_orig_float: _on_checkbox(cv, e, m))
 
 			def adjust_qty(delta, ent=entry, max_q=qty_orig_float, cv=check_var):
 				try:
 					current = float(ent.get().strip().replace(',', '.'))
 				except Exception:
 					current = 0.0
-
-				new_val = current + delta
-				new_val = max(0.0, min(new_val, max_q))
-
+				new_val = round(max(0.0, min(current + delta, max_q)), 3)
 				ent.delete(0, 'end')
-				ent.insert(
-					0, f'{int(new_val)}' if new_val.is_integer() else f'{new_val:.3f}'
-				)
-
-				if new_val > 0 and not cv.get():
-					cv.set(True)
-				elif new_val == 0 and cv.get():
-					cv.set(False)
-				_update_refund()
+				ent.insert(0, f'{int(new_val)}' if float(new_val).is_integer() else f'{new_val:.3f}')
+				cv.set(new_val > 0)
+				_update_refund_and_btn()
 
 			ctk.CTkButton(
 				ctrl_frame,
-				text='-',
-				width=32,
-				height=32,
-				font=FONT_BODY_BOLD,
-				fg_color=SURFACE4,
-				text_color=TEXT_PRIMARY,
-				command=lambda e=entry, m=qty_orig_float, c=check_var: adjust_qty(
-					-1.0, e, m, c
-				),
-			).pack(side='left', padx=2)
+				text='−',
+				width=36, height=36,
+				font=('Arial', 16, 'bold'),
+				fg_color=SURFACE3,
+				hover_color=RED_DIM,
+				text_color=TEXT_SECONDARY,
+				corner_radius=8,
+				border_width=1,
+				border_color=BORDER,
+				command=lambda e=entry, m=qty_orig_float, c=check_var: adjust_qty(-1.0, e, m, c),
+			).pack(side='left', padx=(0, 4))
 
-			entry.pack(side='left', padx=2)
+			entry.pack(side='left')
 
 			ctk.CTkButton(
 				ctrl_frame,
 				text='+',
-				width=32,
-				height=32,
-				font=FONT_BODY_BOLD,
-				fg_color=SURFACE4,
-				text_color=TEXT_PRIMARY,
-				command=lambda e=entry, m=qty_orig_float, c=check_var: adjust_qty(
-					1.0, e, m, c
-				),
-			).pack(side='left', padx=2)
+				width=36, height=36,
+				font=('Arial', 16, 'bold'),
+				fg_color=SURFACE3,
+				hover_color=ACCENT_DIM,
+				text_color=ACCENT_TEXT,
+				corner_radius=8,
+				border_width=1,
+				border_color=BORDER,
+				command=lambda e=entry, m=qty_orig_float, c=check_var: adjust_qty(1.0, e, m, c),
+			).pack(side='left', padx=(4, 0))
 
-			entry.bind('<KeyRelease>', _update_refund)
+			entry.bind('<KeyRelease>', _update_refund_and_btn)
 			row_data.append((check_var, entry, item))
-
-		lbl_refund = ctk.CTkLabel(
-			popup,
-			text='Reembolso estimado: $0.00',
-			font=('Arial', 16, 'bold'),
-			text_color=ORANGE_TEXT,
-		)
-		lbl_refund.pack(pady=(10, 0))
 
 		def _confirm_return():
 			items_to_return = []
@@ -867,10 +1065,7 @@ class ReturnsView(BaseView):
 				if not cv.get():
 					continue
 				try:
-					raw_val = ent.get().strip().replace(',', '.')
-					if not raw_val:
-						continue
-					qty = float(raw_val)
+					qty = float(ent.get().strip().replace(',', '.') or '0')
 				except (ValueError, TypeError):
 					self.show_error(f'Cantidad inválida para "{it["description"]}".')
 					return
@@ -878,23 +1073,18 @@ class ReturnsView(BaseView):
 				orig_qty = float(it['quantity'])
 				if qty <= 0 or qty > orig_qty:
 					self.show_error(
-						f'"{it["description"]}": ingresá entre 0.001 y {orig_qty}.',
+						f'"{it["description"]}": cantidad debe ser entre 0.001 y {orig_qty}.',
 						'Cantidad inválida',
 					)
 					return
 
-				items_to_return.append(
-					{'detail_id': it['detail_id'], 'qty_to_return': qty}
-				)
+				items_to_return.append({'detail_id': it['detail_id'], 'qty_to_return': qty})
 
 			if not items_to_return:
-				self.show_warning(
-					'Aumentá la cantidad de al menos un ítem para devolver.',
-					'Sin selección',
-				)
+				self.show_warning('Seleccioná al menos un ítem para devolver.', 'Sin selección')
 				return
 
-			btn_confirm.configure(text='⏳ Procesando...', state='disabled')
+			btn_confirm.configure(text='⏳  Procesando...', state='disabled')
 			popup.update()
 
 			success, msg = self.controller.return_items(
@@ -908,34 +1098,6 @@ class ReturnsView(BaseView):
 				self.load_sales()
 			else:
 				self.show_error(msg)
-
-		btn_confirm = ctk.CTkButton(
-			popup,
-			text='✓  Confirmar Devolución',
-			fg_color=GREEN_DIM,
-			hover_color=GREEN,
-			text_color=GREEN_TEXT,
-			border_width=1,
-			border_color=GREEN,
-			height=42,
-			font=FONT_NAV_BOLD,
-			corner_radius=8,
-			command=_confirm_return,
-		)
-		btn_confirm.pack(pady=(12, 6), padx=24, fill='x')
-
-		ctk.CTkButton(
-			popup,
-			text='Cancelar',
-			fg_color=SURFACE3,
-			hover_color=SURFACE4,
-			text_color=TEXT_SECONDARY,
-			border_width=1,
-			border_color=BORDER,
-			height=34,
-			corner_radius=8,
-			command=popup.destroy,
-		).pack(padx=24, pady=(0, 16), fill='x')
 
 	# =========================================================
 	# ACCIÓN: MODIFICAR (Anular + ir a Ventas)

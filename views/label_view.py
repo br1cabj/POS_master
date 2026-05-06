@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 import utils.settings_manager as _cfg_mgr
 from controllers.label_controller import TEMPLATES, LabelController
+from utils.date_picker import CTkDatePicker
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.settings_manager import fmt_price
@@ -925,18 +926,9 @@ class LabelView(BaseView):
 				anchor='w',
 			).pack(side='left', padx=(0, PAD_XS))
 
-			entry_until = ctk.CTkEntry(
-				disc_row,
-				width=90,
-				height=22,
-				font=FONT_LABEL,
-				placeholder_text='DD/MM/AAAA',
-				fg_color=SURFACE2,
-				border_color=BORDER,
-				text_color=TEXT_PRIMARY,
-			)
+			entry_until = CTkDatePicker(disc_row, width=155, height=26)
 			if item.get('discount_until'):
-				entry_until.insert(0, str(item['discount_until']))
+				entry_until.set_text(str(item['discount_until']))
 			entry_until.pack(side='left', padx=(0, PAD_SM))
 
 			def _on_disc_change(e, i=idx, de=entry_disc, du=entry_until):

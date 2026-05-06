@@ -5,6 +5,7 @@ from tkinter import ttk
 import customtkinter as ctk
 
 import utils.settings_manager as cfg
+from utils.date_picker import CTkDatePicker
 from controllers.article_controller import ArticleController
 from controllers.label_controller import LabelController
 from core.base_view import BaseView
@@ -77,7 +78,6 @@ class ArticlesView(BaseView):
 
 		self._var_discount_enabled = ctk.BooleanVar(value=False)
 		self._var_discount_pct = ctk.StringVar(value='')
-		self._var_discount_until = ctk.StringVar(value='')
 
 		self._var_cost_str.trace_add('write', self._on_cost_or_margin_changed)
 		self._var_margin.trace_add('write', self._on_cost_or_margin_changed)
@@ -87,7 +87,10 @@ class ArticlesView(BaseView):
 		self._build_left_panel()
 		self._build_right_panel()
 
-		self.bind('<Control-g>', lambda e: self.save_article())
+		self.winfo_toplevel().bind(
+			'<Control-g>',
+			lambda e: self.save_article() if self.winfo_exists() else None,
+		)
 		self.bind('<Escape>', lambda e: self.reset_form())
 
 		self.after(100, self.load_data)
@@ -376,12 +379,10 @@ class ArticlesView(BaseView):
 		make_form_label(frame_duntil, 'VÁLIDO HASTA (opcional)')[0].pack(
 			anchor='w', pady=(0, PAD_XS)
 		)
-		self.entry_discount_until = ctk.CTkEntry(
+		self.entry_discount_until = CTkDatePicker(
 			frame_duntil,
-			placeholder_text='DD/MM/AAAA',
+			width=190,
 			height=40,
-			font=FONT_BODY,
-			textvariable=self._var_discount_until,
 		)
 		self.entry_discount_until.pack(fill='x')
 
@@ -576,7 +577,7 @@ class ArticlesView(BaseView):
 		else:
 			self._frame_discount_fields.pack_forget()
 			self._var_discount_pct.set('')
-			self._var_discount_until.set('')
+			self.entry_discount_until.clear()
 
 	def _on_supplier_changed(self, value=None):
 		"""Actualiza el label con el descuento activo del proveedor seleccionado."""
@@ -661,16 +662,11 @@ class ArticlesView(BaseView):
 		make_form_label(
 			dialog, 'VÁLIDO HASTA (opcional — dejar vacío = sin vencimiento)'
 		)[0].pack(padx=PAD_LG, anchor='w')
-		var_until = ctk.StringVar(
-			value=current_until.strftime('%d/%m/%Y') if current_until else ''
-		)
-		entry_until = ctk.CTkEntry(
-			dialog,
-			placeholder_text='DD/MM/AAAA',
-			height=36,
-			font=FONT_BODY,
-			textvariable=var_until,
-		)
+		entry_until = CTkDatePicker(dialog, width=260, height=36)
+		if current_until:
+			entry_until.set_date(
+				current_until.date() if hasattr(current_until, 'date') else current_until
+			)
 		entry_until.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
 
 		lbl_err = ctk.CTkLabel(
@@ -680,7 +676,7 @@ class ArticlesView(BaseView):
 
 		def _do_save():
 			raw_pct = var_pct.get().strip().replace(',', '.')
-			raw_until = var_until.get().strip()
+			raw_until = entry_until.get()
 			try:
 				pct = float(raw_pct) if raw_pct else 0.0
 				if pct < 0 or pct >= 100:
@@ -949,14 +945,16 @@ class ArticlesView(BaseView):
 					except Exception:
 						disc_until = None
 				if disc_until:
-					self._var_discount_until.set(disc_until.strftime('%d/%m/%Y'))
+					self.entry_discount_until.set_date(
+						disc_until.date() if hasattr(disc_until, 'date') else disc_until
+					)
 			else:
-				self._var_discount_until.set('')
+				self.entry_discount_until.clear()
 			self._frame_discount_fields.pack(fill='x', pady=(PAD_XS, PAD_SM))
 		else:
 			self._var_discount_enabled.set(False)
 			self._var_discount_pct.set('')
-			self._var_discount_until.set('')
+			self.entry_discount_until.clear()
 			self._frame_discount_fields.pack_forget()
 
 		self.lbl_form_title.configure(
@@ -1000,7 +998,7 @@ class ArticlesView(BaseView):
 		# Descuento por producto
 		self._var_discount_enabled.set(False)
 		self._var_discount_pct.set('')
-		self._var_discount_until.set('')
+		self.entry_discount_until.clear()
 		self._frame_discount_fields.pack_forget()
 		self.combo_supplier.set('Sin Proveedor')
 		self._on_supplier_changed()
@@ -1015,6 +1013,12 @@ class ArticlesView(BaseView):
 
 	def has_unsaved_changes(self) -> bool:
 		return bool(self.entry_name.get().strip())
+
+	def destroy_custom(self):
+		try:
+			self.winfo_toplevel().unbind('<Control-g>')
+		except Exception:
+			pass
 
 	def _generate_unique_barcode(self):
 		while True:
@@ -1096,7 +1100,7 @@ class ArticlesView(BaseView):
 				)
 				return
 
-			raw_duntil = self._var_discount_until.get().strip()
+			raw_duntil = self.entry_discount_until.get()
 			if raw_duntil:
 				from datetime import datetime as _dt
 

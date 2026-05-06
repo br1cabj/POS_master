@@ -4,6 +4,7 @@ from tkinter import ttk
 import customtkinter as ctk
 
 from controllers.inventory_controller import InventoryController
+from utils.date_picker import CTkDatePicker
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.styles import (
@@ -105,23 +106,11 @@ class KardexView(BaseView):
 		)
 		self.combo_type.pack(side='left', padx=(0, 10))
 
-		self.entry_from = ctk.CTkEntry(
-			f_row,
-			placeholder_text='Desde (DD/MM/AAAA)',
-			width=140,
-			fg_color=SURFACE3,
-			border_color=BORDER_ACTIVE,
-		)
+		self.entry_from = CTkDatePicker(f_row, width=175, height=32)
 		self.entry_from.pack(side='left', padx=(0, 10))
 		self.entry_from.bind('<Return>', lambda e: self.apply_filters())
 
-		self.entry_to = ctk.CTkEntry(
-			f_row,
-			placeholder_text='Hasta (DD/MM/AAAA)',
-			width=140,
-			fg_color=SURFACE3,
-			border_color=BORDER_ACTIVE,
-		)
+		self.entry_to = CTkDatePicker(f_row, width=175, height=32)
 		self.entry_to.pack(side='left', padx=(0, 10))
 		self.entry_to.bind('<Return>', lambda e: self.apply_filters())
 
@@ -319,8 +308,8 @@ class KardexView(BaseView):
 
 	def clear_filters(self):
 		self.entry_search.delete(0, 'end')
-		self.entry_from.delete(0, 'end')
-		self.entry_to.delete(0, 'end')
+		self.entry_from.clear()
+		self.entry_to.clear()
 		self.combo_type.set('Todos')
 		self.apply_filters()
 

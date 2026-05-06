@@ -72,15 +72,27 @@ class DataSyncView(BaseView):
 		self._build_import_panel()
 
 		# Atajos de teclado globales para agilizar el flujo operativo
-		self.bind('<Control-e>', lambda e: self.handle_export())
-		self.bind(
+		top = self.winfo_toplevel()
+		top.bind(
+			'<Control-e>',
+			lambda e: self.handle_export() if self.winfo_exists() else None,
+		)
+		top.bind(
 			'<Control-i>',
 			lambda e: (
 				self.handle_import()
-				if self.btn_import.cget('state') == 'normal'
+				if self.winfo_exists() and self.btn_import.cget('state') == 'normal'
 				else None
 			),
 		)
+
+	def destroy_custom(self):
+		top = self.winfo_toplevel()
+		for key in ('<Control-e>', '<Control-i>'):
+			try:
+				top.unbind(key)
+			except Exception:
+				pass
 
 	def _get_desktop_path(self):
 		"""Resuelve la carpeta de destino configurada para exportaciones."""

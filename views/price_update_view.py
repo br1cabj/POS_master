@@ -59,17 +59,23 @@ class PriceUpdateView(BaseView):
 		self._build_right_panel()
 
 		# Atajo global para confirmar y aplicar (Perfil de alta velocidad)
-		self.bind(
+		self.winfo_toplevel().bind(
 			'<Control-g>',
 			lambda e: (
 				self.apply_changes()
-				if self.btn_save.cget('state') == 'normal'
+				if self.winfo_exists() and self.btn_save.cget('state') == 'normal'
 				else None
 			),
 		)
 
 		self.suppliers_map = {}
 		self.after(100, self.load_data)
+
+	def destroy_custom(self):
+		try:
+			self.winfo_toplevel().unbind('<Control-g>')
+		except Exception:
+			pass
 
 	def _build_left_panel(self):
 		"""Construye el panel de controles de parámetros de inflación/descuento."""
