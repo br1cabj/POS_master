@@ -80,7 +80,14 @@ class PosApp(ctk.CTk):
 	def check_system_state(self):
 		self._clear_window()
 
-		if not os.path.exists('pos_system.db') or not os.path.exists('license.dat'):
+		_dir = (
+			os.path.dirname(sys.executable)
+			if getattr(sys, 'frozen', False)
+			else os.path.dirname(os.path.abspath(__file__))
+		)
+		_db = os.path.join(_dir, 'pos_system.db')
+		_lic = os.path.join(_dir, 'license.dat')
+		if not os.path.exists(_db) or not os.path.exists(_lic):
 			self.show_wizard()
 			return
 

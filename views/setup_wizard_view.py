@@ -466,7 +466,7 @@ class SetupWizard(ctk.CTkFrame):
 			anchor='w',
 		).grid(row=1, column=0, columnspan=2, pady=(0, PAD_LG), padx=PAD_XL, sticky='w')
 
-		make_form_label(card, 'Nombre del Comercio', required=True).grid(
+		make_form_label(card, 'Nombre del Comercio', required=True)[0].grid(
 			row=2, column=0, sticky='w', padx=(PAD_XL, PAD_MD), pady=(PAD_SM, PAD_XS)
 		)
 		self._e_store = ctk.CTkEntry(
@@ -484,7 +484,7 @@ class SetupWizard(ctk.CTkFrame):
 		if self._d_store:
 			self._e_store.insert(0, self._d_store)
 
-		make_form_label(card, 'Dirección').grid(
+		make_form_label(card, 'Dirección')[0].grid(
 			row=2, column=1, sticky='w', padx=(PAD_MD, PAD_XL), pady=(PAD_SM, PAD_XS)
 		)
 		self._e_address = ctk.CTkEntry(
@@ -502,7 +502,7 @@ class SetupWizard(ctk.CTkFrame):
 		if self._d_address:
 			self._e_address.insert(0, self._d_address)
 
-		make_form_label(card, 'Teléfono / WhatsApp').grid(
+		make_form_label(card, 'Teléfono / WhatsApp')[0].grid(
 			row=4, column=0, sticky='w', padx=(PAD_XL, PAD_MD), pady=(PAD_SM, PAD_XS)
 		)
 		self._e_phone = ctk.CTkEntry(
@@ -520,7 +520,7 @@ class SetupWizard(ctk.CTkFrame):
 		if self._d_phone:
 			self._e_phone.insert(0, self._d_phone)
 
-		make_form_label(card, 'Símbolo de moneda', required=True).grid(
+		make_form_label(card, 'Símbolo de moneda', required=True)[0].grid(
 			row=4, column=1, sticky='w', padx=(PAD_MD, PAD_XL), pady=(PAD_SM, PAD_XS)
 		)
 		self._e_currency = ctk.CTkEntry(
@@ -538,7 +538,7 @@ class SetupWizard(ctk.CTkFrame):
 		if self._d_currency:
 			self._e_currency.insert(0, self._d_currency)
 
-		make_form_label(card, 'DECIMALES EN PRECIOS').grid(
+		make_form_label(card, 'DECIMALES EN PRECIOS')[0].grid(
 			row=6, column=0, sticky='w', padx=(PAD_XL, PAD_MD), pady=(PAD_SM, PAD_XS)
 		)
 		self._seg_decimals = ctk.CTkSegmentedButton(
@@ -559,7 +559,7 @@ class SetupWizard(ctk.CTkFrame):
 		)
 		self._seg_decimals.set(self._d_decimals)
 
-		make_form_label(card, 'IMPUESTO / IVA (%)').grid(
+		make_form_label(card, 'IMPUESTO / IVA (%)')[0].grid(
 			row=6, column=1, sticky='w', padx=(PAD_MD, PAD_XL), pady=(PAD_SM, PAD_XS)
 		)
 		self._e_tax = ctk.CTkEntry(
@@ -580,7 +580,7 @@ class SetupWizard(ctk.CTkFrame):
 			row=8, column=0, columnspan=2, sticky='ew', padx=PAD_XL, pady=(PAD_LG, 0)
 		)
 
-		make_form_label(card, 'CARPETA DE REPORTES Y EXPORTACIONES').grid(
+		make_form_label(card, 'CARPETA DE REPORTES Y EXPORTACIONES')[0].grid(
 			row=9,
 			column=0,
 			columnspan=2,
@@ -745,7 +745,7 @@ class SetupWizard(ctk.CTkFrame):
 			justify='left',
 		).grid(row=1, column=0, pady=(0, PAD_LG), padx=PAD_XL, sticky='w')
 
-		make_form_label(card, 'NOMBRE DE USUARIO', required=True).grid(
+		make_form_label(card, 'NOMBRE DE USUARIO', required=True)[0].grid(
 			row=2, column=0, sticky='w', padx=PAD_XL, pady=(0, PAD_XS)
 		)
 		self._e_username = ctk.CTkEntry(
@@ -771,7 +771,7 @@ class SetupWizard(ctk.CTkFrame):
 			anchor='w',
 		).grid(row=4, column=0, sticky='w', padx=PAD_XL, pady=(0, PAD_MD))
 
-		make_form_label(card, 'PIN DE RECUPERACIÓN (4 DÍGITOS)', required=True).grid(
+		make_form_label(card, 'PIN DE RECUPERACIÓN (4 DÍGITOS)', required=True)[0].grid(
 			row=5, column=0, sticky='w', padx=PAD_XL, pady=(0, PAD_XS)
 		)
 		self._e_pin = ctk.CTkEntry(
@@ -796,7 +796,7 @@ class SetupWizard(ctk.CTkFrame):
 			anchor='w',
 		).grid(row=7, column=0, sticky='w', padx=PAD_XL, pady=(0, PAD_MD))
 
-		make_form_label(card, 'CONTRASEÑA', required=True).grid(
+		make_form_label(card, 'CONTRASEÑA', required=True)[0].grid(
 			row=8, column=0, sticky='w', padx=PAD_XL, pady=(0, PAD_XS)
 		)
 		self._e_pass = ctk.CTkEntry(
@@ -811,7 +811,7 @@ class SetupWizard(ctk.CTkFrame):
 		)
 		self._e_pass.grid(row=9, column=0, sticky='ew', padx=PAD_XL, pady=(0, PAD_MD))
 
-		make_form_label(card, 'CONFIRMAR CONTRASEÑA', required=True).grid(
+		make_form_label(card, 'CONFIRMAR CONTRASEÑA', required=True)[0].grid(
 			row=10, column=0, sticky='w', padx=PAD_XL, pady=(0, PAD_XS)
 		)
 		self._e_pass2 = ctk.CTkEntry(
@@ -1005,6 +1005,7 @@ class SetupWizard(ctk.CTkFrame):
 		cfg['company_address'] = self._d_address
 		cfg['company_phone'] = self._d_phone
 		cfg['currency_symbol'] = self._d_currency
-		cfg['currency_decimals'] = self._d_decimals
+		cfg['currency_decimals'] = 2 if '2' in self._d_decimals else 0
+		cfg['tax_rate'] = float(self._d_tax) if self._d_tax else 0.0
 		cfg['reports_path'] = self._d_reports_path
 		_cfg_save(cfg)

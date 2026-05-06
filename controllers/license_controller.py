@@ -3,20 +3,24 @@ import hashlib
 import json
 import logging
 import os
+import sys
 from datetime import datetime, timedelta
 
 from utils.config import SECRET_SALT
 
 logger = logging.getLogger(__name__)
 
-# Directorio raíz del proyecto (un nivel arriba de controllers/)
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def _app_dir() -> str:
+	"""Directorio del ejecutable en producción, raíz del proyecto en desarrollo."""
+	if getattr(sys, 'frozen', False):
+		return os.path.dirname(sys.executable)
+	return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class LicenseController:
 	def __init__(self):
-		# Path absoluto para que funcione independientemente del directorio de trabajo
-		self.license_file = os.path.join(_PROJECT_ROOT, 'license.dat')
+		self.license_file = os.path.join(_app_dir(), 'license.dat')
 
 	def _generate_signature(self, license_type, expiration_date):
 		raw = f'{license_type}|{expiration_date}|{SECRET_SALT}'

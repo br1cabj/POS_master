@@ -188,13 +188,12 @@ def make_form_label(
 	lbl.pack(side='left')
 
 	if required:
-		ast = ctk.CTkLabel(
+		ctk.CTkLabel(
 			container,
 			text=' *',
 			font=FONT_LABEL_BOLD,
 			text_color=RED_TEXT,
-		)
-		ast.pack(side='left')
+		).pack(side='left')
 
 	return container, lbl
 
