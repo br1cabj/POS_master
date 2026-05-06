@@ -2,7 +2,8 @@ import os
 import sys
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 
 try:
 	from dotenv import load_dotenv
@@ -28,6 +29,16 @@ _default_db = f'sqlite:///{_app_dir() / "pos_system.db"}'
 DB_URL = os.getenv('DATABASE_URL', _default_db)
 
 SECRET_SALT = 'aantesbajocabeconcontradedesdeenentrehaciahastaparaporsegunsinsobretrasmediantedurante'
+
+
+@event.listens_for(Engine, 'connect')
+def _set_sqlite_fk_pragma(dbapi_conn, _):
+    """Activa FK enforcement en SQLite (está deshabilitado por defecto)."""
+    if hasattr(dbapi_conn, 'execute'):
+        try:
+            dbapi_conn.execute('PRAGMA foreign_keys=ON')
+        except Exception:
+            pass
 
 
 def make_engine(url: str = None):

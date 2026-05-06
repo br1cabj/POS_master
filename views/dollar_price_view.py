@@ -2,16 +2,6 @@
 views/dollar_price_view.py
 ==========================
 Módulo de actualización de precios por tipo de cambio del dólar.
-
-Flujo de usuario:
-  1. Elegir tipo de cotización (Blue / Oficial / MEP).
-  2. Ingresar la cotización del día.
-  3. Ajustar el margen de ganancia si hace falta.
-  4. Ver el preview en vivo en la tabla derecha.
-  5. Presionar "ACTUALIZAR PRECIOS" — listo.
-
-Para que un producto aparezca en el recálculo, primero debe tener asignado
-su precio en dólares (doble clic o botón "Asignar US$").
 """
 
 import logging
@@ -76,8 +66,8 @@ class DollarPriceView(BaseView):
 		self.controller = DollarPriceController(ctx.db_engine)
 		self._all_variants: list = []
 		self._cfg = cfg.load()
+		self._initial_rate = float(self._cfg.get('dollar_rate', 0.0))
 
-		# Filas: 0 = header, 1 = contenido principal
 		self.grid_rowconfigure(0, weight=0)
 		self.grid_rowconfigure(1, weight=1)
 		self.grid_columnconfigure(0, weight=1)
@@ -87,10 +77,6 @@ class DollarPriceView(BaseView):
 		self._build_body()
 
 		self.after(120, self._load_data)
-
-	# ═══════════════════════════════════════════════════════
-	# HELPERS
-	# ═══════════════════════════════════════════════════════
 
 	def _current_rate(self) -> float:
 		try:
@@ -122,9 +108,6 @@ class DollarPriceView(BaseView):
 			if v.get('cost_price_usd') is not None and v['cost_price_usd'] > 0
 		)
 
-	# ═══════════════════════════════════════════════════════
-	# HEADER
-	# ═══════════════════════════════════════════════════════
 	def _build_header(self):
 		hdr = ctk.CTkFrame(self, fg_color=SURFACE2, corner_radius=0, border_width=0)
 		hdr.grid(row=0, column=0, sticky='ew')
@@ -132,7 +115,6 @@ class DollarPriceView(BaseView):
 		inner = ctk.CTkFrame(hdr, fg_color='transparent')
 		inner.pack(fill='x', padx=20, pady=14)
 
-		# Título + descripción
 		left = ctk.CTkFrame(inner, fg_color='transparent')
 		left.pack(side='left', fill='y')
 
@@ -153,7 +135,6 @@ class DollarPriceView(BaseView):
 		)
 		self.lbl_header_sub.pack(anchor='w', pady=(2, 0))
 
-		# Chips de estado (derecha)
 		right = ctk.CTkFrame(inner, fg_color='transparent')
 		right.pack(side='right', fill='y')
 
@@ -192,9 +173,6 @@ class DollarPriceView(BaseView):
 			pady=4,
 		)
 
-	# ═══════════════════════════════════════════════════════
-	# BODY  (panel izq. + panel der.)
-	# ═══════════════════════════════════════════════════════
 	def _build_body(self):
 		body = ctk.CTkFrame(self, fg_color='transparent')
 		body.grid(row=1, column=0, sticky='nsew', padx=16, pady=12)
@@ -205,9 +183,6 @@ class DollarPriceView(BaseView):
 		self._build_left_panel(body)
 		self._build_right_panel(body)
 
-	# ───────────────────────────────────────────────────────
-	# PANEL IZQUIERDO — configuración y acción
-	# ───────────────────────────────────────────────────────
 	def _build_left_panel(self, parent):
 		outer = ctk.CTkFrame(
 			parent,
@@ -218,18 +193,13 @@ class DollarPriceView(BaseView):
 		)
 		outer.grid(row=0, column=0, sticky='nsew', padx=(0, 10))
 
-		# Scroll interno (por si la ventana es muy pequeña)
 		scroll = ctk.CTkScrollableFrame(
-			outer,
-			fg_color='transparent',
-			scrollbar_button_color=SURFACE3,
-			width=268,
+			outer, fg_color='transparent', scrollbar_button_color=SURFACE3, width=280
 		)
 		scroll.pack(fill='both', expand=True, padx=0, pady=0)
 
-		# ── 1. Tipo de cotización ────────────────────────
+		# ── 1. Tipo de cotización
 		self._section_label(scroll, 'TIPO DE COTIZACIÓN')
-
 		self._type_var = ctk.StringVar(
 			value=self._cfg.get('dollar_type', 'blue').capitalize()
 		)
@@ -239,7 +209,6 @@ class DollarPriceView(BaseView):
 
 		self._type_btns: dict = {}
 		for i, dtype in enumerate(_DOLLAR_TYPES):
-			s = _TYPE_STYLE[dtype]
 			btn = ctk.CTkButton(
 				type_row,
 				text=dtype,
@@ -254,19 +223,40 @@ class DollarPriceView(BaseView):
 
 		self._select_type(self._type_var.get(), save=False)
 
-		# ── 2. Cotización del día ────────────────────────
-		self._section_label(scroll, 'COTIZACIÓN  (ARS por US$1)')
+		# ── 2. Cotización del día
+		lbl_rate_frame = ctk.CTkFrame(scroll, fg_color='transparent')
+		lbl_rate_frame.pack(fill='x', padx=16, pady=(14, 0))
 
-		rate_frame = ctk.CTkFrame(
+		ctk.CTkLabel(
+			lbl_rate_frame,
+			text='COTIZACIÓN  (ARS por US$1)',
+			font=('Arial', 9, 'bold'),
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).pack(side='left')
+
+		self.btn_api = ctk.CTkButton(
+			lbl_rate_frame,
+			text='⬇ Obtener API',
+			font=('Arial', 9, 'bold'),
+			fg_color=SURFACE3,
+			text_color=TEXT_SECONDARY,
+			height=20,
+			width=90,
+			command=self._fetch_api_rate,
+		)
+		self.btn_api.pack(side='right')
+
+		self.rate_frame = ctk.CTkFrame(
 			scroll,
 			fg_color=SURFACE3,
 			corner_radius=10,
 			border_width=1,
 			border_color=BORDER_ACTIVE,
 		)
-		rate_frame.pack(fill='x', padx=16, pady=(4, 16))
+		self.rate_frame.pack(fill='x', padx=16, pady=(4, 2))
 
-		rate_inner = ctk.CTkFrame(rate_frame, fg_color='transparent')
+		rate_inner = ctk.CTkFrame(self.rate_frame, fg_color='transparent')
 		rate_inner.pack(fill='x', padx=12, pady=10)
 
 		ctk.CTkLabel(
@@ -277,7 +267,6 @@ class DollarPriceView(BaseView):
 			width=18,
 		).pack(side='left')
 
-		saved_rate = self._cfg.get('dollar_rate', 0.0)
 		self.entry_rate = ctk.CTkEntry(
 			rate_inner,
 			placeholder_text='0',
@@ -286,14 +275,18 @@ class DollarPriceView(BaseView):
 			text_color=TEXT_PRIMARY,
 			font=('Arial', 22, 'bold'),
 		)
-		if saved_rate and float(saved_rate) > 0:
-			self.entry_rate.insert(0, f'{float(saved_rate):,.0f}')
+		if self._initial_rate > 0:
+			self.entry_rate.insert(0, f'{self._initial_rate:,.0f}')
 		self.entry_rate.pack(side='left', fill='x', expand=True)
 		self.entry_rate.bind('<KeyRelease>', self._on_value_change)
 
-		# ── 3. Margen de ganancia ────────────────────────
-		self._section_label(scroll, 'MARGEN DE GANANCIA')
+		self.lbl_rate_warning = ctk.CTkLabel(
+			scroll, text='', font=FONT_SMALL, text_color=RED_TEXT, anchor='e'
+		)
+		self.lbl_rate_warning.pack(fill='x', padx=16)
 
+		# ── 3. Margen de ganancia
+		self._section_label(scroll, 'MARGEN DE GANANCIA GLOBAL')
 		margin_row = ctk.CTkFrame(scroll, fg_color='transparent')
 		margin_row.pack(fill='x', padx=16, pady=(4, 18))
 
@@ -312,13 +305,10 @@ class DollarPriceView(BaseView):
 		self.entry_margin.bind('<KeyRelease>', self._on_value_change)
 
 		ctk.CTkLabel(
-			margin_row,
-			text='%',
-			font=('Arial', 16, 'bold'),
-			text_color=TEXT_MUTED,
+			margin_row, text='%', font=('Arial', 16, 'bold'), text_color=TEXT_MUTED
 		).pack(side='left')
 
-		# ── 4. Preview de fórmula ────────────────────────
+		# ── 4. Preview de fórmula
 		preview = ctk.CTkFrame(
 			scroll,
 			fg_color=ACCENT_DIM,
@@ -334,7 +324,6 @@ class DollarPriceView(BaseView):
 			font=('Arial', 8, 'bold'),
 			text_color=ACCENT_TEXT,
 		).pack(padx=14, pady=(12, 4), anchor='w')
-
 		self.lbl_formula = ctk.CTkLabel(
 			preview,
 			text='Ingresá la cotización',
@@ -344,7 +333,6 @@ class DollarPriceView(BaseView):
 			justify='left',
 		)
 		self.lbl_formula.pack(padx=14, anchor='w')
-
 		self.lbl_example = ctk.CTkLabel(
 			preview,
 			text='',
@@ -355,7 +343,7 @@ class DollarPriceView(BaseView):
 		)
 		self.lbl_example.pack(padx=14, pady=(2, 12), anchor='w')
 
-		# ── 5. Resumen / contador ────────────────────────
+		# ── 5. Resumen / contador
 		summary = ctk.CTkFrame(
 			scroll,
 			fg_color=SURFACE3,
@@ -374,7 +362,6 @@ class DollarPriceView(BaseView):
 			justify='center',
 		)
 		self.lbl_ready_main.pack(padx=14, pady=(14, 4))
-
 		self.lbl_ready_sub = ctk.CTkLabel(
 			summary,
 			text='',
@@ -385,16 +372,7 @@ class DollarPriceView(BaseView):
 		)
 		self.lbl_ready_sub.pack(padx=14, pady=(0, 14))
 
-		# ── 6. Botón principal ───────────────────────────
-		ctk.CTkLabel(
-			scroll,
-			text='Verificá la proyección en la tabla a la derecha antes de guardar.',
-			font=FONT_SMALL,
-			text_color=ORANGE_TEXT,
-			wraplength=230,
-			justify='center',
-		).pack(padx=14, pady=(0, 8))
-
+		# ── 6. Botones inferiores
 		self.btn_update = ctk.CTkButton(
 			scroll,
 			text='✅ CONFIRMAR Y GUARDAR',
@@ -408,11 +386,13 @@ class DollarPriceView(BaseView):
 			corner_radius=10,
 			command=self._confirm_and_update,
 		)
-		self.btn_update.pack(fill='x', padx=16, pady=(0, 20))
+		self.btn_update.pack(fill='x', padx=16, pady=(0, 4))
 
-	# ───────────────────────────────────────────────────────
-	# PANEL DERECHO — tabla de productos
-	# ───────────────────────────────────────────────────────
+		self.lbl_last_update = ctk.CTkLabel(
+			scroll, text='', font=FONT_SMALL, text_color=TEXT_MUTED, justify='center'
+		)
+		self.lbl_last_update.pack(padx=14, pady=(0, 16))
+
 	def _build_right_panel(self, parent):
 		panel = ctk.CTkFrame(
 			parent,
@@ -425,7 +405,6 @@ class DollarPriceView(BaseView):
 		panel.grid_rowconfigure(2, weight=1)
 		panel.grid_columnconfigure(0, weight=1)
 
-		# ── Barra de búsqueda + filtro ───────────────────
 		toolbar = ctk.CTkFrame(panel, fg_color='transparent')
 		toolbar.grid(row=0, column=0, sticky='ew', padx=14, pady=(14, 0))
 		toolbar.grid_columnconfigure(0, weight=1)
@@ -459,7 +438,6 @@ class DollarPriceView(BaseView):
 			dropdown_text_color=TEXT_PRIMARY,
 		).grid(row=0, column=1)
 
-		# ── Leyenda de colores ───────────────────────────
 		legend = ctk.CTkFrame(panel, fg_color='transparent')
 		legend.grid(row=1, column=0, sticky='ew', padx=16, pady=(8, 4))
 
@@ -467,47 +445,52 @@ class DollarPriceView(BaseView):
 			(GREEN_TEXT, '● vinculado al dólar'),
 			(TEXT_MUTED, '● sin precio USD'),
 		]:
-			ctk.CTkLabel(
-				legend,
-				text=text,
-				font=FONT_LABEL,
-				text_color=dot_color,
-			).pack(side='left', padx=(0, 16))
+			ctk.CTkLabel(legend, text=text, font=FONT_LABEL, text_color=dot_color).pack(
+				side='left', padx=(0, 16)
+			)
 
 		self.lbl_count = ctk.CTkLabel(
-			legend,
-			text='',
-			font=FONT_LABEL,
-			text_color=TEXT_MUTED,
+			legend, text='', font=FONT_LABEL, text_color=TEXT_MUTED
 		)
 		self.lbl_count.pack(side='right')
 
-		# ── Treeview ─────────────────────────────────────
 		tree_wrap = ctk.CTkFrame(panel, fg_color='transparent')
 		tree_wrap.grid(row=2, column=0, sticky='nsew', padx=14, pady=(0, 8))
 		tree_wrap.grid_rowconfigure(0, weight=1)
 		tree_wrap.grid_columnconfigure(0, weight=1)
 
-		cols = ('Nombre', 'Código', 'Costo USD', 'ARS Actual', 'ARS Nuevo', 'Var %')
+		cols = (
+			'Nombre',
+			'Código',
+			'Margen %',
+			'Costo USD',
+			'ARS Actual',
+			'ARS Nuevo',
+			'Var %',
+		)
 		vsb = ttk.Scrollbar(tree_wrap, orient='vertical')
 		self.tree = ttk.Treeview(
 			tree_wrap,
 			columns=cols,
 			show='headings',
 			yscrollcommand=vsb.set,
+			selectmode='extended',
 		)
 		vsb.configure(command=self.tree.yview)
 
 		_widths = {
 			'Nombre': 200,
-			'Código': 100,
-			'Costo USD': 95,
-			'ARS Actual': 105,
-			'ARS Nuevo': 105,
+			'Código': 90,
+			'Margen %': 70,
+			'Costo USD': 85,
+			'ARS Actual': 95,
+			'ARS Nuevo': 95,
 			'Var %': 72,
 		}
 		for col in cols:
-			self.tree.heading(col, text=col)
+			self.tree.heading(
+				col, text=col, command=lambda c=col: self._sort_treeview(c, False)
+			)
 			self.tree.column(
 				col,
 				width=_widths[col],
@@ -524,13 +507,12 @@ class DollarPriceView(BaseView):
 		self.tree.grid(row=0, column=0, sticky='nsew')
 		self.tree.bind('<Double-1>', lambda e: self._assign_usd_dialog())
 
-		# ── Botones inferiores ───────────────────────────
 		btns = ctk.CTkFrame(panel, fg_color='transparent')
 		btns.grid(row=3, column=0, sticky='ew', padx=14, pady=(4, 14))
 
 		ctk.CTkButton(
 			btns,
-			text='💲  Asignar precio USD al seleccionado',
+			text='💲  Asignar precio USD/Margen',
 			fg_color=ACCENT_DIM,
 			hover_color=ACCENT,
 			text_color=ACCENT_TEXT,
@@ -556,9 +538,6 @@ class DollarPriceView(BaseView):
 			command=self._remove_usd_price,
 		).pack(side='left')
 
-	# ═══════════════════════════════════════════════════════
-	# HELPERS DE UI
-	# ═══════════════════════════════════════════════════════
 	def _section_label(self, parent, text: str):
 		ctk.CTkLabel(
 			parent,
@@ -568,24 +547,43 @@ class DollarPriceView(BaseView):
 			anchor='w',
 		).pack(padx=16, pady=(14, 0), anchor='w')
 
-	# ═══════════════════════════════════════════════════════
-	# TIPO DE DÓLAR
-	# ═══════════════════════════════════════════════════════
+	def _sort_treeview(self, col: str, reverse: bool):
+		l = [(self.tree.set(k, col), k) for k in self.tree.get_children('')]
+
+		def sort_key(tup):
+			val = tup[0]
+			if val in ('—', ''):
+				return -999999 if reverse else 999999
+			if val.startswith('$') or val.startswith('US$'):
+				try:
+					return float(
+						val.replace('US$', '').replace('$', '').replace(',', '')
+					)
+				except ValueError:
+					return 0.0
+			if val.endswith('%'):
+				try:
+					return float(val.replace('+', '').replace('%', ''))
+				except ValueError:
+					return 0.0
+			return val.lower()
+
+		l.sort(key=sort_key, reverse=reverse)
+		for index, (_, k) in enumerate(l):
+			self.tree.move(k, '', index)
+		self.tree.heading(col, command=lambda: self._sort_treeview(col, not reverse))
+
 	def _select_type(self, dtype: str, save: bool = True):
 		self._type_var.set(dtype)
 		for name, btn in self._type_btns.items():
 			s = _TYPE_STYLE[name]
 			if name == dtype:
 				btn.configure(
-					fg_color=s['dim'],
-					text_color=s['text'],
-					border_color=s['border'],
+					fg_color=s['dim'], text_color=s['text'], border_color=s['border']
 				)
 			else:
 				btn.configure(
-					fg_color=SURFACE3,
-					text_color=TEXT_MUTED,
-					border_color=BORDER,
+					fg_color=SURFACE3, text_color=TEXT_MUTED, border_color=BORDER
 				)
 		if save:
 			s = cfg.load()
@@ -593,11 +591,33 @@ class DollarPriceView(BaseView):
 			cfg.save(s)
 		self._refresh_preview()
 
-	# ═══════════════════════════════════════════════════════
-	# DATOS
-	# ═══════════════════════════════════════════════════════
+	def _fetch_api_rate(self):
+		self.btn_api.configure(state='disabled', text='⏳ Consultando...')
+
+		def worker():
+			rate = self.controller.fetch_current_dollar_rate()
+			self.after(0, lambda: self._on_api_rate_fetched(rate))
+
+		threading.Thread(target=worker, daemon=True).start()
+
+	def _on_api_rate_fetched(self, rate: float):
+		self.btn_api.configure(state='normal', text='⬇ Obtener API')
+		if rate > 0:
+			self.entry_rate.delete(0, 'end')
+			self.entry_rate.insert(0, f'{rate:.0f}')
+			self._on_value_change()
+			self.show_toast('Cotización actualizada desde API', 'success')
+		else:
+			self.show_toast('No se pudo obtener la cotización', 'error')
+
 	def _load_data(self):
 		self._all_variants = self.controller.get_variants(self.ctx.tenant_id)
+
+		info = self.controller.get_last_update_info(self.ctx.tenant_id)
+		if info:
+			d_str = info['date'].strftime('%d/%m/%Y %H:%M')
+			self.lbl_last_update.configure(text=f'Última actualización: {d_str}')
+
 		self._refresh_all()
 
 	def _refresh_all(self):
@@ -622,7 +642,6 @@ class DollarPriceView(BaseView):
 			):
 				continue
 			result.append(v)
-		# Ordenar: primero los que tienen USD
 		return sorted(
 			result,
 			key=lambda x: (
@@ -632,43 +651,40 @@ class DollarPriceView(BaseView):
 		)
 
 	def _refresh_tree(self):
-		# Puede llamarse antes de que el panel derecho esté construido
 		if not hasattr(self, 'tree') or not hasattr(self, 'lbl_count'):
 			return
 		for item in self.tree.get_children():
 			self.tree.delete(item)
 
 		rate = self._current_rate()
-		margin = self._current_margin()
-		factor = 1 + margin / 100
-
+		global_margin = self._current_margin()
 		visible = self._visible_variants()
+
 		for v in visible:
 			usd = v.get('cost_price_usd')
 			current_sell = v.get('selling_price', 0.0)
 			has_usd = usd is not None and usd > 0
 
+			v_margin = v.get('margin_pct')
+			effective_margin = v_margin if v_margin is not None else global_margin
+			margin_str = f'{effective_margin:.1f}%' if has_usd else '—'
+
 			if has_usd:
 				usd_str = f'US${usd:.2f}'
 				if rate > 0:
+					factor = 1 + effective_margin / 100
 					new_price = usd * rate * factor
 					diff_pct = (
-						(new_price - current_sell) / current_sell * 100
+						((new_price - current_sell) / current_sell * 100)
 						if current_sell
 						else 0
 					)
-					new_str = f'${new_price:,.0f}'
-					diff_str = f'{diff_pct:+.1f}%'
+					new_str, diff_str = f'${new_price:,.0f}', f'{diff_pct:+.1f}%'
 					tag = 'up' if diff_pct >= 0 else 'down'
 				else:
-					new_str = '—'
-					diff_str = '—'
-					tag = 'linked'
+					new_str, diff_str, tag = '—', '—', 'linked'
 			else:
-				usd_str = '—'
-				new_str = '—'
-				diff_str = '—'
-				tag = 'unlinked'
+				usd_str, new_str, diff_str, tag = '—', '—', '—', 'unlinked'
 
 			self.tree.insert(
 				'',
@@ -677,6 +693,7 @@ class DollarPriceView(BaseView):
 				values=(
 					v.get('name', ''),
 					v.get('barcode', '') or '—',
+					margin_str,
 					usd_str,
 					f'${current_sell:,.0f}',
 					new_str,
@@ -685,15 +702,14 @@ class DollarPriceView(BaseView):
 				tags=(tag,),
 			)
 
-		total = len(self._all_variants)
-		shown = len(visible)
-		q_info = (
-			f'  ·  {shown} de {total}' if shown != total else f'  ·  {total} productos'
+		total, shown = len(self._all_variants), len(visible)
+		self.lbl_count.configure(
+			text=f'  ·  {shown} de {total}'
+			if shown != total
+			else f'  ·  {total} productos'
 		)
-		self.lbl_count.configure(text=q_info)
 
 	def _refresh_preview(self):
-		# entry_rate / lbl_formula se crean DESPUÉS de que _select_type los necesita
 		if not hasattr(self, 'entry_rate') or not hasattr(self, 'lbl_formula'):
 			return
 		rate = self._current_rate()
@@ -711,8 +727,7 @@ class DollarPriceView(BaseView):
 			)
 		else:
 			self.lbl_formula.configure(
-				text='Ingresá la cotización del dólar',
-				text_color=TEXT_MUTED,
+				text='Ingresá la cotización del dólar', text_color=TEXT_MUTED
 			)
 			self.lbl_example.configure(text='')
 
@@ -722,11 +737,9 @@ class DollarPriceView(BaseView):
 	def _refresh_counter(self):
 		if not hasattr(self, 'chip_linked') or not hasattr(self, 'lbl_ready_main'):
 			return
-		with_usd = self._with_usd_count()
-		total = len(self._all_variants)
+		with_usd, total = self._with_usd_count(), len(self._all_variants)
 		without = total - with_usd
 
-		# Chips del header
 		self.chip_linked.configure(
 			text=f'✓  {with_usd} vinculados',
 			fg_color=GREEN_DIM if with_usd > 0 else SURFACE3,
@@ -738,20 +751,17 @@ class DollarPriceView(BaseView):
 			text_color=ORANGE_TEXT if without > 0 else TEXT_SECONDARY,
 		)
 
-		# Card resumen en panel izq.
 		if with_usd == 0:
 			self.lbl_ready_main.configure(
-				text='Ningún producto vinculado',
-				text_color=ORANGE_TEXT,
+				text='Ningún producto vinculado', text_color=ORANGE_TEXT
 			)
 			self.lbl_ready_sub.configure(
-				text='Doble clic sobre un producto\npara asignarle su precio en USD.',
+				text='Seleccioná productos en la tabla\npara asignarles precio USD.',
 				text_color=TEXT_MUTED,
 			)
 		else:
 			self.lbl_ready_main.configure(
-				text=f'{with_usd} producto{"s" if with_usd != 1 else ""} listo{"s" if with_usd != 1 else ""}',
-				text_color=GREEN_TEXT,
+				text=f'{with_usd} producto(s) listo(s)', text_color=GREEN_TEXT
 			)
 			extra = f'  +  {without} sin USD' if without else ''
 			self.lbl_ready_sub.configure(
@@ -759,10 +769,19 @@ class DollarPriceView(BaseView):
 				text_color=TEXT_MUTED,
 			)
 
-	# ═══════════════════════════════════════════════════════
-	# EVENTOS
-	# ═══════════════════════════════════════════════════════
 	def _on_value_change(self, *_):
+		current_rate = self._current_rate()
+		if self._initial_rate > 0 and current_rate > 0:
+			diff = abs(current_rate - self._initial_rate) / self._initial_rate
+			if diff > 0.30:
+				self.rate_frame.configure(border_color=RED_DIM)
+				self.lbl_rate_warning.configure(
+					text='⚠️ Difiere mucho del último valor guardado.'
+				)
+			else:
+				self.rate_frame.configure(border_color=BORDER_ACTIVE)
+				self.lbl_rate_warning.configure(text='')
+
 		self._refresh_preview()
 		self._save_settings()
 
@@ -776,73 +795,74 @@ class DollarPriceView(BaseView):
 		s['dollar_type'] = self._current_type().lower()
 		cfg.save(s)
 
-	# ═══════════════════════════════════════════════════════
-	# DIÁLOGO — ASIGNAR PRECIO USD
-	# ═══════════════════════════════════════════════════════
 	def _assign_usd_dialog(self):
 		selected = self.tree.selection()
 		if not selected:
 			CTkMessagebox(
-				title='Seleccioná un producto',
-				message='Hacé clic sobre un producto de la lista\ny luego presioná "Asignar precio USD".',
+				title='Selección vacía',
+				message='Seleccioná uno o más productos.',
 				icon='info',
 			)
 			return
 
-		variant_id = str(selected[0])
-		variant = next(
-			(v for v in self._all_variants if str(v['variant_id']) == variant_id), None
-		)
-		if not variant:
-			return
+		variant_ids = [int(x) for x in selected]
 
-		existing_usd = variant.get('cost_price_usd')
-		existing_str = f'{float(existing_usd):.2f}' if existing_usd else ''
+		existing_usd, existing_margin = '', ''
+		title_text = 'Asignar precio masivo'
+		if len(selected) == 1:
+			variant = next(
+				(v for v in self._all_variants if v['variant_id'] == variant_ids[0]),
+				None,
+			)
+			if variant:
+				title_text = variant.get('name', '')
+				existing_usd = (
+					f'{float(variant.get("cost_price_usd")):.2f}'
+					if variant.get('cost_price_usd')
+					else ''
+				)
+				existing_margin = (
+					f'{float(variant.get("margin_pct")):.1f}'
+					if variant.get('margin_pct') is not None
+					else ''
+				)
+		else:
+			title_text = f'{len(selected)} productos seleccionados'
 
 		dialog = ctk.CTkToplevel(self)
 		dialog.title('Asignar precio en dólares')
-		dialog.geometry('400x280')
+		dialog.geometry('420x420')
 		dialog.configure(fg_color=SURFACE1)
 		dialog.attributes('-topmost', True)
 		dialog.resizable(False, False)
 		dialog.grab_set()
 
-		# Header del diálogo
 		hdr = ctk.CTkFrame(dialog, fg_color=SURFACE2, corner_radius=0)
 		hdr.pack(fill='x')
 		ctk.CTkLabel(
 			hdr,
-			text='💲  Asignar precio en dólares',
+			text='💲  Asignar Valores USD',
 			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
 		).pack(padx=20, pady=14, anchor='w')
 
 		body = ctk.CTkFrame(dialog, fg_color='transparent')
-		body.pack(fill='both', expand=True, padx=24, pady=16)
+		body.pack(fill='both', expand=True, padx=24, pady=12)
 
 		ctk.CTkLabel(
 			body,
-			text='Producto:',
-			font=FONT_LABEL_BOLD,
-			text_color=TEXT_MUTED,
-			anchor='w',
-		).pack(anchor='w')
-		ctk.CTkLabel(
-			body,
-			text=variant.get('name', ''),
+			text=title_text,
 			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
-			anchor='w',
-		).pack(anchor='w', pady=(2, 16))
+			wraplength=350,
+		).pack(anchor='w', pady=(0, 16))
 
 		ctk.CTkLabel(
 			body,
-			text='PRECIO DE COSTO EN DÓLARES (US$)',
+			text='COSTO EN DÓLARES (US$)',
 			font=('Arial', 9, 'bold'),
 			text_color=TEXT_MUTED,
-			anchor='w',
 		).pack(anchor='w')
-
 		usd_row = ctk.CTkFrame(
 			body,
 			fg_color=SURFACE3,
@@ -850,8 +870,7 @@ class DollarPriceView(BaseView):
 			border_width=1,
 			border_color=BORDER_ACTIVE,
 		)
-		usd_row.pack(fill='x', pady=(4, 20))
-
+		usd_row.pack(fill='x', pady=(4, 12))
 		ctk.CTkLabel(
 			usd_row,
 			text='US$',
@@ -859,8 +878,7 @@ class DollarPriceView(BaseView):
 			text_color=TEXT_MUTED,
 			width=44,
 		).pack(side='left', padx=(8, 0))
-
-		entry = ctk.CTkEntry(
+		entry_usd = ctk.CTkEntry(
 			usd_row,
 			placeholder_text='0.00',
 			fg_color='transparent',
@@ -868,18 +886,75 @@ class DollarPriceView(BaseView):
 			text_color=TEXT_PRIMARY,
 			font=FONT_TITLE,
 		)
-		if existing_str:
-			entry.insert(0, existing_str)
-		entry.pack(side='left', fill='x', expand=True, padx=(4, 12), pady=8)
-		entry.focus()
+		if existing_usd:
+			entry_usd.insert(0, existing_usd)
+		entry_usd.pack(side='left', fill='x', expand=True, padx=(4, 12), pady=8)
 
-		btn_row = ctk.CTkFrame(body, fg_color='transparent')
-		btn_row.pack(fill='x')
+		ctk.CTkLabel(
+			body,
+			text='MARGEN INDIVIDUAL (%) [Opcional]',
+			font=('Arial', 9, 'bold'),
+			text_color=TEXT_MUTED,
+		).pack(anchor='w')
+		margin_row = ctk.CTkFrame(
+			body,
+			fg_color=SURFACE3,
+			corner_radius=8,
+			border_width=1,
+			border_color=BORDER_ACTIVE,
+		)
+		margin_row.pack(fill='x', pady=(4, 16))
+		ctk.CTkLabel(
+			margin_row,
+			text='%',
+			font=('Arial', 16, 'bold'),
+			text_color=TEXT_MUTED,
+			width=44,
+		).pack(side='left', padx=(8, 0))
+		entry_margin = ctk.CTkEntry(
+			margin_row,
+			placeholder_text=str(self._current_margin()),
+			fg_color='transparent',
+			border_width=0,
+			text_color=TEXT_PRIMARY,
+			font=FONT_TITLE,
+		)
+		if existing_margin:
+			entry_margin.insert(0, existing_margin)
+		entry_margin.pack(side='left', fill='x', expand=True, padx=(4, 12), pady=8)
+
+		lbl_live_preview = ctk.CTkLabel(
+			body, text='', font=FONT_BODY_BOLD, text_color=ACCENT_TEXT
+		)
+		lbl_live_preview.pack(pady=(0, 16))
+
+		def update_live_preview(*_):
+			try:
+				u_val = float(entry_usd.get().replace(',', '.') or 0)
+				m_str = entry_margin.get().replace(',', '.')
+				m_val = float(m_str) if m_str else self._current_margin()
+				rate = self._current_rate()
+
+				if u_val > 0 and rate > 0:
+					ars_res = u_val * rate * (1 + m_val / 100)
+					lbl_live_preview.configure(
+						text=f'Precio ARS proyectado: ${ars_res:,.2f}'
+					)
+				else:
+					lbl_live_preview.configure(text='')
+			except ValueError:
+				lbl_live_preview.configure(text='')
+
+		entry_usd.bind('<KeyRelease>', update_live_preview)
+		entry_margin.bind('<KeyRelease>', update_live_preview)
+		update_live_preview()
+		entry_usd.focus()
 
 		def _save():
-			val = entry.get().strip()
-			success, msg = self.controller.save_usd_price(
-				self.ctx.tenant_id, variant_id, val
+			val_usd = entry_usd.get().strip()
+			val_margin = entry_margin.get().strip()
+			success, msg = self.controller.save_usd_prices_bulk(
+				self.ctx.tenant_id, variant_ids, val_usd, val_margin
 			)
 			dialog.destroy()
 			if success:
@@ -887,82 +962,59 @@ class DollarPriceView(BaseView):
 			else:
 				self.show_toast(msg, 'error')
 
+		btn_row = ctk.CTkFrame(body, fg_color='transparent')
+		btn_row.pack(fill='x')
 		ctk.CTkButton(
 			btn_row,
 			text='Guardar',
 			fg_color=ACCENT_DIM,
 			hover_color=ACCENT,
 			text_color=ACCENT_TEXT,
-			border_width=1,
 			border_color=ACCENT,
+			border_width=1,
 			height=40,
-			corner_radius=8,
 			font=FONT_NAV_BOLD,
 			command=_save,
 		).pack(side='left', expand=True, fill='x', padx=(0, 8))
-
 		ctk.CTkButton(
 			btn_row,
 			text='Cancelar',
 			fg_color=SURFACE3,
 			hover_color=SURFACE4,
 			text_color=TEXT_SECONDARY,
-			border_width=1,
 			border_color=BORDER,
+			border_width=1,
 			height=40,
-			corner_radius=8,
 			command=dialog.destroy,
 		).pack(side='left', expand=True, fill='x')
 
-		entry.bind('<Return>', lambda e: _save())
-
-	# ═══════════════════════════════════════════════════════
-	# QUITAR PRECIO USD
-	# ═══════════════════════════════════════════════════════
 	def _remove_usd_price(self):
 		selected = self.tree.selection()
 		if not selected:
 			CTkMessagebox(
-				title='Seleccioná un producto',
-				message='Seleccioná un producto de la lista para quitarle el precio USD.',
+				title='Selección vacía',
+				message='Seleccioná productos de la lista.',
 				icon='info',
 			)
 			return
 
-		variant_id = str(selected[0])
-		variant = next(
-			(v for v in self._all_variants if str(v['variant_id']) == variant_id), None
-		)
-		if not variant or not (variant.get('cost_price_usd') or 0) > 0:
-			CTkMessagebox(
-				title='Sin precio USD',
-				message='Este producto no tiene precio en dólares asignado.',
-				icon='info',
-			)
-			return
-
+		variant_ids = [int(x) for x in selected]
 		confirm = CTkMessagebox(
 			title='Quitar precio USD',
-			message=(
-				f'"{variant["name"]}" ya no se actualizará\n'
-				'automáticamente cuando cambie el dólar.\n\n¿Confirmás?'
-			),
+			message=f'Se quitará el precio en dólares a {len(variant_ids)} producto(s).\n\n¿Confirmás?',
 			icon='warning',
 			option_1='Cancelar',
 			option_2='Sí, quitar',
 		)
 		if confirm.get() == 'Sí, quitar':
-			success, msg = self.controller.save_usd_price(
-				self.ctx.tenant_id, variant_id, ''
+			success, msg = self.controller.save_usd_prices_bulk(
+				self.ctx.tenant_id, variant_ids, ''
 			)
 			if success:
 				self._load_data()
 			else:
 				self.show_toast(msg, 'error')
 
-	# ═══════════════════════════════════════════════════════
-	# ACTUALIZACIÓN MASIVA ASÍNCRONA
-	# ═══════════════════════════════════════════════════════
 	def _confirm_and_update(self):
 		rate = self._current_rate()
 		margin = self._current_margin()
@@ -972,33 +1024,35 @@ class DollarPriceView(BaseView):
 		if rate <= 0:
 			CTkMessagebox(
 				title='Falta la cotización',
-				message='Ingresá el valor del dólar hoy\nantes de actualizar los precios.',
+				message='Ingresá el valor del dólar hoy.',
 				icon='warning',
 			)
 			return
-
 		if with_usd == 0:
 			CTkMessagebox(
-				title='Sin productos vinculados',
-				message=(
-					'Ningún producto tiene precio en dólares asignado.\n\n'
-					'Seleccioná un producto en la tabla y presioná\n'
-					'"Asignar precio USD" para vincularlo.'
-				),
+				title='Sin productos',
+				message='Ningún producto tiene precio en dólares asignado.',
 				icon='info',
 			)
 			return
 
-		factor = 1 + margin / 100
+		preview_stats = self.controller.preview_recalculate_prices(
+			self.ctx.tenant_id, rate, margin
+		)
+		stats_text = ''
+		if 'error' not in preview_stats:
+			stats_text = (
+				f'Suba promedio: {"+" if preview_stats["avg_increase_pct"] > 0 else ""}{preview_stats["avg_increase_pct"]}%\n'
+				f'Rango resultante: de ${preview_stats["min_ars"]:,.0f} a ${preview_stats["max_ars"]:,.0f} ARS\n\n'
+			)
+
 		confirm = CTkMessagebox(
 			title='Confirmar actualización de precios',
 			message=(
-				f'Tipo de cambio usado:   Dólar {dtype}\n'
-				f'Cotización:                  ${rate:,.0f} ARS\n'
-				f'Margen de ganancia:     {margin:.0f}%\n'
-				f'Fórmula:                       US$ × ${rate:,.0f} × {factor:.2f}\n\n'
-				f'Productos a actualizar:   {with_usd}\n\n'
-				'¿Confirmás guardar los precios mostrados en la tabla?'
+				f'Tipo de cambio:   Dólar {dtype} a ${rate:,.0f}\n'
+				f'Productos:        {with_usd}\n\n'
+				f'{stats_text}'
+				'¿Confirmás guardar los precios mostrados?'
 			),
 			icon='warning',
 			option_1='Cancelar',
@@ -1015,15 +1069,10 @@ class DollarPriceView(BaseView):
 		def worker():
 			try:
 				success, msg = self.controller.recalculate_prices(
-					tenant_id=self.ctx.tenant_id,
-					user_id=self.ctx.user_id,
-					rate=rate,
-					margin_pct=margin,
+					self.ctx.tenant_id, self.ctx.user_id, rate, margin
 				)
 			except Exception as e:
 				success, msg = False, f'Error del sistema: {str(e)}'
-
-			# Devolver a la UI en el main thread
 			self.after(0, lambda: self._on_update_done(success, msg))
 
 		threading.Thread(target=worker, daemon=True).start()
@@ -1031,11 +1080,12 @@ class DollarPriceView(BaseView):
 	def _on_update_done(self, success: bool, msg: str):
 		if not self.winfo_exists():
 			return
-
 		self.btn_update.configure(state='normal', text='✅ CONFIRMAR Y GUARDAR')
 
 		if success:
 			self.show_toast(msg, 'success')
+			self._initial_rate = self._current_rate()
+			self._on_value_change()
 			self._load_data()
 		else:
 			self.show_toast(msg, 'error')

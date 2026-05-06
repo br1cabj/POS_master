@@ -77,7 +77,7 @@ class Warehouse(Base):
 	is_active = Column(Boolean, default=True)
 
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
-	tenant = relationship('Tenant')
+	tenant = relationship('Tenant', foreign_keys=[tenant_id])
 
 	branch_id = Column(
 		String(36), ForeignKey('branches.id'), nullable=False, index=True
@@ -118,7 +118,6 @@ class Article(Base):
 	)
 	supplier = relationship('Supplier')
 
-	# El borrado en cascada aquí está bien porque borrar un artículo padre lógicamente
 	variants = relationship(
 		'ArticleVariant', back_populates='article', cascade='all, delete-orphan'
 	)
@@ -155,6 +154,8 @@ class ArticleVariant(Base):
 	base_variant_id = Column(
 		String(36), ForeignKey('article_variants.id'), nullable=True, index=True
 	)
+
+	margin_pct = Column(Numeric(5, 2), nullable=True)
 
 	# Descuento por producto
 	discount_pct = Column(Numeric(5, 2), nullable=True)
@@ -275,12 +276,14 @@ class Sale(Base):
 	discount_amount = Column(
 		Numeric(10, 2), default=0.0
 	)  # descuento aplicado en la venta
-	payment_method_2 = Column(String, nullable=True)  # segundo método en pago mixto
-	amount_method_2 = Column(Numeric(10, 2), nullable=True)  # monto del segundo método
+	payment_method_2 = Column(String, nullable=True)
+	amount_method_2 = Column(Numeric(10, 2), nullable=True)
 	profit = Column(Numeric(10, 2), nullable=False)
 	payment_method = Column(String, default='efectivo')
 	status = Column(String, default='completada')
-	quotation_number = Column(String, nullable=True)  # Ej: "COT-2024-001" si viene de cotización
+	quotation_number = Column(
+		String, nullable=True
+	)  # Ej: "COT-2024-001" si viene de cotización
 
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 
@@ -396,7 +399,7 @@ class ComboItem(Base):
 	)
 
 	ingredient_id = Column(
-		String(36), ForeignKey('article_variants.id'), nullable=False
+		String(36), ForeignKey('article_variants.id'), nullable=False, index=True
 	)
 
 	quantity_required = Column(Numeric(12, 4), nullable=False)

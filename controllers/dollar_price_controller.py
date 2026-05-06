@@ -1,19 +1,14 @@
 """
 controllers/dollar_price_controller.py
 =======================================
-Manejo de precios atados al dólar.
-
-Flujo de uso:
-  1. El usuario asigna un precio en USD (cost_price_usd) a cada producto.
-  2. Cuando la cotización cambia, llama a recalculate_prices(rate, margin_pct).
-  3. El sistema actualiza cost_price  = usd * rate
-                          selling_price = usd * rate * (1 + margin_pct/100)
-     y registra el cambio en ArticleHistory con action_type = 'ACTUALIZACIÓN DÓLAR'.
+Manejo de precios atados al dólar y actualización masiva.
 """
 
 import logging
+from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
+import requests
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
@@ -37,14 +32,38 @@ class DollarPriceController(BaseController):
 		engine = db_engine if db_engine is not None else _get_default_engine()
 		super().__init__(engine)
 
-	# ──────────────────────────────────────────────
-	# LECTURA
-	# ──────────────────────────────────────────────
+	def fetch_current_dollar_rate(self) -> float:
+		"""Obtiene la cotización actual del Dólar Blue (venta) mediante API externa."""
+		try:
+			response = requests.get('https://dolarapi.com/v1/dolares/blue', timeout=5)
+			response.raise_for_status()
+			return float(response.json().get('venta', 0))
+		except requests.RequestException as e:
+			logger.error(f'Error de red al consultar API de dólar: {e}')
+			return 0.0
+
+	def get_last_update_info(self, tenant_id: int) -> dict | None:
+		"""Recupera la fecha y detalles de la última actualización de precios en dólares."""
+		with self._Session() as session:
+			last_record = (
+				session.query(ArticleHistory)
+				.filter(
+					ArticleHistory.tenant_id == tenant_id,
+					ArticleHistory.action_type == 'ACTUALIZACIÓN DÓLAR',
+				)
+				.order_by(ArticleHistory.id.desc())
+				.first()
+			)
+			if not last_record:
+				return None
+
+			return {
+				'date': getattr(last_record, 'date', datetime.now()),
+				'details': 'Cotización y márgenes aplicados previamente',
+			}
+
 	def get_variants(self, tenant_id: int) -> list[dict]:
-		"""
-		Retorna todas las variantes activas con su precio en USD (puede ser None).
-		Ordena: primero las que tienen USD asignado, luego el resto.
-		"""
+		"""Obtiene las variantes activas con sus respectivos precios en USD y márgenes."""
 		with self._Session() as session:
 			try:
 				variants = (
@@ -53,8 +72,8 @@ class DollarPriceController(BaseController):
 					.join(Article)
 					.filter(
 						Article.tenant_id == tenant_id,
-						ArticleVariant.is_active == True,  # noqa: E712
-						ArticleVariant.is_combo == False,  # noqa: E712
+						ArticleVariant.is_active == True,
+						ArticleVariant.is_combo == False,
 					)
 					.order_by(Article.name)
 					.all()
@@ -66,11 +85,12 @@ class DollarPriceController(BaseController):
 						'barcode': v.barcode or '',
 						'cost_price': float(v.cost_price),
 						'selling_price': float(v.selling_price),
-						'cost_price_usd': (
-							float(v.cost_price_usd)
-							if v.cost_price_usd is not None
-							else None
-						),
+						'cost_price_usd': float(v.cost_price_usd)
+						if v.cost_price_usd is not None
+						else None,
+						'margin_pct': float(v.margin_pct)
+						if getattr(v, 'margin_pct', None) is not None
+						else None,
 					}
 					for v in variants
 				]
@@ -80,84 +100,142 @@ class DollarPriceController(BaseController):
 				)
 				return []
 
-	# ──────────────────────────────────────────────
-	# ASIGNAR PRECIO USD A UN PRODUCTO
-	# ──────────────────────────────────────────────
-	def save_usd_price(
-		self, tenant_id: int, variant_id: int, usd_price_str: str
+	def save_usd_prices_bulk(
+		self,
+		tenant_id: int,
+		variant_ids: list[int],
+		usd_price_str: str,
+		margin_str: str = '',
 	) -> tuple[bool, str]:
-		"""
-		Guarda el precio en dólares de una variante.
-		Pasar usd_price_str = '' o '0' para quitar el precio USD.
-		"""
+		"""Asigna masivamente el precio en dólares y margen individual a una lista de variantes."""
+		if not variant_ids:
+			return False, 'No hay productos seleccionados.'
+
 		usd_str = str(usd_price_str).strip().replace(',', '.')
-		if not usd_str:
-			usd_val = None
-		else:
+		margin_str = str(margin_str).strip().replace(',', '.')
+
+		try:
+			usd_val = (
+				None
+				if not usd_str or Decimal(usd_str) == Decimal('0')
+				else Decimal(usd_str)
+			)
+			if usd_val is not None and usd_val < 0:
+				return False, 'El precio USD no puede ser negativo.'
+		except InvalidOperation:
+			return False, 'Precio USD inválido.'
+
+		margin_val = None
+		if margin_str:
 			try:
-				usd_val = Decimal(usd_str)
+				margin_val = Decimal(margin_str)
+				if margin_val < 0:
+					return False, 'El margen no puede ser negativo.'
 			except InvalidOperation:
-				return False, 'Ingresá un número válido (ej: 2.50).'
-			if usd_val < 0:
-				return False, 'El precio en USD no puede ser negativo.'
-			if usd_val == Decimal('0'):
-				usd_val = None
+				return False, 'Margen individual inválido.'
 
 		with self._Session() as session:
 			try:
-				variant = (
+				variants = (
 					session.query(ArticleVariant)
 					.join(Article)
 					.filter(
-						ArticleVariant.id == variant_id,
+						ArticleVariant.id.in_(variant_ids),
 						Article.tenant_id == tenant_id,
 					)
-					.first()
+					.all()
 				)
-				if not variant:
-					return False, 'Producto no encontrado.'
 
-				variant.cost_price_usd = usd_val
+				if not variants:
+					return False, 'Productos no encontrados.'
+
+				for variant in variants:
+					variant.cost_price_usd = usd_val
+					if hasattr(variant, 'margin_pct'):
+						variant.margin_pct = margin_val
+
 				session.commit()
-
-				name = variant.article.name
-				if usd_val is None:
-					return True, f'Precio USD quitado de "{name}".'
-				return True, f'Precio USD de "{name}" guardado: US${float(usd_val):.2f}'
+				action = (
+					'quitado'
+					if usd_val is None
+					else f'asignado (US${float(usd_val):.2f})'
+				)
+				return True, f'Precio USD {action} a {len(variants)} producto(s).'
 			except Exception as e:
 				session.rollback()
-				logger.error(f'Error al guardar precio USD: {e}', exc_info=True)
-				return False, 'Error al guardar el precio.'
+				logger.error(
+					f'Error al guardar precios USD masivos: {e}', exc_info=True
+				)
+				return False, 'Error al procesar la solicitud.'
 
-	# ──────────────────────────────────────────────
-	# RECALCULAR TODOS LOS PRECIOS — EL UN CLICK
-	# ──────────────────────────────────────────────
+	def preview_recalculate_prices(
+		self, tenant_id: int, rate: float, global_margin_pct: float
+	) -> dict:
+		"""Genera un reporte de impacto (preview) de la actualización de precios sin persistir en BD."""
+		if rate <= 0:
+			return {'error': 'Cotización inválida.'}
+
+		rate_d = Decimal(str(rate))
+
+		with self._Session() as session:
+			variants = (
+				session.query(ArticleVariant)
+				.join(Article)
+				.filter(
+					Article.tenant_id == tenant_id,
+					ArticleVariant.is_active == True,
+					ArticleVariant.cost_price_usd.isnot(None),
+					ArticleVariant.cost_price_usd > 0,
+				)
+				.all()
+			)
+
+			if not variants:
+				return {'error': 'No hay productos con precio USD.'}
+
+			old_prices, new_prices = [], []
+
+			for v in variants:
+				v_margin = (
+					float(v.margin_pct)
+					if getattr(v, 'margin_pct', None) is not None
+					else global_margin_pct
+				)
+				factor_d = Decimal('1') + Decimal(str(v_margin)) / Decimal('100')
+				new_price = (v.cost_price_usd * rate_d * factor_d).quantize(
+					Decimal('0.01'), rounding=ROUND_HALF_UP
+				)
+
+				old_prices.append(float(v.selling_price))
+				new_prices.append(float(new_price))
+
+			total_old, total_new = sum(old_prices), sum(new_prices)
+			avg_increase_pct = (
+				((total_new - total_old) / total_old * 100) if total_old > 0 else 0
+			)
+
+			return {
+				'affected_count': len(variants),
+				'avg_increase_pct': round(avg_increase_pct, 2),
+				'min_ars': round(min(new_prices), 2),
+				'max_ars': round(max(new_prices), 2),
+			}
+
 	def recalculate_prices(
 		self,
 		tenant_id: int,
 		user_id: int,
 		rate: float,
-		margin_pct: float,
+		global_margin_pct: float,
 	) -> tuple[bool, str]:
-		"""
-		Actualiza cost_price y selling_price de todas las variantes que
-		tienen cost_price_usd asignado.
-
-		Fórmula:
-		    cost_price    = cost_price_usd × rate
-		    selling_price = cost_price_usd × rate × (1 + margin_pct / 100)
-
-		Registra cada cambio en ArticleHistory con action_type = 'ACTUALIZACIÓN DÓLAR'.
-		"""
+		"""Ejecuta la actualización de precios en ARS basándose en la cotización USD y márgenes."""
 		if rate <= 0:
 			return False, 'La cotización debe ser mayor a cero.'
-		if margin_pct < 0:
+		if global_margin_pct < 0:
 			return False, 'El margen no puede ser negativo.'
 
 		try:
 			rate_d = Decimal(str(rate))
-			# Evitar división float antes de Decimal: mantiene precisión total
-			factor_d = Decimal('1') + Decimal(str(margin_pct)) / Decimal('100')
 		except InvalidOperation:
 			return False, 'Valores inválidos.'
 
@@ -169,8 +247,8 @@ class DollarPriceController(BaseController):
 					.join(Article)
 					.filter(
 						Article.tenant_id == tenant_id,
-						ArticleVariant.is_active == True,  # noqa: E712
-						ArticleVariant.is_combo == False,  # noqa: E712
+						ArticleVariant.is_active == True,
+						ArticleVariant.is_combo == False,
 						ArticleVariant.cost_price_usd.isnot(None),
 						ArticleVariant.cost_price_usd > 0,
 					)
@@ -178,15 +256,17 @@ class DollarPriceController(BaseController):
 				)
 
 				if not variants:
-					return (
-						False,
-						'Ningún producto tiene precio en USD asignado.\nAsigná precios USD primero.',
-					)
+					return False, 'Ningún producto tiene precio en USD asignado.'
 
 				updated = 0
 				for v in variants:
-					old_cost = v.cost_price
-					old_price = v.selling_price
+					old_cost, old_price = v.cost_price, v.selling_price
+					v_margin = (
+						float(v.margin_pct)
+						if getattr(v, 'margin_pct', None) is not None
+						else global_margin_pct
+					)
+					factor_d = Decimal('1') + Decimal(str(v_margin)) / Decimal('100')
 
 					new_cost = (v.cost_price_usd * rate_d).quantize(
 						Decimal('0.01'), rounding=ROUND_HALF_UP
@@ -195,18 +275,17 @@ class DollarPriceController(BaseController):
 						Decimal('0.01'), rounding=ROUND_HALF_UP
 					)
 
-					v.cost_price = new_cost
-					v.selling_price = new_price
+					v.cost_price, v.selling_price = new_cost, new_price
 
-					# Cascade cost to packaging child variants
 					child_packs = (
 						session.query(ArticleVariant)
 						.filter(
 							ArticleVariant.base_variant_id == v.id,
-							ArticleVariant.is_active == True,  # noqa: E712
+							ArticleVariant.is_active == True,
 						)
 						.all()
 					)
+
 					for child in child_packs:
 						child.cost_price = new_cost * (child.units_per_pack or 1)
 
@@ -226,9 +305,9 @@ class DollarPriceController(BaseController):
 					updated += 1
 
 				session.commit()
-				return True, (
-					f'✅ {updated} producto{"s" if updated != 1 else ""} actualizado{"s" if updated != 1 else ""}.\n'
-					f'Cotización: ${rate:,.2f}  ·  Margen: {margin_pct:.1f}%'
+				return (
+					True,
+					f'✅ {updated} producto(s) actualizado(s).\nCotización: ${rate:,.2f}',
 				)
 			except Exception as e:
 				session.rollback()
