@@ -11,6 +11,7 @@ import unicodedata
 from decimal import Decimal, InvalidOperation
 
 import pandas as pd
+from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
 from database.models import (
@@ -23,18 +24,8 @@ from database.models import (
 	StockMovement,
 	Warehouse,
 )
-from utils.config import make_engine
 
 logger = logging.getLogger(__name__)
-
-_default_engine = None
-
-
-def _get_default_engine():
-	global _default_engine
-	if _default_engine is None:
-		_default_engine = make_engine()
-	return _default_engine
 
 # ---------------------------------------------------------------------------
 # Mapa de alias de columnas: acepta variantes comunes de nombres de columna.
@@ -95,6 +86,15 @@ _COLUMN_ALIASES = {
 		'cant',
 		'qty',
 	],
+	'Precio_Lista_B': [
+		'precio_lista_b',
+		'precio_mayorista',
+		'precio_b',
+		'lista_b',
+		'selling_price_b',
+		'precio b',
+		'p_lista_b',
+	],
 	'Proveedor': [
 		'proveedor',
 		'supplier',
@@ -133,6 +133,13 @@ COLUMN_SPEC = [
 		'type': 'Numero',
 		'example': '650.00',
 		'description': 'Precio de venta al publico',
+	},
+	{
+		'canonical': 'Precio_Lista_B',
+		'required': False,
+		'type': 'Numero',
+		'example': '550.00',
+		'description': 'Precio de venta Lista B (mayorista). Dejar vacío si no aplica.',
 	},
 	{
 		'canonical': 'Stock',
@@ -201,8 +208,7 @@ class DataSyncController(BaseController):
 	"""
 
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _get_default_engine()
-		super().__init__(engine)
+		super().__init__(db_engine)
 
 	def _get_default_warehouse(self, session, tenant_id):
 		"""Resuelve el deposito predeterminado para asignar stock inicial."""
@@ -276,6 +282,10 @@ class DataSyncController(BaseController):
 				if entity_type == 'Articulos':
 					variants = (
 						session.query(ArticleVariant)
+						.options(
+							joinedload(ArticleVariant.stocks),
+							joinedload(ArticleVariant.article).joinedload(Article.supplier),
+						)
 						.join(Article)
 						.filter(
 							Article.tenant_id == tenant_id,
@@ -290,6 +300,7 @@ class DataSyncController(BaseController):
 							'Codigo_Barras': v.barcode or '',
 							'Costo': float(v.cost_price),
 							'Precio_Venta': float(v.selling_price),
+							'Precio_Lista_B': float(v.selling_price_b) if v.selling_price_b else '',
 							'Stock': float(
 								sum(s.quantity for s in v.stocks) if v.stocks else 0
 							),
@@ -304,6 +315,7 @@ class DataSyncController(BaseController):
 							'Codigo_Barras': '7790895000084',
 							'Costo': 420.0,
 							'Precio_Venta': 650.0,
+							'Precio_Lista_B': '',
 							'Stock': 48,
 							'Proveedor': 'Quilmes S.A.',
 						}
@@ -379,11 +391,40 @@ class DataSyncController(BaseController):
 			with self._Session() as session:
 				warehouse_id = self._get_default_warehouse(session, tenant_id)
 
-				for idx, row in df.iterrows():
-					row_num = idx + 2  # +2 por encabezado y base-0
-					name = str(row['Nombre']).strip()
+				# Pre-normalizar barcodes y pre-cargar variantes existentes (evita N+1)
+				_pre_barcodes = []
+				for _raw in df['Codigo_Barras'].dropna():
+					_s = str(_raw).strip()
+					try:
+						_d = Decimal(_s)
+						if _d == _d.to_integral_value():
+							_s = str(int(_d))
+					except InvalidOperation:
+						pass
+					if _s and _s != 'nan':
+						_pre_barcodes.append(_s)
+				existing_by_barcode: dict = {}
+				if _pre_barcodes:
+					existing_by_barcode = {
+						v.barcode: v
+						for v in (
+							session.query(ArticleVariant)
+							.options(joinedload(ArticleVariant.article))
+							.join(Article)
+							.filter(
+								Article.tenant_id == tenant_id,
+								ArticleVariant.barcode.in_(_pre_barcodes),
+								ArticleVariant.is_active == True,  # noqa: E712
+							)
+							.all()
+						)
+					}
+
+				for row in df.itertuples():
+					row_num = row.Index + 2  # +2 por encabezado y base-0
+					name = str(row.Nombre).strip()
 					# Normalizar codigos de barras: pandas convierte enteros a float (ej: "7790000000001.0")
-					raw_bc = str(row['Codigo_Barras']).strip()
+					raw_bc = str(row.Codigo_Barras).strip()
 					try:
 						bc_dec = Decimal(raw_bc)
 						# Si es un entero exacto (sin parte fraccionaria real), formatear sin decimales
@@ -399,14 +440,22 @@ class DataSyncController(BaseController):
 						continue
 
 					try:
-						cost = Decimal(str(row['Costo']).replace(',', '.'))
-						price = Decimal(str(row['Precio_Venta']).replace(',', '.'))
-						stock_raw = str(row.get('Stock', '')).replace(',', '.').strip()
+						cost = Decimal(str(row.Costo).replace(',', '.'))
+						price = Decimal(str(row.Precio_Venta).replace(',', '.'))
+						stock_raw = str(getattr(row, 'Stock', '')).replace(',', '.').strip()
 						stock_val = (
 							Decimal(stock_raw)
 							if stock_raw and stock_raw not in ('', 'nan')
 							else Decimal('0')
 						)
+						price_b_raw = str(getattr(row, 'Precio_Lista_B', '')).replace(',', '.').strip()
+						price_b = (
+							Decimal(price_b_raw)
+							if price_b_raw and price_b_raw not in ('', 'nan')
+							else None
+						)
+						if price_b is not None and price_b <= 0:
+							price_b = None
 					except (InvalidOperation, TypeError, ValueError):
 						skipped += 1
 						skip_reasons.append(
@@ -421,16 +470,7 @@ class DataSyncController(BaseController):
 						)
 						continue
 
-					existing = (
-						session.query(ArticleVariant)
-						.join(Article)
-						.filter(
-							Article.tenant_id == tenant_id,
-							ArticleVariant.barcode == barcode,
-							ArticleVariant.is_active == True,  # noqa: E712
-						)
-						.first()
-					)
+					existing = existing_by_barcode.get(barcode)
 
 					if existing:
 						old_cost = existing.cost_price
@@ -453,6 +493,8 @@ class DataSyncController(BaseController):
 						existing.cost_price = cost
 						existing.selling_price = price
 						existing.article.name = name
+						if price_b is not None:
+							existing.selling_price_b = price_b
 
 						# Cascada de costos hacia presentaciones hijas
 						if old_cost != cost and existing.base_variant_id is None:
@@ -482,6 +524,7 @@ class DataSyncController(BaseController):
 							barcode=barcode,
 							cost_price=cost,
 							selling_price=price,
+							selling_price_b=price_b,
 							article_id=article.id,
 						)
 						session.add(variant)
@@ -554,13 +597,13 @@ class DataSyncController(BaseController):
 			created = updated = skipped = 0
 
 			with self._Session() as session:
-				for idx, row in df.iterrows():
-					name = str(row['Nombre']).strip()
+				for row in df.itertuples():
+					name = str(row.Nombre).strip()
 					if not name or name == 'nan':
 						skipped += 1
 						continue
 
-					phone = str(row.get('Telefono', '')).strip()
+					phone = str(getattr(row, 'Telefono', '')).strip()
 					if phone in ('nan', ''):
 						phone = None
 

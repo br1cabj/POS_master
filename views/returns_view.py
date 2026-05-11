@@ -888,7 +888,19 @@ class ReturnsView(BaseView):
 
 		row_data = []
 
+		_updating_refund = False
+
 		def _update_refund_and_btn(*_args):
+			nonlocal _updating_refund
+			if _updating_refund:
+				return
+			_updating_refund = True
+			try:
+				_do_update_refund()
+			finally:
+				_updating_refund = False
+
+		def _do_update_refund():
 			total = 0.0
 			selected_count = 0
 			for cv, ent, it in row_data:
@@ -1090,13 +1102,14 @@ class ReturnsView(BaseView):
 			success, msg = self.controller.return_items(
 				self.ctx.tenant_id, sale['id'], self.ctx.user_id, items_to_return
 			)
-			popup.destroy()
 
 			if success:
+				popup.destroy()
 				self.show_success(msg)
 				self._reset_detail_panel()
 				self.load_sales()
 			else:
+				btn_confirm.configure(text='✓  Confirmar Devolución', state='normal')
 				self.show_error(msg)
 
 	# =========================================================

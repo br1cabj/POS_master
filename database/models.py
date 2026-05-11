@@ -8,6 +8,7 @@ from sqlalchemy import (
 	Date,
 	DateTime,
 	ForeignKey,
+	Index,
 	Integer,
 	Numeric,
 	String,
@@ -39,7 +40,8 @@ class User(Base):
 
 	username = Column(String, nullable=False)
 	password_hash = Column(String, nullable=False)
-	recovery_pin_hash = Column(String, nullable=True)  # PIN de recuperación (opcional)
+	recovery_pin_hash = Column(String, nullable=True)
+	display_name = Column(String, nullable=True)
 	role = Column(String, default='cajero')
 	is_active = Column(Boolean, default=True)
 
@@ -134,6 +136,7 @@ class ArticleVariant(Base):
 
 	cost_price = Column(Numeric(10, 2), nullable=False)
 	selling_price = Column(Numeric(10, 2), nullable=False)
+	selling_price_b = Column(Numeric(10, 2), nullable=True, default=None)
 	cost_price_usd = Column(Numeric(10, 4), nullable=True, default=None)
 	is_active = Column(Boolean, default=True)
 
@@ -260,6 +263,7 @@ class Customer(Base):
 	current_balance = Column(
 		Numeric(10, 2), default=0.0
 	)  # Aquí sí permitimos negativos por si hay saldo a favor
+	price_list = Column(String, default='A')
 	is_active = Column(Boolean, default=True)
 
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
@@ -280,7 +284,7 @@ class Sale(Base):
 	amount_method_2 = Column(Numeric(10, 2), nullable=True)
 	profit = Column(Numeric(10, 2), nullable=False)
 	payment_method = Column(String, default='efectivo')
-	status = Column(String, default='completada')
+	status = Column(String, default='completada', index=True)
 	quotation_number = Column(
 		String, nullable=True
 	)  # Ej: "COT-2024-001" si viene de cotización
@@ -299,6 +303,8 @@ class Sale(Base):
 		'SaleDetail', back_populates='sale', cascade='all, delete-orphan'
 	)
 
+	__table_args__ = (Index('ix_sale_tenant_status', 'tenant_id', 'status'),)
+
 
 class SaleDetail(Base):
 	__tablename__ = 'sale_details'
@@ -308,6 +314,7 @@ class SaleDetail(Base):
 	unit_price = Column(Numeric(10, 2), nullable=False)
 	subtotal = Column(Numeric(10, 2), nullable=False)
 	description = Column(String, nullable=False)
+	returned_quantity = Column(Numeric(12, 4), nullable=False, default=0.0)
 
 	sale_id = Column(String(36), ForeignKey('sales.id'), nullable=False, index=True)
 	sale = relationship('Sale', back_populates='items')
@@ -369,6 +376,8 @@ class Supplier(Base):
 	discount_pct = Column(Numeric(5, 2), nullable=True)
 	discount_until = Column(DateTime, nullable=True)
 
+	credit_balance = Column(Numeric(10, 2), default=0.0)
+
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 	purchases = relationship('Purchase', back_populates='supplier')
 
@@ -388,6 +397,77 @@ class Purchase(Base):
 		String(36), ForeignKey('suppliers.id'), nullable=True, index=True
 	)
 	supplier = relationship('Supplier', back_populates='purchases')
+
+	items = relationship(
+		'PurchaseDetail', back_populates='purchase', cascade='all, delete-orphan'
+	)
+	returns = relationship(
+		'PurchaseReturn', back_populates='purchase', cascade='all, delete-orphan'
+	)
+
+
+class PurchaseDetail(Base):
+	__tablename__ = 'purchase_details'
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+	quantity = Column(Numeric(12, 4), nullable=False)
+	unit_cost = Column(Numeric(10, 2), nullable=False)
+	subtotal = Column(Numeric(10, 2), nullable=False)
+	description = Column(String, nullable=False)
+
+	purchase_id = Column(
+		String(36), ForeignKey('purchases.id'), nullable=False, index=True
+	)
+	purchase = relationship('Purchase', back_populates='items')
+
+	variant_id = Column(
+		String(36), ForeignKey('article_variants.id'), nullable=True, index=True
+	)
+	variant = relationship('ArticleVariant')
+
+
+class PurchaseReturn(Base):
+	__tablename__ = 'purchase_returns'
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+	date = Column(DateTime, default=datetime.now, index=True)
+	reason = Column(String, nullable=False)
+	refund_type = Column(String, nullable=False)
+	total_refund = Column(Numeric(10, 2), nullable=False)
+	notes = Column(String, nullable=True)
+	file_path = Column(String, nullable=True)
+
+	purchase_id = Column(
+		String(36), ForeignKey('purchases.id'), nullable=False, index=True
+	)
+	purchase = relationship('Purchase', back_populates='returns')
+
+	user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
+
+	items = relationship(
+		'PurchaseReturnItem',
+		back_populates='purchase_return',
+		cascade='all, delete-orphan',
+	)
+
+
+class PurchaseReturnItem(Base):
+	__tablename__ = 'purchase_return_items'
+	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+	quantity_returned = Column(Numeric(12, 4), nullable=False)
+	unit_cost = Column(Numeric(10, 2), nullable=False)
+	subtotal = Column(Numeric(10, 2), nullable=False)
+	description = Column(String, nullable=False)
+
+	purchase_return_id = Column(
+		String(36), ForeignKey('purchase_returns.id'), nullable=False, index=True
+	)
+	purchase_return = relationship('PurchaseReturn', back_populates='items')
+
+	purchase_detail_id = Column(
+		String(36), ForeignKey('purchase_details.id'), nullable=True, index=True
+	)
+	variant_id = Column(String(36), ForeignKey('article_variants.id'), nullable=True)
+	variant = relationship('ArticleVariant')
 
 
 class ComboItem(Base):

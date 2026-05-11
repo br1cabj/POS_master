@@ -4,28 +4,27 @@ import bcrypt
 
 from controllers.base import BaseController
 from database.models import User
-from utils.config import make_engine
 
 logger = logging.getLogger(__name__)
-
-_default_engine = None
-
-
-def _get_default_engine():
-	global _default_engine
-	if _default_engine is None:
-		_default_engine = make_engine()
-	return _default_engine
-
 
 ALLOWED_ROLES = ['admin', 'cajero', 'gerente']
 _PIN_MIN_LEN = 4
 
 
+def get_display_name(user) -> str:
+	"""Nombre visible en tickets y reportes. Usa display_name si está definido."""
+	if user is None:
+		return 'Operador'
+	if getattr(user, 'display_name', None):
+		return user.display_name
+	if getattr(user, 'role', '') == 'admin':
+		return 'Administrador'
+	return getattr(user, 'username', 'Operador')
+
+
 class UserController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _get_default_engine()
-		super().__init__(engine)
+		super().__init__(db_engine)
 
 	# =========================================================
 	# LECTURA
@@ -37,6 +36,7 @@ class UserController(BaseController):
 					{
 						'id': u.id,
 						'username': u.username,
+						'display_name': u.display_name or '',
 						'role': u.role,
 						'has_recovery_pin': bool(u.recovery_pin_hash),
 					}
@@ -51,7 +51,7 @@ class UserController(BaseController):
 	# =========================================================
 	# CREACION
 	# =========================================================
-	def add_user(self, tenant_id, username, password, role, recovery_pin=None):
+	def add_user(self, tenant_id, username, password, role, recovery_pin=None, display_name=None):
 		username_clean = str(username).strip()
 		if not username_clean:
 			return False, 'El nombre de usuario es obligatorio.'
@@ -105,6 +105,7 @@ class UserController(BaseController):
 					username=username_clean,
 					password_hash=hashed_pw,
 					recovery_pin_hash=pin_hash,
+					display_name=display_name.strip() if display_name else None,
 					role=role_clean,
 				)
 				session.add(new_user)
@@ -117,6 +118,50 @@ class UserController(BaseController):
 					f'Error al crear usuario {username_clean}: {e}', exc_info=True
 				)
 				return False, 'Error interno al intentar crear el usuario.'
+
+	# =========================================================
+	# ACTUALIZAR DATOS
+	# =========================================================
+	def update_user(self, tenant_id, user_id, username=None, role=None, display_name=None):
+		with self._Session() as session:
+			try:
+				user = (
+					session.query(User)
+					.filter_by(id=user_id, tenant_id=tenant_id, is_active=True)
+					.first()
+				)
+				if not user:
+					return False, 'Usuario no encontrado.'
+
+				if username is not None:
+					username_clean = str(username).strip()
+					if not username_clean:
+						return False, 'El nombre de usuario no puede estar vacío.'
+					conflict = (
+						session.query(User)
+						.filter_by(tenant_id=tenant_id, username=username_clean, is_active=True)
+						.first()
+					)
+					if conflict and str(conflict.id) != str(user_id):
+						return False, 'Ese nombre de usuario ya está en uso.'
+					user.username = username_clean
+
+				if role is not None:
+					role_clean = str(role).strip().lower()
+					if role_clean not in ALLOWED_ROLES:
+						return False, 'Rol inválido.'
+					user.role = role_clean
+
+				if display_name is not None:
+					user.display_name = display_name.strip() or None
+
+				session.commit()
+				return True, f'Empleado {user.username} actualizado correctamente.'
+
+			except Exception as e:
+				session.rollback()
+				logger.error(f'Error al actualizar usuario {user_id}: {e}', exc_info=True)
+				return False, 'Error interno al actualizar el empleado.'
 
 	# =========================================================
 	# RESET POR ADMIN

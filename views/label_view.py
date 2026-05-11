@@ -62,32 +62,26 @@ class LabelView(BaseView):
 		self._selected_variants: set = set()
 		self._tpl_key = 'supermercado'
 		self._search_timer = None
-		self._load_wholesale_cfg()
+		self._load_price_list_cfg()
 
 		self._build()
 
 		self.after(120, self._load_catalog)
 		self.after(100, self._setup_bindings)
-		self.after(150, self._refresh_wholesale_bar)
+		self.after(150, self._refresh_price_list_bar)
 		self.after(200, lambda: self._entry_search.focus())
 
-	def _load_wholesale_cfg(self):
+	def _load_price_list_cfg(self):
 		cfg = _cfg_mgr.load()
-		self._wholesale_enabled = cfg.get('wholesale_enabled', False)
-		raw = cfg.get('wholesale_rules', [])
-		self._wholesale_rules = sorted(
-			raw, key=lambda r: r.get('min_qty', 0), reverse=True
-		)
-		self._price_options: list[tuple] = [('retail', 'Minorista', 1.0)]
-		for i, r in enumerate(self._wholesale_rules):
-			try:
-				min_qty = int(r.get('min_qty', 0))
-				pct = int(r.get('discount_pct', 0))
-				label = f'Mayorista ≥{min_qty}u  −{pct}%'
-				factor = 1 - pct / 100
-				self._price_options.append((f'wholesale_{i}', label, factor))
-			except (TypeError, ValueError):
-				continue
+		self._list_a_name = cfg.get('price_list_a_name', 'Minorista')
+		self._list_b_name = cfg.get('price_list_b_name', 'Mayorista')
+		self._price_options: list[tuple] = [
+			('retail', f'Lista A · {self._list_a_name}', 1.0),
+			('price_b', f'Lista B · {self._list_b_name}', None),
+		]
+
+	def _load_wholesale_cfg(self):
+		self._load_price_list_cfg()
 
 	def _build(self):
 		self.grid_columnconfigure(0, weight=1)
@@ -295,14 +289,10 @@ class LabelView(BaseView):
 		)
 		self._btn_print.grid(row=0, column=0, sticky='ew')
 
-	def _refresh_wholesale_bar(self):
+	def _refresh_price_list_bar(self):
 		if not self.winfo_exists():
 			return
-		self._load_wholesale_cfg()
-
-		if not self._wholesale_enabled or len(self._price_options) <= 1:
-			self._wholesale_bar.grid_forget()
-			return
+		self._load_price_list_cfg()
 
 		self._wholesale_bar.grid(
 			row=1, column=0, sticky='ew', padx=PAD_LG, pady=(0, PAD_SM)
@@ -523,6 +513,7 @@ class LabelView(BaseView):
 							ArticleVariant.attribute_2,
 							ArticleVariant.barcode,
 							ArticleVariant.selling_price,
+							ArticleVariant.selling_price_b,
 						)
 						.join(Article)
 						.filter(
@@ -535,7 +526,7 @@ class LabelView(BaseView):
 					)
 
 					variants_data = []
-					for v_id, a_name, a1, a2, barcode, price in rows:
+					for v_id, a_name, a1, a2, barcode, price, price_b in rows:
 						attr = ' '.join(filter(None, [a1, a2]))
 						variants_data.append(
 							{
@@ -544,6 +535,7 @@ class LabelView(BaseView):
 								'attribute': attr,
 								'barcode': barcode or '',
 								'price': float(price),
+								'selling_price_b': float(price_b) if price_b else None,
 								'display': f'{a_name}{"  –  " + attr if attr else ""}',
 							}
 						)
@@ -738,11 +730,10 @@ class LabelView(BaseView):
 	def _get_item_display_price(self, item: dict) -> float:
 		base = float(item.get('price', 0))
 		mode = item.get('price_mode', 'retail')
-		if mode == 'retail' or not self._wholesale_enabled:
-			return base
-		for key, _label, factor in self._price_options:
-			if key == mode:
-				return round(base * factor, 2)
+		if mode == 'price_b':
+			price_b = item.get('selling_price_b')
+			if price_b:
+				return float(price_b)
 		return base
 
 	def _render_queue(self):

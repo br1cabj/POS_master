@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
+from controllers.user_controller import get_display_name
 from database.models import (
 	Article,
 	ArticleHistory,
@@ -12,25 +13,14 @@ from database.models import (
 	StockMovement,
 	Supplier,
 )
-from utils.config import make_engine
 from utils.shared import get_or_create_default_warehouse
 
 logger = logging.getLogger(__name__)
 
-_default_engine = None
-
-
-def _get_default_engine():
-	global _default_engine
-	if _default_engine is None:
-		_default_engine = make_engine()
-	return _default_engine
-
 
 class ArticleController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _get_default_engine()
-		super().__init__(engine)
+		super().__init__(db_engine)
 
 	def _get_or_create_default_warehouse(self, session, tenant_id):
 		try:
@@ -80,6 +70,7 @@ class ArticleController(BaseController):
 						'barcode': v.barcode,
 						'cost_price': v.cost_price,
 						'selling_price': v.selling_price,
+						'selling_price_b': float(v.selling_price_b) if v.selling_price_b else None,
 						'total_stock': sum(s.quantity for s in v.stocks)
 						if v.stocks
 						else 0,
@@ -113,6 +104,7 @@ class ArticleController(BaseController):
 		supplier_id=None,
 		discount_pct=None,
 		discount_until=None,
+		selling_price_b=None,
 	):
 		if not name or not str(name).strip():
 			return False, 'El nombre es obligatorio.'
@@ -155,10 +147,20 @@ class ArticleController(BaseController):
 				session.add(article)
 				session.flush()
 
+				spb = None
+				if selling_price_b is not None:
+					try:
+						spb = Decimal(str(selling_price_b))
+						if spb <= 0:
+							spb = None
+					except Exception:
+						spb = None
+
 				variant = ArticleVariant(
 					barcode=str(barcode).strip(),
 					cost_price=cost_price,
 					selling_price=selling_price,
+					selling_price_b=spb,
 					article_id=article.id,
 					discount_pct=Decimal(str(discount_pct)) if discount_pct and float(discount_pct) > 0 else None,
 					discount_until=discount_until,
@@ -205,6 +207,7 @@ class ArticleController(BaseController):
 		supplier_id=None,
 		discount_pct=None,
 		discount_until=None,
+		selling_price_b=None,
 	):
 		if not name or not str(name).strip():
 			return False, 'El nombre es obligatorio.'
@@ -260,6 +263,16 @@ class ArticleController(BaseController):
 				variant.selling_price = selling_price
 				variant.article.name = str(name).strip()
 				variant.article.supplier_id = supplier_id
+
+				spb = None
+				if selling_price_b is not None:
+					try:
+						spb = Decimal(str(selling_price_b))
+						if spb <= 0:
+							spb = None
+					except Exception:
+						spb = None
+				variant.selling_price_b = spb
 
 				# Descuento por producto
 				variant.discount_pct = (
@@ -438,7 +451,7 @@ class ArticleController(BaseController):
 						'date': h.date,
 						'action': h.action_type,
 						'article_name': h.article_name,
-						'user_name': h.user.username if h.user else 'Sistema',
+						'user_name': get_display_name(h.user) if h.user else 'Sistema',
 						'old_cost': h.old_cost,
 						'new_cost': h.new_cost,
 						'old_price': h.old_price,

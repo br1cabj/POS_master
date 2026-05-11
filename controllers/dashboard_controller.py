@@ -6,24 +6,13 @@ from sqlalchemy import func
 
 from controllers.base import BaseController
 from database.models import Sale, SaleDetail
-from utils.config import make_engine
 
 logger = logging.getLogger(__name__)
-
-_default_engine = None
-
-
-def _get_default_engine():
-	global _default_engine
-	if _default_engine is None:
-		_default_engine = make_engine()
-	return _default_engine
 
 
 class DashboardController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _get_default_engine()
-		super().__init__(engine)
+		super().__init__(db_engine)
 
 	def get_today_stats(self, tenant_id):
 		"""Retorna (total_ventas, total_ganancia, cantidad_tickets) de ventas completadas del día."""

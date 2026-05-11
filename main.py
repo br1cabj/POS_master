@@ -8,7 +8,7 @@ from CTkMessagebox import CTkMessagebox
 from controllers.license_controller import LicenseController
 from core.context import AppContext
 from database.migrations import run_migrations
-from utils.config import make_engine
+from utils.config import get_engine
 from utils.settings_manager import SettingsManager
 from utils.settings_manager import get as settings_get
 from views.login_view import LoginView
@@ -70,7 +70,7 @@ class PosApp(ctk.CTk):
 
 	def _get_or_create_engine(self):
 		if self.db_engine is None:
-			self.db_engine = make_engine()
+			self.db_engine = get_engine()
 			run_migrations(self.db_engine)
 		return self.db_engine
 
@@ -181,7 +181,7 @@ class PosApp(ctk.CTk):
 		ctk.CTkLabel(frame, text=motivo).pack(pady=10)
 		ctk.CTkLabel(
 			frame,
-			text='Contacta a tu proveedor para renovar y obtene tu nuevo codigo de activacion.',
+			text='Contacta a tu proveedor para renovar y obtené tu nuevo código de activación.',
 		).pack(pady=20)
 
 		entry_renewal = ctk.CTkEntry(

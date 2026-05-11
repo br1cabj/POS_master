@@ -15,10 +15,11 @@ logger = logging.getLogger(__name__)
 
 class ReceiptController:
 	def __init__(self):
-		"""Inicializa el controlador usando un directorio persistente en el sistema."""
-		user_home = os.path.expanduser('~')
-		self.receipts_dir = os.path.join(user_home, 'cloudPOS')
+		"""Inicializa el controlador usando la carpeta configurada en ajustes."""
+		self.receipts_dir = settings_manager.get_reports_path()
 		os.makedirs(self.receipts_dir, exist_ok=True)
+		# Carpeta legada para reimprimir tickets generados antes del cambio de ruta
+		self._legacy_dir = os.path.join(os.path.expanduser('~'), 'cloudPOS')
 
 	def _space(self, pdf: FPDF, w: int, h: int = 3) -> None:
 		pdf.cell(w, h, '', new_x='LMARGIN', new_y='NEXT')
@@ -485,7 +486,7 @@ class ReceiptController:
 		)
 
 		if not os.path.exists(filepath):
-			# Try falling back to truncated ID just in case an older version saved it like that
+			# Fallback 1: ID truncado (versiones anteriores)
 			display_sale_id = safe_sale_id.split('-')[0].upper()
 			fallback_path = os.path.join(
 				self.receipts_dir,
@@ -494,10 +495,24 @@ class ReceiptController:
 			if os.path.exists(fallback_path):
 				filepath = fallback_path
 			else:
-				return (
-					False,
-					'No se encontró el ticket.\nQuizás fue generado en otra sesión o equipo.',
+				# Fallback 2: carpeta legada ~/cloudPOS
+				legacy_path = os.path.join(
+					self._legacy_dir,
+					f'tenant_{safe_tenant_id}_ticket_{safe_sale_id}.pdf',
 				)
+				legacy_trunc = os.path.join(
+					self._legacy_dir,
+					f'tenant_{safe_tenant_id}_ticket_{display_sale_id}.pdf',
+				)
+				if os.path.exists(legacy_path):
+					filepath = legacy_path
+				elif os.path.exists(legacy_trunc):
+					filepath = legacy_trunc
+				else:
+					return (
+						False,
+						'No se encontró el ticket.\nQuizás fue generado en otra sesión o equipo.',
+					)
 
 		ok = self.print_receipt(filepath)
 		return (
@@ -848,14 +863,28 @@ class ReceiptController:
 					pdf.cell(30, 8, f'${amount:.2f}', border=1, align='R')
 					pdf.set_text_color(0, 0, 0)
 					pdf.cell(30, 8, '-', border=1, align='C')
+					pdf.ln()
+					# Sub-filas de ítems
+					for item in row.get('items', []):
+						qty = item['quantity']
+						qty_str = f'{qty:.0f}' if qty == int(qty) else f'{qty:.2f}'
+						item_label = f'  ↳ {item["description"][:34]} x{qty_str} @ ${item["unit_price"]:.2f}'
+						pdf.set_font('helvetica', 'I', 8)
+						pdf.set_text_color(120, 120, 120)
+						pdf.cell(40, 6, '', border=1)
+						pdf.cell(80, 6, item_label, border=1, align='L')
+						pdf.cell(30, 6, f'${item["subtotal"]:.2f}', border=1, align='R')
+						pdf.cell(30, 6, '', border=1)
+						pdf.ln()
+					pdf.set_font('helvetica', '', 9)
+					pdf.set_text_color(0, 0, 0)
 				else:
 					# Pago realizado (Verde)
 					pdf.cell(30, 8, '-', border=1, align='C')
 					pdf.set_text_color(0, 150, 0)
 					pdf.cell(30, 8, f'${amount:.2f}', border=1, align='R')
 					pdf.set_text_color(0, 0, 0)
-
-				pdf.ln()
+					pdf.ln()
 
 			# Footer con marca de tiempo de la auditoría
 			pdf.ln(10)
@@ -879,3 +908,143 @@ class ReceiptController:
 		except Exception as e:
 			logger.error(f'Error exportando estado de cuenta: {e}', exc_info=True)
 			return False, 'Error interno al generar el PDF del estado de cuenta.'
+
+	# =========================================================
+	# 7. NOTA DE DEVOLUCIÓN A PROVEEDOR
+	# =========================================================
+	def generate_supplier_return_note(
+		self,
+		return_id: str,
+		purchase_id: str,
+		date_str: str,
+		supplier_name: str,
+		items_returned: List[Dict],
+		total_refund: float,
+		reason: str,
+		refund_type: str,
+		cashier_name: str = '',
+		notes: str = '',
+	) -> Tuple[bool, str]:
+		"""Genera una Nota de Devolución a Proveedor en formato A4."""
+		try:
+			pdf = FPDF(format='A4')
+			pdf.add_page()
+			pdf.set_margins(15, 15, 15)
+
+			business_name = settings_manager.get('company_name', 'Mi Negocio')
+			short_return_id = (
+				return_id.split('-')[0].upper() if len(return_id) > 15 else return_id
+			)
+			short_purchase_id = (
+				purchase_id.split('-')[0].upper()
+				if len(purchase_id) > 15
+				else purchase_id
+			)
+
+			pdf.set_font('helvetica', 'B', 18)
+			pdf.cell(0, 10, business_name, new_x='LMARGIN', new_y='NEXT', align='C')
+
+			pdf.set_font('helvetica', 'B', 13)
+			pdf.set_fill_color(200, 60, 60)
+			pdf.set_text_color(255, 255, 255)
+			pdf.cell(
+				0,
+				9,
+				'NOTA DE DEVOLUCIÓN A PROVEEDOR',
+				new_x='LMARGIN',
+				new_y='NEXT',
+				align='C',
+				fill=True,
+			)
+			pdf.set_text_color(0, 0, 0)
+			pdf.ln(4)
+
+			pdf.set_font('helvetica', '', 10)
+			for label, value in [
+				('N° Devolución:', f'#{short_return_id}'),
+				('Ref. Compra Original:', f'#{short_purchase_id}'),
+				('Proveedor:', supplier_name),
+				('Fecha:', date_str),
+				('Motivo:', reason),
+				('Tipo de reembolso:', refund_type.capitalize()),
+			]:
+				pdf.cell(50, 6, label, align='L')
+				pdf.set_font('helvetica', 'B', 10)
+				pdf.cell(0, 6, value, new_x='LMARGIN', new_y='NEXT', align='L')
+				pdf.set_font('helvetica', '', 10)
+
+			if cashier_name:
+				pdf.cell(50, 6, 'Responsable:', align='L')
+				pdf.set_font('helvetica', 'B', 10)
+				pdf.cell(0, 6, cashier_name, new_x='LMARGIN', new_y='NEXT', align='L')
+				pdf.set_font('helvetica', '', 10)
+
+			pdf.ln(4)
+			pdf.set_draw_color(180, 180, 180)
+			pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+			pdf.ln(4)
+
+			pdf.set_fill_color(230, 230, 230)
+			pdf.set_font('helvetica', 'B', 10)
+			pdf.cell(80, 8, 'Artículo', border=1, align='C', fill=True)
+			pdf.cell(25, 8, 'Cant.', border=1, align='C', fill=True)
+			pdf.cell(35, 8, 'Costo Unit.', border=1, align='C', fill=True)
+			pdf.cell(40, 8, 'Subtotal', border=1, align='C', fill=True)
+			pdf.ln()
+
+			pdf.set_font('helvetica', '', 9)
+			for item in items_returned:
+				desc = str(item.get('description', item.get('desc', '')))[:40]
+				qty = Decimal(str(item.get('quantity_returned', item.get('qty', 0))))
+				cost = Decimal(str(item.get('unit_cost', item.get('cost', 0))))
+				sub = Decimal(str(item.get('subtotal', qty * cost)))
+				qty_str = f'{int(qty)}' if qty % 1 == 0 else f'{qty:.3f}'
+				pdf.cell(80, 7, f' {desc}', border=1, align='L')
+				pdf.cell(25, 7, qty_str, border=1, align='C')
+				pdf.cell(35, 7, f'${cost:.2f}', border=1, align='R')
+				pdf.cell(40, 7, f'${sub:.2f}', border=1, align='R')
+				pdf.ln()
+
+			pdf.ln(4)
+			pdf.set_font('helvetica', 'B', 12)
+			refund_dec = Decimal(str(total_refund))
+			pdf.cell(140, 9, 'TOTAL A RECUPERAR:', align='R')
+			pdf.cell(
+				40, 9, f'${refund_dec:.2f}', new_x='LMARGIN', new_y='NEXT', align='R'
+			)
+
+			if notes:
+				pdf.ln(4)
+				pdf.set_font('helvetica', 'I', 9)
+				pdf.set_text_color(100, 100, 100)
+				pdf.multi_cell(0, 5, f'Observaciones: {notes}')
+				pdf.set_text_color(0, 0, 0)
+
+			pdf.ln(8)
+			pdf.set_font('helvetica', 'I', 8)
+			pdf.set_text_color(150, 150, 150)
+			pdf.cell(
+				0,
+				5,
+				'Documento no fiscal - Uso interno',
+				new_x='LMARGIN',
+				new_y='NEXT',
+				align='C',
+			)
+			pdf.set_font('helvetica', '', 6)
+			pdf.cell(
+				0, 4, f'UUID: {return_id}', new_x='LMARGIN', new_y='NEXT', align='C'
+			)
+
+			safe_date = date_str[:10].replace('/', '-')
+			filename = f'DevProveedor_{short_return_id}_{safe_date}.pdf'
+			filepath = os.path.join(self.receipts_dir, filename)
+			pdf.output(filepath)
+			self.print_receipt(filepath)
+			return True, filepath
+
+		except Exception as e:
+			logger.error(
+				f'Error generando nota de devolución a proveedor: {e}', exc_info=True
+			)
+			return False, 'Error interno al generar el documento.'

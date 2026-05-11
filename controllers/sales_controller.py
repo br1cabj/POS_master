@@ -5,6 +5,7 @@ from decimal import Decimal
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
+from controllers.user_controller import get_display_name
 from database.models import (
 	Article,
 	ArticleVariant,
@@ -16,26 +17,16 @@ from database.models import (
 	SaleDetail,
 	Stock,
 	StockMovement,
+	User,
 )
-from utils.config import make_engine
 from utils.shared import parse_decimal
 
 logger = logging.getLogger(__name__)
 
-_default_engine = None
-
-
-def _get_default_engine():
-	global _default_engine
-	if _default_engine is None:
-		_default_engine = make_engine()
-	return _default_engine
-
 
 class SalesController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _get_default_engine()
-		super().__init__(engine)
+		super().__init__(db_engine)
 
 	def _parse_decimal(self, value):
 		return parse_decimal(value, default=Decimal('0.0'))
@@ -47,7 +38,6 @@ class SalesController(BaseController):
 		"""
 		with self._Session() as session:
 			try:
-				from database.models import Supplier as _Supplier
 				variants = (
 					session.query(ArticleVariant)
 					.options(
@@ -62,6 +52,7 @@ class SalesController(BaseController):
 					.all()
 				)
 
+				variants_by_id = {v.id: v for v in variants}
 				result = []
 				for v in variants:
 					if v.is_combo:
@@ -95,7 +86,7 @@ class SalesController(BaseController):
 					base_vid = getattr(v, 'base_variant_id', None)
 					if base_vid and units > 1:
 						# Stock de la variante base dividido por factor de empaque
-						base_v = next((x for x in variants if x.id == base_vid), None)
+						base_v = variants_by_id.get(base_vid)
 						if base_v:
 							base_stock = (
 								sum(s.quantity for s in base_v.stocks)
@@ -112,6 +103,9 @@ class SalesController(BaseController):
 							'name': v.article.name,
 							'barcode': v.barcode,
 							'selling_price': v.selling_price,
+							'selling_price_b': float(v.selling_price_b)
+							if v.selling_price_b
+							else None,
 							'total_stock': total_stock,
 							'is_combo': v.is_combo,
 							'show_on_touch': v.show_on_touch,
@@ -121,10 +115,14 @@ class SalesController(BaseController):
 							'pack_label': getattr(v, 'pack_label', None),
 							'base_variant_id': base_vid,
 							# Descuento por producto
-							'discount_pct': float(v.discount_pct) if v.discount_pct else 0.0,
+							'discount_pct': float(v.discount_pct)
+							if v.discount_pct
+							else 0.0,
 							'discount_until': v.discount_until,
 							# Descuento del distribuidor/proveedor
-							'supplier_discount_pct': float(v.article.supplier.discount_pct)
+							'supplier_discount_pct': float(
+								v.article.supplier.discount_pct
+							)
 							if v.article.supplier and v.article.supplier.discount_pct
 							else 0.0,
 							'supplier_discount_until': v.article.supplier.discount_until
@@ -147,6 +145,7 @@ class SalesController(BaseController):
 						'id': c.id,
 						'name': c.name,
 						'current_balance': c.current_balance,
+						'price_list': c.price_list or 'A',
 					}
 					for c in session.query(Customer)
 					.filter_by(tenant_id=tenant_id, is_active=True)
@@ -157,9 +156,24 @@ class SalesController(BaseController):
 				logger.error(f'Error al obtener clientes: {e}', exc_info=True)
 				return []
 
-	def get_history(self, tenant_id, limit=500):
+	def get_history(self, tenant_id, limit=200, before_date=None):
+		"""
+		Retorna (rows, has_more).
+		before_date: cursor para paginación — trae solo ventas anteriores a esa fecha.
+		Carga limit+1 filas para detectar si hay más sin un COUNT extra.
+		"""
 		with self._Session() as session:
 			try:
+				query = (
+					session.query(Sale)
+					.options(joinedload(Sale.customer), joinedload(Sale.user))
+					.filter_by(tenant_id=tenant_id)
+					.order_by(Sale.date.desc())
+				)
+				if before_date is not None:
+					query = query.filter(Sale.date < before_date)
+				rows = query.limit(limit + 1).all()
+				has_more = len(rows) > limit
 				return [
 					{
 						'id': s.id,
@@ -175,18 +189,13 @@ class SalesController(BaseController):
 						'customer_name': s.customer.name
 						if s.customer
 						else 'Consumidor Final',
-						'user_name': s.user.username if s.user else 'Desconocido',
+						'user_name': get_display_name(s.user) if s.user else '—',
 					}
-					for s in session.query(Sale)
-					.options(joinedload(Sale.customer), joinedload(Sale.user))
-					.filter_by(tenant_id=tenant_id)
-					.order_by(Sale.date.desc())
-					.limit(limit)
-					.all()
-				]
+					for s in rows[:limit]
+				], has_more
 			except Exception as e:
 				logger.error(f'Error al leer historial: {e}', exc_info=True)
-				return []
+				return [], False
 
 	def get_sale_details(self, tenant_id, sale_id):
 		with self._Session() as session:
@@ -411,10 +420,15 @@ class SalesController(BaseController):
 								if ci.ingredient is None:
 									logger.warning(
 										'Ingrediente %s del combo %s no encontrado; costo omitido.',
-										ci.ingredient_id, variant.id,
+										ci.ingredient_id,
+										variant.id,
 									)
 								cost_price += (
-									(ci.ingredient.cost_price if ci.ingredient else Decimal('0'))
+									(
+										ci.ingredient.cost_price
+										if ci.ingredient
+										else Decimal('0')
+									)
 									or Decimal('0')
 								) * ci.quantity_required
 								session.add(
@@ -497,9 +511,9 @@ class SalesController(BaseController):
 						# Pago mixto: dos movimientos de caja
 						amount_m1 = final_total - amount_m2
 
-						if amount_m1 < Decimal('0.0') or amount_m2 < Decimal('0.0'):
+						if amount_m1 <= Decimal('0.0') or amount_m2 <= Decimal('0.0'):
 							raise ValueError(
-								'Error de consistencia: Los montos de pago en caja no pueden ser negativos.'
+								'Error de consistencia: Ambos montos del pago mixto deben ser mayores a cero.'
 							)
 
 						new_sale.payment_method_2 = payment_method_2_lower
@@ -530,6 +544,15 @@ class SalesController(BaseController):
 							)
 						)
 
+				# Capturar antes del commit para evitar lazy loads post-commit
+				_sale_id = new_sale.id
+				_sale_date = new_sale.date
+				try:
+					_user_obj = session.query(User).filter_by(id=user_id).first()
+					cashier_label = get_display_name(_user_obj)
+				except Exception:
+					cashier_label = 'Operador'
+
 				session.commit()
 
 				try:
@@ -553,8 +576,8 @@ class SalesController(BaseController):
 
 					ReceiptController().generate_pdf(
 						tenant_id=tenant_id,
-						sale_id=new_sale.id,
-						date_str=new_sale.date.strftime('%d/%m/%Y  %H:%M'),
+						sale_id=_sale_id,
+						date_str=_sale_date.strftime('%d/%m/%Y  %H:%M'),
 						items_list=cart_items,
 						total=final_total,
 						customer_name=customer_str,
@@ -568,6 +591,7 @@ class SalesController(BaseController):
 						change_amount=float(change_amt)
 						if change_amt is not None
 						else None,
+						cashier_name=cashier_label,
 					)
 				except Exception as pdf_err:
 					logger.warning(

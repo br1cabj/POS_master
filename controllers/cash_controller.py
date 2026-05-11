@@ -15,21 +15,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
+from controllers.user_controller import get_display_name
 from database.models import CashMovement, CashSession
-from utils.config import make_engine
 from utils.settings_manager import get_reports_path
 from utils.shared import parse_decimal
 
 logger = logging.getLogger(__name__)
-
-_default_engine = None
-
-
-def _get_default_engine():
-	global _default_engine
-	if _default_engine is None:
-		_default_engine = make_engine()
-	return _default_engine
 
 
 def _sanitize(text: str) -> str:
@@ -45,8 +36,7 @@ def _sanitize(text: str) -> str:
 
 class CashController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _get_default_engine()
-		super().__init__(engine)
+		super().__init__(db_engine)
 
 	def _parse_decimal(self, value):
 		"""Convierte un valor a Decimal de forma segura."""
@@ -148,9 +138,7 @@ class CashController(BaseController):
 				if hasattr(cash_session, 'closing_balance'):
 					cash_session.closing_balance = parsed_declared
 
-				user_name = (
-					cash_session.user.username if cash_session.user else 'Cajero'
-				)
+				user_name = get_display_name(cash_session.user) if cash_session.user else 'Cajero'
 				session.commit()
 
 				# PDF generation is non-fatal: the session is already committed

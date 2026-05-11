@@ -85,9 +85,34 @@ class UsersView(BaseView):
 		)
 		self.entry_user.pack(pady=(0, PAD_SM), padx=PAD_LG, fill='x')
 
+		# Nombre en tickets
+		make_form_label(self.left_panel, 'NOMBRE EN TICKETS')[0].pack(
+			padx=PAD_LG, anchor='w', pady=(0, PAD_XS)
+		)
+		self.entry_display_name = ctk.CTkEntry(
+			self.left_panel,
+			placeholder_text='Ej: Caja 1, Turno tarde, Ana G.',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=36,
+			font=FONT_BODY,
+		)
+		self.entry_display_name.pack(pady=(0, PAD_SM), padx=PAD_LG, fill='x')
+
 		# Contenedor para Password y PIN (ocultable en modo edición)
 		self.pass_pin_container = ctk.CTkFrame(self.left_panel, fg_color='transparent')
 		self.pass_pin_container.pack(fill='x')
+
+		# Label de ayuda en modo edición (oculto por defecto)
+		self.lbl_edit_pass_hint = ctk.CTkLabel(
+			self.left_panel,
+			text='🔑 La contraseña y el PIN se gestionan con los\nbotones del panel derecho.',
+			font=('Arial', 10),
+			text_color=TEXT_MUTED,
+			wraplength=240,
+			justify='left',
+		)
 
 		# Contraseña
 		make_form_label(self.pass_pin_container, 'CONTRASEÑA', required=True)[0].pack(
@@ -233,7 +258,7 @@ class UsersView(BaseView):
 
 		self.tree_scroll = ttk.Scrollbar(self.table_container, orient='vertical')
 
-		columns = ('ID', 'Usuario', 'Rol', 'PIN')
+		columns = ('ID', 'Usuario', 'Nombre en tickets', 'Rol', 'PIN')
 		self.tree = ttk.Treeview(
 			self.table_container,
 			columns=columns,
@@ -248,7 +273,7 @@ class UsersView(BaseView):
 		self.tree.tag_configure('odd', background='#161616')
 		self.tree.tag_configure('even', background='#1a1a1a')
 
-		col_widths = {'ID': 50, 'Usuario': 200, 'Rol': 120, 'PIN': 100}
+		col_widths = {'ID': 50, 'Usuario': 160, 'Nombre en tickets': 180, 'Rol': 110, 'PIN': 90}
 		for col in columns:
 			self.tree.heading(col, text=col)
 			self.tree.column(col, anchor='center', width=col_widths.get(col, 100))
@@ -335,11 +360,12 @@ class UsersView(BaseView):
 		for idx, u in enumerate(self._all_users):
 			role_display = '👑 Admin' if u.get('role') == 'admin' else '👤 Cajero'
 			pin_display = '✅ Configurado' if u.get('has_recovery_pin') else '⚠ Sin PIN'
+			ticket_name = u.get('display_name') or '—'
 
 			self.insert_tree_row(
 				tree=self.tree,
 				index=idx,
-				values=(u.get('id'), u.get('username'), role_display, pin_display),
+				values=(u.get('id'), u.get('username'), ticket_name, role_display, pin_display),
 			)
 
 	# =========================================================
@@ -366,11 +392,15 @@ class UsersView(BaseView):
 		self.entry_user.delete(0, 'end')
 		self.entry_user.insert(0, user_data.get('username', ''))
 
+		self.entry_display_name.delete(0, 'end')
+		self.entry_display_name.insert(0, user_data.get('display_name', ''))
+
 		role_str = 'Administrador' if user_data.get('role') == 'admin' else 'Cajero'
 		self.combo_role.set(role_str)
 
 		# Ocultamos contraseñas y pines, se gestionan con los botones dedicados
 		self.pass_pin_container.pack_forget()
+		self.lbl_edit_pass_hint.pack(padx=PAD_LG, anchor='w', pady=(0, PAD_SM))
 
 		self.btn_add.configure(text='💾  Actualizar Empleado')
 		self.btn_cancel_edit.pack(pady=(0, PAD_LG), padx=PAD_LG, fill='x')
@@ -381,12 +411,14 @@ class UsersView(BaseView):
 		self.lbl_form_title.configure(text='🛠  Nuevo Empleado', text_color=TEXT_PRIMARY)
 
 		self.entry_user.delete(0, 'end')
+		self.entry_display_name.delete(0, 'end')
 		self.entry_pass.delete(0, 'end')
 		self.entry_pin.delete(0, 'end')
 		self.combo_role.set('Cajero')
 
+		self.lbl_edit_pass_hint.pack_forget()
 		self.btn_cancel_edit.pack_forget()
-		self.pass_pin_container.pack(after=self.entry_user, fill='x')
+		self.pass_pin_container.pack(fill='x')
 		self.btn_add.configure(text='➕  Crear Cuenta')
 
 	def add_user(self):
@@ -404,10 +436,16 @@ class UsersView(BaseView):
 		self.btn_add.configure(state='disabled', text='⏳ Procesando...')
 		self.update_idletasks()
 
+		display_name = self.entry_display_name.get().strip() or None
+
 		try:
 			if self._editing_user_id:
 				success, msg = self.controller.update_user(
-					tenant_id, self._editing_user_id, username=username, role=role
+					tenant_id,
+					self._editing_user_id,
+					username=username,
+					role=role,
+					display_name=display_name or '',
 				)
 			else:
 				password = self.entry_pass.get().strip()
@@ -422,7 +460,8 @@ class UsersView(BaseView):
 					return
 
 				success, msg = self.controller.add_user(
-					tenant_id, username, password, role, recovery_pin=pin
+					tenant_id, username, password, role, recovery_pin=pin,
+					display_name=display_name,
 				)
 		except Exception as e:
 			success, msg = False, f'Error del sistema: {str(e)}'
@@ -560,7 +599,7 @@ class UsersView(BaseView):
 			text='Restablecer Contraseña',
 			fg_color=ORANGE,
 			hover_color='#b45309',
-			text_color='white',
+			text_color=ORANGE_TEXT,
 			height=38,
 			corner_radius=8,
 			font=FONT_BODY_BOLD,

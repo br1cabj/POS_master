@@ -13,33 +13,26 @@ from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
 from database.models import Article, ArticleHistory, ArticleVariant
-from utils.config import make_engine
 
 logger = logging.getLogger(__name__)
-
-_default_engine = None
-
-
-def _get_default_engine():
-	global _default_engine
-	if _default_engine is None:
-		_default_engine = make_engine()
-	return _default_engine
 
 
 class DollarPriceController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _get_default_engine()
-		super().__init__(engine)
+		super().__init__(db_engine)
 
-	def fetch_current_dollar_rate(self) -> float:
-		"""Obtiene la cotización actual del Dólar Blue (venta) mediante API externa."""
+	def fetch_current_dollar_rate(self, dollar_type: str = 'blue') -> float:
+		"""Obtiene la cotización actual (venta) según el tipo seleccionado."""
+		_endpoints = {'blue': 'blue', 'oficial': 'oficial', 'mep': 'bolsa'}
+		endpoint = _endpoints.get(dollar_type.lower(), 'blue')
 		try:
-			response = requests.get('https://dolarapi.com/v1/dolares/blue', timeout=5)
+			response = requests.get(
+				f'https://dolarapi.com/v1/dolares/{endpoint}', timeout=5
+			)
 			response.raise_for_status()
 			return float(response.json().get('venta', 0))
 		except requests.RequestException as e:
-			logger.error(f'Error de red al consultar API de dólar: {e}')
+			logger.error(f'Error de red al consultar API de dólar ({dollar_type}): {e}')
 			return 0.0
 
 	def get_last_update_info(self, tenant_id: int) -> dict | None:
@@ -126,11 +119,13 @@ class DollarPriceController(BaseController):
 			return False, 'Precio USD inválido.'
 
 		margin_val = None
+		update_margin = False
 		if margin_str:
 			try:
 				margin_val = Decimal(margin_str)
 				if margin_val < 0:
 					return False, 'El margen no puede ser negativo.'
+				update_margin = True
 			except InvalidOperation:
 				return False, 'Margen individual inválido.'
 
@@ -151,7 +146,7 @@ class DollarPriceController(BaseController):
 
 				for variant in variants:
 					variant.cost_price_usd = usd_val
-					if hasattr(variant, 'margin_pct'):
+					if update_margin and hasattr(variant, 'margin_pct'):
 						variant.margin_pct = margin_val
 
 				session.commit()
@@ -184,6 +179,7 @@ class DollarPriceController(BaseController):
 				.filter(
 					Article.tenant_id == tenant_id,
 					ArticleVariant.is_active == True,
+					ArticleVariant.is_combo == False,
 					ArticleVariant.cost_price_usd.isnot(None),
 					ArticleVariant.cost_price_usd > 0,
 				)
@@ -275,6 +271,12 @@ class DollarPriceController(BaseController):
 						Decimal('0.01'), rounding=ROUND_HALF_UP
 					)
 
+					if v.selling_price_b is not None and old_price and old_price > 0:
+						scale = new_price / old_price
+						v.selling_price_b = (v.selling_price_b * scale).quantize(
+							Decimal('0.01'), rounding=ROUND_HALF_UP
+						)
+
 					v.cost_price, v.selling_price = new_cost, new_price
 
 					child_packs = (
@@ -287,21 +289,37 @@ class DollarPriceController(BaseController):
 					)
 
 					for child in child_packs:
-						child.cost_price = new_cost * (child.units_per_pack or 1)
-
-					session.add(
-						ArticleHistory(
-							tenant_id=tenant_id,
-							user_id=user_id,
-							action_type='ACTUALIZACIÓN DÓLAR',
-							article_name=v.article.name,
-							variant_id=v.id,
-							old_cost=old_cost,
-							new_cost=new_cost,
-							old_price=old_price,
-							new_price=new_price,
+						units = Decimal(str(child.units_per_pack or 1))
+						child_new_price = (new_price * units).quantize(
+							Decimal('0.01'), rounding=ROUND_HALF_UP
 						)
-					)
+						child_old_price = child.selling_price
+						child.cost_price = new_cost * units
+						child.selling_price = child_new_price
+						if (
+							child.selling_price_b is not None
+							and child_old_price
+							and child_old_price > 0
+						):
+							child_scale = child_new_price / Decimal(str(child_old_price))
+							child.selling_price_b = (
+								child.selling_price_b * child_scale
+							).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+					if new_price != old_price:
+						session.add(
+							ArticleHistory(
+								tenant_id=tenant_id,
+								user_id=user_id,
+								action_type='ACTUALIZACIÓN DÓLAR',
+								article_name=v.article.name,
+								variant_id=v.id,
+								old_cost=old_cost,
+								new_cost=new_cost,
+								old_price=old_price,
+								new_price=new_price,
+							)
+						)
 					updated += 1
 
 				session.commit()

@@ -4,24 +4,13 @@ from sqlalchemy import func
 
 from controllers.base import BaseController
 from database.models import Article, ArticleVariant, Stock
-from utils.config import make_engine
 
 logger = logging.getLogger(__name__)
-
-_default_engine = None
-
-
-def _get_default_engine():
-	global _default_engine
-	if _default_engine is None:
-		_default_engine = make_engine()
-	return _default_engine
 
 
 class AlertsController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _get_default_engine()
-		super().__init__(engine)
+		super().__init__(db_engine)
 
 	def get_low_stock_variants(self, tenant_id, threshold=5):
 		"""Retorna variantes activas con stock total <= threshold, ordenadas de menor a mayor."""
@@ -32,6 +21,8 @@ class AlertsController(BaseController):
 						'variant_id': row.variant_id,
 						'barcode': row.barcode,
 						'name': row.name,
+						'attribute_1': row.attribute_1,
+						'attribute_2': row.attribute_2,
 						'stock': row.total_stock,
 						'threshold': threshold,
 					}
@@ -39,6 +30,8 @@ class AlertsController(BaseController):
 						session.query(
 							ArticleVariant.id.label('variant_id'),
 							ArticleVariant.barcode,
+							ArticleVariant.attribute_1,
+							ArticleVariant.attribute_2,
 							Article.name,
 							func.coalesce(func.sum(Stock.quantity), 0).label(
 								'total_stock'
@@ -48,10 +41,15 @@ class AlertsController(BaseController):
 						.outerjoin(Stock, ArticleVariant.id == Stock.variant_id)
 						.filter(
 							Article.tenant_id == tenant_id,
+							Article.is_active == True,  # noqa: E712
 							ArticleVariant.is_active == True,  # noqa: E712
 						)
 						.group_by(
-							ArticleVariant.id, ArticleVariant.barcode, Article.name
+							ArticleVariant.id,
+							ArticleVariant.barcode,
+							ArticleVariant.attribute_1,
+							ArticleVariant.attribute_2,
+							Article.name,
 						)
 						.having(func.coalesce(func.sum(Stock.quantity), 0) <= threshold)
 						.order_by(func.coalesce(func.sum(Stock.quantity), 0).asc())

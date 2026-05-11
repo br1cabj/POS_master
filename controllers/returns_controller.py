@@ -18,6 +18,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
+from controllers.user_controller import get_display_name
 from database.models import (
 	ArticleVariant,
 	CashMovement,
@@ -28,27 +29,15 @@ from database.models import (
 	Stock,
 	StockMovement,
 )
-from utils.config import make_engine
 
 logger = logging.getLogger(__name__)
-
-_default_engine = None
-
-
-def _get_default_engine():
-	global _default_engine
-	if _default_engine is None:
-		_default_engine = make_engine()
-	return _default_engine
-
 
 _OPERABLE = {'completada', 'pendiente', 'parcial'}
 
 
 class ReturnsController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _get_default_engine()
-		super().__init__(engine)
+		super().__init__(db_engine)
 
 	def get_sales_for_returns(self, tenant_id, filter_key='all', limit=300):
 		with self._Session() as session:
@@ -93,7 +82,7 @@ class ReturnsController(BaseController):
 						'customer_name': s.customer.name
 						if s.customer
 						else 'Consumidor Final',
-						'user_name': s.user.username if s.user else 'Desconocido',
+						'user_name': get_display_name(s.user) if s.user else '—',
 						'quotation_number': s.quotation_number or '',
 					}
 					for s in sales
@@ -134,7 +123,7 @@ class ReturnsController(BaseController):
 					if sale.customer
 					else 'Consumidor Final',
 					'customer_id': sale.customer_id,
-					'user_name': sale.user.username if sale.user else 'Desconocido',
+					'user_name': get_display_name(sale.user) if sale.user else '—',
 					'quotation_number': sale.quotation_number or '',
 					'items': [
 						{
@@ -265,10 +254,12 @@ class ReturnsController(BaseController):
 						return False, f'Ítem #{did} no pertenece a este ticket.'
 
 					original_qty = Decimal(str(detail_map[did].quantity))
-					if qty <= 0 or qty > original_qty:
+					already_ret = Decimal(str(detail_map[did].returned_quantity or 0))
+					available = original_qty - already_ret
+					if qty <= 0 or qty > available:
 						return (
 							False,
-							f'Cantidad inválida para "{detail_map[did].description}": máximo {original_qty:.2f}.',
+							f'Cantidad inválida para "{detail_map[did].description}": máximo disponible {available:.2f}.',
 						)
 
 					return_map[did] = qty
@@ -299,6 +290,12 @@ class ReturnsController(BaseController):
 					refund_total,
 					description=f'Devolución parcial Ticket #{sale_id}',
 				)
+
+				# Registrar las cantidades devueltas por ítem para evitar dobles devoluciones
+				for did, qty in return_map.items():
+					detail_map[did].returned_quantity = (
+						Decimal(str(detail_map[did].returned_quantity or 0)) + qty
+					)
 
 				remaining_total = Decimal(str(sale.total_amount or 0)) - refund_total
 				sale.status = 'devuelta' if remaining_total <= Decimal('0') else 'parcial'
@@ -373,6 +370,25 @@ class ReturnsController(BaseController):
 				.all()
 			}
 
+		# Pre-cargar todos los stocks necesarios en una sola consulta
+		_stock_ids = set()
+		for _detail in details:
+			if not _detail.variant_id:
+				continue
+			_v = variants_db.get(_detail.variant_id)
+			if not _v:
+				continue
+			if _v.is_combo:
+				for _ci in _v.ingredients:
+					_stock_ids.add(_ci.ingredient_id)
+			else:
+				_stock_ids.add(_v.base_variant_id or _detail.variant_id)
+		stocks_map = (
+			{s.variant_id: s for s in session.query(Stock).filter(Stock.variant_id.in_(_stock_ids)).all()}
+			if _stock_ids
+			else {}
+		)
+
 		for detail in details:
 			if not detail.variant_id:
 				continue
@@ -393,11 +409,7 @@ class ReturnsController(BaseController):
 			if variant.is_combo:
 				for ci in variant.ingredients:
 					req_qty = Decimal(str(ci.quantity_required)) * qty
-					stock = (
-						session.query(Stock)
-						.filter_by(variant_id=ci.ingredient_id)
-						.first()
-					)
+					stock = stocks_map.get(ci.ingredient_id)
 					if stock:
 						stock.quantity += req_qty
 						session.add(
@@ -421,9 +433,7 @@ class ReturnsController(BaseController):
 					if variant.base_variant_id
 					else qty
 				)
-				stock = (
-					session.query(Stock).filter_by(variant_id=target_vid).first()
-				)
+				stock = stocks_map.get(target_vid)
 				if stock:
 					stock.quantity += restore_qty
 					session.add(

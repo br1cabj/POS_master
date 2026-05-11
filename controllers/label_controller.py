@@ -69,12 +69,6 @@ def _fmt_price(amount: float, symbol: str = '$', decimals: int = 0) -> str:
 	return f'{symbol}{amount:,.{decimals}f}'
 
 
-def _compute_wholesale_price(base_price: float, rule: dict) -> float:
-	try:
-		pct = float(rule.get('discount_pct') or 0)
-		return round(base_price * (1 - pct / 100), 2)
-	except (TypeError, ValueError):
-		return base_price
 
 
 def _split_text(text: str, max_chars: int) -> list:
@@ -160,12 +154,7 @@ class LabelController:
 			except (ValueError, TypeError):
 				decimals = 0
 
-			wholesale_enabled = cfg.get('wholesale_enabled', False)
-			wholesale_rules = sorted(
-				cfg.get('wholesale_rules', []),
-				key=lambda r: float(r.get('min_qty') or 0),
-				reverse=True,
-			)
+			list_b_name = _sanitize(cfg.get('price_list_b_name', 'Mayorista'))
 
 			tpl = TEMPLATES[template_key]
 			W = tpl['w_mm']
@@ -192,25 +181,15 @@ class LabelController:
 				mode_label = None
 				retail_str = None
 
-				if wholesale_enabled and price_mode.startswith('wholesale_'):
-					try:
-						rule_idx = int(price_mode.split('_', 1)[1])
-						if 0 <= rule_idx < len(wholesale_rules):
-							rule = wholesale_rules[rule_idx]
-							display_price = _compute_wholesale_price(base_price, rule)
-							min_qty = int(float(rule.get('min_qty') or 0))
-							pct = float(rule.get('discount_pct') or 0)
-							pct_str = (
-								f'{int(pct)}' if pct.is_integer() else f'{pct:.1f}'
-							)
-							mode_label = _sanitize(
-								f'MAYORISTA x{min_qty}u  -{pct_str}%'
-							)
-							retail_str = _sanitize(
-								_fmt_price(base_price, symbol, decimals)
-							)
-					except (ValueError, IndexError):
-						pass
+				if price_mode == 'price_b':
+					price_b = item.get('selling_price_b')
+					if price_b:
+						try:
+							display_price = float(price_b)
+							mode_label = list_b_name.upper()
+							retail_str = _sanitize(_fmt_price(base_price, symbol, decimals))
+						except (TypeError, ValueError):
+							pass
 
 				try:
 					raw_disc = item.get('discount_price')

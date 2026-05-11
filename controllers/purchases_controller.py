@@ -12,30 +12,20 @@ from database.models import (
 	CashMovement,
 	CashSession,
 	Purchase,
+	PurchaseDetail,
 	Stock,
 	StockMovement,
 	Supplier,
 	Warehouse,
 )
-from utils.config import make_engine
 from utils.shared import parse_decimal
 
 logger = logging.getLogger(__name__)
 
-_default_engine = None
-
-
-def _get_default_engine():
-	global _default_engine
-	if _default_engine is None:
-		_default_engine = make_engine()
-	return _default_engine
-
 
 class PurchasesController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _get_default_engine()
-		super().__init__(engine)
+		super().__init__(db_engine)
 
 	def _parse_decimal(self, value):
 		return parse_decimal(value, default=Decimal('0.0'))
@@ -147,6 +137,7 @@ class PurchasesController(BaseController):
 
 				total = Decimal('0.0')
 				kardex_entries = []
+				detail_items = []
 
 				for item in cart_items:
 					variant_id = item.get('variant_id')
@@ -164,7 +155,21 @@ class PurchasesController(BaseController):
 							f'La variante ID {variant_id} no existe o no te pertenece.'
 						)
 
-					total += qty * new_cost
+					subtotal = qty * new_cost
+					total += subtotal
+					desc = item.get(
+						'desc',
+						variant.article.name if variant.article else str(variant_id),
+					)
+					detail_items.append(
+						{
+							'variant_id': variant_id,
+							'qty': qty,
+							'cost': new_cost,
+							'subtotal': subtotal,
+							'desc': desc,
+						}
+					)
 
 					# Stock primero: si falla (ej. no hay depósito), el costo NO se modifica
 					stock = stocks_db.get(variant_id)
@@ -224,6 +229,18 @@ class PurchasesController(BaseController):
 
 				for mov in kardex_entries:
 					mov.reference = f'Compra Proveedor #{purchase.id}'
+
+				for d in detail_items:
+					session.add(
+						PurchaseDetail(
+							purchase_id=purchase.id,
+							variant_id=d['variant_id'],
+							description=d['desc'],
+							quantity=d['qty'],
+							unit_cost=d['cost'],
+							subtotal=d['subtotal'],
+						)
+					)
 
 				session.add(
 					CashMovement(

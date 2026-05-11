@@ -38,6 +38,7 @@ class CustomersView(BaseView):
 		self.customer_map = {}
 		self._all_customers = []
 		self._editing_customer_id = None
+		self._only_debtors = False
 
 		self.grid_columnconfigure(0, weight=1)
 		self.grid_columnconfigure(1, weight=2)
@@ -111,6 +112,52 @@ class CustomersView(BaseView):
 			height=36,
 		)
 		self.entry_phone.pack(pady=(0, 10), padx=20, fill='x')
+
+		import utils.settings_manager as _sm_c
+		_name_a = _sm_c.get('price_list_a_name', 'Minorista')
+		_name_b = _sm_c.get('price_list_b_name', 'Mayorista')
+
+		ctk.CTkLabel(
+			self.left_panel,
+			text='LISTA DE PRECIOS',
+			font=('Arial', 9, 'bold'),
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).pack(padx=20, anchor='w', pady=(0, 4))
+
+		self._price_list_var = ctk.StringVar(value='A')
+		price_list_row = ctk.CTkFrame(self.left_panel, fg_color='transparent')
+		price_list_row.pack(padx=20, fill='x', pady=(0, 10))
+
+		self._btn_list_a = ctk.CTkButton(
+			price_list_row,
+			text=f'A · {_name_a}',
+			height=32,
+			font=('Arial', 11, 'bold'),
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			border_width=1,
+			border_color=ACCENT,
+			corner_radius=6,
+			command=lambda: self._select_price_list('A'),
+		)
+		self._btn_list_a.pack(side='left', expand=True, fill='x', padx=(0, 4))
+
+		self._btn_list_b = ctk.CTkButton(
+			price_list_row,
+			text=f'B · {_name_b}',
+			height=32,
+			font=('Arial', 11, 'bold'),
+			fg_color='transparent',
+			hover_color=SURFACE4,
+			text_color=TEXT_MUTED,
+			border_width=1,
+			border_color=BORDER,
+			corner_radius=6,
+			command=lambda: self._select_price_list('B'),
+		)
+		self._btn_list_b.pack(side='left', expand=True, fill='x', padx=(4, 0))
 
 		self.btn_add = ctk.CTkButton(
 			self.left_panel,
@@ -236,6 +283,30 @@ class CustomersView(BaseView):
 			anchor='w',
 		).pack(side='left')
 
+		self.btn_toggle_filter = ctk.CTkButton(
+			hdr,
+			text='Solo deudores',
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_MUTED,
+			border_width=1,
+			border_color=BORDER,
+			height=28,
+			width=120,
+			corner_radius=6,
+			cursor='hand2',
+			command=self._toggle_debtor_filter,
+		)
+		self.btn_toggle_filter.pack(side='right')
+
+		self.lbl_total_debt_header = ctk.CTkLabel(
+			hdr,
+			text='',
+			font=('Arial', 10, 'bold'),
+			text_color=ORANGE_TEXT,
+		)
+		self.lbl_total_debt_header.pack(side='right', padx=(0, 8))
+
 		ctk.CTkLabel(
 			self.right_panel,
 			text='Hacé doble clic en un cliente para ver su Estado de Cuenta.',
@@ -248,7 +319,7 @@ class CustomersView(BaseView):
 		search_row.pack(fill='x', padx=14, pady=(0, 6))
 
 		self._search_var = ctk.StringVar()
-		self._search_var.trace_add('write', self._on_search_change)
+		self._trace_search = self._search_var.trace_add('write', self._on_search_change)
 
 		ctk.CTkEntry(
 			search_row,
@@ -276,7 +347,7 @@ class CustomersView(BaseView):
 
 		self.tree_scroll = ttk.Scrollbar(self.table_container, orient='vertical')
 
-		columns = ('ID', 'Nombre', 'Teléfono', 'Deuda Acumulada')
+		columns = ('ID', 'Nombre', 'Teléfono', 'Deuda Acumulada', 'Último Fiado')
 		self.tree = ttk.Treeview(
 			self.table_container,
 			columns=columns,
@@ -285,16 +356,17 @@ class CustomersView(BaseView):
 		)
 		self.tree_scroll.configure(command=self.tree.yview)
 
+		col_config = {
+			'ID': ('center', 40),
+			'Nombre': ('w', 190),
+			'Teléfono': ('center', 90),
+			'Deuda Acumulada': ('e', 110),
+			'Último Fiado': ('center', 90),
+		}
 		for col in columns:
 			self.tree.heading(col, text=col)
-			if col == 'Nombre':
-				self.tree.column(col, anchor='w', width=240)
-			elif col == 'Deuda Acumulada':
-				self.tree.column(col, anchor='e', width=120)
-			elif col == 'ID':
-				self.tree.column(col, anchor='center', width=50)
-			else:
-				self.tree.column(col, anchor='center', width=100)
+			anchor, width = col_config[col]
+			self.tree.column(col, anchor=anchor, width=width)
 
 		self.tree_scroll.pack(side='right', fill='y')
 		self.tree.pack(side='left', fill='both', expand=True)
@@ -315,9 +387,19 @@ class CustomersView(BaseView):
 			justify='center',
 		)
 
+		# ── Total deuda ──
+		self.lbl_total_debt = ctk.CTkLabel(
+			self.right_panel,
+			text='',
+			font=('Arial', 10, 'bold'),
+			text_color=ORANGE_TEXT,
+			anchor='e',
+		)
+		self.lbl_total_debt.pack(fill='x', padx=16, pady=(0, 2))
+
 		# ── Botón Inferior ──
 		btn_row = ctk.CTkFrame(self.right_panel, fg_color='transparent')
-		btn_row.pack(fill='x', padx=14, pady=(4, 14))
+		btn_row.pack(fill='x', padx=14, pady=(0, 14))
 
 		ctk.CTkButton(
 			btn_row,
@@ -350,6 +432,18 @@ class CustomersView(BaseView):
 	# =========================================================
 	# LÓGICA Y FUNCIONES
 	# =========================================================
+	def _toggle_debtor_filter(self):
+		self._only_debtors = not self._only_debtors
+		if self._only_debtors:
+			self.btn_toggle_filter.configure(
+				fg_color=ACCENT_DIM, border_color=ACCENT, text_color=ACCENT_TEXT
+			)
+		else:
+			self.btn_toggle_filter.configure(
+				fg_color=SURFACE3, border_color=BORDER, text_color=TEXT_MUTED
+			)
+		self._filter_tree()
+
 	def _select_for_payment(self):
 		"""Carga el cliente seleccionado en la tabla al combo de Cobro del panel izquierdo."""
 		selected = self.tree.selection()
@@ -366,6 +460,8 @@ class CustomersView(BaseView):
 			self.combo_customers.set(name)
 			self.on_customer_select(name)
 			self.entry_payment.focus_set()
+		else:
+			self.show_warning('Este cliente no tiene una cuenta de cobro registrada.', 'Sin cuenta')
 
 	def _edit_selected(self):
 		"""Prepara el formulario de la izquierda para editar un cliente existente."""
@@ -396,11 +492,22 @@ class CustomersView(BaseView):
 		self.entry_phone.delete(0, 'end')
 		self.entry_phone.insert(0, customer_data.get('phone', '') or '')
 
+		self._select_price_list(customer_data.get('price_list', 'A'))
+
 		self.btn_add.configure(text='💾  Actualizar Cliente')
 		self.btn_add.pack(pady=(0, 8), padx=20, fill='x')
-		self.btn_cancel_edit.pack(pady=(0, 20), padx=20, fill='x', after=self.btn_add)
+		self.btn_cancel_edit.pack(pady=(0, 20), padx=20, fill='x')
 
 		self.entry_name.focus_set()
+
+	def _select_price_list(self, key: str):
+		self._price_list_var.set(key)
+		if key == 'B':
+			self._btn_list_a.configure(fg_color='transparent', border_color=BORDER, text_color=TEXT_MUTED)
+			self._btn_list_b.configure(fg_color=ACCENT_DIM, border_color=ACCENT, text_color=ACCENT_TEXT)
+		else:
+			self._btn_list_a.configure(fg_color=ACCENT_DIM, border_color=ACCENT, text_color=ACCENT_TEXT)
+			self._btn_list_b.configure(fg_color='transparent', border_color=BORDER, text_color=TEXT_MUTED)
 
 	def _cancel_edit(self):
 		"""Limpia el formulario de edición y regresa al modo de nuevo cliente."""
@@ -409,10 +516,11 @@ class CustomersView(BaseView):
 		self.entry_name.delete(0, 'end')
 		self.entry_name.configure(border_color=BORDER_ACTIVE)
 		self.entry_phone.delete(0, 'end')
+		self._select_price_list('A')
 
+		self.btn_cancel_edit.pack_forget()
 		self.btn_add.configure(text='➕  Guardar Cliente')
 		self.btn_add.pack(pady=(0, 20), padx=20, fill='x')
-		self.btn_cancel_edit.pack_forget()
 
 	def _open_customer_ledger_modal(self, event=None):
 		"""Abre un modal con el Estado de Cuenta detallado del cliente seleccionado."""
@@ -437,9 +545,10 @@ class CustomersView(BaseView):
 		# Crear el Modal
 		modal = ctk.CTkToplevel(self)
 		modal.title(f'Estado de Cuenta - {name}')
-		modal.geometry('750x550')
+		modal.geometry('750x640')
 		modal.attributes('-topmost', True)
 		modal.grab_set()
+		modal.bind('<Escape>', lambda e: modal.destroy())
 
 		# Cabecera
 		header = ctk.CTkFrame(modal, fg_color=SURFACE2)
@@ -468,22 +577,24 @@ class CustomersView(BaseView):
 		scroll = ttk.Scrollbar(table_frame, orient='vertical')
 		cols = ('Fecha', 'Concepto', 'Cargo (Compró)', 'Abono (Pagó)')
 		tree_history = ttk.Treeview(
-			table_frame, columns=cols, show='headings', yscrollcommand=scroll.set
+			table_frame, columns=cols, show='tree headings', yscrollcommand=scroll.set
 		)
 		scroll.configure(command=tree_history.yview)
 
+		tree_history.column('#0', width=18, minwidth=18, stretch=False)
 		tree_history.heading('Fecha', text='Fecha')
 		tree_history.heading('Concepto', text='Concepto')
 		tree_history.heading('Cargo (Compró)', text='Cargo (Deuda)')
 		tree_history.heading('Abono (Pagó)', text='Abono (Pago)')
 
 		tree_history.column('Fecha', width=120, anchor='center')
-		tree_history.column('Concepto', width=280, anchor='w')
+		tree_history.column('Concepto', width=270, anchor='w')
 		tree_history.column('Cargo (Compró)', width=110, anchor='e')
 		tree_history.column('Abono (Pagó)', width=110, anchor='e')
 
 		tree_history.tag_configure('cargo', foreground=RED_TEXT)
 		tree_history.tag_configure('abono', foreground=GREEN_TEXT)
+		tree_history.tag_configure('item_row', foreground=TEXT_MUTED)
 
 		scroll.pack(side='right', fill='y')
 		tree_history.pack(side='left', fill='both', expand=True)
@@ -497,12 +608,27 @@ class CustomersView(BaseView):
 				else str(row['date'])[:16]
 			)
 			if row['type'] == 'cargo':
-				tree_history.insert(
+				parent_id = tree_history.insert(
 					'',
 					'end',
 					values=(date_str, row['concept'], f'${row["amount"]:.2f}', '-'),
 					tags=('cargo',),
+					open=True,
 				)
+				for item in row.get('items', []):
+					qty = item['quantity']
+					qty_str = f'{qty:.0f}' if qty == int(qty) else f'{qty:.2f}'
+					tree_history.insert(
+						parent_id,
+						'end',
+						values=(
+							'',
+							f'  ↳ {item["description"]}  x{qty_str} @ ${item["unit_price"]:.2f}',
+							f'${item["subtotal"]:.2f}',
+							'',
+						),
+						tags=('item_row',),
+					)
 			else:
 				tree_history.insert(
 					'',
@@ -510,6 +636,66 @@ class CustomersView(BaseView):
 					values=(date_str, row['concept'], '-', f'${row["amount"]:.2f}'),
 					tags=('abono',),
 				)
+
+		# ── Sección abono rápido ──
+		pay_frame = ctk.CTkFrame(
+			modal, fg_color=SURFACE2, corner_radius=8, border_width=1, border_color=BORDER
+		)
+		pay_frame.pack(fill='x', padx=16, pady=(8, 0))
+
+		ctk.CTkLabel(
+			pay_frame,
+			text='Registrar abono:',
+			font=('Arial', 11, 'bold'),
+			text_color=TEXT_PRIMARY,
+		).pack(side='left', padx=12, pady=8)
+
+		entry_modal_payment = ctk.CTkEntry(
+			pay_frame,
+			placeholder_text='Monto ($)',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=32,
+			width=120,
+		)
+		entry_modal_payment.pack(side='left', padx=6, pady=8)
+
+		def _do_modal_payment():
+			amount_str = entry_modal_payment.get().strip().replace(',', '.')
+			try:
+				amount = float(amount_str)
+				if amount <= 0:
+					raise ValueError
+			except ValueError:
+				self.show_warning('Ingresá un monto válido mayor a cero.', 'Error')
+				return
+			if not self.confirm(
+				f'¿Registrar abono de ${amount:.2f} para {name}?', 'Confirmar'
+			):
+				return
+			success, msg = self.controller.pay_debt(
+				self.ctx.tenant_id, self.ctx.user_id, customer_id, amount
+			)
+			if success:
+				self.show_success(msg)
+				modal.destroy()
+				self.load_data()
+			else:
+				self.show_error(msg)
+
+		ctk.CTkButton(
+			pay_frame,
+			text='💰 Abonar',
+			fg_color=GREEN_DIM,
+			hover_color=GREEN,
+			text_color=GREEN_TEXT,
+			border_width=1,
+			border_color=GREEN,
+			height=32,
+			corner_radius=8,
+			command=_do_modal_payment,
+		).pack(side='left', padx=6, pady=8)
 
 		# Footer
 		footer = ctk.CTkFrame(modal, fg_color='transparent')
@@ -557,18 +743,37 @@ class CustomersView(BaseView):
 			self.after_cancel(self._search_timer)
 		self._search_timer = self.after(300, self._filter_tree)
 
+	def destroy_custom(self):
+		if self._search_timer:
+			try:
+				self.after_cancel(self._search_timer)
+			except Exception:
+				pass
+		if getattr(self, '_trace_search', None):
+			try:
+				self._search_var.trace_remove('write', self._trace_search)
+			except Exception:
+				pass
+
 	def _filter_tree(self, *args):
-		"""Filtra la tabla en tiempo real."""
+		"""Filtra la tabla en tiempo real, respetando el filtro de solo deudores."""
 		q = self._search_var.get().lower()
+
+		source = (
+			[c for c in self._all_customers if float(c.get('current_balance') or 0) > 0]
+			if self._only_debtors
+			else self._all_customers
+		)
+
 		matches = (
 			[
 				c
-				for c in self._all_customers
+				for c in source
 				if q in (c.get('name') or '').lower()
 				or q in (c.get('phone') or '').lower()
 			]
 			if q
-			else self._all_customers
+			else source
 		)
 
 		for item in list(self.tree.get_children()):
@@ -577,7 +782,6 @@ class CustomersView(BaseView):
 		for c in matches:
 			balance = float(c.get('current_balance') or 0.0)
 
-			# MEJORA UX: Formateo claro para saldos a favor
 			if balance > 0:
 				saldo_str = f'${balance:.2f}'
 				tags = ('deudor',)
@@ -588,16 +792,26 @@ class CustomersView(BaseView):
 				saldo_str = '$0.00'
 				tags = ()
 
+			last_mov = c.get('last_movement')
+			last_mov_str = last_mov.strftime('%d/%m/%Y') if last_mov and hasattr(last_mov, 'strftime') else '-'
+
 			self.tree.insert(
 				'',
 				'end',
-				values=(c['id'], c['name'], c.get('phone') or '-', saldo_str),
+				values=(c['id'], c['name'], c.get('phone') or '-', saldo_str, last_mov_str),
 				tags=tags,
 			)
 
 		# Ocultar o mostrar empty state
 		if hasattr(self, 'lbl_empty_customers'):
 			if not matches:
+				if self._only_debtors:
+					empty_text = '✅\nNingún cliente tiene deuda pendiente.'
+				elif q:
+					empty_text = '🔍\nNo se encontraron clientes con ese criterio.'
+				else:
+					empty_text = '👤\nNo hay clientes registrados.\nAgregá el primero usando el panel izquierdo.'
+				self.lbl_empty_customers.configure(text=empty_text)
 				self.tree.pack_forget()
 				self.tree_scroll.pack_forget()
 				self.lbl_empty_customers.pack(expand=True)
@@ -611,8 +825,20 @@ class CustomersView(BaseView):
 		shown = len(matches)
 		if hasattr(self, 'lbl_count'):
 			self.lbl_count.configure(
-				text=f'{shown} de {total}' if q else f'{total} clientes'
+				text=f'{shown} de {total}' if (q or self._only_debtors) else f'{total} clientes'
 			)
+
+		# Total deuda de todos los clientes (no solo los visibles)
+		total_debt = sum(
+			float(c.get('current_balance') or 0)
+			for c in self._all_customers
+			if float(c.get('current_balance') or 0) > 0
+		)
+		debt_text = f'Deuda total: ${total_debt:.2f}' if total_debt > 0 else ''
+		if hasattr(self, 'lbl_total_debt'):
+			self.lbl_total_debt.configure(text=debt_text)
+		if hasattr(self, 'lbl_total_debt_header'):
+			self.lbl_total_debt_header.configure(text=debt_text)
 
 	def load_data(self):
 		tenant_id = self.ctx.tenant_id
@@ -648,13 +874,15 @@ class CustomersView(BaseView):
 		self.btn_add.configure(state='disabled', text='⏳ Procesando...')
 		self.update_idletasks()
 
+		price_list = self._price_list_var.get()
+
 		try:
 			if self._editing_customer_id:
 				success, msg = self.controller.update_customer(
-					tenant_id, self._editing_customer_id, name, phone
+					tenant_id, self._editing_customer_id, name, phone, price_list=price_list
 				)
 			else:
-				success, msg = self.controller.add_customer(tenant_id, name, phone)
+				success, msg = self.controller.add_customer(tenant_id, name, phone, price_list=price_list)
 		finally:
 			self.btn_add.configure(state='normal', text=orig_text)
 

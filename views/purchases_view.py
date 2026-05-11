@@ -233,7 +233,7 @@ class PurchasesView(BaseView):
 		self.variant_map = {}
 		for v in variants:
 			if v.get('name'):
-				display_name = f'{v["name"]} | Cód: {v.get("barcode", "S/N")} (ID: {v["variant_id"]})'
+				display_name = f'{v["name"]} | Cód: {v.get("barcode", "S/N")}'
 				self.variant_map[display_name] = v
 
 		if self.variant_map:
@@ -249,6 +249,13 @@ class PurchasesView(BaseView):
 		if self._filter_timer:
 			self.after_cancel(self._filter_timer)
 		self._filter_timer = self.after(300, self._filter_articles)
+
+	def destroy_custom(self):
+		if self._filter_timer:
+			try:
+				self.after_cancel(self._filter_timer)
+			except Exception:
+				pass
 
 	def _filter_articles(self):
 		if not self.winfo_exists():
@@ -287,7 +294,7 @@ class PurchasesView(BaseView):
 		try:
 			qty = Decimal(qty_str)
 			cost = Decimal(cost_str)
-			if qty <= Decimal('0.0') or cost < Decimal('0.0'):
+			if qty <= Decimal('0.0') or cost <= Decimal('0.0'):
 				raise ValueError
 		except (ValueError, InvalidOperation):
 			CTkMessagebox(

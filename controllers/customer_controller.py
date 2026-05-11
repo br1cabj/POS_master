@@ -4,29 +4,18 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from controllers.base import BaseController
+from sqlalchemy import func
 
-# Asegúrate de importar 'Sale' para poder buscar las compras a crédito
+from controllers.base import BaseController
 from database.models import CashMovement, CashSession, Customer, Sale
-from utils.config import make_engine
 from utils.shared import parse_decimal
 
 logger = logging.getLogger(__name__)
 
-_default_engine = None
-
-
-def _get_default_engine():
-	global _default_engine
-	if _default_engine is None:
-		_default_engine = make_engine()
-	return _default_engine
-
 
 class CustomerController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _get_default_engine()
-		super().__init__(engine)
+		super().__init__(db_engine)
 
 	def _parse_decimal(self, value: Any) -> Optional[Decimal]:
 		return parse_decimal(value, default=None)
@@ -47,29 +36,46 @@ class CustomerController(BaseController):
 		return True, phone_clean
 
 	def get_customers(self, tenant_id: str) -> List[Dict[str, Any]]:
-		"""Retorna clientes activos del tenant ordenados por nombre."""
+		"""Retorna clientes activos del tenant ordenados por nombre, con fecha del último fiado."""
 		with self._Session() as session:
 			try:
+				last_sale_sq = (
+					session.query(
+						Sale.customer_id,
+						func.max(Sale.date).label('last_date'),
+					)
+					.filter(
+						Sale.tenant_id == tenant_id,
+						Sale.payment_method == 'fiado',
+						Sale.status != 'anulada',
+					)
+					.group_by(Sale.customer_id)
+					.subquery()
+				)
+				rows = (
+					session.query(Customer, last_sale_sq.c.last_date)
+					.outerjoin(last_sale_sq, Customer.id == last_sale_sq.c.customer_id)
+					.filter(Customer.tenant_id == tenant_id, Customer.is_active.is_(True))
+					.order_by(Customer.name)
+					.all()
+				)
 				return [
 					{
 						'id': c.id,
 						'name': c.name,
 						'phone': c.phone,
 						'current_balance': c.current_balance,
+						'price_list': c.price_list or 'A',
+						'last_movement': last_date,
 					}
-					for c in session.query(Customer)
-					.filter(
-						Customer.tenant_id == tenant_id, Customer.is_active.is_(True)
-					)
-					.order_by(Customer.name)
-					.all()
+					for c, last_date in rows
 				]
 			except Exception as e:
 				logger.error(f'Error al obtener clientes: {e}', exc_info=True)
 				return []
 
 	def add_customer(
-		self, tenant_id: str, name: str, phone: Optional[str]
+		self, tenant_id: str, name: str, phone: Optional[str], price_list: str = 'A'
 	) -> Tuple[bool, str]:
 		"""Crea un cliente nuevo o reactiva uno dado de baja lógicamente."""
 		if not name or not str(name).strip():
@@ -96,6 +102,7 @@ class CustomerController(BaseController):
 					# Reactivación
 					exist.is_active = True
 					exist.phone = phone_clean
+					exist.price_list = price_list if price_list in ('A', 'B') else 'A'
 					session.commit()
 					return True, 'Cliente reactivado con éxito.'
 
@@ -106,6 +113,7 @@ class CustomerController(BaseController):
 						name=name_clean,
 						phone=phone_clean,
 						current_balance=Decimal('0.0'),
+						price_list=price_list if price_list in ('A', 'B') else 'A',
 					)
 				)
 				session.commit()
@@ -121,8 +129,9 @@ class CustomerController(BaseController):
 		customer_id: str,
 		name: str,
 		phone: Optional[str],
+		price_list: str = 'A',
 	) -> Tuple[bool, str]:
-		"""Actualiza nombre, teléfono y tipo de un cliente existente."""
+		"""Actualiza nombre, teléfono y lista de precios de un cliente existente."""
 		if not name or not str(name).strip():
 			return False, 'El nombre del cliente es obligatorio.'
 
@@ -157,6 +166,7 @@ class CustomerController(BaseController):
 
 				customer.name = name_clean
 				customer.phone = phone_clean
+				customer.price_list = price_list if price_list in ('A', 'B') else 'A'
 				session.commit()
 				return True, f"Cliente '{name_clean}' actualizado con éxito."
 			except Exception as e:
@@ -278,26 +288,34 @@ class CustomerController(BaseController):
 				# 3. Unificar y estructurar datos
 				ledger = []
 				for s in sales:
+					items_detail = [
+						{
+							'description': item.description,
+							'quantity': float(item.quantity),
+							'unit_price': float(item.unit_price),
+							'subtotal': float(item.subtotal),
+						}
+						for item in s.items
+					]
 					ledger.append(
 						{
 							'date': getattr(s, 'date', None) or datetime.now(),
 							'type': 'cargo',  # Aumenta la deuda
-							'concept': f'Compra a crédito - Ticket #{s.id}',
+							'concept': f'Compra a crédito - Ticket #{s.id[:8]}',
 							'amount': s.total_amount,
+							'items': items_detail,
 						}
 					)
 
 				for p in payments:
-					# Diferentes ORMs usan date o created_at. Nos aseguramos de obtener la fecha.
-					p_date = getattr(
-						p, 'created_at', getattr(p, 'date', datetime.now())
-					)
+					p_date = p.time if p.time is not None else datetime.now()
 					ledger.append(
 						{
 							'date': p_date,
 							'type': 'abono',  # Reduce la deuda
 							'concept': 'Abono / Pago en Caja',
 							'amount': p.amount,
+							'items': [],
 						}
 					)
 

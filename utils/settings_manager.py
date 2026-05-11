@@ -55,11 +55,9 @@ DEFAULTS: dict = {
 	'dollar_margin_pct': 30.0,
 	# Rutas de salida
 	'reports_path': '',
-	# Precios Mayoristas
-	'wholesale_enabled': False,
-	# Lista de reglas: [{"min_qty": 6, "discount_pct": 10}, ...]
-	# Ordenadas de mayor a menor min_qty; se aplica la primera que coincide.
-	'wholesale_rules': [],
+	# Listas de precios
+	'price_list_a_name': 'Minorista',
+	'price_list_b_name': 'Mayorista',
 }
 
 
@@ -90,14 +88,6 @@ def load(force_reload: bool = False) -> dict:
 				merged['low_stock_threshold'] = int(merged['low_stock_threshold'])
 			except (ValueError, TypeError):
 				merged['low_stock_threshold'] = 5
-
-			# Asegurar tipos correctos para wholesale
-			if not isinstance(merged.get('wholesale_enabled'), bool):
-				merged['wholesale_enabled'] = bool(
-					merged.get('wholesale_enabled', False)
-				)
-			if not isinstance(merged.get('wholesale_rules'), list):
-				merged['wholesale_rules'] = []
 
 			_cached_settings = merged
 			return _cached_settings.copy()
@@ -139,31 +129,6 @@ def get_reports_path() -> str:
 		if os.path.isdir(path):
 			return path
 	return home
-
-
-def get_wholesale_discount(qty: float) -> float:
-	"""
-	Dado una cantidad, retorna el porcentaje de descuento mayorista aplicable (0.0 si ninguno).
-	Requiere que wholesale_enabled sea True y que qty supere el min_qty de alguna regla.
-	Las reglas se evalúan de mayor a menor min_qty (mejor descuento primero).
-	"""
-	cfg = load()
-	if not cfg.get('wholesale_enabled', False):
-		return 0.0
-	rules = cfg.get('wholesale_rules', [])
-	if not rules:
-		return 0.0
-	# Ordenar de mayor a menor min_qty para encontrar el mejor nivel
-	sorted_rules = sorted(rules, key=lambda r: r.get('min_qty', 0), reverse=True)
-	for rule in sorted_rules:
-		try:
-			min_qty = float(rule.get('min_qty', 0))
-			discount_pct = float(rule.get('discount_pct', 0))
-		except (ValueError, TypeError):
-			continue
-		if qty >= min_qty and min_qty > 0:
-			return discount_pct
-	return 0.0
 
 
 def fmt_price(amount: float | str | Decimal) -> str:

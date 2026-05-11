@@ -39,6 +39,7 @@ class HistoryView(BaseView):
 		self.controller = SalesController(ctx.db_engine)
 
 		self._all_sales = []
+		self._has_more = False
 		self._active_filter = 'all'
 
 		self._custom_start = None
@@ -81,7 +82,7 @@ class HistoryView(BaseView):
 		search_row.grid(row=1, column=0, sticky='ew', padx=20, pady=(0, 8))
 
 		self._search_var = ctk.StringVar()
-		self._search_var.trace_add('write', self.debounce_filter)
+		self._trace_search = self._search_var.trace_add('write', self.debounce_filter)
 
 		ctk.CTkEntry(
 			search_row,
@@ -144,10 +145,15 @@ class HistoryView(BaseView):
 		self._entry_date_end.pack(side='left', padx=2)
 		ctk.CTkButton(
 			self._custom_date_frame,
-			text='Aplicar',
-			width=60,
+			text='Aplicar →',
+			width=70,
 			height=28,
 			font=FONT_SMALL,
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			border_width=1,
+			border_color=ACCENT,
 			command=self._apply_custom_dates,
 		).pack(side='left', padx=(4, 0))
 		self._custom_date_frame.pack_forget()
@@ -256,10 +262,33 @@ class HistoryView(BaseView):
 			command=lambda: self.open_details_popup(None),
 		).pack(side='left', padx=(0, 8))
 
+		self._btn_load_more = ctk.CTkButton(
+			btn_row,
+			text='Cargar más',
+			height=34,
+			corner_radius=8,
+			font=FONT_BODY,
+			fg_color=SURFACE2,
+			hover_color=SURFACE3,
+			text_color=TEXT_SECONDARY,
+			border_width=1,
+			border_color=BORDER,
+			state='disabled',
+			command=self._load_more,
+		)
+		self._btn_load_more.pack(side='left')
+
 		self.after(100, self.load_history)
 
 	def debounce_filter(self, *args):
 		self.debounce(200, self._filter_tree)
+
+	def destroy_custom(self):
+		if getattr(self, '_trace_search', None):
+			try:
+				self._search_var.trace_remove('write', self._trace_search)
+			except Exception:
+				pass
 
 	def _apply_filter(self, key: str):
 		self._active_filter = key
@@ -338,7 +367,7 @@ class HistoryView(BaseView):
 		for row_idx, sale in enumerate(matches):
 			raw_date = sale.get('date')
 			date_str = (
-				raw_date.strftime('%Y-%m-%d %H:%M')
+				raw_date.strftime('%d/%m/%Y %H:%M')
 				if hasattr(raw_date, 'strftime')
 				else str(raw_date)
 			)
@@ -412,9 +441,10 @@ class HistoryView(BaseView):
 
 		total = len(self._all_sales)
 		shown = len(matches)
+		suffix = '+' if self._has_more else ''
 		if hasattr(self, 'lbl_count'):
 			self.lbl_count.configure(
-				text=f'{shown} de {total}' if q else f'{total} ventas'
+				text=f'{shown} de {total}{suffix}' if q else f'{total}{suffix} ventas'
 			)
 
 	def export_csv(self):
@@ -461,8 +491,31 @@ class HistoryView(BaseView):
 
 	def load_history(self):
 		tenant_id = self.ctx.tenant_id
-		self._all_sales = self.controller.get_history(tenant_id)
+		self._all_sales, self._has_more = self.controller.get_history(tenant_id)
+		self._update_load_more_btn()
 		self._filter_tree()
+
+	def _load_more(self):
+		if not self._all_sales:
+			return
+		self._btn_load_more.configure(state='disabled', text='⏳ Cargando...')
+		self.update_idletasks()
+		before_date = self._all_sales[-1]['date']
+		more, has_more = self.controller.get_history(
+			self.ctx.tenant_id, before_date=before_date
+		)
+		self._all_sales.extend(more)
+		self._has_more = has_more
+		self._update_load_more_btn()
+		self._filter_tree()
+
+	def _update_load_more_btn(self):
+		if not hasattr(self, '_btn_load_more'):
+			return
+		if self._has_more:
+			self._btn_load_more.configure(state='normal', text='Cargar más')
+		else:
+			self._btn_load_more.configure(state='disabled', text='No hay más registros')
 
 	def open_details_popup(self, event):
 		selected_item = self.tree.selection()
@@ -640,6 +693,9 @@ class HistoryView(BaseView):
 			pm_frame, text=pm_text, font=FONT_SMALL, text_color=TEXT_PRIMARY
 		).pack(pady=8, padx=10)
 
+		ctk.CTkFrame(popup, height=1, fg_color=BORDER, corner_radius=0).pack(
+			fill='x', padx=20, pady=(0, 0)
+		)
 		btn_close = ctk.CTkButton(
 			popup,
 			text='Cerrar',
@@ -648,4 +704,5 @@ class HistoryView(BaseView):
 			text_color=TEXT_PRIMARY,
 			command=popup.destroy,
 		)
-		btn_close.pack(pady=(0, 20))
+		btn_close.pack(pady=(12, 16))
+		popup.bind('<Escape>', lambda e: popup.destroy())

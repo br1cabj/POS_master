@@ -7,6 +7,7 @@ import customtkinter as ctk
 import utils.settings_manager as cfg
 from utils.date_picker import CTkDatePicker
 from controllers.article_controller import ArticleController
+from controllers.inventory_controller import InventoryController
 from controllers.label_controller import LabelController
 from core.base_view import BaseView
 from core.context import AppContext
@@ -19,11 +20,14 @@ from utils.styles import (
 	FONT_BODY,
 	FONT_BODY_BOLD,
 	FONT_HEADING,
+	FONT_INPUT_LG,
 	FONT_LABEL,
 	FONT_LABEL_BOLD,
+	FONT_SUBHEADING_BOLD,
 	FONT_TITLE,
 	GREEN,
 	GREEN_DIM,
+	GREEN_HOVER,
 	GREEN_TEXT,
 	ORANGE,
 	ORANGE_DIM,
@@ -55,6 +59,7 @@ class ArticlesView(BaseView):
 	def __init__(self, master, ctx: AppContext):
 		super().__init__(master, ctx)
 		self.controller = ArticleController(ctx.db_engine)
+		self.inventory_ctrl = InventoryController(ctx.db_engine)
 
 		self.editing_variant_id = None
 		self.current_variants = []
@@ -75,14 +80,15 @@ class ArticlesView(BaseView):
 		self._var_margin = ctk.StringVar(value='')
 		self._var_cost_str = ctk.StringVar(value='')
 		self._var_price_str = ctk.StringVar(value='')
+		self._var_price_b_str = ctk.StringVar(value='')
 
 		self._var_discount_enabled = ctk.BooleanVar(value=False)
 		self._var_discount_pct = ctk.StringVar(value='')
 
-		self._var_cost_str.trace_add('write', self._on_cost_or_margin_changed)
-		self._var_margin.trace_add('write', self._on_cost_or_margin_changed)
-		self._var_iva_included.trace_add('write', self._on_cost_or_margin_changed)
-		self._var_price_str.trace_add('write', self._on_price_changed)
+		self._trace_cost = self._var_cost_str.trace_add('write', self._on_cost_or_margin_changed)
+		self._trace_margin = self._var_margin.trace_add('write', self._on_cost_or_margin_changed)
+		self._trace_iva = self._var_iva_included.trace_add('write', self._on_cost_or_margin_changed)
+		self._trace_price = self._var_price_str.trace_add('write', self._on_price_changed)
 
 		self._build_left_panel()
 		self._build_right_panel()
@@ -124,23 +130,24 @@ class ArticlesView(BaseView):
 			row=0, column=0, pady=(PAD_LG, PAD_SM), padx=PAD_LG, sticky='w'
 		)
 
-		self.tabview = ctk.CTkTabview(
+		self._form_scroll = ctk.CTkScrollableFrame(
 			self.left_panel,
 			fg_color=SURFACE1,
-			segmented_button_fg_color=SURFACE3,
-			segmented_button_selected_color=ACCENT,
-			segmented_button_selected_hover_color=ACCENT_DIM,
-			text_color=TEXT_PRIMARY,
+			corner_radius=10,
 		)
-		self.tabview.grid(row=1, column=0, sticky='nsew', padx=PAD_MD, pady=(0, PAD_MD))
+		self._form_scroll.grid(row=1, column=0, sticky='nsew', padx=PAD_MD, pady=(0, PAD_MD))
+		self._form_scroll.grid_columnconfigure(0, weight=1)
 
-		tab_gen = self.tabview.add('General')
-		tab_pre = self.tabview.add('Precios')
-		tab_emp = self.tabview.add('Empaque')
+		self._build_section_identificacion(self._form_scroll)
+		self._build_section_inventario(self._form_scroll)
+		self._build_section_precio(self._form_scroll)
+		self._build_section_empaque(self._form_scroll)
 
-		self._build_tab_general(tab_gen)
-		self._build_tab_precios(tab_pre)
-		self._build_tab_empaque(tab_emp)
+		class _DummyTabview:
+			def set(self, *_):
+				pass
+
+		self.tabview = _DummyTabview()
 
 		footer = ctk.CTkFrame(self.left_panel, fg_color='transparent')
 		footer.grid(row=2, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_MD))
@@ -173,12 +180,29 @@ class ArticlesView(BaseView):
 		)
 		self.btn_cancel.pack(side='right', expand=False, fill='x')
 
-	def _build_tab_general(self, parent):
-		make_form_label(parent, 'CÓDIGO DE BARRAS', required=False)[0].pack(
-			anchor='w', pady=(PAD_MD, PAD_XS)
+	def _section_header(self, parent, text):
+		ctk.CTkLabel(
+			parent,
+			text=text,
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).pack(fill='x', pady=(PAD_MD, PAD_XS))
+		ctk.CTkFrame(parent, height=1, fg_color=BORDER, corner_radius=0).pack(
+			fill='x', pady=(0, PAD_SM)
+		)
+
+	def _build_section_identificacion(self, parent):
+		sec = ctk.CTkFrame(parent, fg_color='transparent')
+		sec.pack(fill='x', padx=PAD_SM, pady=(PAD_SM, 0))
+
+		self._section_header(sec, 'IDENTIFICACIÓN')
+
+		make_form_label(sec, 'CÓDIGO DE BARRAS', required=False)[0].pack(
+			anchor='w', pady=(0, PAD_XS)
 		)
 		self.entry_barcode = ctk.CTkEntry(
-			parent,
+			sec,
 			placeholder_text='Escanear o escribir (Enter)',
 			height=40,
 			font=FONT_BODY,
@@ -187,27 +211,26 @@ class ArticlesView(BaseView):
 		self.entry_barcode.bind('<Return>', self.on_barcode_scanned)
 
 		self.lbl_barcode_msg = ctk.CTkLabel(
-			parent, text='', font=FONT_LABEL, text_color=GREEN_TEXT
+			sec, text='', font=FONT_LABEL, text_color=GREEN_TEXT
 		)
 		self.lbl_barcode_msg.pack(anchor='w', pady=(0, PAD_SM))
 		self.lbl_barcode_msg.pack_forget()
 
-		make_form_label(parent, 'NOMBRE DEL PRODUCTO', required=True)[0].pack(
-			anchor='w', pady=(PAD_SM, PAD_XS)
-		)
+		self._name_lbl_frame, _ = make_form_label(sec, 'NOMBRE DEL PRODUCTO', required=True)
+		self._name_lbl_frame.pack(anchor='w', pady=(PAD_SM, PAD_XS))
 		self.entry_name = ctk.CTkEntry(
-			parent,
+			sec,
 			placeholder_text='Ej: Gaseosa Cola 1.5L',
 			height=40,
 			font=FONT_HEADING,
 		)
 		self.entry_name.pack(fill='x', pady=(0, PAD_SM))
 
-		make_form_label(parent, 'PROVEEDOR / DISTRIBUIDOR', required=False)[0].pack(
+		make_form_label(sec, 'PROVEEDOR / DISTRIBUIDOR', required=False)[0].pack(
 			anchor='w', pady=(PAD_SM, PAD_XS)
 		)
 		self.combo_supplier = ctk.CTkComboBox(
-			parent,
+			sec,
 			values=['Cargando...'],
 			height=40,
 			font=FONT_BODY,
@@ -215,9 +238,8 @@ class ArticlesView(BaseView):
 		)
 		self.combo_supplier.pack(fill='x', pady=(0, PAD_XS))
 
-		# Descuento activo del distribuidor seleccionado
 		self._lbl_supplier_discount = ctk.CTkLabel(
-			parent,
+			sec,
 			text='',
 			font=FONT_LABEL_BOLD,
 			text_color=ORANGE_TEXT,
@@ -225,9 +247,8 @@ class ArticlesView(BaseView):
 		)
 		self._lbl_supplier_discount.pack(anchor='w', pady=(0, PAD_XS))
 
-		# Botón para configurar descuento del distribuidor
 		self._btn_supplier_discount = ctk.CTkButton(
-			parent,
+			sec,
 			text='🏷️  Configurar descuento del distribuidor',
 			fg_color='transparent',
 			hover_color=ORANGE_DIM,
@@ -241,21 +262,32 @@ class ArticlesView(BaseView):
 		)
 		self._btn_supplier_discount.pack(fill='x', pady=(0, PAD_SM))
 
+	def _build_section_inventario(self, parent):
+		sec = ctk.CTkFrame(parent, fg_color='transparent')
+		sec.pack(fill='x', padx=PAD_SM)
+
+		self._section_header(sec, 'INVENTARIO')
+
 		_stock_label_frame, self.lbl_stock = make_form_label(
-			parent, 'STOCK INICIAL', required=False
+			sec, 'STOCK INICIAL', required=False
 		)
-		_stock_label_frame.pack(anchor='w', pady=(PAD_SM, PAD_XS))
+		_stock_label_frame.pack(anchor='w', pady=(0, PAD_XS))
 		self.entry_stock = ctk.CTkEntry(
-			parent, placeholder_text='0', height=40, font=FONT_BODY_BOLD
+			sec, placeholder_text='0', height=40, font=FONT_BODY_BOLD
 		)
 		self.entry_stock.pack(fill='x', pady=(0, PAD_SM))
 
-	def _build_tab_precios(self, parent):
-		make_form_label(parent, 'PRECIO DE COSTO ($)', required=True)[0].pack(
-			anchor='w', pady=(PAD_MD, PAD_XS)
+	def _build_section_precio(self, parent):
+		sec = ctk.CTkFrame(parent, fg_color='transparent')
+		sec.pack(fill='x', padx=PAD_SM)
+
+		self._section_header(sec, 'PRECIO')
+
+		make_form_label(sec, 'PRECIO DE COSTO ($)', required=True)[0].pack(
+			anchor='w', pady=(0, PAD_XS)
 		)
 		self.entry_cost = ctk.CTkEntry(
-			parent,
+			sec,
 			placeholder_text='0.00',
 			height=45,
 			font=FONT_TITLE,
@@ -269,7 +301,7 @@ class ArticlesView(BaseView):
 			else 'IVA no configurado'
 		)
 		self.chk_iva = ctk.CTkCheckBox(
-			parent,
+			sec,
 			text=chk_text,
 			variable=self._var_iva_included,
 			font=FONT_BODY,
@@ -277,7 +309,7 @@ class ArticlesView(BaseView):
 		)
 		self.chk_iva.pack(anchor='w', pady=(0, PAD_MD), padx=PAD_XS)
 
-		row_precios = ctk.CTkFrame(parent, fg_color='transparent')
+		row_precios = ctk.CTkFrame(sec, fg_color='transparent')
 		row_precios.pack(fill='x', pady=(0, PAD_MD))
 		row_precios.grid_columnconfigure(0, weight=1)
 		row_precios.grid_columnconfigure(1, weight=1)
@@ -313,7 +345,7 @@ class ArticlesView(BaseView):
 		self.entry_price.pack(fill='x')
 
 		self._formula_frame = ctk.CTkFrame(
-			parent,
+			sec,
 			fg_color=ACCENT_DIM,
 			corner_radius=10,
 			border_width=1,
@@ -329,13 +361,38 @@ class ArticlesView(BaseView):
 		)
 		self._lbl_formula_expr.pack(padx=PAD_MD, pady=PAD_MD)
 
-		# ── Sección Descuento ──────────────────────────────────────────────
-		ctk.CTkFrame(parent, height=1, fg_color=BORDER, corner_radius=0).pack(
+		# ── Precio Lista B (Mayorista) ────────────────────────────────────
+		ctk.CTkFrame(sec, height=1, fg_color=BORDER, corner_radius=0).pack(
 			fill='x', pady=(PAD_MD, PAD_SM)
 		)
+		_list_b_name = cfg.get('price_list_b_name', 'Mayorista')
+		make_form_label(sec, f'PRECIO LISTA B — {_list_b_name.upper()} ($)', required=False)[0].pack(
+			anchor='w', pady=(0, PAD_XS)
+		)
+		self.entry_price_b = ctk.CTkEntry(
+			sec,
+			placeholder_text='Dejar vacío = mismo que Lista A',
+			height=40,
+			font=FONT_HEADING,
+			text_color=ORANGE_TEXT,
+			textvariable=self._var_price_b_str,
+		)
+		self.entry_price_b.pack(fill='x', pady=(0, PAD_SM))
+
+		# ── Descuento ─────────────────────────────────────────────────────
+		ctk.CTkFrame(sec, height=1, fg_color=BORDER, corner_radius=0).pack(
+			fill='x', pady=(0, PAD_SM)
+		)
+		ctk.CTkLabel(
+			sec,
+			text='DESCUENTO',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).pack(fill='x', pady=(0, PAD_XS))
 
 		self._chk_discount = ctk.CTkCheckBox(
-			parent,
+			sec,
 			text='🏷️  Activar descuento en este producto',
 			variable=self._var_discount_enabled,
 			font=FONT_BODY_BOLD,
@@ -347,7 +404,7 @@ class ArticlesView(BaseView):
 		self._chk_discount.pack(anchor='w', pady=(0, PAD_XS))
 
 		self._frame_discount_fields = ctk.CTkFrame(
-			parent,
+			sec,
 			fg_color=ORANGE_DIM,
 			corner_radius=8,
 			border_width=1,
@@ -395,8 +452,13 @@ class ArticlesView(BaseView):
 		)
 		self._lbl_disc_preview.pack(padx=PAD_SM, anchor='w', pady=(0, PAD_SM))
 
-	def _build_tab_empaque(self, parent):
-		self.frame_packaging = ctk.CTkFrame(parent, fg_color='transparent')
+	def _build_section_empaque(self, parent):
+		sec = ctk.CTkFrame(parent, fg_color='transparent')
+		sec.pack(fill='x', padx=PAD_SM, pady=(0, PAD_SM))
+
+		self._section_header(sec, 'PRESENTACIONES')
+
+		self.frame_packaging = ctk.CTkFrame(sec, fg_color='transparent')
 		self.frame_packaging.pack(fill='both', expand=True, pady=PAD_SM)
 
 		packaging_header = ctk.CTkFrame(self.frame_packaging, fg_color='transparent')
@@ -424,7 +486,7 @@ class ArticlesView(BaseView):
 		)
 		self.lbl_pack_hint.pack(pady=PAD_LG)
 
-		self.frame_pack_list = ctk.CTkScrollableFrame(
+		self.frame_pack_list = ctk.CTkFrame(
 			self.frame_packaging, fg_color='transparent'
 		)
 		self.frame_pack_list.pack(fill='both', expand=True, pady=(PAD_SM, 0))
@@ -452,12 +514,13 @@ class ArticlesView(BaseView):
 			anchor='w',
 		).pack(side='left')
 
-		ctk.CTkLabel(
+		self.lbl_dblclick_hint = ctk.CTkLabel(
 			self.right_panel,
 			text='Doble clic en un producto para editarlo',
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
-		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
+		)
+		self.lbl_dblclick_hint.pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
 		search_row = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		search_row.pack(fill='x', padx=PAD_SM, pady=(0, PAD_SM))
@@ -494,6 +557,7 @@ class ArticlesView(BaseView):
 		self.tree = ttk.Treeview(
 			self.table_container,
 			columns=columns,
+			displaycolumns=('Código', 'Nombre', 'Proveedor', 'Costo', 'Venta', 'Stock'),
 			show='headings',
 			height=15,
 			yscrollcommand=self.tree_scroll.set,
@@ -565,7 +629,239 @@ class ArticlesView(BaseView):
 			cursor='hand2',
 			command=self.print_labels,
 		)
-		self.btn_print_labels.pack(side='left', expand=True, fill='x')
+		self.btn_print_labels.pack(side='left', expand=True, fill='x', padx=(0, PAD_SM))
+
+		self.btn_adjust_stock = ctk.CTkButton(
+			btns,
+			text='⚖ Ajustar Stock',
+			fg_color=GREEN_DIM,
+			hover_color=GREEN_HOVER,
+			text_color=GREEN_TEXT,
+			border_width=1,
+			border_color=GREEN_TEXT,
+			height=36,
+			corner_radius=8,
+			cursor='hand2',
+			command=self._open_adjust_popup,
+		)
+		self.btn_adjust_stock.pack(side='left', expand=True, fill='x')
+
+	# ─────────────────────────────────────────────────────────────────────────
+	# AJUSTE DE STOCK
+	# ─────────────────────────────────────────────────────────────────────────
+
+	def _open_adjust_popup(self):
+		selected = self.tree.selection()
+		if not selected:
+			self.show_warning('Seleccioná un producto de la tabla para ajustar su stock.')
+			return
+
+		values = self.tree.item(selected[0], 'values')
+		variant_id = values[0]
+
+		variant_data = next(
+			(v for v in self.current_variants if str(v.get('variant_id')) == str(variant_id)),
+			None,
+		)
+		if not variant_data:
+			return
+
+		product_name = variant_data.get('name', 'Producto')
+		current_stock = float(variant_data.get('total_stock', 0))
+
+		popup = ctk.CTkToplevel(self)
+		popup.title('Ajuste de Stock')
+		popup.configure(fg_color=SURFACE2)
+		popup.geometry('400x510')
+		popup.resizable(False, False)
+		popup.attributes('-topmost', True)
+		popup.grab_set()
+		popup.bind('<Escape>', lambda e: popup.destroy())
+
+		# Header
+		ctk.CTkLabel(
+			popup,
+			text='⚖  Ajuste de Stock',
+			font=FONT_SUBHEADING_BOLD,
+			text_color=GREEN_TEXT,
+		).pack(pady=(20, 4))
+
+		ctk.CTkLabel(
+			popup,
+			text=product_name,
+			font=FONT_BODY,
+			text_color=TEXT_MUTED,
+			wraplength=360,
+		).pack(pady=(0, 4))
+
+		# Stock actual
+		stock_frame = ctk.CTkFrame(
+			popup, fg_color=SURFACE3, corner_radius=8, border_width=1, border_color=BORDER_ACTIVE
+		)
+		stock_frame.pack(fill='x', padx=24, pady=(4, 12))
+		_sf = ctk.CTkFrame(stock_frame, fg_color='transparent')
+		_sf.pack(fill='x', padx=16, pady=8)
+		ctk.CTkLabel(_sf, text='Stock actual:', font=FONT_BODY, text_color=TEXT_MUTED).pack(side='left')
+		lbl_current = ctk.CTkLabel(
+			_sf,
+			text=f'{current_stock:.2f} unidades',
+			font=FONT_HEADING,
+			text_color=TEXT_PRIMARY,
+		)
+		lbl_current.pack(side='right')
+
+		# Nuevo stock
+		ctk.CTkLabel(
+			popup,
+			text='NUEVO STOCK REAL',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).pack(anchor='w', padx=24)
+
+		entry_new = ctk.CTkEntry(
+			popup,
+			font=FONT_INPUT_LG,
+			justify='center',
+			fg_color=SURFACE3,
+			border_color=ACCENT,
+			text_color=TEXT_PRIMARY,
+			height=52,
+			border_width=2,
+		)
+		entry_new.pack(fill='x', padx=24, pady=(4, 6))
+		entry_new.insert(0, f'{current_stock:.2f}')
+		entry_new.select_range(0, 'end')
+		entry_new.focus()
+
+		# Delta preview
+		lbl_delta = ctk.CTkLabel(
+			popup,
+			text='Sin cambios',
+			font=FONT_BODY,
+			text_color=TEXT_MUTED,
+		)
+		lbl_delta.pack(pady=(0, 8))
+
+		def _on_qty_change(event=None):
+			try:
+				val = float(entry_new.get().replace(',', '.'))
+				delta = val - current_stock
+				if abs(delta) < 0.001:
+					lbl_delta.configure(text='Sin cambios', text_color=TEXT_MUTED)
+				elif delta > 0:
+					lbl_delta.configure(
+						text=f'▲ +{delta:.2f} unidades (entrada)',
+						text_color=GREEN_TEXT,
+					)
+				else:
+					lbl_delta.configure(
+						text=f'▼ {delta:.2f} unidades (salida)',
+						text_color=ORANGE_TEXT,
+					)
+			except (ValueError, TypeError):
+				lbl_delta.configure(text='Cantidad inválida', text_color=RED_TEXT)
+
+		entry_new.bind('<KeyRelease>', _on_qty_change)
+
+		# Motivo
+		ctk.CTkLabel(
+			popup,
+			text='MOTIVO  *',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).pack(anchor='w', padx=24)
+
+		combo_reason = ctk.CTkComboBox(
+			popup,
+			values=InventoryController.get_adjust_reasons(),
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			button_color=SURFACE3,
+			button_hover_color=SURFACE4,
+			text_color=TEXT_PRIMARY,
+			height=36,
+			font=FONT_BODY,
+		)
+		combo_reason.set('Conteo físico')
+		combo_reason.pack(fill='x', padx=24, pady=(4, 8))
+
+		# Notas
+		ctk.CTkLabel(
+			popup,
+			text='NOTAS  (opcional)',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).pack(anchor='w', padx=24)
+
+		entry_notes = ctk.CTkEntry(
+			popup,
+			placeholder_text='Ej: Conteo del 06/05/2026, falta una caja...',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=34,
+			font=FONT_BODY,
+		)
+		entry_notes.pack(fill='x', padx=24, pady=(4, 12))
+
+		lbl_err = ctk.CTkLabel(popup, text='', font=FONT_LABEL_BOLD, text_color=RED_TEXT)
+		lbl_err.pack()
+
+		def _confirm():
+			raw = entry_new.get().replace(',', '.')
+			reason = combo_reason.get()
+			notes = entry_notes.get().strip()
+
+			try:
+				new_val = float(raw)
+			except ValueError:
+				lbl_err.configure(text='Ingresá una cantidad válida.')
+				return
+
+			if new_val < 0:
+				lbl_err.configure(text='El stock no puede ser negativo.')
+				return
+
+			if not reason:
+				lbl_err.configure(text='Seleccioná un motivo.')
+				return
+
+			btn_confirm.configure(state='disabled', text='⏳ Guardando...')
+			popup.update()
+
+			success, msg = self.inventory_ctrl.adjust_stock(
+				tenant_id=self.ctx.tenant_id,
+				user_id=self.ctx.user_id,
+				variant_id=variant_id,
+				new_qty_raw=new_val,
+				reason=reason,
+				notes=notes,
+			)
+
+			if success:
+				popup.destroy()
+				self.show_toast(f'✓  {msg}', 'success')
+				self.load_data()
+			else:
+				lbl_err.configure(text=msg)
+				btn_confirm.configure(state='normal', text='✓  Confirmar Ajuste')
+
+		btn_confirm = ctk.CTkButton(
+			popup,
+			text='✓  Confirmar Ajuste',
+			fg_color=GREEN,
+			hover_color=GREEN_HOVER,
+			text_color=TEXT_PRIMARY,
+			font=FONT_BODY_BOLD,
+			height=42,
+			corner_radius=8,
+			command=_confirm,
+		)
+		btn_confirm.pack(fill='x', padx=24, pady=(4, 16))
+		entry_new.bind('<Return>', lambda e: _confirm())
 
 	# ─────────────────────────────────────────────────────────────────────────
 	# LÓGICA DE NEGOCIO Y EVENTOS
@@ -800,8 +1096,9 @@ class ArticlesView(BaseView):
 			self.combo_supplier.configure(values=combo_vals)
 		else:
 			self.combo_supplier.configure(values=['Sin Proveedor'])
-		self.combo_supplier.set('Sin Proveedor')
-		self._on_supplier_changed()
+		if not self.editing_variant_id:
+			self.combo_supplier.set('Sin Proveedor')
+			self._on_supplier_changed()
 
 		self.current_variants = self.controller.get_all_variants(tenant_id)
 		self._filter_tree()
@@ -868,6 +1165,12 @@ class ArticlesView(BaseView):
 					self.tree_scroll.pack(side='right', fill='y')
 					self.tree.pack(side='left', fill='both', expand=True)
 
+		if hasattr(self, 'lbl_dblclick_hint'):
+			if matches:
+				self.lbl_dblclick_hint.pack_forget()
+			elif not getattr(self, 'lbl_dblclick_hint_packed', False):
+				pass  # ya visible desde el __init__
+
 		total = len(self.current_variants)
 		shown = len(matches)
 		if hasattr(self, 'lbl_count') and self.lbl_count.winfo_exists():
@@ -876,7 +1179,7 @@ class ArticlesView(BaseView):
 			)
 
 	def on_barcode_scanned(self, event):
-		barcode = self.entry_barcode.get().strip().lstrip('0') or '0'
+		barcode = self.entry_barcode.get().strip()
 		if not barcode:
 			return
 
@@ -885,7 +1188,6 @@ class ArticlesView(BaseView):
 		)
 		if found:
 			self.load_variant_into_form(found)
-			self.tabview.set('Precios')
 			self.entry_price.focus()
 		else:
 			self.reset_form(keep_barcode=True)
@@ -917,6 +1219,8 @@ class ArticlesView(BaseView):
 		self._calc_lock = True
 		self._var_cost_str.set(f'{variant.get("cost_price", 0):.2f}')
 		self._var_price_str.set(f'{variant.get("selling_price", 0):.2f}')
+		price_b = variant.get('selling_price_b')
+		self._var_price_b_str.set(f'{price_b:.2f}' if price_b else '')
 		self._calc_lock = False
 		self._on_price_changed()
 
@@ -964,7 +1268,6 @@ class ArticlesView(BaseView):
 
 		self.tabview.set('General')
 		self._show_packaging_panel(variant['variant_id'])
-		self.lbl_pack_hint.pack_forget()
 
 	def reset_form(self, keep_barcode=False):
 		self.editing_variant_id = None
@@ -982,6 +1285,7 @@ class ArticlesView(BaseView):
 		self._calc_lock = True
 		self._var_cost_str.set('')
 		self._var_price_str.set('')
+		self._var_price_b_str.set('')
 		self._var_margin.set('')
 		self._var_iva_included.set(False)
 		self._lbl_formula_expr.configure(text='Costo Real: $0.00 | Ganancia: $0.00')
@@ -1000,7 +1304,6 @@ class ArticlesView(BaseView):
 		self._var_discount_pct.set('')
 		self.entry_discount_until.clear()
 		self._frame_discount_fields.pack_forget()
-		self.combo_supplier.set('Sin Proveedor')
 		self._on_supplier_changed()
 
 		self.lbl_pack_hint.configure(text='(Guarda el producto base primero)')
@@ -1019,9 +1322,21 @@ class ArticlesView(BaseView):
 			self.winfo_toplevel().unbind('<Control-g>')
 		except Exception:
 			pass
+		for var, tid in (
+			(self._var_cost_str, getattr(self, '_trace_cost', None)),
+			(self._var_margin, getattr(self, '_trace_margin', None)),
+			(self._var_iva_included, getattr(self, '_trace_iva', None)),
+			(self._var_price_str, getattr(self, '_trace_price', None)),
+		):
+			if tid:
+				try:
+					var.trace_remove('write', tid)
+				except Exception:
+					pass
 
 	def _generate_unique_barcode(self):
-		while True:
+		max_attempts = 100
+		for _ in range(max_attempts):
 			new_code = f'99{random.randint(1000000000, 9999999999)}'
 			found = next(
 				(v for v in self.current_variants if str(v.get('barcode')) == new_code),
@@ -1029,11 +1344,16 @@ class ArticlesView(BaseView):
 			)
 			if not found:
 				return new_code
+		raise RuntimeError('No se pudo generar un código de barras único después de 100 intentos.')
 
 	def save_article(self):
 		self.clear_field_errors(self.entry_name, self.entry_barcode)
 
 		name = self.entry_name.get().strip()
+		if not name:
+			self.mark_field_error(self.entry_name, 'El nombre es obligatorio.')
+			return
+
 		raw_barcode = self.entry_barcode.get().strip().lstrip('0')
 
 		assigned_random_code = False
@@ -1045,10 +1365,6 @@ class ArticlesView(BaseView):
 
 		supplier_name = self.combo_supplier.get()
 		supplier_id = self.suppliers_map.get(supplier_name)
-
-		if not name:
-			self.mark_field_error(self.entry_name, 'El nombre es obligatorio.')
-			return
 
 		if not self._var_cost_str.get() or not self._var_price_str.get():
 			self.show_warning('Completá el costo y el precio de venta.')
@@ -1063,6 +1379,14 @@ class ArticlesView(BaseView):
 
 			cost = float(cost_dec)
 			price = float(price_dec)
+
+			raw_price_b = self._var_price_b_str.get().strip().replace(',', '.')
+			price_b = None
+			if raw_price_b:
+				price_b_dec = Decimal(raw_price_b)
+				if price_b_dec < 0:
+					raise ValueError('El precio de lista B no puede ser negativo.')
+				price_b = float(price_b_dec) if price_b_dec > 0 else None
 
 			initial_stock = 0.0
 			if not self.editing_variant_id:
@@ -1139,6 +1463,7 @@ class ArticlesView(BaseView):
 					supplier_id,
 					discount_pct=discount_pct,
 					discount_until=discount_until,
+					selling_price_b=price_b,
 				)
 			else:
 				success, msg = self.controller.add_simple_article(
@@ -1152,6 +1477,7 @@ class ArticlesView(BaseView):
 					supplier_id,
 					discount_pct=discount_pct,
 					discount_until=discount_until,
+					selling_price_b=price_b,
 				)
 		finally:
 			self.set_loading(self.btn_add, False, original_text)
@@ -1164,7 +1490,7 @@ class ArticlesView(BaseView):
 				self.lbl_barcode_msg.pack(
 					anchor='w',
 					pady=(0, PAD_SM),
-					before=self.entry_name.master.winfo_children()[2],
+					before=self._name_lbl_frame,
 				)
 			self.load_data()
 			self.entry_barcode.focus()

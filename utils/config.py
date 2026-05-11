@@ -33,12 +33,16 @@ SECRET_SALT = 'aantesbajocabeconcontradedesdeenentrehaciahastaparaporsegunsinsob
 
 @event.listens_for(Engine, 'connect')
 def _set_sqlite_fk_pragma(dbapi_conn, _):
-    """Activa FK enforcement en SQLite (está deshabilitado por defecto)."""
-    if hasattr(dbapi_conn, 'execute'):
-        try:
-            dbapi_conn.execute('PRAGMA foreign_keys=ON')
-        except Exception:
-            pass
+	"""Configura SQLite con FK enforcement y modo WAL para máxima performance."""
+	if hasattr(dbapi_conn, 'execute'):
+		try:
+			dbapi_conn.execute('PRAGMA foreign_keys=ON')
+			dbapi_conn.execute('PRAGMA journal_mode=WAL')
+			dbapi_conn.execute('PRAGMA synchronous=NORMAL')
+			dbapi_conn.execute('PRAGMA cache_size=-32000')
+			dbapi_conn.execute('PRAGMA temp_store=MEMORY')
+		except Exception:
+			pass
 
 
 def make_engine(url: str = None):
@@ -59,3 +63,14 @@ def make_engine(url: str = None):
 		kwargs['pool_pre_ping'] = True
 
 	return create_engine(target, **kwargs)
+
+
+_shared_engine = None
+
+
+def get_engine(url: str = None):
+	"""Retorna el engine compartido de la aplicación (singleton)."""
+	global _shared_engine
+	if _shared_engine is None:
+		_shared_engine = make_engine(url)
+	return _shared_engine

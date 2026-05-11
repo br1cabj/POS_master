@@ -284,7 +284,7 @@ class SettingsView(BaseView):
 		os.makedirs(dest_dir, exist_ok=True)
 
 		# Purgado de logos anteriores
-		for old_logo in glob.glob(os.path.join(dest_dir, 'logo.*')):
+		for old_logo in glob.glob(os.path.join(dest_dir, 'logo.png')) + glob.glob(os.path.join(dest_dir, 'logo.jpg')) + glob.glob(os.path.join(dest_dir, 'logo.jpeg')) + glob.glob(os.path.join(dest_dir, 'logo.gif')) + glob.glob(os.path.join(dest_dir, 'logo.bmp')):
 			try:
 				os.remove(old_logo)
 			except Exception as e:
@@ -317,10 +317,11 @@ class SettingsView(BaseView):
 		sym_row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 
 		self._sym_var = ctk.StringVar(value=self._settings.get('currency_symbol', '$'))
+		self._sym_btns: dict = {}
 
 		for sym in CURRENCY_SYMBOLS:
 			active = sym == self._sym_var.get()
-			ctk.CTkButton(
+			btn = ctk.CTkButton(
 				sym_row,
 				text=sym,
 				width=40,
@@ -333,7 +334,9 @@ class SettingsView(BaseView):
 				border_color=ACCENT if active else BORDER,
 				corner_radius=6,
 				command=lambda s=sym: self._pick_symbol(s),
-			).pack(side='left', padx=(0, PAD_XS))
+			)
+			btn.pack(side='left', padx=(0, PAD_XS))
+			self._sym_btns[sym] = btn
 
 		make_form_label(card, 'Símbolo personalizado')[0].pack(
 			anchor='w', padx=PAD_MD, pady=(PAD_XS, PAD_XS)
@@ -409,6 +412,17 @@ class SettingsView(BaseView):
 		self._sym_var.set(sym)
 		self._mark_dirty()
 		self._update_currency_preview()
+		for s, btn in getattr(self, '_sym_btns', {}).items():
+			active = s == sym
+			try:
+				btn.configure(
+					fg_color=ACCENT_DIM if active else SURFACE3,
+					hover_color=ACCENT if active else SURFACE4,
+					text_color=ACCENT_TEXT if active else TEXT_SECONDARY,
+					border_color=ACCENT if active else BORDER,
+				)
+			except Exception:
+				pass
 
 	def _use_custom_sym(self):
 		val = self.entry_custom_sym.get().strip()
@@ -645,208 +659,65 @@ class SettingsView(BaseView):
 			self.show_error(f'Error al crear el respaldo:\n{e}')
 
 	# ─────────────────────────────────────────────────────────────────────
-	# SECCION: PRECIOS MAYORISTAS
+	# SECCION: LISTAS DE PRECIOS
 	# ─────────────────────────────────────────────────────────────────────
 	def _build_mayorista(self, parent):
-		card = self._section_card(parent, 'PRECIOS MAYORISTAS', '\U0001f4e6')
+		card = self._section_card(parent, 'LISTAS DE PRECIOS', '💰')
 		card.pack(fill='x', pady=(0, PAD_MD))
 
 		ctk.CTkLabel(
 			card,
 			text=(
-				'Aplica un descuento automático cuando se agrega una cantidad\n'
-				'igual o mayor al mínimo configurado para un mismo artículo.'
+				'Configurá los nombres de las dos listas de precios.\n'
+				'Lista A es el precio de venta estándar (minorista).\n'
+				'Lista B es el precio especial por cliente (mayorista).'
 			),
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 			justify='left',
 			anchor='w',
-		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
-
-		switch_row = ctk.CTkFrame(card, fg_color='transparent')
-		switch_row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
-		ctk.CTkLabel(
-			switch_row,
-			text='Activar precios mayoristas',
-			font=FONT_BODY_BOLD,
-			text_color=TEXT_PRIMARY,
-			anchor='w',
-			width=220,
-		).pack(side='left')
-		self._wholesale_enabled_var = ctk.BooleanVar(
-			value=self._settings.get('wholesale_enabled', False)
-		)
-		self._wholesale_switch = ctk.CTkSwitch(
-			switch_row,
-			text='',
-			variable=self._wholesale_enabled_var,
-			progress_color=ACCENT,
-			command=self._on_wholesale_toggle,
-		)
-		self._wholesale_switch.pack(side='left', padx=(PAD_SM, 0))
-
-		ctk.CTkFrame(card, height=1, fg_color=BORDER).pack(
-			fill='x', padx=PAD_MD, pady=(0, PAD_SM)
-		)
-
-		hdr = ctk.CTkFrame(card, fg_color='transparent')
-		hdr.pack(fill='x', padx=PAD_MD, pady=(0, PAD_XS))
-		hdr.grid_columnconfigure(0, weight=1)
-		hdr.grid_columnconfigure(1, weight=1)
-		hdr.grid_columnconfigure(2, minsize=36)
-		ctk.CTkLabel(
-			hdr,
-			text='Cant. mínima (uds.)',
-			font=FONT_LABEL_BOLD,
-			text_color=TEXT_MUTED,
-			anchor='w',
-		).grid(row=0, column=0, sticky='w')
-		ctk.CTkLabel(
-			hdr,
-			text='Descuento (%)',
-			font=FONT_LABEL_BOLD,
-			text_color=TEXT_MUTED,
-			anchor='w',
-		).grid(row=0, column=1, sticky='w', padx=(PAD_SM, 0))
-
-		self._wholesale_rules_frame = ctk.CTkScrollableFrame(
-			card, fg_color='transparent', height=120
-		)
-		self._wholesale_rules_frame.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
-		self._wholesale_rules_frame.grid_columnconfigure(0, weight=1)
-		self._wholesale_rules_frame.grid_columnconfigure(1, weight=1)
-		self._wholesale_rules_frame.grid_columnconfigure(2, minsize=36)
-
-		self._wholesale_rules = [
-			dict(r) for r in self._settings.get('wholesale_rules', [])
-		]
-		self._wholesale_rule_widgets = []
-		self._rebuild_rules_ui()
-
-		ctk.CTkButton(
-			card,
-			text='+ Agregar Nivel',
-			height=32,
-			font=FONT_LABEL_BOLD,
-			corner_radius=6,
-			fg_color=ACCENT_DIM,
-			hover_color=ACCENT,
-			text_color=ACCENT_TEXT,
-			border_width=1,
-			border_color=ACCENT,
-			command=self._add_wholesale_rule,
 		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_MD))
 
-	def _rebuild_rules_ui(self):
-		self._is_rebuilding = True
-		try:
-			for w in self._wholesale_rules_frame.winfo_children():
-				w.destroy()
-			self._wholesale_rule_widgets.clear()
+		names_row = ctk.CTkFrame(card, fg_color='transparent')
+		names_row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
+		names_row.grid_columnconfigure(0, weight=1)
+		names_row.grid_columnconfigure(1, weight=1)
 
-			if not self._wholesale_rules:
-				ctk.CTkLabel(
-					self._wholesale_rules_frame,
-					text='Sin reglas. Agrega un nivel con el botón de abajo.',
-					font=FONT_LABEL,
-					text_color=TEXT_MUTED,
-				).grid(row=0, column=0, columnspan=3, sticky='w', pady=PAD_XS)
-				return
+		frame_a = ctk.CTkFrame(names_row, fg_color='transparent')
+		frame_a.grid(row=0, column=0, sticky='ew', padx=(0, PAD_SM))
+		ctk.CTkLabel(
+			frame_a, text='NOMBRE LISTA A', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED, anchor='w'
+		).pack(anchor='w', pady=(0, PAD_XS))
+		self._entry_list_a_name = ctk.CTkEntry(
+			frame_a,
+			placeholder_text='Minorista',
+			height=36,
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			font=FONT_BODY,
+		)
+		self._entry_list_a_name.insert(0, self._settings.get('price_list_a_name', 'Minorista'))
+		self._entry_list_a_name.pack(fill='x')
+		self._entry_list_a_name.bind('<KeyRelease>', self._mark_dirty)
 
-			for idx, rule in enumerate(self._wholesale_rules):
-				row_frame = ctk.CTkFrame(
-					self._wholesale_rules_frame, fg_color='transparent'
-				)
-				row_frame.grid(row=idx, column=0, columnspan=3, sticky='ew', pady=2)
-				row_frame.grid_columnconfigure(0, weight=1)
-				row_frame.grid_columnconfigure(1, weight=1)
-				row_frame.grid_columnconfigure(2, minsize=36)
-
-				qty_entry = ctk.CTkEntry(
-					row_frame,
-					height=30,
-					fg_color=SURFACE3,
-					border_color=BORDER_ACTIVE,
-					text_color=TEXT_PRIMARY,
-					font=FONT_BODY,
-					placeholder_text='ej: 6',
-				)
-				qty_entry.insert(0, str(rule.get('min_qty', '')))
-				qty_entry.grid(row=0, column=0, sticky='ew', padx=(0, PAD_XS))
-				qty_entry.bind('<KeyRelease>', self._mark_dirty)
-
-				pct_entry = ctk.CTkEntry(
-					row_frame,
-					height=30,
-					fg_color=SURFACE3,
-					border_color=BORDER_ACTIVE,
-					text_color=TEXT_PRIMARY,
-					font=FONT_BODY,
-					placeholder_text='ej: 10',
-				)
-				pct_entry.insert(0, str(rule.get('discount_pct', '')))
-				pct_entry.grid(row=0, column=1, sticky='ew', padx=(0, PAD_XS))
-				pct_entry.bind('<KeyRelease>', self._mark_dirty)
-
-				# Pasamos la referencia del row_frame en lugar del índice i
-				del_btn = ctk.CTkButton(
-					row_frame,
-					text='✕',
-					width=30,
-					height=30,
-					font=FONT_LABEL_BOLD,
-					corner_radius=6,
-					fg_color='transparent',
-					hover_color=SURFACE4,
-					text_color=TEXT_MUTED,
-					border_width=1,
-					border_color=BORDER,
-					command=lambda rf=row_frame: self._delete_wholesale_rule(rf),
-				)
-				del_btn.grid(row=0, column=2)
-
-				self._wholesale_rule_widgets.append((row_frame, qty_entry, pct_entry))
-		finally:
-			self._is_rebuilding = False
-
-	def _add_wholesale_rule(self):
-		self._wholesale_rules.append({'min_qty': 0, 'discount_pct': 0})
-		self._rebuild_rules_ui()
-		self._mark_dirty()
-
-	def _delete_wholesale_rule(self, target_row_frame):
-		# Buscamos el elemento visual a borrar
-		for i, (row_frame, _, _) in enumerate(self._wholesale_rule_widgets):
-			if row_frame == target_row_frame:
-				self._wholesale_rules.pop(i)
-				break
-
-		self._rebuild_rules_ui()
-		self._mark_dirty()
-
-	def _on_wholesale_toggle(self):
-		self._mark_dirty()
-
-	def _collect_wholesale_rules(self):
-		rules = []
-		errors = []
-		for i, (_, qty_entry, pct_entry) in enumerate(self._wholesale_rule_widgets):
-			qty_str = qty_entry.get().strip().replace(',', '.')
-			pct_str = pct_entry.get().strip().replace(',', '.')
-			try:
-				min_qty = float(qty_str)
-				discount_pct = float(pct_str)
-				if min_qty <= 0:
-					errors.append(f'Regla {i + 1}: cantidad mínima debe ser mayor a 0.')
-					continue
-				if not (0 < discount_pct <= 100):
-					errors.append(f'Regla {i + 1}: descuento debe estar entre 0 y 100.')
-					continue
-				rules.append({'min_qty': min_qty, 'discount_pct': discount_pct})
-			except (ValueError, TypeError):
-				errors.append(f'Regla {i + 1}: valores inválidos, se omitirá.')
-		rules.sort(key=lambda r: r['min_qty'], reverse=True)
-		return rules, errors
+		frame_b = ctk.CTkFrame(names_row, fg_color='transparent')
+		frame_b.grid(row=0, column=1, sticky='ew', padx=(PAD_SM, 0))
+		ctk.CTkLabel(
+			frame_b, text='NOMBRE LISTA B', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED, anchor='w'
+		).pack(anchor='w', pady=(0, PAD_XS))
+		self._entry_list_b_name = ctk.CTkEntry(
+			frame_b,
+			placeholder_text='Mayorista',
+			height=36,
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			font=FONT_BODY,
+		)
+		self._entry_list_b_name.insert(0, self._settings.get('price_list_b_name', 'Mayorista'))
+		self._entry_list_b_name.pack(fill='x')
+		self._entry_list_b_name.bind('<KeyRelease>', self._mark_dirty)
 
 	# ─────────────────────────────────────────────────────────────────────
 	# GUARDAR TODO
@@ -870,22 +741,15 @@ class SettingsView(BaseView):
 		self._settings['require_customer'] = self._req_customer_var.get()
 		self._settings['show_shortcuts_bar'] = self._show_bar_var.get()
 
-		# -- Mayoristas --
-		self._settings['wholesale_enabled'] = self._wholesale_enabled_var.get()
-		rules, errors = self._collect_wholesale_rules()
-		if errors:
-			self.show_warning(
-				'Algunas reglas mayoristas fueron ignoradas:\n' + '\n'.join(errors)
-			)
-		self._settings['wholesale_rules'] = rules
-		self._wholesale_rules = [dict(r) for r in rules]
-		self._rebuild_rules_ui()
+		# -- Listas de precios --
+		name_a = self._entry_list_a_name.get().strip() or 'Minorista'
+		name_b = self._entry_list_b_name.get().strip() or 'Mayorista'
+		self._settings['price_list_a_name'] = name_a
+		self._settings['price_list_b_name'] = name_b
 
 		if cfg.save(self._settings):
 			self._saved = True
 			self.btn_save.configure(fg_color=GREEN_DIM, text_color=GREEN_TEXT)
-			self.show_success('Configuración actualizada correctamente.')
-			if hasattr(self.ctx, 'navigate'):
-				pass
+			self.show_success('Configuración guardada. Reiniciá la sesión para aplicar los cambios en la interfaz.')
 		else:
 			self.show_error('No se pudo guardar la configuración en el disco.')

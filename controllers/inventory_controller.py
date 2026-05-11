@@ -1,30 +1,20 @@
 import logging
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
-from database.models import Article, ArticleVariant, StockMovement
-from utils.config import make_engine
+from controllers.user_controller import get_display_name
+from database.models import Article, ArticleVariant, Stock, StockMovement, User
 
 logger = logging.getLogger(__name__)
-
-_default_engine = None
-
-
-def _get_default_engine():
-	global _default_engine
-	if _default_engine is None:
-		_default_engine = make_engine()
-	return _default_engine
-
 
 _MAX_PAGE_SIZE = 1000
 
 
 class InventoryController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _get_default_engine()
-		super().__init__(engine)
+		super().__init__(db_engine)
 
 	def get_kardex(self, tenant_id, page=1, limit=100):
 		"""Retorna el kardex paginado del tenant. Hard limit: _MAX_PAGE_SIZE registros por página."""
@@ -62,7 +52,7 @@ class InventoryController(BaseController):
 						if mov.variant and mov.variant.article
 						else 'Producto Eliminado',
 						'barcode': mov.variant.barcode if mov.variant else 'N/A',
-						'user_name': mov.user.username if mov.user else 'Sistema',
+						'user_name': get_display_name(mov.user) if mov.user else 'Sistema',
 					}
 					for mov in movements
 				]
@@ -72,3 +62,96 @@ class InventoryController(BaseController):
 					exc_info=True,
 				)
 				return []
+
+	_ADJUST_REASONS = [
+		'Conteo físico',
+		'Robo / pérdida',
+		'Merma o vencimiento',
+		'Daño en mercadería',
+		'Corrección de error',
+		'Otro',
+	]
+
+	@staticmethod
+	def get_adjust_reasons():
+		return list(InventoryController._ADJUST_REASONS)
+
+	def adjust_stock(self, tenant_id, user_id, variant_id, new_qty_raw, reason, notes=''):
+		"""Ajusta el stock de una variante al valor exacto indicado y registra el movimiento."""
+		try:
+			new_qty = Decimal(str(new_qty_raw)).quantize(Decimal('0.0001'))
+		except (InvalidOperation, ValueError):
+			return False, 'Cantidad inválida.'
+		if new_qty < 0:
+			return False, 'El stock no puede ser negativo.'
+
+		with self._Session() as session:
+			try:
+				variant = (
+					session.query(ArticleVariant)
+					.join(Article)
+					.filter(ArticleVariant.id == variant_id, Article.tenant_id == tenant_id)
+					.first()
+				)
+				if not variant:
+					return False, 'Producto no encontrado.'
+
+				user = (
+					session.query(User)
+					.filter_by(id=user_id, tenant_id=tenant_id, is_active=True)
+					.first()
+				)
+				if not user:
+					return False, 'Usuario no válido.'
+
+				stocks = session.query(Stock).filter_by(variant_id=variant_id).all()
+				if not stocks:
+					return False, 'No hay registro de stock para este producto.'
+
+				current_total = sum(s.quantity for s in stocks)
+				delta = new_qty - current_total
+
+				if delta == 0:
+					return False, 'El stock ya está en ese valor. Sin cambios.'
+
+				# Aplica delta al almacén con mayor existencia
+				primary = max(stocks, key=lambda s: float(s.quantity))
+				new_primary = float(primary.quantity) + float(delta)
+				if new_primary < 0:
+					return (
+						False,
+						f'El almacén principal solo tiene {float(primary.quantity):.2f} unidades. '
+						f'No es posible reducir en {abs(float(delta)):.2f}.',
+					)
+				primary.quantity = Decimal(str(new_primary))
+
+				abs_delta = abs(delta)
+				mov_type = 'ajuste_entrada' if delta > 0 else 'ajuste_salida'
+				ref = f'Motivo: {reason}'
+				if notes:
+					ref += f' | Nota: {notes}'
+				ref += f' | Anterior: {float(current_total):.2f} → Nuevo: {float(new_qty):.2f}'
+
+				session.add(
+					StockMovement(
+						movement_type=mov_type,
+						quantity=abs_delta,
+						reference=ref,
+						variant_id=variant_id,
+						user_id=user_id,
+						source_warehouse_id=primary.warehouse_id,
+					)
+				)
+
+				session.commit()
+
+				sign = f'+{float(abs_delta):.2f}' if delta > 0 else f'-{float(abs_delta):.2f}'
+				return (
+					True,
+					f'Stock ajustado ({sign}). Nuevo total: {float(new_qty):.2f} unidades.',
+				)
+
+			except Exception as e:
+				session.rollback()
+				logger.error(f'Error al ajustar stock {variant_id}: {e}', exc_info=True)
+				return False, 'Error interno al ajustar el stock.'

@@ -67,6 +67,8 @@ class DollarPriceView(BaseView):
 		self._all_variants: list = []
 		self._cfg = cfg.load()
 		self._initial_rate = float(self._cfg.get('dollar_rate', 0.0))
+		self._search_timer = None
+		self._trace_search = None
 
 		self.grid_rowconfigure(0, weight=0)
 		self.grid_rowconfigure(1, weight=1)
@@ -300,7 +302,8 @@ class DollarPriceView(BaseView):
 			height=38,
 			font=FONT_SUBHEADING,
 		)
-		self.entry_margin.insert(0, str(int(float(saved_margin))))
+		_m = float(saved_margin)
+		self.entry_margin.insert(0, str(int(_m)) if _m == int(_m) else f'{_m:.2f}')
 		self.entry_margin.pack(side='left', fill='x', expand=True, padx=(0, 8))
 		self.entry_margin.bind('<KeyRelease>', self._on_value_change)
 
@@ -410,7 +413,7 @@ class DollarPriceView(BaseView):
 		toolbar.grid_columnconfigure(0, weight=1)
 
 		self._search_var = ctk.StringVar()
-		self._search_var.trace_add('write', self._on_filter_change)
+		self._trace_search = self._search_var.trace_add('write', self._on_filter_change)
 		ctk.CTkEntry(
 			toolbar,
 			textvariable=self._search_var,
@@ -548,7 +551,7 @@ class DollarPriceView(BaseView):
 		).pack(padx=16, pady=(14, 0), anchor='w')
 
 	def _sort_treeview(self, col: str, reverse: bool):
-		l = [(self.tree.set(k, col), k) for k in self.tree.get_children('')]
+		rows = [(self.tree.set(k, col), k) for k in self.tree.get_children('')]
 
 		def sort_key(tup):
 			val = tup[0]
@@ -568,8 +571,8 @@ class DollarPriceView(BaseView):
 					return 0.0
 			return val.lower()
 
-		l.sort(key=sort_key, reverse=reverse)
-		for index, (_, k) in enumerate(l):
+		rows.sort(key=sort_key, reverse=reverse)
+		for index, (_, k) in enumerate(rows):
 			self.tree.move(k, '', index)
 		self.tree.heading(col, command=lambda: self._sort_treeview(col, not reverse))
 
@@ -595,20 +598,21 @@ class DollarPriceView(BaseView):
 		self.btn_api.configure(state='disabled', text='⏳ Consultando...')
 
 		def worker():
-			rate = self.controller.fetch_current_dollar_rate()
+			rate = self.controller.fetch_current_dollar_rate(self._current_type())
 			self.after(0, lambda: self._on_api_rate_fetched(rate))
 
 		threading.Thread(target=worker, daemon=True).start()
 
 	def _on_api_rate_fetched(self, rate: float):
+		dtype = self._current_type()
 		self.btn_api.configure(state='normal', text='⬇ Obtener API')
 		if rate > 0:
 			self.entry_rate.delete(0, 'end')
 			self.entry_rate.insert(0, f'{rate:.0f}')
 			self._on_value_change()
-			self.show_toast('Cotización actualizada desde API', 'success')
+			self.show_toast(f'Dólar {dtype}: ${rate:.0f} actualizado desde API', 'success')
 		else:
-			self.show_toast('No se pudo obtener la cotización', 'error')
+			self.show_toast(f'No se pudo obtener el Dólar {dtype}. Ingresá el valor manualmente.', 'error')
 
 	def _load_data(self):
 		self._all_variants = self.controller.get_variants(self.ctx.tenant_id)
@@ -731,9 +735,6 @@ class DollarPriceView(BaseView):
 			)
 			self.lbl_example.configure(text='')
 
-		if self._all_variants:
-			self._refresh_tree()
-
 	def _refresh_counter(self):
 		if not hasattr(self, 'chip_linked') or not hasattr(self, 'lbl_ready_main'):
 			return
@@ -775,18 +776,35 @@ class DollarPriceView(BaseView):
 			diff = abs(current_rate - self._initial_rate) / self._initial_rate
 			if diff > 0.30:
 				self.rate_frame.configure(border_color=RED_DIM)
+				pct_diff = diff * 100
 				self.lbl_rate_warning.configure(
-					text='⚠️ Difiere mucho del último valor guardado.'
+					text=f'⚠️ Difiere {pct_diff:.0f}% del último guardado (${self._initial_rate:.0f}). Verificá antes de confirmar.'
 				)
 			else:
 				self.rate_frame.configure(border_color=BORDER_ACTIVE)
 				self.lbl_rate_warning.configure(text='')
 
 		self._refresh_preview()
-		self._save_settings()
+		if self._all_variants:
+			self._refresh_tree()
+		self.debounce(500, self._save_settings, key='save_settings')
 
 	def _on_filter_change(self, *_):
-		self._refresh_tree()
+		if self._search_timer:
+			self.after_cancel(self._search_timer)
+		self._search_timer = self.after(300, self._refresh_tree)
+
+	def destroy_custom(self):
+		if self._search_timer:
+			try:
+				self.after_cancel(self._search_timer)
+			except Exception:
+				pass
+		if self._trace_search:
+			try:
+				self._search_var.trace_remove('write', self._trace_search)
+			except Exception:
+				pass
 
 	def _save_settings(self):
 		s = cfg.load()
@@ -947,6 +965,9 @@ class DollarPriceView(BaseView):
 
 		entry_usd.bind('<KeyRelease>', update_live_preview)
 		entry_margin.bind('<KeyRelease>', update_live_preview)
+		entry_usd.bind('<Return>', lambda e: entry_margin.focus())
+		entry_margin.bind('<Return>', lambda e: _save())
+		dialog.bind('<Return>', lambda e: _save())
 		update_live_preview()
 		entry_usd.focus()
 
@@ -956,8 +977,8 @@ class DollarPriceView(BaseView):
 			success, msg = self.controller.save_usd_prices_bulk(
 				self.ctx.tenant_id, variant_ids, val_usd, val_margin
 			)
-			dialog.destroy()
 			if success:
+				dialog.destroy()
 				self._load_data()
 			else:
 				self.show_toast(msg, 'error')
@@ -1042,7 +1063,7 @@ class DollarPriceView(BaseView):
 		stats_text = ''
 		if 'error' not in preview_stats:
 			stats_text = (
-				f'Suba promedio: {"+" if preview_stats["avg_increase_pct"] > 0 else ""}{preview_stats["avg_increase_pct"]}%\n'
+				f'Variación promedio: {preview_stats["avg_increase_pct"]:+.2f}%\n'
 				f'Rango resultante: de ${preview_stats["min_ars"]:,.0f} a ${preview_stats["max_ars"]:,.0f} ARS\n\n'
 			)
 
@@ -1063,7 +1084,7 @@ class DollarPriceView(BaseView):
 			return
 
 		self.btn_update.configure(state='disabled', text='⏳ Guardando...')
-		self.update()
+		self.update_idletasks()
 		self._save_settings()
 
 		def worker():

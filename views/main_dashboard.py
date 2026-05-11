@@ -1,3 +1,4 @@
+import importlib
 import logging
 import time
 
@@ -34,49 +35,100 @@ from utils.styles import (
 	make_nav_button,
 	section_divider,
 )
-from views.alerts_view import AlertsView
-from views.articles_view import ArticlesView
-from views.cash_view import CashView
-from views.combo_maker_view import ComboMakerView
-from views.customers_view import CustomersView
-from views.data_sync_view import DataSyncView
-from views.home_view import HomeView
-from views.label_view import LabelView
-from views.prices_view import PricesView
-from views.purchases_view import PurchasesView
-from views.quotation_view import QuotationView
-from views.report_view import ReportView
-from views.sales_history_view import SalesHistoryView
-from views.sales_view import SalesView
-from views.settings_view import SettingsView
-from views.stock_history_view import StockHistoryView
-from views.suppliers_view import SuppliersView
-from views.users_view import UsersView
 
 logger = logging.getLogger(__name__)
 
+# ─── Lazy view loader ─────────────────────────────────────────────────────────
+_view_cache: dict = {}
+
+
+def _load_view_class(dotted_path: str) -> type:
+	"""Importa y cachea una clase de vista por 'module.path.ClassName'."""
+	if dotted_path not in _view_cache:
+		module_path, cls_name = dotted_path.rsplit('.', 1)
+		mod = importlib.import_module(module_path)
+		_view_cache[dotted_path] = getattr(mod, cls_name)
+	return _view_cache[dotted_path]
+
+
+def _to_path(view) -> str:
+	"""Normaliza una clase de vista o path string a path string."""
+	if isinstance(view, str):
+		return view
+	return _CLASS_PATHS.get(view.__name__, '')
+
+
+# ─── Constantes de path para cada vista ──────────────────────────────────────
+_HOME = 'views.home_view.HomeView'
+_SALES = 'views.sales_view.SalesView'
+_CASH = 'views.cash_view.CashView'
+_ARTICLES = 'views.articles_view.ArticlesView'
+_PRICES = 'views.prices_view.PricesView'
+_LABEL = 'views.label_view.LabelView'
+_COMBO = 'views.combo_maker_view.ComboMakerView'
+_PURCHASES = 'views.purchases_view.PurchasesView'
+_SUP_RETS = 'views.supplier_returns_view.SupplierReturnsView'
+_SUPPLIERS = 'views.suppliers_view.SuppliersView'
+_CUSTOMERS = 'views.customers_view.CustomersView'
+_QUOTATION = 'views.quotation_view.QuotationView'
+_SALES_HIS = 'views.sales_history_view.SalesHistoryView'
+_REPORT = 'views.report_view.ReportView'
+_STOCK_HIS = 'views.stock_history_view.StockHistoryView'
+_ALERTS = 'views.alerts_view.AlertsView'
+_USERS = 'views.users_view.UsersView'
+_DATA_SYNC = 'views.data_sync_view.DataSyncView'
+_SETTINGS = 'views.settings_view.SettingsView'
+
+# Lookup inverso: nombre de clase → path (para cuando código externo pasa una clase)
+_CLASS_PATHS = {
+	'HomeView': _HOME,
+	'SalesView': _SALES,
+	'CashView': _CASH,
+	'ArticlesView': _ARTICLES,
+	'PricesView': _PRICES,
+	'LabelView': _LABEL,
+	'ComboMakerView': _COMBO,
+	'PurchasesView': _PURCHASES,
+	'SupplierReturnsView': _SUP_RETS,
+	'SuppliersView': _SUPPLIERS,
+	'CustomersView': _CUSTOMERS,
+	'QuotationView': _QUOTATION,
+	'SalesHistoryView': _SALES_HIS,
+	'ReportView': _REPORT,
+	'StockHistoryView': _STOCK_HIS,
+	'AlertsView': _ALERTS,
+	'UsersView': _USERS,
+	'DataSyncView': _DATA_SYNC,
+	'SettingsView': _SETTINGS,
+}
+
 NAV_ITEMS_PUBLIC = [
-	(HomeView, '⊞', 'Inicio', 'principal'),
-	(SalesView, '🛒', 'Ventas', 'principal'),
-	(CashView, '💵', 'Caja', 'principal'),
+	(_HOME, '⊞', 'Inicio', 'principal'),
+	(_SALES, '🛒', 'Ventas', 'principal'),
+	(_CASH, '💵', 'Caja', 'principal'),
 ]
 
 NAV_ITEMS_ADMIN = [
-	(ArticlesView, '📦', 'Artículos', 'gestión'),
-	(PricesView, '💰', 'Gestión de Precios', 'gestión'),
-	(PurchasesView, '📥', 'Compras', 'gestión'),
-	(CustomersView, '👥', 'Clientes / Fiado', 'gestión'),
-	(SuppliersView, '🚚', 'Proveedores', 'gestión'),
-	(QuotationView, '📝', 'Cotizaciones', 'gestión'),
-	(LabelView, '🏷', 'Etiquetas', 'gestión'),
-	(ComboMakerView, '🍔', 'Combos y Botonera', 'gestión'),
-	(SalesHistoryView, '📜', 'Ventas e Historial', 'reportes'),
-	(ReportView, '📋', 'Reporte de Cierre', 'reportes'),
-	(StockHistoryView, '📊', 'Stock e Historial', 'reportes'),
-	(AlertsView, '🔔', 'Alertas', 'reportes'),
-	(UsersView, '🛠', 'Empleados', 'sistema'),
-	(DataSyncView, '🔄', 'Importar / Exportar', 'sistema'),
-	(SettingsView, '⚙', 'Configuración', 'sistema'),
+	# ── Catálogo: todo lo que se vende ──────────────────────────────────────
+	(_ARTICLES, '📦', 'Artículos', 'catálogo'),
+	(_PRICES, '💰', 'Gestión de Precios', 'catálogo'),
+	(_LABEL, '🏷', 'Etiquetas', 'catálogo'),
+	(_COMBO, '🍔', 'Combos y Botonera', 'catálogo'),
+	# ── Compras: todo lo que se compra y con quién ──────────────────────────
+	(_PURCHASES, '📥', 'Compras', 'compras'),
+	(_SUP_RETS, '↩', 'Dev. a Proveedor', 'compras'),
+	(_SUPPLIERS, '🚚', 'Proveedores', 'compras'),
+	(_CUSTOMERS, '👥', 'Clientes / Fiado', 'compras'),
+	(_QUOTATION, '📝', 'Cotizaciones', 'compras'),
+	# ── Reportes ────────────────────────────────────────────────────────────
+	(_SALES_HIS, '📜', 'Ventas e Historial', 'reportes'),
+	(_REPORT, '📋', 'Reporte de Cierre', 'reportes'),
+	(_STOCK_HIS, '📊', 'Stock e Historial', 'reportes'),
+	(_ALERTS, '🔔', 'Alertas', 'reportes'),
+	# ── Sistema ─────────────────────────────────────────────────────────────
+	(_USERS, '🛠', 'Empleados', 'sistema'),
+	(_DATA_SYNC, '🔄', 'Importar / Exportar', 'sistema'),
+	(_SETTINGS, '⚙', 'Configuración', 'sistema'),
 ]
 
 _SHORTCUTS = [
@@ -89,11 +141,11 @@ _SHORTCUTS = [
 ]
 
 _VIEW_SHORTCUTS = {
-	SalesView: 'F1',
-	CashView: 'F2',
-	ArticlesView: 'F3',
-	CustomersView: 'F4',
-	HomeView: 'ESC',
+	_SALES: 'F1',
+	_CASH: 'F2',
+	_ARTICLES: 'F3',
+	_CUSTOMERS: 'F4',
+	_HOME: 'ESC',
 }
 
 
@@ -103,9 +155,10 @@ class MainDashboard(ctk.CTkFrame):
 		self.master_app = master
 		self.ctx = ctx
 		self._external_logout_command = logout_command
-		self._active_view_class = HomeView
+		self._active_view_path = _HOME
 		self._nav_buttons: dict = {}
 		self._clock_job = None
+		self._cash_job = None
 		self._active_toasts = []
 
 		# Instancia única para evitar fugas de conexión de DB
@@ -126,7 +179,7 @@ class MainDashboard(ctk.CTkFrame):
 
 		self._setup_global_binds()
 
-		self.after(60, lambda: self.safe_switch_view(HomeView))
+		self.after(60, lambda: self.safe_switch_view(_HOME))
 		self.after(400, self._refresh_cash_dot)
 
 	def _build_sidebar(self):
@@ -148,10 +201,12 @@ class MainDashboard(ctk.CTkFrame):
 		self.lbl_dot = ctk.CTkLabel(
 			logo_frame,
 			text='● Cerrada',
-			font=('Arial', 9, 'bold'),
+			font=('Arial', 11, 'bold'),
 			text_color=RED_TEXT,
+			cursor='hand2',
 		)
 		self.lbl_dot.pack(side='right', padx=(0, 4))
+		self.lbl_dot.bind('<Button-1>', lambda e: self._go_to_cash())
 
 		ctk.CTkLabel(
 			self.sidebar,
@@ -169,7 +224,7 @@ class MainDashboard(ctk.CTkFrame):
 
 		tabs = ['principal']
 		if self.is_admin:
-			tabs += ['gestión', 'reportes', 'sistema']
+			tabs += ['catálogo', 'compras', 'reportes', 'sistema']
 
 		self._build_tab_bar(tabs)
 		section_divider(self.sidebar).pack(fill='x', padx=0)
@@ -179,13 +234,13 @@ class MainDashboard(ctk.CTkFrame):
 		)
 		self.menu_scroll.pack(fill='both', expand=True, padx=0, pady=4)
 
-		for view_cls, icon, label, section in NAV_ITEMS_PUBLIC:
-			self._add_nav_btn(view_cls, icon, label, section=section)
+		for view_path, icon, label, section in NAV_ITEMS_PUBLIC:
+			self._add_nav_btn(view_path, icon, label, section=section)
 
 		if self.is_admin:
-			for view_cls, icon, label, section in NAV_ITEMS_ADMIN:
+			for view_path, icon, label, section in NAV_ITEMS_ADMIN:
 				self._add_nav_btn(
-					view_cls, icon, label, requires_admin=True, section=section
+					view_path, icon, label, requires_admin=True, section=section
 				)
 
 		self._switch_tab('principal')
@@ -196,7 +251,8 @@ class MainDashboard(ctk.CTkFrame):
 	def _build_tab_bar(self, tabs: list):
 		_TAB_LABELS = {
 			'principal': 'Principal',
-			'gestión': 'Gestión',
+			'catálogo': 'Catálogo',
+			'compras': 'Compras',
 			'reportes': 'Reportes',
 			'sistema': 'Sistema',
 		}
@@ -239,29 +295,29 @@ class MainDashboard(ctk.CTkFrame):
 		for _, btn in self._nav_by_section.get(section, []):
 			btn.pack(fill='x', padx=8, pady=2)
 
-	def _section_for_view(self, view_class) -> str:
+	def _section_for_view(self, view_path: str) -> str:
 		for sec, items in self._nav_by_section.items():
-			for vc, _ in items:
-				if vc is view_class:
+			for vp, _ in items:
+				if vp == view_path:
 					return sec
 		return 'principal'
 
 	def _add_nav_btn(
-		self, view_cls, icon, label, requires_admin=False, section='principal'
+		self, view_path: str, icon, label, requires_admin=False, section='principal'
 	):
-		shortcut_key = _VIEW_SHORTCUTS.get(view_cls)
+		shortcut_key = _VIEW_SHORTCUTS.get(view_path)
 		btn = make_nav_button(
 			self.menu_scroll,
 			icon,
 			label,
-			command=lambda vc=view_cls, ra=requires_admin: self.safe_switch_view(
-				vc, ra
+			command=lambda vp=view_path, ra=requires_admin: self.safe_switch_view(
+				vp, ra
 			),
 			active=False,
 			shortcut=shortcut_key,
 		)
-		self._nav_buttons[view_cls] = btn
-		self._nav_by_section.setdefault(section, []).append((view_cls, btn))
+		self._nav_buttons[view_path] = btn
+		self._nav_by_section.setdefault(section, []).append((view_path, btn))
 
 	def _build_user_card(self):
 		card = ctk.CTkFrame(
@@ -323,12 +379,12 @@ class MainDashboard(ctk.CTkFrame):
 			command=self.handle_logout,
 		).pack(fill='x', padx=8, pady=(0, 6))
 
-	def _update_nav_highlight(self, active_view_class):
-		target_section = self._section_for_view(active_view_class)
+	def _update_nav_highlight(self, active_view_path: str):
+		target_section = self._section_for_view(active_view_path)
 		self._switch_tab(target_section)
 
-		for view_cls, btn in self._nav_buttons.items():
-			if view_cls == active_view_class:
+		for view_path, btn in self._nav_buttons.items():
+			if view_path == active_view_path:
 				btn.configure(
 					fg_color=ACCENT_DIM, text_color=ACCENT_TEXT, font=FONT_NAV_BOLD
 				)
@@ -391,13 +447,13 @@ class MainDashboard(ctk.CTkFrame):
 		self.lbl_view_shortcuts.pack(side='right', padx=12)
 
 	def _setup_global_binds(self):
-		self.master_app.bind('<F1>', lambda e: self.safe_switch_view(SalesView))
-		self.master_app.bind('<F2>', lambda e: self.safe_switch_view(CashView))
+		self.master_app.bind('<F1>', lambda e: self.safe_switch_view(_SALES))
+		self.master_app.bind('<F2>', lambda e: self.safe_switch_view(_CASH))
 		self.master_app.bind(
-			'<F3>', lambda e: self.safe_switch_view(ArticlesView, requires_admin=True)
+			'<F3>', lambda e: self.safe_switch_view(_ARTICLES, requires_admin=True)
 		)
 		self.master_app.bind(
-			'<F4>', lambda e: self.safe_switch_view(CustomersView, requires_admin=True)
+			'<F4>', lambda e: self.safe_switch_view(_CUSTOMERS, requires_admin=True)
 		)
 		self.master_app.bind('<Escape>', self._handle_escape)
 		self.after(
@@ -423,6 +479,10 @@ class MainDashboard(ctk.CTkFrame):
 	def show_toast(self, message: str, type_: str = 'success', duration: int = 3000):
 		if not self.winfo_exists():
 			return
+
+		_MAX_TOASTS = 4
+		while len(self._active_toasts) >= _MAX_TOASTS:
+			self._remove_toast(self._active_toasts[0])
 
 		_COLORS = {
 			'success': (GREEN_DIM, GREEN_TEXT),
@@ -453,9 +513,13 @@ class MainDashboard(ctk.CTkFrame):
 		except Exception:
 			pass
 
-	def safe_switch_view(self, view_class, requires_admin=False, context_data=None):
+	def safe_switch_view(self, view, requires_admin=False, context_data=None):
 		if not self.winfo_exists():
 			return
+
+		# Normaliza: acepta clase o path string
+		view_path = _to_path(view)
+		view_class = _load_view_class(view_path)
 
 		if requires_admin and not self.is_admin:
 			CTkMessagebox(
@@ -465,7 +529,7 @@ class MainDashboard(ctk.CTkFrame):
 			)
 			return
 
-		if self.current_view and self._active_view_class is not view_class:
+		if self.current_view and self._active_view_path != view_path:
 			if (
 				hasattr(self.current_view, 'has_unsaved_changes')
 				and self.current_view.has_unsaved_changes()
@@ -502,19 +566,33 @@ class MainDashboard(ctk.CTkFrame):
 		if self.main_area.winfo_exists():
 			for widget in list(self.main_area.winfo_children()):
 				widget.pack_forget()
-				self.after(1500, widget.destroy)
+				self.after(1500, lambda w=widget: w.destroy() if w.winfo_exists() else None)
 
-		self._active_view_class = view_class
-		self._update_nav_highlight(view_class)
+		self._active_view_path = view_path
+		self._update_nav_highlight(view_path)
+
+		# Indicador de carga mientras se instancia la vista
+		_loading = ctk.CTkFrame(self.main_area, fg_color=SURFACE1, corner_radius=0)
+		_loading.pack(fill='both', expand=True)
+		ctk.CTkLabel(
+			_loading,
+			text='Cargando...',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+		).place(relx=0.5, rely=0.5, anchor='center')
+		self.update()  # Fuerza el render del indicador antes de instanciar la vista
 
 		kwargs = {}
 		if context_data is not None:
 			kwargs['context_data'] = context_data
-		if view_class is HomeView:
+		if view_path == _HOME:
 			kwargs['navigate'] = self.safe_switch_view
 
-		self.current_view = view_class(self.main_area, self.ctx, **kwargs)
-		self.current_view.pack(fill='both', expand=True)
+		try:
+			self.current_view = view_class(self.main_area, self.ctx, **kwargs)
+			self.current_view.pack(fill='both', expand=True)
+		finally:
+			self.after(0, _loading.destroy)
 
 		if hasattr(self.current_view, 'set_initial_focus'):
 			self.after(50, self.current_view.set_initial_focus)
@@ -523,7 +601,7 @@ class MainDashboard(ctk.CTkFrame):
 			hasattr(self, 'lbl_view_shortcuts')
 			and self.lbl_view_shortcuts.winfo_exists()
 		):
-			if view_class is SalesView:
+			if view_path == _SALES:
 				self.lbl_view_shortcuts.configure(
 					text='F5 Cobrar  ·  F6 Lector  ·  F7 Libre  ·  Supr Quitar'
 				)
@@ -532,11 +610,21 @@ class MainDashboard(ctk.CTkFrame):
 
 		self.after(200, self._refresh_cash_dot)
 
+	def _go_to_cash(self):
+		self.safe_switch_view(_CASH)
+
 	def _refresh_cash_dot(self):
 		if not self.winfo_exists():
 			return
+
+		# Cancela el job pendiente para evitar duplicados si se llama manualmente
+		if self._cash_job:
+			try:
+				self.after_cancel(self._cash_job)
+			except Exception:
+				pass
+
 		try:
-			# Reutiliza el controlador estático
 			session = self._cash_ctrl.get_active_session(
 				self.ctx.tenant_id, self.ctx.user_id
 			)
@@ -549,7 +637,17 @@ class MainDashboard(ctk.CTkFrame):
 		if hasattr(self, 'lbl_dot') and self.lbl_dot.winfo_exists():
 			self.lbl_dot.configure(text_color=color, text=label)
 
+		self._cash_job = self.after(30_000, self._refresh_cash_dot)
+
 	def handle_logout(self):
+		for job_attr in ('_clock_job', '_cash_job'):
+			job = getattr(self, job_attr, None)
+			if job:
+				try:
+					self.after_cancel(job)
+				except Exception:
+					pass
+				setattr(self, job_attr, None)
 		for key in ('<F1>', '<F2>', '<F3>', '<F4>', '<Escape>', '<F11>'):
 			try:
 				self.master_app.unbind(key)
@@ -578,13 +676,15 @@ class MainDashboard(ctk.CTkFrame):
 			self.is_fullscreen = False
 			self.winfo_toplevel().attributes('-fullscreen', False)
 		else:
-			self.safe_switch_view(HomeView)
+			self.safe_switch_view(_HOME)
 
 	def destroy(self):
-		if hasattr(self, '_clock_job') and self._clock_job:
-			try:
-				self.after_cancel(self._clock_job)
-			except Exception:
-				pass
-			self._clock_job = None
+		for job_attr in ('_clock_job', '_cash_job'):
+			job = getattr(self, job_attr, None)
+			if job:
+				try:
+					self.after_cancel(job)
+				except Exception:
+					pass
+				setattr(self, job_attr, None)
 		super().destroy()

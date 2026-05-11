@@ -27,26 +27,16 @@ from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
+from controllers.user_controller import get_display_name
 from database.models import (
 	CashMovement,
 	CashSession,
 	Sale,
 	SaleDetail,
 )
-from utils.config import make_engine
 from utils.settings_manager import get_reports_path
 
 logger = logging.getLogger(__name__)
-
-_default_engine = None
-
-
-def _get_default_engine():
-	global _default_engine
-	if _default_engine is None:
-		_default_engine = make_engine()
-	return _default_engine
-
 
 _SOLD_STATUSES = ('completada', 'parcial')
 
@@ -64,8 +54,7 @@ def _sanitize(text: str) -> str:
 
 class ReportController(BaseController):
 	def __init__(self, db_engine=None):
-		engine = db_engine if db_engine is not None else _get_default_engine()
-		super().__init__(engine)
+		super().__init__(db_engine)
 
 	# =========================================================
 	# CONSULTA PRINCIPAL
@@ -451,11 +440,8 @@ class ReportController(BaseController):
 		dt_from = datetime.combine(period['from'], datetime.min.time())
 		dt_to = datetime.combine(period['to'], datetime.max.time())
 
-		desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
-		if not os.path.isdir(desktop):
-			desktop = os.path.expanduser('~')
 		fname = f'Ventas_{period["from"].strftime("%Y%m%d")}_{period["to"].strftime("%Y%m%d")}.csv'
-		filepath = os.path.join(desktop, fname)
+		filepath = os.path.join(get_reports_path(), fname)
 
 		with self._Session() as session:
 			sales = (
@@ -488,7 +474,7 @@ class ReportController(BaseController):
 							s.id,
 							s.date.strftime('%d/%m/%Y %H:%M') if s.date else '',
 							s.customer.name if s.customer else 'Consumidor Final',
-							s.user.username if s.user else '—',
+							get_display_name(s.user) if s.user else '—',
 							float(s.total_amount or 0),
 							float(s.profit or 0),
 							s.payment_method or '',

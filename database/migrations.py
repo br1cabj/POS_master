@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 def _run_alter(conn, sql: str, label: str) -> bool:
 	"""
 	Ejecuta un ALTER TABLE. Retorna True si se aplicó, False si ya existía.
-	Lanza la excepción si el error no es 'duplicate column' (fallo real).
+	Lanza la excepción si el error no es 'duplicate column' o 'already exists' (fallo real).
 	"""
 	try:
 		conn.execute(text(sql))
@@ -27,8 +27,8 @@ def _run_alter(conn, sql: str, label: str) -> bool:
 		msg = str(e).lower()
 		if 'duplicate column' in msg or 'already exists' in msg:
 			return False
-		logger.warning(f'Error inesperado en migración ({label}): {e}')
-		return False
+		logger.error(f'Fallo real en migración ({label}): {e}')
+		raise
 
 
 def run_migrations(engine) -> None:
@@ -45,6 +45,12 @@ def run_migrations(engine) -> None:
 	_v7_add_quotation_number_to_sales(engine)
 	_v8_add_product_discount_fields(engine)
 	_v9_add_supplier_discount_fields(engine)
+	_v10_purchase_details_and_returns(engine)
+	_v11_add_user_display_name(engine)
+	_v12_add_sale_status_indexes(engine)
+	_v13_add_price_list_fields(engine)
+	_v14_add_margin_pct(engine)
+	_v15_add_returned_quantity_to_sale_details(engine)
 
 
 def _v1_add_cost_price_usd(engine) -> None:
@@ -133,7 +139,9 @@ def _v5_create_quotations(engine) -> None:
 				)
 			)
 			conn.execute(
-				text('CREATE INDEX IF NOT EXISTS ix_quotations_date ON quotations(date)')
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_quotations_date ON quotations(date)'
+				)
 			)
 			conn.execute(
 				text(
@@ -143,7 +151,8 @@ def _v5_create_quotations(engine) -> None:
 			conn.commit()
 			logger.info('Migración v5: tablas quotations y quotation_items listas.')
 		except Exception as e:
-			logger.warning(f'Error inesperado en migración v5: {e}')
+			logger.error(f'Error en migración v5: {e}')
+			raise
 
 
 def _v6_add_packaging_variants(engine) -> None:
@@ -203,4 +212,157 @@ def _v9_add_supplier_discount_fields(engine) -> None:
 			conn,
 			'ALTER TABLE suppliers ADD COLUMN discount_until DATETIME DEFAULT NULL',
 			'discount_until en suppliers',
+		)
+
+
+def _v10_purchase_details_and_returns(engine) -> None:
+	"""v10: Tablas de detalle de compras, devoluciones a proveedor y crédito de proveedor."""
+	with engine.connect() as conn:
+		# credit_balance en suppliers
+		_run_alter(
+			conn,
+			'ALTER TABLE suppliers ADD COLUMN credit_balance NUMERIC(10,2) DEFAULT 0.0',
+			'credit_balance en suppliers',
+		)
+
+		try:
+			conn.execute(
+				text("""
+				CREATE TABLE IF NOT EXISTS purchase_details (
+					id               VARCHAR(36) PRIMARY KEY,
+					quantity         NUMERIC(12,4) NOT NULL,
+					unit_cost        NUMERIC(10,2) NOT NULL,
+					subtotal         NUMERIC(10,2) NOT NULL,
+					description      VARCHAR NOT NULL,
+					purchase_id      VARCHAR(36) NOT NULL REFERENCES purchases(id),
+					variant_id       VARCHAR(36) REFERENCES article_variants(id)
+				)
+			""")
+			)
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_purchase_details_purchase_id ON purchase_details(purchase_id)'
+				)
+			)
+
+			conn.execute(
+				text("""
+				CREATE TABLE IF NOT EXISTS purchase_returns (
+					id           VARCHAR(36) PRIMARY KEY,
+					date         DATETIME DEFAULT CURRENT_TIMESTAMP,
+					reason       VARCHAR NOT NULL,
+					refund_type  VARCHAR NOT NULL,
+					total_refund NUMERIC(10,2) NOT NULL,
+					notes        VARCHAR,
+					file_path    VARCHAR,
+					purchase_id  VARCHAR(36) NOT NULL REFERENCES purchases(id),
+					user_id      VARCHAR(36) NOT NULL REFERENCES users(id),
+					tenant_id    VARCHAR(36) NOT NULL REFERENCES tenants(id)
+				)
+			""")
+			)
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_purchase_returns_purchase_id ON purchase_returns(purchase_id)'
+				)
+			)
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_purchase_returns_tenant_id ON purchase_returns(tenant_id)'
+				)
+			)
+
+			conn.execute(
+				text("""
+				CREATE TABLE IF NOT EXISTS purchase_return_items (
+					id                 VARCHAR(36) PRIMARY KEY,
+					quantity_returned  NUMERIC(12,4) NOT NULL,
+					unit_cost          NUMERIC(10,2) NOT NULL,
+					subtotal           NUMERIC(10,2) NOT NULL,
+					description        VARCHAR NOT NULL,
+					purchase_return_id VARCHAR(36) NOT NULL REFERENCES purchase_returns(id),
+					purchase_detail_id VARCHAR(36) REFERENCES purchase_details(id),
+					variant_id         VARCHAR(36) REFERENCES article_variants(id)
+				)
+			""")
+			)
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_purchase_return_items_return_id ON purchase_return_items(purchase_return_id)'
+				)
+			)
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_purchase_return_items_detail_id ON purchase_return_items(purchase_detail_id)'
+				)
+			)
+
+			conn.commit()
+			logger.info('Migración v10: tablas de devoluciones a proveedor listas.')
+		except Exception as e:
+			logger.error(f'Error en migración v10: {e}')
+			raise
+
+
+def _v11_add_user_display_name(engine) -> None:
+	"""v11: Agrega display_name a users para nombre visible en tickets/reportes."""
+	with engine.connect() as conn:
+		_run_alter(
+			conn,
+			'ALTER TABLE users ADD COLUMN display_name VARCHAR DEFAULT NULL',
+			'display_name en users',
+		)
+
+
+def _v12_add_sale_status_indexes(engine) -> None:
+	"""v12: Agrega índices en sales.status y (tenant_id, status) para filtros de estado."""
+	with engine.connect() as conn:
+		try:
+			conn.execute(
+				text('CREATE INDEX IF NOT EXISTS ix_sales_status ON sales(status)')
+			)
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_sale_tenant_status ON sales(tenant_id, status)'
+				)
+			)
+			conn.commit()
+			logger.info('Migración v12: índices de sales.status creados.')
+		except Exception as e:
+			logger.error(f'Error en migración v12: {e}')
+			raise
+
+
+def _v13_add_price_list_fields(engine) -> None:
+	"""v13: Agrega selling_price_b a article_variants y price_list a customers."""
+	with engine.connect() as conn:
+		_run_alter(
+			conn,
+			'ALTER TABLE article_variants ADD COLUMN selling_price_b NUMERIC(10, 2) DEFAULT NULL',
+			'selling_price_b en article_variants',
+		)
+		_run_alter(
+			conn,
+			"ALTER TABLE customers ADD COLUMN price_list VARCHAR DEFAULT 'A'",
+			'price_list en customers',
+		)
+
+
+def _v14_add_margin_pct(engine) -> None:
+	"""v14: Agrega margin_pct a article_variants."""
+	with engine.connect() as conn:
+		_run_alter(
+			conn,
+			'ALTER TABLE article_variants ADD COLUMN margin_pct NUMERIC(5, 2) DEFAULT NULL',
+			'margin_pct en article_variants',
+		)
+
+
+def _v15_add_returned_quantity_to_sale_details(engine) -> None:
+	"""v15: Agrega returned_quantity a sale_details para rastrear devoluciones parciales por ítem."""
+	with engine.connect() as conn:
+		_run_alter(
+			conn,
+			'ALTER TABLE sale_details ADD COLUMN returned_quantity NUMERIC(12, 4) NOT NULL DEFAULT 0.0',
+			'returned_quantity en sale_details',
 		)
