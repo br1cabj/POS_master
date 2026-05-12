@@ -342,28 +342,31 @@ class SupplierReturnsController(BaseController):
 				)
 				purchase_status = purchase.status
 
-				# Generar PDF antes del commit para guardar file_path en la misma sesión
+				# Capturar datos de relaciones antes del commit (se expiran tras commit)
+				_return_id = purchase_return.id
+				_supplier_name = purchase.supplier.name if purchase.supplier else 'Proveedor'
+				_pdf_items = [
+					{
+						'description': v['description'],
+						'quantity_returned': float(v['qty']),
+						'unit_cost': float(v['unit_cost']),
+						'subtotal': float(v['subtotal']),
+					}
+					for v in validated
+				]
+
+				session.commit()
+
+				# Generar PDF después del commit para evitar archivos huérfanos en disco
 				try:
 					from controllers.receipt_controller import ReceiptController
 
-					date_str = datetime.now().strftime('%d/%m/%Y %H:%M')
-					supplier_name = (
-						purchase.supplier.name if purchase.supplier else 'Proveedor'
-					)
 					ok, filepath = ReceiptController().generate_supplier_return_note(
-						return_id=purchase_return.id,
+						return_id=_return_id,
 						purchase_id=purchase_id,
-						date_str=date_str,
-						supplier_name=supplier_name,
-						items_returned=[
-							{
-								'description': v['description'],
-								'quantity_returned': float(v['qty']),
-								'unit_cost': float(v['unit_cost']),
-								'subtotal': float(v['subtotal']),
-							}
-							for v in validated
-						],
+						date_str=datetime.now().strftime('%d/%m/%Y %H:%M'),
+						supplier_name=_supplier_name,
+						items_returned=_pdf_items,
 						total_refund=float(total_refund),
 						reason=reason,
 						refund_type=refund_type,
@@ -371,12 +374,11 @@ class SupplierReturnsController(BaseController):
 					)
 					if ok:
 						purchase_return.file_path = filepath
+						session.commit()
 				except Exception as pdf_err:
 					logger.warning(
 						f'Devolución registrada, pero falló el PDF: {pdf_err}'
 					)
-
-				session.commit()
 
 				refund_label = (
 					'efectivo ingresado a caja'

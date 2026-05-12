@@ -287,17 +287,18 @@ class ReportController(BaseController):
 
 		# ── Encabezado ────────────────────────────────────────
 		pdf.set_font('Arial', 'B', 20)
-		pdf.cell(W, 10, _sanitize(company_name.upper()), ln=1, align='C')
+		pdf.cell(W, 10, _sanitize(company_name.upper()), new_x='LMARGIN', new_y='NEXT', align='C')
 		pdf.set_font('Arial', '', 11)
-		pdf.cell(W, 6, 'REPORTE DE CIERRE', ln=1, align='C')
+		pdf.cell(W, 6, 'REPORTE DE CIERRE', new_x='LMARGIN', new_y='NEXT', align='C')
 		pdf.set_font('Arial', 'B', 13)
-		pdf.cell(W, 8, _sanitize(f'Periodo: {period_label}'), ln=1, align='C')
+		pdf.cell(W, 8, _sanitize(f'Periodo: {period_label}'), new_x='LMARGIN', new_y='NEXT', align='C')
 		pdf.set_font('Arial', '', 9)
 		pdf.cell(
 			W,
 			5,
 			f'Generado: {datetime.now().strftime("%d/%m/%Y %H:%M")}',
-			ln=1,
+			new_x='LMARGIN',
+			new_y='NEXT',
 			align='C',
 		)
 		pdf.ln(4)
@@ -348,7 +349,7 @@ class ReportController(BaseController):
 			pdf.set_font('Arial', 'B', 11)
 			pdf.cell(40, 7, value)
 			pdf.set_font('Arial', 'I', 9)
-			pdf.cell(0, 7, _sanitize(comp), ln=1)
+			pdf.cell(0, 7, _sanitize(comp), new_x='LMARGIN', new_y='NEXT')
 		pdf.ln(4)
 
 		# ── Por método de pago ────────────────────────────────
@@ -359,7 +360,7 @@ class ReportController(BaseController):
 			pdf.set_font('Arial', 'B', 11)
 			pdf.cell(50, 7, f'${info["total"]:,.0f}')
 			pdf.set_font('Arial', '', 10)
-			pdf.cell(0, 7, f'({info["count"]} tickets)', ln=1)
+			pdf.cell(0, 7, f'({info["count"]} tickets)', new_x='LMARGIN', new_y='NEXT')
 		pdf.ln(4)
 
 		# ── Anulaciones ───────────────────────────────────────
@@ -367,7 +368,7 @@ class ReportController(BaseController):
 		pdf.set_font('Arial', '', 11)
 		pdf.cell(80, 7, 'Tickets anulados/devueltos:')
 		pdf.set_font('Arial', 'B', 11)
-		pdf.cell(0, 7, f'{cancels["count"]}  (${cancels["total"]:,.0f})', ln=1)
+		pdf.cell(0, 7, f'{cancels["count"]}  (${cancels["total"]:,.0f})', new_x='LMARGIN', new_y='NEXT')
 		pdf.ln(4)
 
 		# ── Top productos ────────────────────────────────────
@@ -382,7 +383,7 @@ class ReportController(BaseController):
 				pdf.cell(90, 6, desc)
 				pdf.set_font('Arial', 'B', 10)
 				pdf.cell(25, 6, f'{qty_str} u', align='R')
-				pdf.cell(0, 6, f'${item["revenue"]:,.0f}', ln=1, align='R')
+				pdf.cell(0, 6, f'${item["revenue"]:,.0f}', new_x='LMARGIN', new_y='NEXT', align='R')
 			pdf.ln(4)
 
 		# ── Movimientos de caja ───────────────────────────────
@@ -391,31 +392,31 @@ class ReportController(BaseController):
 			if movs['ingresos']:
 				pdf.set_font('Arial', 'BI', 10)
 				pdf.cell(
-					W, 6, f'Ingresos  (Total: ${movs["total_ingresos"]:,.0f})', ln=1
+					W, 6, f'Ingresos  (Total: ${movs["total_ingresos"]:,.0f})', new_x='LMARGIN', new_y='NEXT'
 				)
 				for m in movs['ingresos']:
 					pdf.set_font('Arial', '', 10)
 					t = m['time'].strftime('%H:%M') if m['time'] else ''
 					pdf.cell(20, 5, t)
 					pdf.cell(120, 5, _sanitize(m['desc'] or '')[:50])
-					pdf.cell(0, 5, f'${m["amount"]:,.0f}', ln=1, align='R')
+					pdf.cell(0, 5, f'${m["amount"]:,.0f}', new_x='LMARGIN', new_y='NEXT', align='R')
 				pdf.ln(2)
 			if movs['gastos']:
 				pdf.set_font('Arial', 'BI', 10)
-				pdf.cell(W, 6, f'Gastos  (Total: ${movs["total_gastos"]:,.0f})', ln=1)
+				pdf.cell(W, 6, f'Gastos  (Total: ${movs["total_gastos"]:,.0f})', new_x='LMARGIN', new_y='NEXT')
 				for m in movs['gastos']:
 					pdf.set_font('Arial', '', 10)
 					t = m['time'].strftime('%H:%M') if m['time'] else ''
 					pdf.cell(20, 5, t)
 					pdf.cell(120, 5, _sanitize(m['desc'] or '')[:50])
-					pdf.cell(0, 5, f'${m["amount"]:,.0f}', ln=1, align='R')
+					pdf.cell(0, 5, f'${m["amount"]:,.0f}', new_x='LMARGIN', new_y='NEXT', align='R')
 				pdf.ln(4)
 
 		# ── Firma ────────────────────────────────────────────
 		pdf.ln(10)
 		pdf.set_font('Arial', '', 10)
-		pdf.cell(W, 5, '___________________________', ln=1, align='C')
-		pdf.cell(W, 5, 'Firma del responsable', ln=1, align='C')
+		pdf.cell(W, 5, '___________________________', new_x='LMARGIN', new_y='NEXT', align='C')
+		pdf.cell(W, 5, 'Firma del responsable', new_x='LMARGIN', new_y='NEXT', align='C')
 
 		# Guardar
 		fname = f'Reporte_{period["from"].strftime("%Y%m%d")}_{period["to"].strftime("%Y%m%d")}.pdf'
@@ -427,7 +428,7 @@ class ReportController(BaseController):
 		pdf.set_font('Arial', 'B', 12)
 		pdf.set_fill_color(40, 40, 40)
 		pdf.set_text_color(255, 255, 255)  # CORRECCIÓN: Letra blanca para fondo oscuro
-		pdf.cell(190, 8, f'  {_sanitize(title)}', ln=1, fill=True)
+		pdf.cell(190, 8, f'  {_sanitize(title)}', new_x='LMARGIN', new_y='NEXT', fill=True)
 		pdf.set_text_color(0, 0, 0)  # Vuelve a negro
 		pdf.ln(2)
 

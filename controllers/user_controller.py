@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_ROLES = ['admin', 'cajero', 'gerente']
 _PIN_MIN_LEN = 4
+_DUMMY_HASH = bcrypt.hashpw(b'dummy', bcrypt.gensalt())
 
 
 def get_display_name(user) -> str:
@@ -219,7 +220,7 @@ class UserController(BaseController):
 				)
 
 				if not user or not user.recovery_pin_hash:
-					bcrypt.checkpw(b'dummy', bcrypt.hashpw(b'dummy', bcrypt.gensalt()))
+					bcrypt.checkpw(b'dummy', _DUMMY_HASH)
 					return False, 'Usuario o PIN incorrecto.'
 
 				stored_hash = user.recovery_pin_hash

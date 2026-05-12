@@ -299,7 +299,7 @@ class ReturnsController(BaseController):
 
 				remaining_total = Decimal(str(sale.total_amount or 0)) - refund_total
 				sale.status = 'devuelta' if remaining_total <= Decimal('0') else 'parcial'
-				sale.total_amount = remaining_total
+				sale.total_amount = max(Decimal('0'), remaining_total)
 				sale.profit = (
 					Decimal(str(sale.profit or 0)) - profit_reduction
 				)

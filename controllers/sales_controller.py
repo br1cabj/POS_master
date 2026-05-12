@@ -205,7 +205,16 @@ class SalesController(BaseController):
 					.filter_by(id=sale_id, tenant_id=tenant_id)
 					.first()
 				)
-				discount = float(sale.discount_amount or 0) if sale else 0.0
+				if not sale:
+					return {
+						'items': [],
+						'discount_amount': 0.0,
+						'payment_method': '',
+						'payment_method_2': '',
+						'amount_method_2': 0.0,
+						'total_amount': 0.0,
+					}
+				discount = float(sale.discount_amount or 0)
 				details = [
 					{
 						'description': d.description,

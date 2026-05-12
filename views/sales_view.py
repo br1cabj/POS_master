@@ -1220,9 +1220,7 @@ class SalesView(BaseView):
 			self._btn_search_mode.configure(
 				fg_color='transparent', hover_color=SURFACE3, text_color=TEXT_SECONDARY
 			)
-			self.entry_barcode.configure(
-				placeholder_text='Esperando lector de código de barras...'
-			)
+			self.entry_barcode.configure(placeholder_text='')
 			self._close_dropdown()
 		else:
 			self._btn_search_mode.configure(
@@ -1231,9 +1229,7 @@ class SalesView(BaseView):
 			self._btn_scan_mode.configure(
 				fg_color='transparent', hover_color=SURFACE3, text_color=TEXT_SECONDARY
 			)
-			self.entry_barcode.configure(
-				placeholder_text='Escribí nombre o código → seleccioná de la lista'
-			)
+			self.entry_barcode.configure(placeholder_text='')
 		self.entry_barcode.focus()
 
 	def _update_dropdown(self):

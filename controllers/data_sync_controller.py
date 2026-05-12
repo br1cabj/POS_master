@@ -11,6 +11,7 @@ import unicodedata
 from decimal import Decimal, InvalidOperation
 
 import pandas as pd
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
@@ -420,6 +421,7 @@ class DataSyncController(BaseController):
 						)
 					}
 
+				created_barcodes: set = set()
 				for row in df.itertuples():
 					row_num = row.Index + 2  # +2 por encabezado y base-0
 					name = str(row.Nombre).strip()
@@ -471,6 +473,13 @@ class DataSyncController(BaseController):
 						continue
 
 					existing = existing_by_barcode.get(barcode)
+
+					if not existing and barcode in created_barcodes:
+						skipped += 1
+						skip_reasons.append(
+							f'Fila {row_num} ({name}): barcode duplicado dentro del archivo.'
+						)
+						continue
 
 					if existing:
 						old_cost = existing.cost_price
@@ -529,6 +538,7 @@ class DataSyncController(BaseController):
 						)
 						session.add(variant)
 						session.flush()
+						created_barcodes.add(barcode)
 
 						if warehouse_id and stock_val > 0:
 							session.add(

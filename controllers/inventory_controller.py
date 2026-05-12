@@ -104,7 +104,7 @@ class InventoryController(BaseController):
 				if not user:
 					return False, 'Usuario no válido.'
 
-				stocks = session.query(Stock).filter_by(variant_id=variant_id).all()
+				stocks = session.query(Stock).filter_by(variant_id=variant_id).with_for_update().all()
 				if not stocks:
 					return False, 'No hay registro de stock para este producto.'
 

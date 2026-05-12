@@ -75,14 +75,12 @@ class ComboController(BaseController):
 					)
 
 					if not ing_variant:
-						session.rollback()
 						return (
 							False,
 							f'Inconsistencia: El artículo (ID: {variant_id}) no pertenece a su base de datos.',
 						)
 
 					if getattr(ing_variant, 'is_combo', False):
-						session.rollback()
 						return (
 							False,
 							'Restricción arquitectónica: No se permite anidar combos.',
