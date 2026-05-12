@@ -197,7 +197,7 @@ class CashView(BaseView):
 		)
 		self.right_panel.grid(row=0, column=1, padx=(8, 16), pady=16, sticky='nsew')
 		self.right_panel.grid_columnconfigure(0, weight=1)
-		self.right_panel.grid_rowconfigure(1, weight=1)
+		self.right_panel.grid_rowconfigure(2, weight=1)
 
 		form_frame = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		form_frame.grid(row=0, column=0, sticky='ew', padx=24, pady=(24, 12))
@@ -296,11 +296,11 @@ class CashView(BaseView):
 		self.btn_mov.grid(row=6, column=0, sticky='ew')
 
 		ctk.CTkFrame(self.right_panel, height=1, fg_color=BORDER).grid(
-			row=0, column=0, sticky='ew', padx=24, pady=(0, 0)
+			row=1, column=0, sticky='ew', padx=24, pady=(0, 0)
 		)
 
 		history_frame = ctk.CTkFrame(self.right_panel, fg_color='transparent')
-		history_frame.grid(row=1, column=0, sticky='nsew', padx=24, pady=(0, 24))
+		history_frame.grid(row=2, column=0, sticky='nsew', padx=24, pady=(0, 24))
 		history_frame.grid_columnconfigure(0, weight=1)
 		history_frame.grid_rowconfigure(1, weight=1)
 

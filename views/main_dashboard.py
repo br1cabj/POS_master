@@ -580,7 +580,7 @@ class MainDashboard(ctk.CTkFrame):
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).place(relx=0.5, rely=0.5, anchor='center')
-		self.update()  # Fuerza el render del indicador antes de instanciar la vista
+		self.update_idletasks()  # Fuerza el render del indicador antes de instanciar la vista
 
 		kwargs = {}
 		if context_data is not None:

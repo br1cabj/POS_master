@@ -1769,7 +1769,8 @@ class ArticlesView(BaseView):
 		)
 		entry_price.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
 		if is_edit:
-			entry_price.insert(0, f'{existing_pack.get("selling_price", ""):.2f}')
+			_sp = existing_pack.get('selling_price') or 0
+			entry_price.insert(0, f'{float(_sp):.2f}')
 
 		make_form_label(dialog, 'CÓDIGO DE BARRAS  (opcional)', required=False)[0].pack(
 			padx=PAD_LG, anchor='w'

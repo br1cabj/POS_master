@@ -92,7 +92,8 @@ class SalesHistoryView(BaseView):
 				frame.pack_forget()
 
 		# 2. Lazy load: Instanciar la vista solo si no ha sido cargada previamente
-		if idx not in self._loaded_views:
+		already_loaded = idx in self._loaded_views
+		if not already_loaded:
 			_, _, view_cls = _TABS[idx]
 			frame = ctk.CTkFrame(
 				self._content_frame, fg_color='transparent', corner_radius=0
@@ -105,11 +106,12 @@ class SalesHistoryView(BaseView):
 		frame, view_instance = self._loaded_views[idx]
 		frame.pack(fill='both', expand=True)
 
-		# 4. Refrescar datos si la vista ya estaba cargada (Sincronización de estado)
-		if hasattr(view_instance, 'load_history'):
-			view_instance.load_history()
-		elif hasattr(view_instance, 'load_sales'):
-			view_instance.load_sales()
+		# 4. Refrescar datos solo al volver a una pestaña ya cargada (evita doble carga en lazy init)
+		if already_loaded:
+			if hasattr(view_instance, 'load_history'):
+				view_instance.load_history()
+			elif hasattr(view_instance, 'load_sales'):
+				view_instance.load_sales()
 
 		# 5. Actualizar estilos visuales de los botones de las pestañas
 		for i, btn in enumerate(self._tab_btns):
@@ -129,6 +131,14 @@ class SalesHistoryView(BaseView):
 
 		# 6. Mover el foco del teclado a la vista activa
 		self.set_initial_focus()
+
+	def destroy_custom(self):
+		for _, view_instance in self._loaded_views.values():
+			if hasattr(view_instance, 'destroy_custom'):
+				try:
+					view_instance.destroy_custom()
+				except Exception:
+					pass
 
 	def set_initial_focus(self):
 		"""Delega el enfoque inicial a la sub-vista que esté activa actualmente."""

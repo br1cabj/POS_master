@@ -6,11 +6,13 @@ from tkinter import ttk
 import customtkinter as ctk
 
 from controllers.sales_controller import SalesController
-from utils.date_picker import CTkDatePicker
 from core.base_view import BaseView
 from core.context import AppContext
+from utils.date_picker import CTkDatePicker
 from utils.settings_manager import get_reports_path
 from utils.styles import (
+	ACCENT,
+	ACCENT_DIM,
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,

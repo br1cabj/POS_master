@@ -38,7 +38,8 @@ class StockHistoryView(BaseView):
 
 		self._active_idx = 0
 		self._tab_btns: list = []
-		self._views: list = []  # Cambiado para almacenar la instancia de la vista y poder refrescarla
+		self._views: list = []
+		self._init_done = False
 
 		# ── Tab bar ───────────────────────────────────────────────────────
 		tab_bar = ctk.CTkFrame(
@@ -85,6 +86,16 @@ class StockHistoryView(BaseView):
 			self._views.append({'frame': frame, 'instance': view_instance})
 
 		self._switch_tab(0)
+		self._init_done = True
+
+	def destroy_custom(self):
+		for view_dict in self._views:
+			instance = view_dict.get('instance')
+			if instance and hasattr(instance, 'destroy_custom'):
+				try:
+					instance.destroy_custom()
+				except Exception:
+					pass
 
 	# ─────────────────────────────────────────────────────────────────────
 	def _switch_tab(self, idx: int):
@@ -94,8 +105,8 @@ class StockHistoryView(BaseView):
 		for i, view_dict in enumerate(self._views):
 			if i == idx:
 				view_dict['frame'].pack(fill='both', expand=True)
-				# LÓGICA VITAL: Refrescar la tabla al enfocar la pestaña
-				if hasattr(view_dict['instance'], 'load_data'):
+				# Solo refrescar en cambios de pestaña iniciados por el usuario, no en el init
+				if self._init_done and hasattr(view_dict['instance'], 'load_data'):
 					view_dict['instance'].load_data()
 			else:
 				view_dict['frame'].pack_forget()

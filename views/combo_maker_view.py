@@ -56,8 +56,6 @@ class ComboMakerView(BaseView):
 		self.ingredients_cart = []
 		self.editing_combo_id = None
 
-		self.pack(fill='both', expand=True, padx=PAD_MD, pady=PAD_MD)
-
 		self.color_map = {
 			'🔵 Azul Marino': ACCENT_DIM,
 			'🟢 Verde Éxito': GREEN_DIM,

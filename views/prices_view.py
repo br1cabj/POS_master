@@ -86,6 +86,14 @@ class PricesView(BaseView):
 
 		self._switch_tab(0)
 
+	def destroy_custom(self):
+		for view in self._loaded_views.values():
+			if view and hasattr(view, 'destroy_custom'):
+				try:
+					view.destroy_custom()
+				except Exception:
+					pass
+
 	# ─────────────────────────────────────────────────────────────────────
 	def _switch_tab(self, idx: int):
 		self._active_idx = idx
@@ -93,8 +101,9 @@ class PricesView(BaseView):
 		# Lazy Loading: Si la vista no se ha instanciado, lo hacemos ahora
 		if not self._loaded_views[idx]:
 			_, _, view_cls = _TABS[idx]
-			view_cls(self._frames[idx], self.ctx).pack(fill='both', expand=True)
-			self._loaded_views[idx] = True
+			instance = view_cls(self._frames[idx], self.ctx)
+			instance.pack(fill='both', expand=True)
+			self._loaded_views[idx] = instance
 
 		# Ocultar todos, mostrar el activo
 		for i, frame in enumerate(self._frames):

@@ -281,7 +281,7 @@ class QuotationView(BaseView):
 			side='left'
 		)
 		ctk.CTkLabel(
-			r2, text=q['date'][:10], font=FONT_LABEL, text_color=TEXT_MUTED
+			r2, text=str(q['date'])[:10], font=FONT_LABEL, text_color=TEXT_MUTED
 		).pack(side='right')
 
 		r3 = ctk.CTkFrame(card, fg_color='transparent')
