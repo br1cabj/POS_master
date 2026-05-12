@@ -1737,13 +1737,16 @@ class SalesView(BaseView):
 		self.popup.update_idletasks()
 
 		pw = 480
-		ph = 650 if self.customer_name != 'Consumidor Final' else 610
-		rx = self.winfo_rootx() + (self.winfo_width() - pw) // 2
-		ry = self.winfo_rooty() + (self.winfo_height() - ph) // 2
-		self.popup.geometry(f'{pw}x{ph}+{rx}+{ry}')
 		self.popup.bind('<Escape>', lambda e: self.popup.destroy())
-
-		self._render_popup_ui(pw, ph, raw_total, fmt_price)
+		self._render_popup_ui(pw, 0, raw_total, fmt_price)
+		self.popup.update_idletasks()
+		ph = min(
+			self.popup.winfo_reqheight(),
+			self.winfo_toplevel().winfo_screenheight() - 60,
+		)
+		rx = self.winfo_rootx() + (self.winfo_width() - pw) // 2
+		ry = max(10, self.winfo_rooty() + (self.winfo_height() - ph) // 2)
+		self.popup.geometry(f'{pw}x{ph}+{rx}+{ry}')
 
 	def _render_popup_ui(self, pw, ph, raw_total, fmt_price):
 		card = ctk.CTkFrame(
@@ -1831,22 +1834,24 @@ class SalesView(BaseView):
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(padx=20, anchor='w', pady=(2, 4))
-		methods_row = ctk.CTkFrame(self.popup, fg_color='transparent')
-		methods_row.pack(fill='x', padx=20, pady=(0, 10))
+		methods_grid = ctk.CTkFrame(self.popup, fg_color='transparent')
+		methods_grid.pack(fill='x', padx=20, pady=(0, 10))
+		methods_grid.grid_columnconfigure((0, 1), weight=1)
 
 		self._pay_btns = {}
-		for icon, method in [
+		for i, (icon, method) in enumerate([
 			('💵', 'Efectivo'),
 			('💳', 'Tarjeta'),
 			('🏦', 'Transferencia'),
 			('📱', 'QR'),
-		]:
+		]):
+			row, col = divmod(i, 2)
 			is_active = method == 'Efectivo'
 			btn = ctk.CTkButton(
-				methods_row,
-				text=f'{icon}\n{method}',
+				methods_grid,
+				text=f'{icon}  {method}',
 				font=FONT_LABEL_BOLD,
-				height=54,
+				height=40,
 				corner_radius=8,
 				fg_color=ACCENT_DIM if is_active else SURFACE3,
 				hover_color=ACCENT_DIM,
@@ -1855,7 +1860,7 @@ class SalesView(BaseView):
 				border_color=ACCENT if is_active else BORDER,
 				command=lambda m=method: self._select_payment(m),
 			)
-			btn.pack(side='left', fill='x', expand=True, padx=2)
+			btn.grid(row=row, column=col, sticky='ew', padx=2, pady=2)
 			self._pay_btns[method] = btn
 
 		self._cash_section = ctk.CTkFrame(self.popup, fg_color='transparent')

@@ -85,6 +85,10 @@ class ArticleController(BaseController):
 						# Descuento por producto
 						'discount_pct': float(v.discount_pct) if v.discount_pct else 0.0,
 						'discount_until': v.discount_until,
+						# Combo / Touch POS
+						'is_combo': v.is_combo or False,
+						'btn_color': v.btn_color,
+						'show_on_touch': v.show_on_touch or False,
 					}
 					for v in variants
 				]

@@ -672,11 +672,12 @@ class SetupWizard(ctk.CTkFrame):
 
 		tax_str = self._e_tax.get().strip().replace(',', '.')
 		try:
-			float(tax_str)
+			if float(tax_str) < 0:
+				raise ValueError
 		except ValueError:
 			CTkMessagebox(
 				title='Valor inválido',
-				message='El impuesto debe ser un número (Ej: 21).',
+				message='El impuesto debe ser un número mayor o igual a 0 (Ej: 21).',
 				icon='cancel',
 			)
 			self._e_tax.focus()
@@ -810,6 +811,8 @@ class SetupWizard(ctk.CTkFrame):
 			font=FONT_BODY,
 		)
 		self._e_pass.grid(row=9, column=0, sticky='ew', padx=PAD_XL, pady=(0, PAD_MD))
+		if self._d_password:
+			self._e_pass.insert(0, self._d_password)
 
 		make_form_label(card, 'CONFIRMAR CONTRASEÑA', required=True)[0].grid(
 			row=10, column=0, sticky='w', padx=PAD_XL, pady=(0, PAD_XS)
@@ -947,9 +950,18 @@ class SetupWizard(ctk.CTkFrame):
 				message=f'Tu sistema CloudPOS está configurado.\n¡Bienvenido, {self._d_username}!',
 				icon='check',
 			).get()
-			self.after(100, self.on_complete_callback)
+			self.winfo_toplevel().after(100, self.on_complete_callback)
 		except Exception as e:
 			logger.error(f'Error al crear la base de datos: {e}', exc_info=True)
+			# Eliminar license.dat para que el wizard vuelva a mostrarse en el
+			# próximo arranque en lugar de quedar atascado en una pantalla rota.
+			try:
+				import os as _os
+				lf = self.license_ctrl.license_file
+				if _os.path.exists(lf):
+					_os.remove(lf)
+			except Exception:
+				pass
 			CTkMessagebox(
 				title='Error Fatal',
 				message=f'Falló la creación de la base de datos:\n{str(e)}',

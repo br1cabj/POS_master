@@ -145,6 +145,25 @@ class ComboMakerView(BaseView):
 				),
 			)
 
+		# Cargar Directorio de Botones Rápidos (tab 2)
+		if hasattr(self, 'tree_sueltos_list'):
+			for item in self.tree_sueltos_list.get_children():
+				self.tree_sueltos_list.delete(item)
+			sueltos = [
+				v for v in self.db_variants
+				if v.get('show_on_touch') and not v.get('is_combo')
+			]
+			for s in sueltos:
+				color_key = next(
+					(k for k, val in self.color_map.items() if val == s.get('btn_color')),
+					'—',
+				)
+				self.tree_sueltos_list.insert(
+					'', 'end',
+					iid=str(s['variant_id']),
+					values=(s['name'], color_key),
+				)
+
 	# =========================================================
 	# PESTAÑA 1: CREADOR DE COMBOS
 	# =========================================================
@@ -447,6 +466,13 @@ class ComboMakerView(BaseView):
 		self.entry_combo_name.insert(0, combo.get('name', ''))
 		self.entry_combo_price.insert(0, f'{combo.get("selling_price", 0):.2f}')
 
+		stored_color = combo.get('btn_color', '')
+		color_key = next(
+			(k for k, v in self.color_map.items() if v == stored_color),
+			list(self.color_map.keys())[0],
+		)
+		self.combo_color.set(color_key)
+
 		try:
 			ingredients = self.combo_ctrl.get_combo_ingredients(
 				self.ctx.tenant_id, combo['variant_id']
@@ -745,6 +771,43 @@ class ComboMakerView(BaseView):
 			command=self.save_suelto,
 		).pack(pady=(0, PAD_LG), fill='x')
 
+		ctk.CTkFrame(inner, height=1, fg_color=BORDER).pack(fill='x', pady=(0, PAD_MD))
+
+		ctk.CTkLabel(
+			inner,
+			text='Botones Rápidos Configurados',
+			font=FONT_HEADING,
+			text_color=TEXT_PRIMARY,
+			anchor='w',
+		).pack(anchor='w', pady=(0, PAD_XS))
+
+		apply_treeview_style()
+		self.tree_sueltos_list = ttk.Treeview(
+			inner,
+			columns=('Nombre', 'Color'),
+			show='headings',
+			height=6,
+		)
+		self.tree_sueltos_list.heading('Nombre', text='Producto')
+		self.tree_sueltos_list.heading('Color', text='Color')
+		self.tree_sueltos_list.column('Nombre', width=280, anchor='w', stretch=True)
+		self.tree_sueltos_list.column('Color', width=160, anchor='w', stretch=False)
+		self.tree_sueltos_list.pack(fill='both', expand=True, pady=(0, PAD_SM))
+
+		ctk.CTkButton(
+			inner,
+			text='🗑  Quitar del Panel de Acceso Rápido',
+			fg_color=RED_DIM,
+			hover_color=RED,
+			text_color=RED_TEXT,
+			border_width=1,
+			border_color=RED,
+			height=36,
+			corner_radius=8,
+			font=FONT_BODY_BOLD,
+			command=self._remove_suelto,
+		).pack(fill='x', pady=(0, PAD_MD))
+
 	def _filter_sueltos(self, event):
 		if event.keysym in ('Up', 'Down', 'Return', 'Tab', 'Shift_L', 'Shift_R'):
 			return
@@ -776,5 +839,29 @@ class ComboMakerView(BaseView):
 		if success:
 			self.show_success(msg, '¡Actualizado!')
 			self.combo_sueltos.set('Seleccionar Producto...')
+			self.load_data()
+		else:
+			self.show_error(msg)
+
+	def _remove_suelto(self):
+		selected = self.tree_sueltos_list.selection()
+		if not selected:
+			self.show_warning('Seleccioná un producto de la lista para quitarlo del panel.')
+			return
+		variant_id_str = selected[0]
+		try:
+			variant_id = int(variant_id_str)
+		except ValueError:
+			variant_id = variant_id_str
+		variant_data = next(
+			(v for v in self.db_variants if v['variant_id'] == variant_id), None
+		)
+		btn_color = (variant_data or {}).get('btn_color') or ''
+		success, msg = self.combo_ctrl.toggle_touch_status(
+			self.ctx.tenant_id, variant_id, False, btn_color
+		)
+		if success:
+			self.show_success('Botón eliminado del panel de acceso rápido.', '¡Listo!')
+			self.load_data()
 		else:
 			self.show_error(msg)
