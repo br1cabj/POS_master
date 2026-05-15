@@ -1,65 +1,49 @@
-# =========================
-# 🔐 Archivos sensibles
-# =========================
+# Sensitive files
 .env
 *.env
 *.dat
 settings.json
 
-# =========================
-# 🗄️ Base de datos
-# =========================
+# Database
 *.db
 *.sqlite3
+*.db-shm
+*.db-wal
 
-# =========================
-# 🧪 Entornos virtuales
-# =========================
+# Virtual environments
 venv/
 .env/
 .venv/
 
-# =========================
-# 🐍 Python cache
-# =========================
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# =========================
-# 📦 Build / packaging
-# =========================
+# Build / packaging
 build/
 dist/
 *.egg-info/
+*.spec
 
-# =========================
-# 🧾 Logs
-# =========================
+# Logs
 *.log
 
-# =========================
-# 🧠 IDE / editor
-# =========================
+# IDE / editor
 .vscode/
 .idea/
 
-# =========================
-# 🖥️ Sistema operativo
-# =========================
+# OS
 .DS_Store
 Thumbs.db
 
-# =========================
-# 📄 Archivos generados / innecesarios
-# =========================
-*.pdf
+# Assets (keep locally, not in repo)
 *.ico
+*.pdf
 
-# =========================
-# 🔥 Otros opcionales
-# =========================
-# Si este archivo es generado automáticamente
-# descomentá:
+# Claude Code local config
+.claude/
+
+# License file (generated at activation)
 license.dat
