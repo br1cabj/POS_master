@@ -11,3 +11,4 @@ python-barcode==0.16.1
 python-dotenv==1.2.2
 psycopg2-binary==2.9.12
 pyinstaller==6.20.0
+pyserial==3.5

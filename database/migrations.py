@@ -376,12 +376,13 @@ def _v16_add_updated_at(engine) -> None:
 
     with engine.connect() as conn:
         for table in _SYNC_TABLES:
+            # SQLite rejects non-constant defaults (CURRENT_TIMESTAMP) in ALTER TABLE.
+            # Add the column as NULL-able and back-fill immediately after.
             added = _add_column_if_missing(
                 conn, engine, table, 'updated_at',
-                'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                'DATETIME DEFAULT NULL',
             )
             if added:
-                # Back-fill existing rows so the first sync knows about them.
                 conn.execute(
                     text(f"UPDATE {table} SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
                 )
@@ -412,9 +413,10 @@ def _v17_add_updated_at_core_tables(engine) -> None:
 
     with engine.connect() as conn:
         for table in _CORE_TABLES:
+            # SQLite rejects non-constant defaults in ALTER TABLE — use NULL then back-fill.
             added = _add_column_if_missing(
                 conn, engine, table, 'updated_at',
-                'DATETIME DEFAULT CURRENT_TIMESTAMP',
+                'DATETIME DEFAULT NULL',
             )
             if added:
                 conn.execute(

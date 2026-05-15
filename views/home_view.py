@@ -1,3 +1,5 @@
+import importlib
+
 import customtkinter as ctk
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -86,8 +88,6 @@ class HomeView(BaseView):
 		if view_name not in lazy:
 			return
 		module_path, class_name, requires_admin = lazy[view_name]
-		import importlib
-
 		module = importlib.import_module(module_path)
 		cls = getattr(module, class_name)
 		self._navigate(cls, requires_admin=requires_admin)
@@ -361,7 +361,7 @@ class HomeView(BaseView):
 		ax = self._fig.add_subplot(111)
 		ax.set_facecolor(_CHART_BG)
 
-		bars = ax.bar(
+		ax.bar(
 			dates,
 			float_totals,
 			color=bar_colors,

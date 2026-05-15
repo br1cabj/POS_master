@@ -9,6 +9,7 @@ from database.models import (
 	Article,
 	ArticleHistory,
 	ArticleVariant,
+	Category,
 	Stock,
 	StockMovement,
 	Supplier,
@@ -44,23 +45,22 @@ class ArticleController(BaseController):
 				logger.error(f'Error obteniendo proveedores: {e}', exc_info=True)
 				return []
 
-	def get_all_variants(self, tenant_id):
+	def get_all_variants(self, tenant_id, include_inactive: bool = False):
 		with self._Session() as session:
 			try:
-				variants = (
+				q = (
 					session.query(ArticleVariant)
 					.options(
 						joinedload(ArticleVariant.article).joinedload(Article.supplier),
+						joinedload(ArticleVariant.article).joinedload(Article.category),
 						joinedload(ArticleVariant.stocks),
 					)
 					.join(Article)
-					.filter(
-						Article.tenant_id == tenant_id,
-						ArticleVariant.is_active == True,  # noqa: E712
-					)
+					.filter(Article.tenant_id == tenant_id)
 					.order_by(Article.name)
-					.all()
 				)
+				if not include_inactive:
+					q = q.filter(ArticleVariant.is_active == True)  # noqa: E712
 
 				return [
 					{
@@ -71,26 +71,22 @@ class ArticleController(BaseController):
 						'cost_price': v.cost_price,
 						'selling_price': v.selling_price,
 						'selling_price_b': float(v.selling_price_b) if v.selling_price_b else None,
-						'total_stock': sum(s.quantity for s in v.stocks)
-						if v.stocks
-						else 0,
+						'total_stock': sum(s.quantity for s in v.stocks) if v.stocks else 0,
 						'supplier_id': v.article.supplier_id,
-						'supplier_name': v.article.supplier.name
-						if v.article.supplier
-						else 'Sin Proveedor',
-						# Presentaciones / Empaque
+						'supplier_name': v.article.supplier.name if v.article.supplier else 'Sin Proveedor',
+						'category_id': v.article.category_id,
+						'category_name': v.article.category.name if v.article.category else 'Sin Categoría',
 						'units_per_pack': v.units_per_pack or 1,
 						'pack_label': v.pack_label,
 						'base_variant_id': v.base_variant_id,
-						# Descuento por producto
 						'discount_pct': float(v.discount_pct) if v.discount_pct else 0.0,
 						'discount_until': v.discount_until,
-						# Combo / Touch POS
 						'is_combo': v.is_combo or False,
 						'btn_color': v.btn_color,
 						'show_on_touch': v.show_on_touch or False,
+						'is_active': v.is_active,
 					}
-					for v in variants
+					for v in q.all()
 				]
 			except Exception as e:
 				logger.error(f'Error al obtener variantes: {e}', exc_info=True)
@@ -373,6 +369,75 @@ class ArticleController(BaseController):
 					f'Error al eliminar variante {variant_id}: {e}', exc_info=True
 				)
 				return False, 'Error interno al intentar eliminar.'
+
+	def get_categories_for_combo(self, tenant_id):
+		with self._Session() as session:
+			try:
+				# Devuelve todas las categorías: las usadas por este tenant
+				# más las no asignadas aún, para que el usuario pueda reclasificar.
+				# Category no tiene tenant_id propio — es una tabla global compartida.
+				return [
+					{'id': c.id, 'name': c.name}
+					for c in session.query(Category).order_by(Category.name).all()
+				]
+			except Exception as e:
+				logger.error(f'Error obteniendo categorías: {e}', exc_info=True)
+				return []
+
+	def bulk_update_variants(self, tenant_id, user_id, variant_ids, updates):
+		"""
+		Aplica cambios masivos a una lista de variantes y sus artículos relacionados.
+		updates: dict con campos (category_id, supplier_id, is_active, show_on_touch, discount_pct)
+		"""
+		if not variant_ids:
+			return False, 'No se seleccionaron artículos.'
+
+		with self._Session() as session:
+			try:
+				variants = (
+					session.query(ArticleVariant)
+					.join(Article)
+					.filter(
+						ArticleVariant.id.in_(variant_ids),
+						Article.tenant_id == tenant_id
+					)
+					.all()
+				)
+
+				if not variants:
+					return False, 'No se encontraron los artículos seleccionados.'
+
+				updated_articles = set()
+				
+				for v in variants:
+					# Campos de Variante
+					if 'is_active' in updates:
+						v.is_active = updates['is_active']
+					if 'show_on_touch' in updates:
+						v.show_on_touch = updates['show_on_touch']
+					if 'discount_pct' in updates:
+						try:
+							v.discount_pct = Decimal(str(updates['discount_pct']))
+						except (InvalidOperation, ValueError):
+							pass
+					
+					# Campos de Artículo (Padre)
+					art = v.article
+					if art.id not in updated_articles:
+						if 'category_id' in updates:
+							art.category_id = updates['category_id']
+						if 'supplier_id' in updates:
+							art.supplier_id = updates['supplier_id']
+						if 'is_active' in updates:
+							art.is_active = updates['is_active']
+						updated_articles.add(art.id)
+
+				session.commit()
+				return True, f'Se actualizaron {len(variants)} ítems correctamente.'
+			except Exception as e:
+				session.rollback()
+				logger.error(f'Error en actualización masiva: {e}', exc_info=True)
+				return False, f'Error al procesar los cambios: {str(e)}'
 
 	def apply_bulk_price_changes(self, tenant_id, user_id, changes_list):
 		if not changes_list:

@@ -138,6 +138,7 @@ class Article(Base):
     tenant = relationship('Tenant', back_populates='articles')
 
     category_id = Column(String(36), ForeignKey('categories.id'), nullable=True)
+    category = relationship('Category')
 
     supplier_id = Column(
         String(36), ForeignKey('suppliers.id'), nullable=True, index=True

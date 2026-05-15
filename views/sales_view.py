@@ -8,6 +8,7 @@ Solucionados errores de precisión Decimal, cierres de ciclos asíncronos y seri
 
 import logging
 import tkinter
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from tkinter import ttk
 
@@ -42,6 +43,7 @@ from utils.styles import (
 	FONT_TITLE_SM,
 	FONT_XL_BOLD,
 	GREEN,
+	GREEN_DIM,
 	GREEN_HOVER,
 	GREEN_MID,
 	GREEN_TEXT,
@@ -61,6 +63,8 @@ from utils.styles import (
 	apply_treeview_style,
 )
 
+logger = logging.getLogger(__name__)
+
 _DISCOUNT_PRESETS = [5, 10, 15, 20]
 
 
@@ -70,7 +74,6 @@ class SalesView(BaseView):
 		self._context_data = context_data
 		self.sales_ctrl = SalesController(ctx.db_engine)
 		self._cash_ctrl = CashController(ctx.db_engine)
-		self.db_engine = ctx.db_engine
 		self.cart = []
 
 		self._discount_pct = Decimal('0')
@@ -659,7 +662,7 @@ class SalesView(BaseView):
 				1200, lambda: self._entry_custom_disc.configure(border_color=BORDER)
 			)
 
-	def _set_msg(self, text: str, color: str = None):
+	def _set_msg(self, text: str, color: str | None = None):
 		self.lbl_msg.configure(text=text, text_color=color or GREEN_TEXT)
 		if self._msg_timer_id:
 			try:
@@ -695,7 +698,7 @@ class SalesView(BaseView):
 					text_color=TEXT_PRIMARY,
 				)
 		except Exception as e:
-			logging.warning(f'Cash status check failed: {e}')
+			logger.warning('Cash status check failed: %s', e)
 
 	def load_data(self):
 		self._is_loading_data = True
@@ -766,9 +769,7 @@ class SalesView(BaseView):
 		chunk = self._touch_queue[:15]
 		self._touch_queue = self._touch_queue[15:]
 
-		from utils.settings_manager import get as settings_get
-
-		low_threshold = settings_get('low_stock_threshold', 5)
+		low_threshold = _cfg_mgr.get('low_stock_threshold', 5)
 
 		for v in chunk:
 			stock = Decimal(str(v.get('total_stock', 0)))
@@ -821,7 +822,10 @@ class SalesView(BaseView):
 			lbl_stock.pack()
 
 			if not is_disabled:
-				action = lambda e, vid=v.get('variant_id'): self.add_from_touch(vid)
+
+				def action(e, vid=v.get('variant_id')):
+					self.add_from_touch(vid)
+
 				for w in [btn_frame, inner, lbl_name, lbl_price, lbl_stock]:
 					w.bind('<Button-1>', action)
 					w.configure(cursor='hand2')
@@ -881,7 +885,7 @@ class SalesView(BaseView):
 
 			self._set_msg('✏️ Ticket listo para modificar', ORANGE_TEXT)
 		except Exception as e:
-			logging.error(f'Error restoring ticket: {e}')
+			logger.error('Error restoring ticket: %s', e)
 			self._set_msg('Error restaurando ticket', RED_TEXT)
 		finally:
 			self._is_loading_data = False
@@ -900,18 +904,16 @@ class SalesView(BaseView):
 		)
 
 	def _apply_product_discount(self, variant: dict, base_price: Decimal):
-		from datetime import datetime as _dt
-
 		def _pct_active(pct, until):
 			if not pct or pct <= 0:
 				return Decimal('0')
 			if until:
 				if isinstance(until, str):
 					try:
-						until = _dt.fromisoformat(until)
+						until = datetime.fromisoformat(until)
 					except Exception:
 						return Decimal('0')
-				if until < _dt.now():
+				if until < datetime.now():
 					return Decimal('0')
 			return Decimal(str(pct))
 
@@ -1619,8 +1621,7 @@ class SalesView(BaseView):
 			self.tree.item(item_id, tags=(tag,))
 
 	def update_total(self):
-		from utils.settings_manager import fmt_price
-
+		fmt_price = _cfg_mgr.fmt_price
 		if hasattr(self, '_lbl_item_count'):
 			count = len(self.cart)
 			self._lbl_item_count.configure(
@@ -1679,8 +1680,14 @@ class SalesView(BaseView):
 		if not self.cart:
 			return
 		n_items = len(self.cart)
-		total_str = f'${float(self.current_total):.2f}' if hasattr(self, 'current_total') else ''
-		detail = f'{n_items} ítem(s)  ·  {total_str}' if total_str else f'{n_items} ítem(s)'
+		total_str = (
+			f'${float(self.current_total):.2f}'
+			if hasattr(self, 'current_total')
+			else ''
+		)
+		detail = (
+			f'{n_items} ítem(s)  ·  {total_str}' if total_str else f'{n_items} ítem(s)'
+		)
 		if (
 			CTkMessagebox(
 				title='Anular Venta',
@@ -1719,8 +1726,7 @@ class SalesView(BaseView):
 			self._set_msg('⚠ Agregá productos antes de cobrar', RED_TEXT)
 			return
 
-		from utils.settings_manager import fmt_price
-
+		fmt_price = _cfg_mgr.fmt_price
 		raw_total = sum(
 			(item.get('subtotal', Decimal('0')) for item in self.cart), Decimal('0.0')
 		)
@@ -1843,12 +1849,14 @@ class SalesView(BaseView):
 		methods_grid.grid_columnconfigure((0, 1), weight=1)
 
 		self._pay_btns = {}
-		for i, (icon, method) in enumerate([
-			('💵', 'Efectivo'),
-			('💳', 'Tarjeta'),
-			('🏦', 'Transferencia'),
-			('📱', 'QR'),
-		]):
+		for i, (icon, method) in enumerate(
+			[
+				('💵', 'Efectivo'),
+				('💳', 'Tarjeta'),
+				('🏦', 'Transferencia'),
+				('📱', 'QR'),
+			]
+		):
 			row, col = divmod(i, 2)
 			is_active = method == 'Efectivo'
 			btn = ctk.CTkButton(
@@ -2063,17 +2071,36 @@ class SalesView(BaseView):
 			if change < Decimal('0.0'):
 				if hasattr(self, 'lbl_change'):
 					self.lbl_change.configure(
-						text=f'⚠  FALTAN  ${abs(change):,.2f}', text_color=RED_TEXT
+						text=f'⚠  FALTAN  ${abs(change):,.2f}',
+						text_color=RED_TEXT,
+						font=FONT_TITLE,
 					)
 				if hasattr(self, '_vuelto_box'):
-					self._vuelto_box.configure(fg_color=RED_DIM, border_color=RED)
+					self._vuelto_box.configure(
+						fg_color=RED_DIM, border_color=RED, height=100
+					)
+			elif change > Decimal('0.0'):
+				if hasattr(self, 'lbl_change'):
+					self.lbl_change.configure(
+						text=f'VUELTO: ${change:,.2f}',
+						text_color=GREEN_TEXT,
+						font=FONT_DISPLAY,
+					)
+				if hasattr(self, '_vuelto_box'):
+					self._vuelto_box.configure(
+						fg_color=GREEN_DIM, border_color=GREEN, height=120
+					)
 			else:
 				if hasattr(self, 'lbl_change'):
 					self.lbl_change.configure(
-						text=f'VUELTO  ${change:,.2f}', text_color=GREEN_TEXT
+						text='VUELTO  $0,00',
+						text_color=GREEN_TEXT,
+						font=FONT_AMOUNT_BOLD,
 					)
 				if hasattr(self, '_vuelto_box'):
-					self._vuelto_box.configure(fg_color=SURFACE3, border_color=BORDER)
+					self._vuelto_box.configure(
+						fg_color=SURFACE3, border_color=BORDER, height=60
+					)
 		except (ValueError, InvalidOperation):
 			if hasattr(self, 'lbl_change'):
 				self.lbl_change.configure(text='Monto inválido', text_color=RED_TEXT)

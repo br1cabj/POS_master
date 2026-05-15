@@ -21,6 +21,7 @@ from utils.styles import (
 	SURFACE3,
 	TEXT_MUTED,
 )
+from views.batch_edit_view import BatchEditView
 
 # Importaciones diferidas para evitar ciclos de importación
 from views.dollar_price_view import DollarPriceView
@@ -29,6 +30,7 @@ from views.price_update_view import PriceUpdateView
 _TABS = [
 	('💵', 'Precios al Dólar', DollarPriceView),
 	('📈', 'Ajuste de Precios', PriceUpdateView),
+	('🛠️', 'Gestión Masiva', BatchEditView),
 ]
 
 
@@ -101,9 +103,26 @@ class PricesView(BaseView):
 		# Lazy Loading: Si la vista no se ha instanciado, lo hacemos ahora
 		if not self._loaded_views[idx]:
 			_, _, view_cls = _TABS[idx]
-			instance = view_cls(self._frames[idx], self.ctx)
-			instance.pack(fill='both', expand=True)
-			self._loaded_views[idx] = instance
+			try:
+				instance = view_cls(self._frames[idx], self.ctx)
+				instance.pack(fill='both', expand=True)
+				self._loaded_views[idx] = instance
+			except Exception as exc:
+				import logging
+
+				logging.getLogger(__name__).error(
+					'Error al cargar pestaña %s: %s',
+					view_cls.__name__,
+					exc,
+					exc_info=True,
+				)
+				err_lbl = ctk.CTkLabel(
+					self._frames[idx],
+					text=f'Error al cargar la vista:\n{exc}',
+					text_color='#ef4444',
+				)
+				err_lbl.pack(expand=True)
+				self._loaded_views[idx] = err_lbl
 
 		# Ocultar todos, mostrar el activo
 		for i, frame in enumerate(self._frames):

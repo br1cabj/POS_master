@@ -58,6 +58,32 @@ DEFAULTS: dict = {
 	# Listas de precios
 	'price_list_a_name': 'Minorista',
 	'price_list_b_name': 'Mayorista',
+	# Periféricos — Impresora de tickets
+	'printer_ticket_name': '',
+	'printer_ticket_type': '80mm',   # '58mm' | '80mm' | 'laser'
+	'printer_ticket_chars': 48,
+	# Periféricos — Impresora de etiquetas
+	'printer_label_name': '',
+	# Periféricos — Balanza
+	'scale_enabled': False,
+	'scale_port': 'COM1',
+	'scale_baud': '9600',
+	'scale_protocol': 'toledo',      # 'toledo' | 'fairbanks' | 'generic'
+	# Periféricos — Lector de código de barras
+	'barcode_mode': 'hid',           # 'hid' | 'serial'
+	'barcode_port': 'COM2',
+	'barcode_baud': '9600',
+	'barcode_prefix': '',
+	'barcode_suffix': 'CR',          # 'none' | 'CR' | 'TAB' | 'CRLF'
+	# Periféricos — Cajón de dinero
+	'cashdrawer_connection': 'printer',  # 'printer' | 'com'
+	'cashdrawer_port': 'COM3',
+	# Periféricos — Pantalla de cliente (pole display)
+	'poledisplay_enabled': False,
+	'poledisplay_port': 'COM4',
+	'poledisplay_baud': '9600',
+	'poledisplay_line1': 'Bienvenido!',
+	'poledisplay_line2': '',
 }
 
 

@@ -612,9 +612,14 @@ class DollarPriceView(BaseView):
 			self.entry_rate.delete(0, 'end')
 			self.entry_rate.insert(0, f'{rate:.0f}')
 			self._on_value_change()
-			self.show_toast(f'Dólar {dtype}: ${rate:.0f} actualizado desde API', 'success')
+			self.show_toast(
+				f'Dólar {dtype}: ${rate:.0f} actualizado desde API', 'success'
+			)
 		else:
-			self.show_toast(f'No se pudo obtener el Dólar {dtype}. Ingresá el valor manualmente.', 'error')
+			self.show_toast(
+				f'No se pudo obtener el Dólar {dtype}. Ingresá el valor manualmente.',
+				'error',
+			)
 
 	def _load_data(self):
 		self._all_variants = self.controller.get_variants(self.ctx.tenant_id)
