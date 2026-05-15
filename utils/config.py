@@ -6,71 +6,112 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 
 try:
-	from dotenv import load_dotenv
-
-	load_dotenv()
+    from dotenv import load_dotenv
+    load_dotenv()
 except ImportError:
-	pass
+    pass
 
 
 def _app_dir() -> Path:
-	"""Carpeta del ejecutable en producción, raíz del proyecto en desarrollo."""
-	if getattr(sys, 'frozen', False):
-		return Path(sys.executable).parent
-	return Path(__file__).parent.parent
+    """Project root in dev, executable directory when frozen."""
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent
+    return Path(__file__).parent.parent
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Configuración centralizada de la aplicación
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Si DATABASE_URL está definido en el entorno lo usa; si no, SQLite junto al exe
+# ── Local database ────────────────────────────────────────────────────────────
 _default_db = f'sqlite:///{_app_dir() / "pos_system.db"}'
 DB_URL = os.getenv('DATABASE_URL', _default_db)
+
+# ── Cloud / Supabase ──────────────────────────────────────────────────────────
+# Direct PostgreSQL connection string (preferred for sync).
+# Format: postgresql://postgres:[DB_PASSWORD]@db.[PROJECT_REF].supabase.co:5432/postgres
+DATABASE_CLOUD_URL = os.getenv('DATABASE_CLOUD_URL', '')
+
+# Supabase REST API (used by the UI for status checks and future realtime).
+SUPABASE_URL = os.getenv('SUPABASE_URL', '')
+SUPABASE_SERVICE_ROLE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
+
+# True when cloud sync is configured and should run.
+CLOUD_SYNC_ENABLED = bool(DATABASE_CLOUD_URL)
+
+# How often the background worker syncs (seconds). Default: 5 minutes.
+CLOUD_SYNC_INTERVAL = int(os.getenv('CLOUD_SYNC_INTERVAL', '300'))
 
 SECRET_SALT = 'aantesbajocabeconcontradedesdeenentrehaciahastaparaporsegunsinsobretrasmediantedurante'
 
 
 @event.listens_for(Engine, 'connect')
-def _set_sqlite_fk_pragma(dbapi_conn, _):
-	"""Configura SQLite con FK enforcement y modo WAL para máxima performance."""
-	if hasattr(dbapi_conn, 'execute'):
-		try:
-			dbapi_conn.execute('PRAGMA foreign_keys=ON')
-			dbapi_conn.execute('PRAGMA journal_mode=WAL')
-			dbapi_conn.execute('PRAGMA synchronous=NORMAL')
-			dbapi_conn.execute('PRAGMA cache_size=-32000')
-			dbapi_conn.execute('PRAGMA temp_store=MEMORY')
-		except Exception:
-			pass
+def _configure_connection(dbapi_conn, _):
+    """Apply SQLite PRAGMAs only to SQLite connections, skip PostgreSQL."""
+    if type(dbapi_conn).__module__ != 'sqlite3':
+        return
+    try:
+        dbapi_conn.execute('PRAGMA foreign_keys=ON')
+        dbapi_conn.execute('PRAGMA journal_mode=WAL')
+        dbapi_conn.execute('PRAGMA synchronous=NORMAL')
+        dbapi_conn.execute('PRAGMA cache_size=-32000')
+        dbapi_conn.execute('PRAGMA temp_store=MEMORY')
+    except Exception:
+        pass
 
 
-def make_engine(url: str = None):
-	"""
-	Fábrica de engines SQLAlchemy con configuración segura.
-	- SQLite: activa check_same_thread=False para evitar errores de hilos con Tkinter.
-	- PostgreSQL/Red: configura pool, recycle y pre_ping para alta concurrencia.
-	"""
-	target = url or DB_URL
-	kwargs = {}
+def make_engine(url: str = None) -> Engine:
+    """
+    SQLAlchemy engine factory.
+    - SQLite: disables same-thread check (required by Tkinter's thread model).
+    - PostgreSQL: configures connection pool for concurrent access.
+    """
+    target = url or DB_URL
+    kwargs: dict = {}
 
-	if target.startswith('sqlite'):
-		kwargs['connect_args'] = {'check_same_thread': False}
-	else:
-		kwargs['pool_size'] = 10
-		kwargs['max_overflow'] = 20
-		kwargs['pool_recycle'] = 3600
-		kwargs['pool_pre_ping'] = True
+    if target.startswith('sqlite'):
+        kwargs['connect_args'] = {'check_same_thread': False}
+    else:
+        kwargs['pool_size'] = 10
+        kwargs['max_overflow'] = 20
+        kwargs['pool_recycle'] = 3600
+        kwargs['pool_pre_ping'] = True
 
-	return create_engine(target, **kwargs)
-
-
-_shared_engine = None
+    return create_engine(target, **kwargs)
 
 
-def get_engine(url: str = None):
-	"""Retorna el engine compartido de la aplicación (singleton)."""
-	global _shared_engine
-	if _shared_engine is None:
-		_shared_engine = make_engine(url)
-	return _shared_engine
+def make_cloud_engine() -> Engine | None:
+    """
+    Creates a PostgreSQL engine pointing at Supabase.
+    Returns None when DATABASE_CLOUD_URL is not set.
+    Uses a smaller pool than the local engine since sync is background-only.
+    """
+    if not DATABASE_CLOUD_URL:
+        return None
+    return create_engine(
+        DATABASE_CLOUD_URL,
+        pool_size=3,
+        max_overflow=5,
+        pool_recycle=1800,
+        pool_pre_ping=True,
+        pool_timeout=15,
+    )
+
+
+_shared_engine: Engine | None = None
+_cloud_engine: Engine | None = None
+
+
+def get_engine(url: str = None) -> Engine:
+    """Returns the shared local (SQLite) engine — singleton."""
+    global _shared_engine
+    if _shared_engine is None:
+        _shared_engine = make_engine(url)
+    return _shared_engine
+
+
+def get_cloud_engine() -> Engine | None:
+    """
+    Returns the shared cloud (PostgreSQL/Supabase) engine — singleton.
+    Returns None when DATABASE_CLOUD_URL is not configured.
+    """
+    global _cloud_engine
+    if _cloud_engine is None and DATABASE_CLOUD_URL:
+        _cloud_engine = make_cloud_engine()
+    return _cloud_engine
