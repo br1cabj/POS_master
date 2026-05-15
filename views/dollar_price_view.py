@@ -604,6 +604,8 @@ class DollarPriceView(BaseView):
 		threading.Thread(target=worker, daemon=True).start()
 
 	def _on_api_rate_fetched(self, rate: float):
+		if not self.winfo_exists():
+			return
 		dtype = self._current_type()
 		self.btn_api.configure(state='normal', text='⬇ Obtener API')
 		if rate > 0:
@@ -1073,6 +1075,7 @@ class DollarPriceView(BaseView):
 				f'Tipo de cambio:   Dólar {dtype} a ${rate:,.0f}\n'
 				f'Productos:        {with_usd}\n\n'
 				f'{stats_text}'
+				'⚠ Esta acción es irreversible desde la aplicación.\n'
 				'¿Confirmás guardar los precios mostrados?'
 			),
 			icon='warning',

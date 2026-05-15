@@ -1678,10 +1678,13 @@ class SalesView(BaseView):
 	def clear_entire_cart(self):
 		if not self.cart:
 			return
+		n_items = len(self.cart)
+		total_str = f'${float(self.current_total):.2f}' if hasattr(self, 'current_total') else ''
+		detail = f'{n_items} ítem(s)  ·  {total_str}' if total_str else f'{n_items} ítem(s)'
 		if (
 			CTkMessagebox(
 				title='Anular Venta',
-				message='¿Vaciar todo el carrito?',
+				message=f'¿Vaciar todo el carrito?\n\n{detail}',
 				icon='warning',
 				option_1='No',
 				option_2='Sí',
@@ -1695,6 +1698,7 @@ class SalesView(BaseView):
 			for item in self.tree.get_children():
 				self.tree.delete(item)
 			self._set_discount_pct(Decimal('0'))
+			self._active_price_list = 'A'
 			self.update_total()
 			self._set_msg('Venta anulada.', RED_TEXT)
 			self.entry_barcode.focus()
@@ -1986,7 +1990,6 @@ class SalesView(BaseView):
 			command=lambda: self._confirm_and_save(False),
 		)
 		self.btn_confirm_pay.pack(fill='x', padx=20, pady=(4, 4))
-		self.popup.bind('<Return>', lambda e: self._confirm_and_save(False))
 
 		if self.customer_name != 'Consumidor Final':
 			ctk.CTkButton(

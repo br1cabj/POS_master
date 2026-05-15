@@ -515,7 +515,7 @@ class ReturnsView(BaseView):
 					sale['id'],
 					date_str,
 					(sale.get('customer_name') or 'S/N')[:14],
-					f'${sale["total_amount"]:.0f}',
+					f'${sale["total_amount"]:.2f}',
 					origen_label,
 					_STATUS_LABELS.get(status, status),
 				),
@@ -1126,6 +1126,13 @@ class ReturnsView(BaseView):
 			f'Total original: ${sale["total_amount"]:.2f}\n'
 			f'¿Continuás?'
 		)
+		if not self.navigate:
+			self.show_error(
+				'No se puede navegar a Ventas desde esta pantalla.\nOperación cancelada para evitar anular el ticket sin poder rehacerlo.',
+				'Acción no disponible',
+			)
+			return
+
 		if not self.confirm(msg, 'Modificar Ticket'):
 			return
 
@@ -1142,16 +1149,8 @@ class ReturnsView(BaseView):
 			self.show_error(result_msg)
 			return
 
-		if self.navigate:
-			from views.sales_view import SalesView
-
-			self.navigate(SalesView, context_data={'restore_sale': sale})
-		else:
-			self.show_toast(
-				f'{result_msg} — Andá a Ventas para rehacerlo.', 'info', 5000
-			)
-			self._reset_detail_panel()
-			self.load_sales()
+		from views.sales_view import SalesView
+		self.navigate(SalesView, context_data={'restore_sale': sale})
 
 	# =========================================================
 	# ACCIÓN: REIMPRIMIR TICKET

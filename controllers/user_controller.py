@@ -283,6 +283,8 @@ class UserController(BaseController):
 				'No puedes eliminar tu propia cuenta mientras tienes la sesión iniciada.',
 			)
 
+		from database.models import CashSession
+
 		with self._Session() as session:
 			try:
 				user = (
@@ -295,6 +297,18 @@ class UserController(BaseController):
 						False,
 						'Usuario no encontrado o no tienes permiso para borrarlo.',
 					)
+
+				open_cash = (
+					session.query(CashSession)
+					.filter_by(user_id=user_id, is_open=True)
+					.first()
+				)
+				if open_cash:
+					return (
+						False,
+						'El empleado tiene una caja abierta. Ciérrala antes de eliminar el usuario.',
+					)
+
 				user.is_active = False
 				session.commit()
 				return True, 'Empleado eliminado correctamente.'

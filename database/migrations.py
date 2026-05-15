@@ -74,10 +74,14 @@ def _add_column_if_missing(conn, engine, table: str, column: str, definition: st
 
 def run_migrations(engine) -> None:
     """
-    Apply all pending SQLite migrations in order.
+    Apply all pending migrations in order.
     Call once at startup, after `get_engine()`.
-    Safe to call on PostgreSQL (skips SQLite-specific steps).
+    On PostgreSQL, delegates to setup_cloud_schema() (create_all) instead of
+    running incremental SQLite-specific ALTER TABLE statements.
     """
+    if not _is_sqlite(engine):
+        setup_cloud_schema(engine)
+        return
     _v1_add_cost_price_usd(engine)
     _v2_add_recovery_pin_hash(engine)
     _v3_add_discount_amount(engine)

@@ -859,6 +859,7 @@ class CustomersView(BaseView):
 		self._filter_tree()
 
 	def add_customer(self):
+		import re as _re
 		name = self.entry_name.get().strip()
 		phone = self.entry_phone.get().strip()
 
@@ -866,6 +867,15 @@ class CustomersView(BaseView):
 			self.entry_name.configure(border_color=RED)
 			self.entry_name.focus_set()
 			self.show_warning('El nombre del cliente es obligatorio.', 'Faltan datos')
+			return
+
+		if phone and not _re.match(r'^[\d\s\+\-\(\)]{6,20}$', phone):
+			self.entry_phone.configure(border_color=RED)
+			self.entry_phone.focus_set()
+			self.show_warning(
+				'El teléfono solo puede contener números, espacios y los caracteres + - ( ).\nMínimo 6 y máximo 20 caracteres.',
+				'Formato de teléfono inválido',
+			)
 			return
 
 		tenant_id = self.ctx.tenant_id
@@ -934,6 +944,17 @@ class CustomersView(BaseView):
 				'Ingresá un número mayor a cero (Ej: 150.50).', 'Error de Monto'
 			)
 			return
+
+		current_balance = float(customer.get('current_balance') or 0.0)
+		if current_balance > 0 and amount > current_balance:
+			favor = amount - current_balance
+			if not self.confirm(
+				f'El monto ${amount:.2f} supera la deuda actual de ${current_balance:.2f}.\n'
+				f'El cliente quedará con un saldo a favor de ${favor:.2f}.\n\n'
+				'¿Querés continuar de todas formas?',
+				'Pago superior a la deuda',
+			):
+				return
 
 		if not self.confirm(
 			f'¿Registrar un abono de ${amount:.2f} para {customer["name"]}?',

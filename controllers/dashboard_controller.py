@@ -29,7 +29,7 @@ class DashboardController(BaseController):
 						Sale.tenant_id == tenant_id,
 						Sale.date >= datetime.combine(today, datetime.min.time()),
 						Sale.date <= datetime.combine(today, datetime.max.time()),
-						Sale.status == 'completada',
+						Sale.status.in_(['completada', 'parcial']),
 					)
 					.first()
 				)
@@ -60,7 +60,7 @@ class DashboardController(BaseController):
 						>= datetime.combine(
 							today - timedelta(days=6), datetime.min.time()
 						),
-						Sale.status == 'completada',
+						Sale.status.in_(['completada', 'parcial']),
 					)
 					.all()
 				):

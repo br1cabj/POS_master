@@ -68,6 +68,20 @@ class SupplierController(BaseController):
 					supplier.address = str(address).strip() if address else None
 					msg = 'Proveedor actualizado correctamente.'
 				else:
+					existing_name = (
+						session.query(Supplier)
+						.filter_by(
+							tenant_id=tenant_id,
+							name=str(name).strip(),
+							is_active=True,
+						)
+						.first()
+					)
+					if existing_name:
+						return (
+							False,
+							f'Ya existe un proveedor activo con el nombre "{str(name).strip()}".',
+						)
 					session.add(
 						Supplier(
 							tenant_id=tenant_id,

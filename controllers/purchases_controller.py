@@ -179,7 +179,8 @@ class PurchasesController(BaseController):
 					else:
 						if not default_warehouse:
 							raise ValueError(
-								"No se encontró el 'Depósito General' para ingresar la mercadería."
+								f"No se encontró el 'Depósito General' para ingresar '{desc}'. "
+								"Cree el almacén predeterminado antes de registrar compras."
 							)
 						session.add(
 							Stock(

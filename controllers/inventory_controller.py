@@ -115,15 +115,15 @@ class InventoryController(BaseController):
 					return False, 'El stock ya está en ese valor. Sin cambios.'
 
 				# Aplica delta al almacén con mayor existencia
-				primary = max(stocks, key=lambda s: float(s.quantity))
-				new_primary = float(primary.quantity) + float(delta)
+				primary = max(stocks, key=lambda s: s.quantity)
+				new_primary = primary.quantity + delta
 				if new_primary < 0:
 					return (
 						False,
 						f'El almacén principal solo tiene {float(primary.quantity):.2f} unidades. '
 						f'No es posible reducir en {abs(float(delta)):.2f}.',
 					)
-				primary.quantity = Decimal(str(new_primary))
+				primary.quantity = new_primary
 
 				abs_delta = abs(delta)
 				mov_type = 'ajuste_entrada' if delta > 0 else 'ajuste_salida'

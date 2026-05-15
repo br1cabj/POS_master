@@ -41,10 +41,14 @@ a = Analysis(
         'views.users_view',
         'views.data_sync_view',
         'views.settings_view',
-        # ── Vistas cargadas dinámicamente en main.py ──
-        'views.articles_view',
-        'views.cash_view',
-        'views.suppliers_view',
+        'views.login_view',
+        # ── Vistas importadas estáticamente por otras vistas (sub-dependencias) ──
+        'views.returns_view',
+        'views.dollar_price_view',
+        'views.price_update_view',
+        'views.history_view',
+        'views.article_history_view',
+        'views.kardex_view',
         # ── Controladores (cargados dinámicamente o en cadenas largas) ──
         'controllers.receipt_controller',
         'controllers.article_controller',
@@ -58,6 +62,7 @@ a = Analysis(
         'controllers.inventory_controller',
         'controllers.label_controller',
         'controllers.license_controller',
+        'controllers.cloud_license_controller',
         'controllers.purchases_controller',
         'controllers.quotation_controller',
         'controllers.report_controller',

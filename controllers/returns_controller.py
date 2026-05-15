@@ -494,19 +494,19 @@ class ReturnsController(BaseController):
 
 		if pm2 and sale.amount_method_2:
 			amt_m2 = Decimal(str(sale.amount_method_2))
-			# Reconstruir el total original sumando lo ya devuelto (gastos de caja de esta venta).
-			# Esto garantiza un ratio constante aunque se hagan múltiples devoluciones parciales.
-			refunded_so_far = (
+			# Usar la suma de los movimientos 'venta' originales del ticket como referencia
+			# inmutable del total original, en lugar de reconstruirlo desde el total actual
+			# (que varía con cada devolución) + gastos previos (que podría capturar movimientos ajenos).
+			original_total = (
 				session.query(func.sum(CashMovement.amount))
 				.join(CashSession, CashMovement.session_id == CashSession.id)
 				.filter(
 					CashSession.tenant_id == tenant_id,
-					CashMovement.movement_type == 'gasto',
+					CashMovement.movement_type == 'venta',
 					CashMovement.description.like(f'%Ticket #{sale.id}%'),
 				)
 				.scalar()
 			) or Decimal('0')
-			original_total = Decimal(str(sale.total_amount or 0)) + Decimal(str(refunded_so_far))
 			if original_total <= 0:
 				original_total = amount
 

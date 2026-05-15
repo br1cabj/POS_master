@@ -121,7 +121,7 @@ class CashController(BaseController):
 						'La sesión de caja seleccionada ya se encuentra cerrada.',
 					)
 
-				ventas, ingresos, gastos = self.get_session_summary(
+				ventas, ingresos, gastos, ventas_digital = self.get_session_summary(
 					tenant_id, session_id, db_session=session
 				)
 
@@ -154,6 +154,7 @@ class CashController(BaseController):
 						expected,
 						parsed_declared,
 						difference,
+						ventas_digital,
 					)
 				except Exception as pdf_err:
 					logger.warning(
@@ -191,10 +192,16 @@ class CashController(BaseController):
 
 	def get_session_summary(self, tenant_id, session_id, db_session=None):
 		"""
-		Calcula los totales de ventas en efectivo, ingresos y egresos de la sesión.
+		Calcula los totales de ventas, ingresos y egresos de la sesión.
 		Acepta una sesión de SQLAlchemy existente para prevenir deadlocks.
 		"""
-		session = db_session if db_session else self._Session()
+		if db_session is not None:
+			return self._compute_session_summary(db_session, tenant_id, session_id)
+		with self._Session() as session:
+			return self._compute_session_summary(session, tenant_id, session_id)
+
+	def _compute_session_summary(self, session, tenant_id, session_id):
+		"""Lógica interna de cálculo de resumen de caja sobre una sesión ya abierta."""
 		try:
 			cash_session = (
 				session.query(CashSession)
@@ -202,7 +209,7 @@ class CashController(BaseController):
 				.first()
 			)
 			if not cash_session:
-				return Decimal('0.0'), Decimal('0.0'), Decimal('0.0')
+				return Decimal('0.0'), Decimal('0.0'), Decimal('0.0'), Decimal('0.0')
 
 			totals = {
 				'ingreso': Decimal('0.0'),
@@ -220,34 +227,37 @@ class CashController(BaseController):
 						Decimal(str(amount)) if amount else Decimal('0.0')
 					)
 
-			# Sumar los movimientos de tipo 'venta' en efectivo de esta sesión.
-			# Usar CashMovements (inmutables) en lugar de sale.total_amount (se modifica
-			# al registrar devoluciones), para evitar doble descuento: si se devuelve $X,
-			# sale.total_amount baja $X Y también se crea un 'gasto' de $X — contar ambos
-			# restaría el reembolso dos veces del expected_amount.
+			# Solo las ventas en efectivo ('venta') afectan el saldo físico de caja.
+			# Las ventas digitales ('venta_digital': tarjeta, transferencia, QR) no
+			# ingresan al cajón y se excluyen del expected_amount para evitar diferencias
+			# incorrectas en el arqueo ciego.
 			_raw_ventas = (
 				session.query(func.sum(CashMovement.amount))
 				.filter(
 					CashMovement.session_id == session_id,
 					CashMovement.movement_type == 'venta',
-					CashMovement.description.ilike('%Efectivo%'),
 				)
 				.scalar()
 			)
 			total_ventas = Decimal(str(_raw_ventas)) if _raw_ventas else Decimal('0.0')
 
-			return total_ventas, totals['ingreso'], totals['gasto']
+			_raw_digital = (
+				session.query(func.sum(CashMovement.amount))
+				.filter(
+					CashMovement.session_id == session_id,
+					CashMovement.movement_type == 'venta_digital',
+				)
+				.scalar()
+			)
+			total_digital = Decimal(str(_raw_digital)) if _raw_digital else Decimal('0.0')
+
+			return total_ventas, totals['ingreso'], totals['gasto'], total_digital
 
 		except Exception as e:
 			logger.error(
 				'Error al generar resumen de caja %s: %s', session_id, e, exc_info=True
 			)
-			if not db_session:
-				session.rollback()
-			return Decimal('0.0'), Decimal('0.0'), Decimal('0.0')
-		finally:
-			if not db_session:
-				session.close()
+			return Decimal('0.0'), Decimal('0.0'), Decimal('0.0'), Decimal('0.0')
 
 	def get_movements_list(self, tenant_id, session_id):
 		"""Recupera el historial de movimientos manuales asociados a una sesión específica."""
@@ -290,7 +300,7 @@ class CashController(BaseController):
 		parsed = self._parse_decimal(amount)
 		if parsed is None or parsed <= Decimal('0.0'):
 			return False, 'El monto debe ser numérico y mayor a cero.'
-		if mov_type not in ['ingreso', 'gasto', 'venta']:
+		if mov_type not in ['ingreso', 'gasto', 'venta', 'venta_digital']:
 			return False, 'Tipo de movimiento no soportado.'
 		if not description or not str(description).strip():
 			return False, 'La descripción del movimiento es obligatoria.'
@@ -336,6 +346,7 @@ class CashController(BaseController):
 		expected,
 		declared,
 		difference,
+		ventas_digital=None,
 	):
 		"""Crea el documento PDF del Reporte Z y lo almacena en el directorio del usuario."""
 		pdf = FPDF(format='A5')
@@ -368,14 +379,21 @@ class CashController(BaseController):
 		pdf.cell(0, 8, 'RESUMEN DE MOVIMIENTOS', ln=True)
 		pdf.set_font('Arial', '', 12)
 
-		for label, value in [
+		rows_pdf = [
 			('Monto de Apertura (+):', opening),
-			('Total Ventas en Efvo (+):', ventas),
+			('Ventas Efectivo (+):', ventas),
 			('Ingresos Manuales (+):', ingresos),
 			('Retiros / Gastos (-):', gastos),
-		]:
+		]
+		if ventas_digital and ventas_digital > 0:
+			rows_pdf.insert(2, ('Ventas Digitales (*):', ventas_digital))
+		for label, value in rows_pdf:
 			pdf.cell(80, 8, label)
 			pdf.cell(0, 8, f'${float(value):,.2f}', ln=True, align='R')
+		if ventas_digital and ventas_digital > 0:
+			pdf.set_font('Arial', 'I', 9)
+			pdf.cell(0, 5, '(*) Tarjeta / Transferencia / QR. No afectan el saldo fisico.', ln=True)
+			pdf.set_font('Arial', '', 12)
 
 		pdf.line(10, pdf.get_y() + 2, 138, pdf.get_y() + 2)
 		pdf.ln(5)

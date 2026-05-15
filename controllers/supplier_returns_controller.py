@@ -359,6 +359,8 @@ class SupplierReturnsController(BaseController):
 
 				# Generar PDF después del commit para evitar archivos huérfanos en disco
 				try:
+					from sqlalchemy import update as sa_update
+
 					from controllers.receipt_controller import ReceiptController
 
 					ok, filepath = ReceiptController().generate_supplier_return_note(
@@ -373,7 +375,12 @@ class SupplierReturnsController(BaseController):
 						notes=notes,
 					)
 					if ok:
-						purchase_return.file_path = filepath
+						# UPDATE directo para evitar acceder al objeto ORM expirado post-commit
+						session.execute(
+							sa_update(PurchaseReturn)
+							.where(PurchaseReturn.id == _return_id)
+							.values(file_path=filepath)
+						)
 						session.commit()
 				except Exception as pdf_err:
 					logger.warning(

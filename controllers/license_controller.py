@@ -24,7 +24,7 @@ class LicenseController:
 
 	def _generate_signature(self, license_type, expiration_date):
 		raw = f'{license_type}|{expiration_date}|{SECRET_SALT}'
-		return hashlib.sha256(raw.encode('utf-8')).hexdigest()[:16]
+		return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
 	def _write_license(self, data: dict):
 		"""Serializa la licencia a JSON y la guarda codificada en base64 para dificultar edición manual."""

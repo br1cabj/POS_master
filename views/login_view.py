@@ -334,9 +334,12 @@ class LoginView(ctk.CTkFrame):
 			)
 
 		def _execute_recovery(tenant_id, username, pin, new_pass):
-			success, msg = self.user_ctrl.reset_password_with_pin(
-				tenant_id, username, pin, new_pass
-			)
+			try:
+				success, msg = self.user_ctrl.reset_password_with_pin(
+					tenant_id, username, pin, new_pass
+				)
+			except Exception as exc:
+				success, msg = False, f'Error del sistema: {exc}'
 			if success:
 				dialog.destroy()
 				CTkMessagebox(

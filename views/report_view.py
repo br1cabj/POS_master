@@ -369,10 +369,17 @@ class ReportView(BaseView):
 		date_to = self._date_to
 
 		def worker():
-			data = self.controller.get_report_data(tenant_id, date_from, date_to)
-			self.after(
-				0, lambda: self._render_report(data) if self.winfo_exists() else None
-			)
+			try:
+				data = self.controller.get_report_data(tenant_id, date_from, date_to)
+				self.after(
+					0, lambda: self._render_report(data) if self.winfo_exists() else None
+				)
+			except Exception as exc:
+				err = str(exc)
+				self.after(
+					0,
+					lambda: self._on_report_error(err) if self.winfo_exists() else None,
+				)
 
 		threading.Thread(target=worker, daemon=True).start()
 
@@ -399,6 +406,20 @@ class ReportView(BaseView):
 		self._btn_generate.configure(state='normal', text='Generar')
 		self._btn_pdf.configure(state='normal')
 		self._btn_csv.configure(state='normal')
+
+	def _on_report_error(self, error_msg: str):
+		self._clear_body()
+		from utils.styles import RED_TEXT
+		ctk.CTkLabel(
+			self._scroll,
+			text=f'⚠  Error al generar el reporte:\n{error_msg}',
+			font=('Arial', 13),
+			text_color=RED_TEXT,
+			justify='center',
+		).grid(row=0, column=0, pady=60)
+		self._btn_generate.configure(state='normal', text='Generar')
+		self._btn_pdf.configure(state='disabled')
+		self._btn_csv.configure(state='disabled')
 
 	def _clear_body(self):
 		for widget in self._scroll.winfo_children():

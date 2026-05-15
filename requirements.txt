@@ -9,4 +9,5 @@ Pillow==12.1.1
 fpdf2==2.8.7
 python-barcode==0.16.1
 python-dotenv==1.2.2
+psycopg2-binary==2.9.12
 pyinstaller==6.20.0

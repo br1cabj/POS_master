@@ -275,22 +275,26 @@ class AlertsView(BaseView):
 	# =========================================================
 	def _get_threshold(self) -> int:
 		try:
-			val = max(1, int(self._threshold_var.get()))
+			raw = int(self._threshold_var.get())
+			val = max(1, raw)
 			if hasattr(self, '_threshold_entry') and self._threshold_entry.winfo_exists():
-				self._threshold_entry.configure(border_color=BORDER_ACTIVE)
+				if raw < 1:
+					self._threshold_entry.configure(border_color='#f97316')
+				else:
+					self._threshold_entry.configure(border_color=BORDER_ACTIVE)
 			return val
 		except ValueError:
 			if hasattr(self, '_threshold_entry') and self._threshold_entry.winfo_exists():
 				self._threshold_entry.configure(border_color='#ef4444')
 			return 5
 
-	def _severity(self, stock: float) -> tuple[str, str]:
+	def _severity(self, stock: float, threshold: int = 5) -> tuple[str, str]:
 		if stock <= 0:
 			return 'agotado', 'AGOTADO'
-		elif stock <= 2:
+		critical_limit = max(1, round(threshold * 0.3))
+		if stock <= critical_limit:
 			return 'critico', 'CRÍTICO'
-		else:
-			return 'alerta', 'ALERTA'
+		return 'alerta', 'ALERTA'
 
 	def _set_filter(self, key: str):
 		self._active_filter = key
@@ -407,7 +411,7 @@ class AlertsView(BaseView):
 			if item.get('attribute_2'):
 				parts.append(item['attribute_2'])
 			label = ' — '.join(parts)
-			sev_key, sev_label = self._severity(float(item['stock']))
+			sev_key, sev_label = self._severity(float(item['stock']), threshold)
 			self._all_items.append({
 				**item,
 				'_label':    label,

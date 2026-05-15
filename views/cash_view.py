@@ -335,10 +335,9 @@ class CashView(BaseView):
 
 		if self.active_session:
 			self._show_open_state()
+			self._poll_timer = self.after(15000, self.refresh_view)
 		else:
 			self._show_closed_state()
-
-		self._poll_timer = self.after(15000, self.refresh_view)
 
 	def _show_open_state(self):
 		sess = self.active_session
@@ -354,7 +353,7 @@ class CashView(BaseView):
 			text=f'Turno #{session_id}   -   Abierta a las {hora_str}'
 		)
 
-		_, ingresos, gastos = self.controller.get_session_summary(tenant_id, session_id)
+		_, ingresos, gastos, _digital = self.controller.get_session_summary(tenant_id, session_id)
 		self._lbl_totals['apertura'].configure(text=f'${opening:,.2f}')
 		self._lbl_totals['ingresos'].configure(text=f'${float(ingresos):,.2f}')
 		self._lbl_totals['gastos'].configure(text=f'${float(gastos):,.2f}')
@@ -423,11 +422,18 @@ class CashView(BaseView):
 			widget.destroy()
 
 	def _build_movement_row(self, mov):
-		is_gasto = mov['type'] == 'gasto'
+		mov_type = mov['type']
+		is_gasto = mov_type == 'gasto'
 		amount_color = RED_TEXT if is_gasto else GREEN_TEXT
 		accent_color = RED if is_gasto else GREEN
 		prefix = '-' if is_gasto else '+'
-		type_label = 'Retiro / Gasto' if is_gasto else 'Ingreso'
+		_type_labels = {
+			'venta':         'Venta Efectivo',
+			'venta_digital': 'Venta Digital',
+			'ingreso':       'Ingreso Manual',
+			'gasto':         'Retiro / Gasto',
+		}
+		type_label = _type_labels.get(mov_type, 'Movimiento')
 
 		row = ctk.CTkFrame(
 			self.history_scroll,
@@ -586,6 +592,13 @@ class CashView(BaseView):
 			self.show_error(msg)
 
 	def show_blind_close_popup(self):
+		if hasattr(self, 'popup') and self.popup is not None:
+			try:
+				if self.popup.winfo_exists():
+					self.popup.focus()
+					return
+			except Exception:
+				pass
 		self.popup = ctk.CTkToplevel(self)
 		self.popup.title('Arqueo de Caja - Cierre de Turno')
 
@@ -808,8 +821,6 @@ class CashView(BaseView):
 		if otros:
 			try:
 				val_otros = Decimal(otros)
-				if val_otros < Decimal('0.0'):
-					val_otros = Decimal('0.0')
 				total += val_otros
 			except (InvalidOperation, ValueError):
 				pass
@@ -819,6 +830,14 @@ class CashView(BaseView):
 
 	def _confirm_blind_close(self):
 		total = Decimal(self.current_counted_total)
+		if total == Decimal('0'):
+			if not self.confirm(
+				'⚠ Estás declarando $0.00 en caja.\n\n'
+				'Esto generará una diferencia negativa igual al total de ventas registradas.\n\n'
+				'¿Estás seguro de que querés continuar con monto declarado en cero?',
+				title='Advertencia: monto declarado en cero',
+			):
+				return
 		if not self.confirm(
 			f'Vas a declarar ${total:,.2f} en caja.\n\n'
 			'Esta acción cierra el turno y no se puede deshacer.\n'

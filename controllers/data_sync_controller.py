@@ -472,6 +472,12 @@ class DataSyncController(BaseController):
 						)
 						continue
 
+					if cost > 0 and price < cost:
+						skip_reasons.append(
+							f'Fila {row_num} ({name}): advertencia - precio de venta '
+							f'(${price}) menor al costo (${cost}), se importa de todas formas.'
+						)
+
 					existing = existing_by_barcode.get(barcode)
 
 					if not existing and barcode in created_barcodes:
@@ -619,7 +625,7 @@ class DataSyncController(BaseController):
 
 					existing = (
 						session.query(Customer)
-						.filter_by(tenant_id=tenant_id, name=name)
+						.filter_by(tenant_id=tenant_id, name=name, is_active=True)
 						.first()
 					)
 					if existing:

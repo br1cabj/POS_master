@@ -280,8 +280,14 @@ class QuotationView(BaseView):
 		ctk.CTkLabel(r2, text=cname, font=FONT_LABEL, text_color=TEXT_SECONDARY).pack(
 			side='left'
 		)
+		raw_date = str(q['date'])[:10]
+		try:
+			from datetime import datetime as _dt
+			display_date = _dt.strptime(raw_date, '%Y-%m-%d').strftime('%d/%m/%Y')
+		except Exception:
+			display_date = raw_date
 		ctk.CTkLabel(
-			r2, text=str(q['date'])[:10], font=FONT_LABEL, text_color=TEXT_MUTED
+			r2, text=display_date, font=FONT_LABEL, text_color=TEXT_MUTED
 		).pack(side='right')
 
 		r3 = ctk.CTkFrame(card, fg_color='transparent')
@@ -1297,6 +1303,22 @@ class QuotationView(BaseView):
 				'El total de la cotización debe ser mayor a $0.', 'Total inválido'
 			)
 			return
+
+		items_sin_stock = [
+			it['description']
+			for it in data.get('items', [])
+			if it.get('variant_id')
+			and it.get('stock') is not None
+			and float(it['stock']) < float(it.get('qty', it.get('quantity', 1)))
+		]
+		if items_sin_stock:
+			lista = '\n'.join(f'  • {d}' for d in items_sin_stock[:5])
+			if not self.confirm(
+				f'Los siguientes ítems tienen stock insuficiente:\n{lista}\n\n'
+				'¿Querés continuar de todas formas?',
+				'Stock insuficiente',
+			):
+				return
 
 		popup = ctk.CTkToplevel(self)
 		popup.title('Convertir a Venta')

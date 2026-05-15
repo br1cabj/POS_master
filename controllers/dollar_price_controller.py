@@ -21,8 +21,10 @@ class DollarPriceController(BaseController):
 	def __init__(self, db_engine=None):
 		super().__init__(db_engine)
 
-	def fetch_current_dollar_rate(self, dollar_type: str = 'blue') -> float:
-		"""Obtiene la cotización actual (venta) según el tipo seleccionado."""
+	def fetch_current_dollar_rate(self, dollar_type: str = 'blue') -> float | None:
+		"""Obtiene la cotización actual (venta) según el tipo seleccionado.
+		Retorna None si la API no está disponible; el caller debe verificar antes de usar.
+		"""
 		_endpoints = {'blue': 'blue', 'oficial': 'oficial', 'mep': 'bolsa'}
 		endpoint = _endpoints.get(dollar_type.lower(), 'blue')
 		try:
@@ -33,7 +35,7 @@ class DollarPriceController(BaseController):
 			return float(response.json().get('venta', 0))
 		except requests.RequestException as e:
 			logger.error(f'Error de red al consultar API de dólar ({dollar_type}): {e}')
-			return 0.0
+			return None
 
 	def get_last_update_info(self, tenant_id: int) -> dict | None:
 		"""Recupera la fecha y detalles de la última actualización de precios en dólares."""

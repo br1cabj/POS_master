@@ -425,6 +425,8 @@ class UsersView(BaseView):
 		username = self.entry_user.get().strip()
 		role_ui = self.combo_role.get()
 		role = 'admin' if role_ui == 'Administrador' else 'cajero'
+		password = self.entry_pass.get().strip()
+		pin = self.entry_pin.get().strip() or None
 
 		if not username:
 			self.show_warning('El nombre de usuario es obligatorio.')
@@ -440,6 +442,19 @@ class UsersView(BaseView):
 
 		try:
 			if self._editing_user_id:
+				if role != 'admin':
+					edited_user = next(
+						(u for u in self._all_users if str(u.get('id')) == str(self._editing_user_id)),
+						None,
+					)
+					if edited_user and edited_user.get('role') == 'admin':
+						admin_count = sum(1 for u in self._all_users if u.get('role') == 'admin')
+						if admin_count <= 1:
+							self.show_error(
+								'No podés quitarle el rol de administrador al único admin del sistema.',
+								'Acción Denegada',
+							)
+							return
 				success, msg = self.controller.update_user(
 					tenant_id,
 					self._editing_user_id,
@@ -448,9 +463,6 @@ class UsersView(BaseView):
 					display_name=display_name or '',
 				)
 			else:
-				password = self.entry_pass.get().strip()
-				pin = self.entry_pin.get().strip() or None
-
 				if not password or len(password) < 6:
 					self.show_warning('La contraseña debe tener al menos 6 caracteres.')
 					return
@@ -472,7 +484,6 @@ class UsersView(BaseView):
 			if self._editing_user_id:
 				self.show_success(msg, 'Empleado actualizado')
 			else:
-				pin = self.entry_pin.get().strip() or None
 				if pin:
 					self.show_success(
 						f'{msg}\n\nPIN de recuperación guardado correctamente.\nAsegurate de que el empleado lo recuerde.',
@@ -539,6 +550,7 @@ class UsersView(BaseView):
 		)
 		entry_new.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
 		entry_new.bind('<FocusIn>', lambda e: entry_new.select_range(0, 'end'))
+		entry_new.bind('<Return>', lambda e: entry_confirm.focus())
 		entry_new.focus()
 
 		make_form_label(popup, 'CONFIRMAR CONTRASEÑA', required=True)[0].pack(
@@ -661,6 +673,7 @@ class UsersView(BaseView):
 		)
 		entry_pin.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
 		entry_pin.bind('<FocusIn>', lambda e: entry_pin.select_range(0, 'end'))
+		entry_pin.bind('<Return>', lambda e: entry_confirm.focus())
 		entry_pin.focus()
 
 		make_form_label(popup, 'CONFIRMAR PIN', required=True)[0].pack(
@@ -753,6 +766,15 @@ class UsersView(BaseView):
 				'Acción Denegada',
 			)
 			return
+
+		if user_data and user_data.get('role') == 'admin':
+			admin_count = sum(1 for u in self._all_users if u.get('role') == 'admin')
+			if admin_count <= 1:
+				self.show_error(
+					'No podés eliminar al único administrador del sistema.\nCreá otro administrador antes de eliminar éste.',
+					'Acción Denegada',
+				)
+				return
 
 		if self.confirm(
 			f'¿Seguro que deseás eliminar al empleado {selected_username}?', 'Confirmar'

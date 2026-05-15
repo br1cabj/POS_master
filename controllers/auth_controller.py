@@ -56,16 +56,23 @@ class AuthController(BaseController):
 					if isinstance(stored_hash, str):
 						stored_hash = stored_hash.encode('utf-8')
 
-					if bcrypt.checkpw(password_bytes, stored_hash):
-						logger.info(
-							f'Login exitoso: {user.username} - empresa ID {user.tenant_id}'
+					try:
+						if bcrypt.checkpw(password_bytes, stored_hash):
+							logger.info(
+								f'Login exitoso: {user.username} - empresa ID {user.tenant_id}'
+							)
+							return {
+								'id': user.id,
+								'username': user.username,
+								'tenant_id': user.tenant_id,
+								'role': user.role,
+							}
+					except Exception as bcrypt_err:
+						logger.error(
+							f'Error al verificar credenciales para {username_clean}: {bcrypt_err}',
+							exc_info=True,
 						)
-						return {
-							'id': user.id,
-							'username': user.username,
-							'tenant_id': user.tenant_id,
-							'role': user.role,
-						}
+						return None
 				else:
 					bcrypt.checkpw(password_bytes, self._dummy_hash)
 

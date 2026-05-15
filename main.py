@@ -3,6 +3,22 @@ import os
 import sys
 
 import customtkinter as ctk
+
+def _setup_logging():
+	_base = (
+		os.path.dirname(sys.executable)
+		if getattr(sys, 'frozen', False)
+		else os.path.dirname(os.path.abspath(__file__))
+	)
+	log_path = os.path.join(_base, 'cloudpos.log')
+	logging.basicConfig(
+		filename=log_path,
+		level=logging.WARNING,
+		format='%(asctime)s %(name)s %(levelname)s %(message)s',
+		encoding='utf-8',
+	)
+
+_setup_logging()
 from CTkMessagebox import CTkMessagebox
 
 from controllers.license_controller import LicenseController
@@ -60,6 +76,8 @@ class PosApp(ctk.CTk):
 		self.check_system_state()
 
 	def _on_close(self):
+		if hasattr(self, '_sync_worker'):
+			self._sync_worker.stop()
 		if self.db_engine is not None:
 			self.db_engine.dispose()
 		self.destroy()
@@ -72,6 +90,9 @@ class PosApp(ctk.CTk):
 		if self.db_engine is None:
 			self.db_engine = get_engine()
 			run_migrations(self.db_engine)
+			from utils.sync_worker import SyncWorker
+			self._sync_worker = SyncWorker(self.db_engine)
+			self._sync_worker.start()
 		return self.db_engine
 
 	# =========================================================

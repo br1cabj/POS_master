@@ -61,18 +61,17 @@ class SalesController(BaseController):
 						else:
 							virtual = float('inf')
 							for ci in v.ingredients:
+								if ci.quantity_required <= 0:
+									continue  # ingrediente con cantidad inválida; se ignora
 								ing = ci.ingredient
 								ing_stock = (
 									sum(s.quantity for s in ing.stocks)
 									if ing and ing.stocks
 									else 0
 								)
-								if ci.quantity_required > 0:
-									possible = int(
-										Decimal(str(ing_stock)) / ci.quantity_required
-									)
-								else:
-									possible = 0
+								possible = int(
+									Decimal(str(ing_stock)) / ci.quantity_required
+								)
 								if possible < virtual:
 									virtual = possible
 							total_stock = 0 if virtual == float('inf') else virtual
@@ -516,6 +515,7 @@ class SalesController(BaseController):
 						if discount_amount > 0
 						else ''
 					)
+					_CASH_METHODS = {'efectivo'}
 					if payment_method_2_lower and amount_m2 > 0:
 						# Pago mixto: dos movimientos de caja
 						amount_m1 = final_total - amount_m2
@@ -527,28 +527,32 @@ class SalesController(BaseController):
 
 						new_sale.payment_method_2 = payment_method_2_lower
 						new_sale.amount_method_2 = amount_m2
+						# Solo el método en efectivo afecta el saldo físico de caja
+						mov_type_1 = 'venta' if payment_method.lower() in _CASH_METHODS else 'venta_digital'
+						mov_type_2 = 'venta' if payment_method_2_lower in _CASH_METHODS else 'venta_digital'
 						session.add(
 							CashMovement(
 								session_id=active_cash.id,
-								movement_type='venta',
-								amount=amount_m1,  # Fallback de 0.01 removido
+								movement_type=mov_type_1,
+								amount=amount_m1,
 								description=f'Ticket #{new_sale.id} - {payment_method.capitalize()} (Mixto){disc_str}',
 							)
 						)
 						session.add(
 							CashMovement(
 								session_id=active_cash.id,
-								movement_type='venta',
+								movement_type=mov_type_2,
 								amount=amount_m2,
 								description=f'Ticket #{new_sale.id} - {payment_method_2_lower.capitalize()} (Mixto)',
 							)
 						)
 					else:
+						mov_type = 'venta' if payment_method.lower() in _CASH_METHODS else 'venta_digital'
 						session.add(
 							CashMovement(
 								session_id=active_cash.id,
-								movement_type='venta',
-								amount=final_total,  # Fallback de 0.01 removido
+								movement_type=mov_type,
+								amount=final_total,
 								description=f'Ticket #{new_sale.id} - Pago: {payment_method.capitalize()}{disc_str}',
 							)
 						)

@@ -82,6 +82,9 @@ def _split_text(text: str, max_chars: int) -> list:
 	return [line1, line2] if line2 else [line1]
 
 
+_BC_CACHE_MAXSIZE = 200
+
+
 class LabelController:
 	def __init__(self):
 		self._tmp_dir = os.path.join(tempfile.gettempdir(), 'CloudPOS_Etiquetas')
@@ -99,6 +102,15 @@ class LabelController:
 				return cached
 			else:
 				del self._bc_cache[safe_code]
+
+		if len(self._bc_cache) >= _BC_CACHE_MAXSIZE:
+			# Evictar la entrada más antigua (FIFO por orden de inserción del dict)
+			oldest_key = next(iter(self._bc_cache))
+			old_path = self._bc_cache.pop(oldest_key)
+			try:
+				os.unlink(old_path)
+			except OSError:
+				pass
 
 		try:
 			file_safe_code = re.sub(r'[^a-zA-Z0-9]', '', safe_code)[:20]

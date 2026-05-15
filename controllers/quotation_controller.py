@@ -75,6 +75,7 @@ class QuotationController(BaseController):
 		last = (
 			session.query(Quotation)
 			.filter_by(tenant_id=tenant_id)
+			.with_for_update()
 			.order_by(Quotation.number.desc())
 			.first()
 		)
@@ -108,9 +109,11 @@ class QuotationController(BaseController):
 				'id': it.id,
 				'description': it.description,
 				'quantity': float(it.quantity),
+				'qty': float(it.quantity),
 				'unit_price': float(it.unit_price),
 				'subtotal': float(it.subtotal),
 				'variant_id': it.variant_id,
+				'stock': float(sum(s.quantity for s in it.variant.stocks)) if it.variant and it.variant.stocks else None,
 			}
 			for it in q.items
 		]
@@ -388,10 +391,17 @@ class QuotationController(BaseController):
 						q.tenant_id,
 					)
 					return False, 'Cotización no encontrada.'
-				if q.status in ('rechazada', 'aceptada', 'vencida'):
+				_convertible = {'borrador', 'enviada'}
+				if q.status not in _convertible:
 					return (
 						False,
-						f'No se puede convertir una cotización en estado "{self.STATUS_LABELS.get(q.status, q.status)}".',
+						f'No se puede convertir una cotización en estado "{self.STATUS_LABELS.get(q.status, q.status)}". '
+						'Solo se pueden convertir cotizaciones en estado Borrador o Enviada.',
+					)
+				if q.status == 'borrador':
+					logger.warning(
+						'Cotización %s convertida desde estado borrador sin aprobación explícita del cliente.',
+						quotation_id,
 					)
 
 				# Calcular el costo real para la rentabilidad de la venta
@@ -478,7 +488,7 @@ class QuotationController(BaseController):
 							session_id=cash_session.id,
 							movement_type='venta',
 							amount=q.total_amount,
-							description=f'Ticket #{sale.id} (desde COT-{q.number.split("-")[-1]})',
+							description=f'Ticket #{sale.id} - Pago: {payment_method.capitalize()} (desde COT-{q.number.split("-")[-1]})',
 						)
 					)
 

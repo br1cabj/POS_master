@@ -166,7 +166,7 @@ class ArticleController(BaseController):
 					selling_price=selling_price,
 					selling_price_b=spb,
 					article_id=article.id,
-					discount_pct=Decimal(str(discount_pct)) if discount_pct and float(discount_pct) > 0 else None,
+					discount_pct=Decimal(str(discount_pct)) if discount_pct and Decimal(str(discount_pct)) > 0 else None,
 					discount_until=discount_until,
 				)
 				session.add(variant)
@@ -280,7 +280,7 @@ class ArticleController(BaseController):
 
 				# Descuento por producto
 				variant.discount_pct = (
-					Decimal(str(discount_pct)) if discount_pct and float(discount_pct) > 0 else None
+					Decimal(str(discount_pct)) if discount_pct and Decimal(str(discount_pct)) > 0 else None
 				)
 				variant.discount_until = discount_until
 
@@ -688,7 +688,7 @@ class ArticleController(BaseController):
 				if not variant:
 					return False, 'Artículo no encontrado.'
 				variant.discount_pct = (
-					Decimal(str(discount_pct)) if discount_pct and float(discount_pct) > 0 else None
+					Decimal(str(discount_pct)) if discount_pct and Decimal(str(discount_pct)) > 0 else None
 				)
 				variant.discount_until = discount_until
 				session.commit()
@@ -710,7 +710,7 @@ class ArticleController(BaseController):
 				if not supplier:
 					return False, 'Proveedor no encontrado.'
 				supplier.discount_pct = (
-					Decimal(str(discount_pct)) if discount_pct and float(discount_pct) > 0 else None
+					Decimal(str(discount_pct)) if discount_pct and Decimal(str(discount_pct)) > 0 else None
 				)
 				supplier.discount_until = discount_until
 				session.commit()
