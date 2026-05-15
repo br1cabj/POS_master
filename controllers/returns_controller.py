@@ -14,7 +14,6 @@ import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
@@ -175,7 +174,7 @@ class ReturnsController(BaseController):
 				)
 
 				sale.status = 'anulada'
-				sale.profit = 0  # CORRECCIÓN: La ganancia se anula también
+				sale.profit = Decimal('0')
 				session.commit()
 
 				try:
@@ -297,12 +296,12 @@ class ReturnsController(BaseController):
 						Decimal(str(detail_map[did].returned_quantity or 0)) + qty
 					)
 
-				remaining_total = Decimal(str(sale.total_amount or 0)) - refund_total
-				sale.status = 'devuelta' if remaining_total <= Decimal('0') else 'parcial'
-				sale.total_amount = max(Decimal('0'), remaining_total)
-				sale.profit = (
-					Decimal(str(sale.profit or 0)) - profit_reduction
-				)
+				new_total_returned = Decimal(str(sale.total_returned or 0)) + refund_total
+				sale.total_returned = new_total_returned
+				net_remaining = Decimal(str(sale.total_amount or 0)) - new_total_returned
+				sale.status = 'devuelta' if net_remaining <= Decimal('0') else 'parcial'
+				new_profit = Decimal(str(sale.profit or 0)) - profit_reduction
+				sale.profit = max(Decimal('0'), new_profit)
 
 				session.commit()
 
@@ -494,19 +493,15 @@ class ReturnsController(BaseController):
 
 		if pm2 and sale.amount_method_2:
 			amt_m2 = Decimal(str(sale.amount_method_2))
-			# Usar la suma de los movimientos 'venta' originales del ticket como referencia
-			# inmutable del total original, en lugar de reconstruirlo desde el total actual
-			# (que varía con cada devolución) + gastos previos (que podría capturar movimientos ajenos).
-			original_total = (
-				session.query(func.sum(CashMovement.amount))
-				.join(CashSession, CashMovement.session_id == CashSession.id)
-				.filter(
-					CashSession.tenant_id == tenant_id,
-					CashMovement.movement_type == 'venta',
-					CashMovement.description.like(f'%Ticket #{sale.id}%'),
-				)
-				.scalar()
-			) or Decimal('0')
+			# Usar amount_method_1 y amount_method_2 almacenados en la venta original.
+			# Esto es determinista y no depende de búsquedas de texto en descripciones.
+			amt_m1_stored = Decimal(str(sale.amount_method_1)) if sale.amount_method_1 else None
+			if amt_m1_stored and amt_m1_stored > 0:
+				original_total = amt_m1_stored + amt_m2
+			else:
+				# Fallback para ventas antiguas sin amount_method_1
+				original_total = amount
+
 			if original_total <= 0:
 				original_total = amount
 

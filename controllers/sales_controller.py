@@ -305,6 +305,7 @@ class SalesController(BaseController):
 					customer_obj = (
 						session.query(Customer)
 						.filter_by(id=customer_id, tenant_id=tenant_id)
+						.with_for_update()
 						.first()
 					)
 					if not customer_obj:
@@ -498,7 +499,11 @@ class SalesController(BaseController):
 						)
 					)
 
-				# Aplicar descuento al total final
+				# Validar y aplicar descuento al total final
+				if discount_amount > total_sale:
+					raise ValueError(
+						f'El descuento (${discount_amount:.2f}) no puede superar el total de la venta (${total_sale:.2f}).'
+					)
 				final_total = total_sale - discount_amount
 				if final_total < Decimal('0.0'):
 					final_total = Decimal('0.0')
@@ -527,6 +532,7 @@ class SalesController(BaseController):
 
 						new_sale.payment_method_2 = payment_method_2_lower
 						new_sale.amount_method_2 = amount_m2
+						new_sale.amount_method_1 = amount_m1
 						# Solo el método en efectivo afecta el saldo físico de caja
 						mov_type_1 = 'venta' if payment_method.lower() in _CASH_METHODS else 'venta_digital'
 						mov_type_2 = 'venta' if payment_method_2_lower in _CASH_METHODS else 'venta_digital'
@@ -594,16 +600,14 @@ class SalesController(BaseController):
 						items_list=cart_items,
 						total=final_total,
 						customer_name=customer_str,
-						discount_amount=float(discount_amount),
+						discount_amount=discount_amount,
 						payment_method=None if is_fiado else pm_lower,
 						payment_method_2=payment_method_2_lower
 						if payment_method_2_lower
 						else None,
-						amount_method_2=float(amount_m2) if amount_m2 > 0 else None,
-						paid_amount=float(paid_dec) if paid_dec is not None else None,
-						change_amount=float(change_amt)
-						if change_amt is not None
-						else None,
+						amount_method_2=amount_m2 if amount_m2 > 0 else None,
+						paid_amount=paid_dec,
+						change_amount=change_amt,
 						cashier_name=cashier_label,
 					)
 				except Exception as pdf_err:

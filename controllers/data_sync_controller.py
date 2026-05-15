@@ -613,6 +613,24 @@ class DataSyncController(BaseController):
 			created = updated = skipped = 0
 
 			with self._Session() as session:
+				# Pre-cargar todos los clientes que coincidan con los nombres del archivo
+				# en una sola query, evitando N+1.
+				names_in_file = [
+					str(r.Nombre).strip()
+					for r in df.itertuples()
+					if str(r.Nombre).strip() and str(r.Nombre).strip() != 'nan'
+				]
+				existing_map: dict = {
+					c.name: c
+					for c in session.query(Customer)
+					.filter(
+						Customer.tenant_id == tenant_id,
+						Customer.name.in_(names_in_file),
+						Customer.is_active == True,  # noqa: E712
+					)
+					.all()
+				}
+
 				for row in df.itertuples():
 					name = str(row.Nombre).strip()
 					if not name or name == 'nan':
@@ -623,24 +641,20 @@ class DataSyncController(BaseController):
 					if phone in ('nan', ''):
 						phone = None
 
-					existing = (
-						session.query(Customer)
-						.filter_by(tenant_id=tenant_id, name=name, is_active=True)
-						.first()
-					)
+					existing = existing_map.get(name)
 					if existing:
 						if phone:
 							existing.phone = phone
 						updated += 1
 					else:
-						session.add(
-							Customer(
-								tenant_id=tenant_id,
-								name=name,
-								phone=phone,
-								current_balance=Decimal('0'),
-							)
+						new_customer = Customer(
+							tenant_id=tenant_id,
+							name=name,
+							phone=phone,
+							current_balance=Decimal('0'),
 						)
+						session.add(new_customer)
+						existing_map[name] = new_customer  # evita duplicados dentro del mismo archivo
 						created += 1
 
 				session.commit()

@@ -300,8 +300,8 @@ class CashController(BaseController):
 		parsed = self._parse_decimal(amount)
 		if parsed is None or parsed <= Decimal('0.0'):
 			return False, 'El monto debe ser numérico y mayor a cero.'
-		if mov_type not in ['ingreso', 'gasto', 'venta', 'venta_digital']:
-			return False, 'Tipo de movimiento no soportado.'
+		if mov_type not in ['ingreso', 'gasto']:
+			return False, 'Tipo de movimiento no soportado. Solo se permiten "ingreso" o "gasto".'
 		if not description or not str(description).strip():
 			return False, 'La descripción del movimiento es obligatoria.'
 

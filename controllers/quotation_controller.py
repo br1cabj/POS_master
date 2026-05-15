@@ -482,6 +482,8 @@ class QuotationController(BaseController):
 					.filter_by(tenant_id=q.tenant_id, user_id=user_id, is_open=True)
 					.first()
 				)
+				if not cash_session:
+					raise ValueError('Debes abrir la caja antes de convertir una cotización en venta.')
 				if cash_session and q.total_amount > Decimal('0'):
 					s.add(
 						CashMovement(

@@ -2254,7 +2254,7 @@ class SalesView(BaseView):
 			customer_id,
 			is_fiado,
 			payment_method,
-			discount_amount=float(self._discount_amount),
+			discount_amount=self._discount_amount,
 			payment_method_2=payment_method_2,
 			amount_method_2=amount_method_2,
 			paid_amount=paid_amount,

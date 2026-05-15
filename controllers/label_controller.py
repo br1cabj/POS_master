@@ -251,115 +251,111 @@ class LabelController:
 		discount_until = item.get('_discount_until', '')
 		mode_label = item.get('_mode_label')
 
-		HEADER_H = 4.5
-		FOOTER_H = 3.5
-		RIGHT_W = 18.0
+		HEADER_H = 6.0
+		FOOTER_H = 4.0
+		RIGHT_W = 20.0
 		LEFT_W = W - RIGHT_W
 		BODY_H = H - HEADER_H - FOOTER_H
 
-		pdf.set_fill_color(26, 26, 46)
-		pdf.rect(0, 0, W, HEADER_H, 'F')
-		pdf.set_text_color(255, 255, 255)
-
-		if mode_label:
-			pdf.set_xy(0, 0.5)
-			pdf.set_font('Arial', 'B', 5.5)
-			pdf.cell(W, 3.5, mode_label, align='C')
+		# Header - Brand or OFFER focus
+		is_offer = bool(discount_price and discount_price < display_price)
+		
+		if is_offer:
+			pdf.set_fill_color(220, 38, 38) # Red 600
 		else:
-			lbl_left = _sanitize(company[:14]) if company else 'CloudPOS'
-			pdf.set_xy(1, 0.5)
-			pdf.set_font('Arial', 'B', 5.5)
-			pdf.cell(LEFT_W - 1, 3.5, lbl_left, align='L')
-			pdf.set_xy(LEFT_W, 0.5)
+			pdf.set_fill_color(30, 41, 59) # Slate 800
+			
+		pdf.rect(0, 0, W, HEADER_H, 'F')
+		
+		# Logo or Company Name
+		if logo_path and os.path.exists(logo_path) and not is_offer:
+			try:
+				pdf.image(logo_path, x=1.5, y=1, h=HEADER_H-2)
+				pdf.set_xy(HEADER_H + 1, 0)
+			except:
+				pdf.set_xy(1.5, 0)
+		else:
+			pdf.set_xy(1.5, 0)
+
+		pdf.set_text_color(255, 255, 255)
+		pdf.set_font('Arial', 'B', 7)
+		
+		if is_offer:
+			pdf.set_xy(0, 0)
+			pdf.cell(W, HEADER_H, '🔥 ¡OFERTA IMPERDIBLE! 🔥', align='C')
+		else:
+			header_txt = mode_label if mode_label else company[:20] if company else 'CloudPOS'
+			pdf.cell(LEFT_W - 2, HEADER_H, _sanitize(header_txt).upper(), align='L')
 			pdf.set_font('Arial', '', 5)
-			pdf.cell(RIGHT_W - 1, 3.5, 'SUPERMERCADO', align='R')
+			pdf.set_xy(LEFT_W, 0)
+			pdf.cell(RIGHT_W - 1, HEADER_H, 'S.MERCADO', align='R')
 
 		pdf.set_text_color(0, 0, 0)
-		pdf.set_draw_color(200, 200, 200)
-		pdf.set_line_width(0.2)
-		pdf.line(LEFT_W, HEADER_H, LEFT_W, H - FOOTER_H)
-		pdf.set_draw_color(0, 0, 0)
-
-		y = HEADER_H + 1.5
+		
+		# Body
+		y = HEADER_H + 2
 		display = f'{name} {attr}'.strip() if attr else name
-		lines = _split_text(display, 24)
-
-		pdf.set_font('Arial', 'B', 10)
+		
+		pdf.set_font('Arial', 'B', 11)
+		lines = _split_text(display, 22)
 		for ln in lines:
-			if y + 4.5 > H - FOOTER_H - 1:
-				break
-			pdf.set_xy(1.5, y)
-			pdf.cell(LEFT_W - 2, 4.5, ln, align='L')
+			if y + 4.5 > H - FOOTER_H: break
+			pdf.set_xy(2, y)
+			pdf.cell(LEFT_W - 3, 4.5, ln, align='L')
 			y += 4.5
 
-		sku_str = str(barcode_val)[:16]
-		if sku_str:
-			pdf.set_xy(1.5, y)
-			pdf.set_font('Arial', '', 5)
-			pdf.set_text_color(140, 140, 140)
-			pdf.cell(LEFT_W - 2, 3, 'SKU: ' + sku_str, align='L')
-			pdf.set_text_color(0, 0, 0)
-			y += 3
-
-		y += 0.5
-
-		if discount_price and discount_price < display_price:
+		# Price Section
+		y_price = H - FOOTER_H - 12
+		if is_offer:
+			# Strikethrough original
 			orig_str = _sanitize(_fmt_price(display_price, symbol, decimals))
-			pdf.set_xy(1.5, y)
-			pdf.set_font('Arial', '', 7)
-			pdf.set_text_color(160, 160, 160)
-			pdf.cell(LEFT_W - 2, 4, orig_str, align='L')
-			self._draw_strikethrough(pdf, 1.5, y, orig_str, 2.5)
-			pdf.set_text_color(0, 0, 0)
-			y += 4
-
+			pdf.set_xy(2, y_price - 3.5)
+			pdf.set_font('Arial', '', 8)
+			pdf.set_text_color(120, 120, 120)
+			pdf.cell(LEFT_W - 3, 4, f'Antes: {orig_str}', align='L')
+			self._draw_strikethrough(pdf, 10, y_price - 3.5, orig_str, 2.5)
+			
+			# New price in RED
 			disc_str = _sanitize(_fmt_price(discount_price, symbol, decimals))
-			pdf.set_xy(1.5, y)
-			pdf.set_font('Arial', 'B', 14)
-			pdf.set_text_color(180, 30, 30)
-			pdf.cell(LEFT_W - 2, 7, disc_str, align='L')
-			pdf.set_text_color(0, 0, 0)
-			y += 7
-
+			pdf.set_xy(2, y_price + 1)
+			pdf.set_font('Arial', 'B', 20)
+			pdf.set_text_color(220, 38, 38)
+			pdf.cell(LEFT_W - 3, 8, disc_str, align='L')
+			
+			# Date validation
 			if discount_until:
-				pdf.set_xy(1.5, y)
+				pdf.set_xy(2, y_price + 9)
 				pdf.set_font('Arial', 'I', 5)
-				pdf.set_text_color(120, 60, 60)
-				pdf.cell(LEFT_W - 2, 3, f'Valido hasta: {discount_until}', align='L')
-				pdf.set_text_color(0, 0, 0)
+				pdf.set_text_color(150, 50, 50)
+				pdf.cell(LEFT_W - 3, 3, f'Válido hasta: {discount_until}', align='L')
 		else:
 			price_str = _sanitize(_fmt_price(display_price, symbol, decimals))
-			pdf.set_xy(1.5, y)
-			pdf.set_font('Arial', 'B', 16)
-			pdf.set_text_color(26, 26, 46)
-			pdf.cell(LEFT_W - 2, 9, price_str, align='L')
-			pdf.set_text_color(0, 0, 0)
+			pdf.set_xy(2, y_price)
+			pdf.set_font('Arial', 'B', 20)
+			pdf.set_text_color(15, 23, 42)
+			pdf.cell(LEFT_W - 3, 10, price_str, align='L')
 
+		# Barcode
 		bc_path = self._generate_barcode_png(barcode_val)
 		if bc_path:
 			bc_x = LEFT_W + 1
-			bc_y = HEADER_H + 1.5
+			bc_y = HEADER_H + 2
 			bc_w = RIGHT_W - 2
-			bc_h = BODY_H - 4
+			bc_h = BODY_H - 2
 			pdf.image(bc_path, x=bc_x, y=bc_y, w=bc_w, h=bc_h)
-			pdf.set_xy(LEFT_W, bc_y + bc_h + 0.3)
-			pdf.set_font('Arial', '', 4)
-			pdf.set_text_color(100, 100, 100)
-			pdf.cell(RIGHT_W, 2, str(barcode_val)[:14], align='C')
-			pdf.set_text_color(0, 0, 0)
-
-		footer_y = H - FOOTER_H
-		pdf.set_fill_color(245, 245, 245)
-		pdf.rect(0, footer_y, W, FOOTER_H, 'F')
-		pdf.set_draw_color(215, 215, 215)
-		pdf.set_line_width(0.2)
-		pdf.line(0, footer_y, W, footer_y)
-		pdf.set_draw_color(0, 0, 0)
-		pdf.set_xy(1.5, footer_y + 0.8)
-		pdf.set_font('Arial', '', 4.5)
-		pdf.set_text_color(130, 130, 130)
-		pdf.cell(W - 2, 2.5, 'IVA incluido', align='L')
-		pdf.set_text_color(0, 0, 0)
+			
+		# Footer
+		pdf.set_fill_color(248, 250, 252)
+		pdf.rect(0, H - FOOTER_H, W, FOOTER_H, 'F')
+		pdf.set_draw_color(226, 232, 240)
+		pdf.line(0, H - FOOTER_H, W, H - FOOTER_H)
+		
+		pdf.set_xy(2, H - FOOTER_H + 0.5)
+		pdf.set_font('Arial', '', 4)
+		pdf.set_text_color(100, 116, 139)
+		footer_txt = f'IVA INCLUIDO  ·  {barcode_val}'
+		if is_offer: footer_txt = f'PROMOCIÓN LIMITADA  ·  {barcode_val}'
+		pdf.cell(W - 4, 3, footer_txt, align='L')
 
 	def _draw_producto(self, pdf, item, W, H, company, logo_path, symbol, decimals):
 		name = _sanitize(item.get('name', ''))
@@ -375,116 +371,73 @@ class LabelController:
 		discount_price = item.get('_discount_price')
 		discount_until = item.get('_discount_until', '')
 		mode_label = item.get('_mode_label')
-		retail_str = item.get('_retail_str')
+		is_offer = bool(discount_price and discount_price < display_price)
 
-		STRIPE_H = 2.5
-		FOOTER_H = 8.0
-		MARGIN = 2.5
+		# Design Constants
+		accent_color = (220, 38, 38) if is_offer else (37, 99, 235) if mode_label else (15, 23, 42)
+		pdf.set_fill_color(*accent_color)
+		pdf.rect(0, 0, W, 2.5, 'F') # Top bar
 
-		if mode_label:
-			pdf.set_fill_color(37, 99, 235)
-		else:
-			pdf.set_fill_color(193, 18, 31)
-		pdf.rect(0, 0, W, STRIPE_H, 'F')
-
-		if mode_label:
+		y = 4.5
+		if is_offer:
+			pdf.set_fill_color(220, 38, 38)
+			pdf.rect(W-25, 0, 25, 8, 'F')
 			pdf.set_text_color(255, 255, 255)
-			pdf.set_xy(0, 0.3)
-			pdf.set_font('Arial', 'B', 6)
-			pdf.cell(W, STRIPE_H - 0.3, mode_label, align='C')
-			pdf.set_text_color(0, 0, 0)
+			pdf.set_font('Arial', 'B', 8)
+			pdf.set_xy(W-25, 0)
+			pdf.cell(25, 8, 'OFERTA', align='C')
+			pdf.set_text_color(*accent_color)
+		
+		if logo_path and os.path.exists(logo_path) and not is_offer:
+			pdf.image(logo_path, x=W-12, y=3.5, h=6)
+		
+		pdf.set_xy(4, y)
+		pdf.set_font('Arial', 'B', 7)
+		pdf.set_text_color(*accent_color)
+		pdf.cell(W-20, 4, company[:25].upper() if company else 'CLOUD POS', align='L')
+		y += 6
 
-		y = STRIPE_H + 1.5
-
-		if category:
-			pdf.set_xy(MARGIN, y)
-			pdf.set_font('Arial', 'B', 6)
-			pdf.set_text_color(193, 18, 31)
-			pdf.cell(W - MARGIN * 2, 3.5, category[:28].upper(), align='L')
-			pdf.set_text_color(0, 0, 0)
-			y += 3.5
-
-		lines = _split_text(name, 28)
-		pdf.set_font('Arial', 'B', 12)
+		# Product Name
+		pdf.set_font('Arial', 'B', 14)
+		pdf.set_text_color(0, 0, 0)
+		lines = _split_text(name, 24)
 		for ln in lines:
-			if y + 5.5 > H - FOOTER_H - 1:
-				break
-			pdf.set_xy(MARGIN, y)
-			pdf.cell(W - MARGIN * 2, 5.5, ln, align='L')
-			y += 5.5
+			if y + 6 > H - 15: break
+			pdf.set_xy(4, y)
+			pdf.cell(W - 8, 6, ln, align='L')
+			y += 6
 
-		if attr:
-			pdf.set_xy(MARGIN, y)
-			pdf.set_font('Arial', 'I', 7)
-			pdf.set_text_color(100, 100, 100)
-			pdf.cell(W - MARGIN * 2, 3.5, attr[:38], align='L')
-			pdf.set_text_color(0, 0, 0)
-			y += 3.5
-
-		y += 1.5
-
-		if discount_price and discount_price < display_price:
+		# Big Price
+		y_price = H - 16
+		if is_offer:
 			orig_str = _sanitize(_fmt_price(display_price, symbol, decimals))
-			pdf.set_xy(MARGIN, y)
-			pdf.set_font('Arial', '', 8)
-			pdf.set_text_color(160, 160, 160)
-			pdf.cell(W - MARGIN * 2, 5, orig_str, align='L')
-			self._draw_strikethrough(pdf, MARGIN, y, orig_str, 3.0)
-			pdf.set_text_color(0, 0, 0)
-			y += 5
+			pdf.set_xy(4, y_price - 4)
+			pdf.set_font('Arial', '', 9)
+			pdf.set_text_color(120, 120, 120)
+			pdf.cell(W - 8, 5, f'Antes: {orig_str}', align='L')
+			self._draw_strikethrough(pdf, 14, y_price - 4, orig_str, 3)
 
-			disc_str = _sanitize(_fmt_price(discount_price, symbol, decimals))
-			pdf.set_xy(MARGIN, y)
-			pdf.set_font('Arial', 'B', 20)
-			pdf.set_text_color(193, 18, 31)
-			pdf.cell(W - MARGIN * 2, 10, disc_str, align='L')
-			pdf.set_text_color(0, 0, 0)
-			y += 10
-
+			price_str = _sanitize(_fmt_price(discount_price, symbol, decimals))
+			pdf.set_text_color(220, 38, 38)
 			if discount_until:
-				pdf.set_xy(MARGIN, y)
+				pdf.set_xy(4, H-6)
 				pdf.set_font('Arial', 'I', 5.5)
-				pdf.set_text_color(120, 60, 60)
-				pdf.cell(
-					W - MARGIN * 2, 3, f'Valido hasta: {discount_until}', align='L'
-				)
-				pdf.set_text_color(0, 0, 0)
+				pdf.cell(W-30, 4, f'Promoción válida hasta: {discount_until}', align='L')
 		else:
-			if retail_str:
-				pdf.set_xy(MARGIN, y)
-				pdf.set_font('Arial', 'I', 7)
-				pdf.set_text_color(160, 160, 160)
-				pdf.cell(W - MARGIN * 2, 4, f'Minorista: {retail_str}', align='L')
-				pdf.set_text_color(0, 0, 0)
-				y += 4
-
 			price_str = _sanitize(_fmt_price(display_price, symbol, decimals))
-			pdf.set_xy(MARGIN, y)
-			pdf.set_font('Arial', 'B', 20)
-			pdf.set_text_color(193, 18, 31)
-			pdf.cell(W - MARGIN * 2, 10, price_str, align='L')
 			pdf.set_text_color(0, 0, 0)
+			
+		pdf.set_xy(4, y_price)
+		pdf.set_font('Arial', 'B', 24)
+		pdf.cell(W - 8, 10, price_str, align='L')
 
-		footer_y = H - FOOTER_H
-		pdf.set_fill_color(248, 248, 248)
-		pdf.rect(0, footer_y, W, FOOTER_H, 'F')
-		pdf.set_draw_color(215, 215, 215)
-		pdf.set_line_width(0.2)
-		pdf.line(0, footer_y, W, footer_y)
-		pdf.set_draw_color(0, 0, 0)
-
+		# Barcode Footer
 		bc_path = self._generate_barcode_png(barcode_val)
 		if bc_path:
-			bc_w = W - MARGIN * 8
-			bc_h = FOOTER_H - 2.5
-			bc_x = (W - bc_w) / 2
-			pdf.image(bc_path, x=bc_x, y=footer_y + 0.5, w=bc_w, h=bc_h)
-
-		pdf.set_xy(0, footer_y + FOOTER_H - 2.5)
-		pdf.set_font('Arial', '', 4.5)
-		pdf.set_text_color(150, 150, 150)
-		pdf.cell(W, 2, str(barcode_val), align='C')
-		pdf.set_text_color(0, 0, 0)
+			pdf.image(bc_path, x=W-26, y=H-13, w=22, h=9)
+			pdf.set_xy(W-25, H-4)
+			pdf.set_font('Arial', '', 4)
+			pdf.cell(20, 3, str(barcode_val), align='C')
 
 	def _draw_precio(self, pdf, item, W, H, company, logo_path, symbol, decimals):
 		name = _sanitize(item.get('name', ''))
@@ -497,101 +450,41 @@ class LabelController:
 			display_price = 0.0
 
 		discount_price = item.get('_discount_price')
-		discount_until = item.get('_discount_until', '')
-		mode_label = item.get('_mode_label')
-		retail_str = item.get('_retail_str')
 
-		HEADER_H = 7.0
-		FOOTER_H = 4.0
-		BC_W = 18.0
-		LEFT_W = W - BC_W
+		# Minimalist Price Tag
+		pdf.set_draw_color(226, 232, 240)
+		pdf.set_line_width(0.5)
+		pdf.rect(1, 1, W-2, H-2)
 
-		if mode_label:
-			pdf.set_fill_color(37, 99, 235)
-		else:
-			pdf.set_fill_color(45, 106, 79)
-		pdf.rect(0, 0, W, HEADER_H, 'F')
+		y = 4
+		pdf.set_xy(3, y)
+		pdf.set_font('Arial', 'B', 9)
+		pdf.set_text_color(51, 65, 85)
+		pdf.cell(W-6, 5, name[:28], align='L')
+		y += 5
 
-		display = f'{name} {attr}'.strip() if attr else name
-		pdf.set_text_color(255, 255, 255)
-
-		lines = _split_text(display, 26)
-		line_h = HEADER_H / max(len(lines), 1)
-		for i, ln in enumerate(lines):
-			pdf.set_xy(1.5, i * line_h + 0.5)
-			font_sz = 8 if len(display) > 22 else 10
-			pdf.set_font('Arial', 'B', font_sz)
-			pdf.cell(W - 3, line_h - 0.5, ln, align='L')
-
-		if mode_label:
-			pdf.set_xy(0, 0.5)
-			pdf.set_font('Arial', 'B', 7)
-			pdf.cell(W, HEADER_H - 1, mode_label, align='C')
-
-		pdf.set_text_color(0, 0, 0)
-
-		y = HEADER_H + 1.0
-
-		if discount_price and discount_price < display_price:
-			orig_str = _sanitize(_fmt_price(display_price, symbol, decimals))
-			pdf.set_xy(1.5, y)
+		if attr:
+			pdf.set_xy(3, y)
 			pdf.set_font('Arial', '', 7)
-			pdf.set_text_color(160, 160, 160)
-			pdf.cell(LEFT_W - 2, 4, orig_str, align='L')
-			self._draw_strikethrough(pdf, 1.5, y, orig_str, 2.5)
-			pdf.set_text_color(0, 0, 0)
+			pdf.set_text_color(100, 116, 139)
+			pdf.cell(W-6, 4, attr[:32], align='L')
 			y += 4
 
-			disc_str = _sanitize(_fmt_price(discount_price, symbol, decimals))
-			pdf.set_xy(1.5, y)
-			pdf.set_font('Arial', 'B', 16)
-			pdf.set_text_color(180, 30, 30)
-			pdf.cell(LEFT_W - 2, 8, disc_str, align='L')
-			pdf.set_text_color(0, 0, 0)
-
-			if discount_until:
-				pdf.set_xy(1.5, y + 8)
-				pdf.set_font('Arial', 'I', 4.5)
-				pdf.set_text_color(120, 60, 60)
-				pdf.cell(LEFT_W - 2, 3, f'Hasta: {discount_until}', align='L')
-				pdf.set_text_color(0, 0, 0)
+		# Center Price
+		pdf.set_xy(0, H/2 - 2)
+		pdf.set_font('Arial', 'B', 16)
+		if discount_price:
+			pdf.set_text_color(220, 38, 38)
+			price_str = _sanitize(_fmt_price(discount_price, symbol, decimals))
 		else:
-			if retail_str and mode_label:
-				pdf.set_xy(1.5, y)
-				pdf.set_font('Arial', 'I', 5)
-				pdf.set_text_color(120, 120, 120)
-				pdf.cell(LEFT_W - 2, 3.5, f'Min: {retail_str}', align='L')
-				pdf.set_text_color(0, 0, 0)
-				y += 3.5
-
+			pdf.set_text_color(15, 23, 42)
 			price_str = _sanitize(_fmt_price(display_price, symbol, decimals))
-			pdf.set_xy(1.5, y)
-			pdf.set_font('Arial', 'B', 18)
-			pdf.set_text_color(45, 106, 79)
-			pdf.cell(LEFT_W - 2, 10, price_str, align='L')
-			pdf.set_text_color(0, 0, 0)
+		pdf.cell(W, 10, price_str, align='C')
 
+		# Small Barcode
 		bc_path = self._generate_barcode_png(barcode_val)
 		if bc_path:
-			bc_x = LEFT_W + 1
-			bc_y = HEADER_H + 0.8
-			bc_w = BC_W - 2
-			bc_h = H - HEADER_H - FOOTER_H - 1
-			pdf.image(bc_path, x=bc_x, y=bc_y, w=bc_w, h=bc_h)
-
-		footer_y = H - FOOTER_H
-		pdf.set_fill_color(245, 245, 245)
-		pdf.rect(0, footer_y, W, FOOTER_H, 'F')
-		pdf.set_draw_color(210, 210, 210)
-		pdf.set_line_width(0.2)
-		pdf.line(0, footer_y, W, footer_y)
-		pdf.set_draw_color(0, 0, 0)
-
-		pdf.set_xy(1.5, footer_y + 0.8)
-		pdf.set_font('Arial', '', 4.5)
-		pdf.set_text_color(120, 120, 120)
-		pdf.cell(W - 3, 2.5, f'{barcode_val}  ·  IVA incluido', align='L')
-		pdf.set_text_color(0, 0, 0)
+			pdf.image(bc_path, x=W/2 - 10, y=H-8, w=20, h=5)
 
 	def _draw_mini(self, pdf, item, W, H, company, logo_path, symbol, decimals):
 		name = _sanitize(item.get('name', ''))

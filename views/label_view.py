@@ -84,219 +84,309 @@ class LabelView(BaseView):
 		self._load_price_list_cfg()
 
 	def _build(self):
-		self.grid_columnconfigure(0, weight=1)
-		self.grid_columnconfigure(1, weight=3)
+		self.grid_columnconfigure(0, weight=2) # Catálogo
+		self.grid_columnconfigure(1, weight=3) # Cola
+		self.grid_columnconfigure(2, weight=2) # Preview
 		self.grid_rowconfigure(0, weight=1)
+		
 		self._build_left()
+		self._build_center()
 		self._build_right()
 
 	def _build_left(self):
-		left = ctk.CTkFrame(self, fg_color=SURFACE0, corner_radius=0)
-		left.grid(row=0, column=0, sticky='nsew')
+		# Panel de Catálogo (Bento 1)
+		left = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=12, border_width=1, border_color=BORDER)
+		left.grid(row=0, column=0, sticky='nsew', padx=(PAD_MD, PAD_SM), pady=PAD_MD)
 		left.grid_rowconfigure(2, weight=1)
 		left.grid_columnconfigure(0, weight=1)
 
-		hdr = ctk.CTkFrame(left, fg_color='transparent')
-		hdr.grid(row=0, column=0, sticky='ew', padx=PAD_MD, pady=(PAD_LG, PAD_SM))
-		hdr.grid_columnconfigure(0, weight=1)
-
 		ctk.CTkLabel(
-			hdr,
-			text='Catálogo de artículos',
-			font=FONT_HEADING,
-			text_color=TEXT_PRIMARY,
-		).grid(row=0, column=0, sticky='w')
+			left,
+			text='📦  CATÁLOGO',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+		).grid(row=0, column=0, sticky='w', padx=PAD_MD, pady=(PAD_MD, PAD_XS))
 
-		srch = ctk.CTkFrame(left, fg_color='transparent')
-		srch.grid(row=1, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_SM))
-		srch.grid_columnconfigure(0, weight=1)
+		srch_f = ctk.CTkFrame(left, fg_color='transparent')
+		srch_f.grid(row=1, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_SM))
+		srch_f.grid_columnconfigure(0, weight=1)
 
 		self._entry_search = ctk.CTkEntry(
-			srch,
-			placeholder_text='🔍  Buscar por nombre o barcode...',
+			srch_f,
+			placeholder_text='Buscar artículo...',
 			height=36,
 			fg_color=SURFACE2,
 			border_color=BORDER,
-			text_color=TEXT_PRIMARY,
 			font=FONT_BODY,
 		)
-		self._entry_search.grid(row=0, column=0, sticky='ew', pady=(0, PAD_XS))
+		self._entry_search.grid(row=0, column=0, sticky='ew')
 		self._entry_search.bind('<KeyRelease>', self._debounced_search)
-		self._entry_search.bind('<Return>', lambda e: self._add_first_filtered())
-
-		act = ctk.CTkFrame(srch, fg_color='transparent')
-		act.grid(row=1, column=0, sticky='ew')
-		act.grid_columnconfigure((0, 1), weight=1)
-
-		ctk.CTkButton(
-			act,
-			text='Agregar selección',
-			height=30,
-			font=FONT_LABEL_BOLD,
-			fg_color=ACCENT,
-			hover_color=ACCENT_HOVER,
-			command=self._add_selected_to_queue,
-		).grid(row=0, column=0, sticky='ew', padx=(0, 3))
-
-		ctk.CTkButton(
-			act,
-			text='Agregar todos',
-			height=30,
-			font=FONT_LABEL_BOLD,
-			fg_color=SURFACE3,
-			hover_color=SURFACE4,
-			command=self._add_all_to_queue,
-		).grid(row=0, column=1, sticky='ew', padx=(3, 0))
 
 		self._catalog_frame = ctk.CTkScrollableFrame(
 			left,
 			fg_color='transparent',
 			scrollbar_button_color=SURFACE3,
 		)
-		self._catalog_frame.grid(
-			row=2, column=0, sticky='nsew', padx=PAD_SM, pady=(PAD_XS, PAD_SM)
-		)
+		self._catalog_frame.grid(row=2, column=0, sticky='nsew', padx=PAD_SM, pady=(0, PAD_MD))
 		self._catalog_frame.grid_columnconfigure(0, weight=1)
-		self._catalog_rows: list[dict] = []
 
-	def _build_right(self):
-		right = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=0)
-		right.grid(row=0, column=1, sticky='nsew')
-		right.grid_columnconfigure(0, weight=1)
-		right.grid_rowconfigure(2, weight=1)
+	def _build_center(self):
+		# Panel de Cola de Impresión (Bento 2)
+		center = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=12, border_width=1, border_color=BORDER)
+		center.grid(row=0, column=1, sticky='nsew', padx=PAD_SM, pady=PAD_MD)
+		center.grid_rowconfigure(2, weight=1)
+		center.grid_columnconfigure(0, weight=1)
 
-		tpl_outer = ctk.CTkFrame(right, fg_color=SURFACE2, corner_radius=10)
-		tpl_outer.grid(row=0, column=0, sticky='ew', padx=PAD_LG, pady=(PAD_LG, PAD_SM))
-		tpl_outer.grid_columnconfigure(tuple(range(len(TEMPLATES))), weight=1)
-
-		ctk.CTkLabel(
-			tpl_outer,
-			text='Formato de etiqueta',
-			font=FONT_LABEL_BOLD,
-			text_color=TEXT_SECONDARY,
-		).grid(
-			row=0,
-			column=0,
-			columnspan=len(TEMPLATES),
-			sticky='w',
-			padx=PAD_MD,
-			pady=(PAD_SM, PAD_XS),
-		)
-
-		self._tpl_frames: dict[str, ctk.CTkFrame] = {}
-		self._tpl_canvases: dict[str, tk.Canvas] = {}
-
-		for col, (key, tpl) in enumerate(TEMPLATES.items()):
-			f = ctk.CTkFrame(
-				tpl_outer,
-				fg_color=ACCENT_DIM if key == self._tpl_key else SURFACE3,
-				corner_radius=8,
-				cursor='hand2',
-			)
-			f.grid(row=1, column=col, padx=PAD_XS, pady=(0, PAD_MD), sticky='nsew')
-			self._tpl_frames[key] = f
-
-			cv = tk.Canvas(
-				f,
-				width=90,
-				height=60,
-				bg=SURFACE3 if key != self._tpl_key else ACCENT_DIM,
-				highlightthickness=0,
-			)
-			cv.pack(padx=PAD_SM, pady=(PAD_SM, PAD_XS))
-			self._tpl_canvases[key] = cv
-			self._draw_template_preview(cv, key)
-
-			ctk.CTkLabel(
-				f,
-				text=tpl['icon'] + '  ' + tpl['label'],
-				font=FONT_LABEL_BOLD,
-				text_color=ACCENT_TEXT if key == self._tpl_key else TEXT_SECONDARY,
-			).pack(padx=PAD_XS, pady=(0, 2))
-
-			ctk.CTkLabel(
-				f,
-				text=tpl['desc'],
-				font=FONT_LABEL,
-				text_color=TEXT_MUTED,
-				wraplength=130,
-			).pack(padx=PAD_XS, pady=(0, PAD_SM))
-
-			for widget in (f,):
-				widget.bind('<Button-1>', lambda e, k=key: self._select_template(k))
-			cv.bind('<Button-1>', lambda e, k=key: self._select_template(k))
-
-		self._wholesale_bar = ctk.CTkFrame(right, fg_color=SURFACE2, corner_radius=8)
-
-		queue_outer = ctk.CTkFrame(right, fg_color=SURFACE2, corner_radius=10)
-		queue_outer.grid(row=2, column=0, sticky='nsew', padx=PAD_LG, pady=(0, PAD_SM))
-		queue_outer.grid_columnconfigure(0, weight=1)
-		queue_outer.grid_rowconfigure(1, weight=1)
-
-		qhdr = ctk.CTkFrame(queue_outer, fg_color='transparent')
-		qhdr.grid(row=0, column=0, sticky='ew', padx=PAD_MD, pady=(PAD_SM, PAD_XS))
-		qhdr.grid_columnconfigure(0, weight=1)
+		hdr = ctk.CTkFrame(center, fg_color='transparent')
+		hdr.grid(row=0, column=0, sticky='ew', padx=PAD_MD, pady=PAD_MD)
+		hdr.grid_columnconfigure(0, weight=1)
 
 		ctk.CTkLabel(
-			qhdr,
-			text='Cola de impresión',
+			hdr,
+			text='📑  COLA DE IMPRESIÓN',
 			font=FONT_LABEL_BOLD,
-			text_color=TEXT_PRIMARY,
+			text_color=TEXT_MUTED,
 		).grid(row=0, column=0, sticky='w')
 
 		self._lbl_total = ctk.CTkLabel(
-			qhdr,
+			hdr,
 			text='0 etiquetas',
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		)
-		self._lbl_total.grid(row=0, column=1)
+		self._lbl_total.grid(row=0, column=1, padx=PAD_SM)
 
 		ctk.CTkButton(
-			qhdr,
-			text='Limpiar todo',
-			width=90,
-			height=28,
-			font=FONT_LABEL,
-			fg_color=SURFACE3,
-			hover_color=RED_DIM,
-			text_color=TEXT_SECONDARY,
+			hdr,
+			text='Limpiar',
+			width=70,
+			height=26,
+			fg_color=RED_DIM,
+			hover_color=RED,
+			text_color=RED_TEXT,
+			font=FONT_LABEL_BOLD,
 			command=self._clear_queue,
-		).grid(row=0, column=2, padx=(PAD_SM, 0))
+		).grid(row=0, column=2)
+
+		# Barra de Precio (Wholesale / Retail)
+		self._wholesale_bar = ctk.CTkFrame(center, fg_color=SURFACE2, corner_radius=8)
+		self._wholesale_bar.grid(row=1, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_MD))
+
+		# Selector de Plantilla rápido
+		tpl_bar = ctk.CTkFrame(center, fg_color=SURFACE2, corner_radius=8)
+		tpl_bar.grid(row=2, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_MD))
+		
+		self._tpl_btns = {}
+		for i, (key, tpl) in enumerate(TEMPLATES.items()):
+			btn = ctk.CTkButton(
+				tpl_bar,
+				text=f"{tpl['icon']} {tpl['label']}",
+				height=30,
+				font=FONT_LABEL_BOLD,
+				fg_color=ACCENT_DIM if key == self._tpl_key else 'transparent',
+				text_color=ACCENT_TEXT if key == self._tpl_key else TEXT_SECONDARY,
+				hover_color=SURFACE3,
+				command=lambda k=key: self._select_template(k),
+			)
+			btn.pack(side='left', padx=2, pady=4, expand=True)
+			self._tpl_btns[key] = btn
 
 		self._queue_frame = ctk.CTkScrollableFrame(
-			queue_outer,
+			center,
 			fg_color='transparent',
 			scrollbar_button_color=SURFACE3,
 		)
-		self._queue_frame.grid(
-			row=1, column=0, sticky='nsew', padx=PAD_SM, pady=(0, PAD_SM)
-		)
+		self._queue_frame.grid(row=3, column=0, sticky='nsew', padx=PAD_SM, pady=(0, PAD_SM))
 		self._queue_frame.grid_columnconfigure(0, weight=1)
 
-		footer = ctk.CTkFrame(right, fg_color='transparent')
-		footer.grid(row=3, column=0, sticky='ew', padx=PAD_LG, pady=(0, PAD_MD))
-		footer.grid_columnconfigure(0, weight=1)
-
+		# Botón de Impresión
 		self._btn_print = ctk.CTkButton(
-			footer,
-			text='🖨  Generar PDF de etiquetas (Ctrl+P)',
-			height=46,
+			center,
+			text='🖨  GENERAR PDF (Ctrl+P)',
+			height=48,
 			fg_color=GREEN,
 			hover_color=GREEN_HOVER,
 			font=FONT_BODY_BOLD,
 			command=self._print_labels,
 		)
-		self._btn_print.grid(row=0, column=0, sticky='ew')
+		self._btn_print.grid(row=4, column=0, sticky='ew', padx=PAD_MD, pady=PAD_MD)
+
+	def _build_right(self):
+		# Panel de Preview (Bento 3)
+		right = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=12, border_width=1, border_color=BORDER)
+		right.grid(row=0, column=2, sticky='nsew', padx=(PAD_SM, PAD_MD), pady=PAD_MD)
+		right.grid_columnconfigure(0, weight=1)
+
+		ctk.CTkLabel(
+			right,
+			text='✨  LIVE PREVIEW',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+		).pack(anchor='w', padx=PAD_MD, pady=PAD_MD)
+
+		# Contenedor de la etiqueta simulada
+		self._preview_container = ctk.CTkFrame(right, fg_color=SURFACE2, corner_radius=12)
+		self._preview_container.pack(fill='both', expand=True, padx=PAD_MD, pady=(0, PAD_MD))
+		
+		self._preview_label_card = ctk.CTkFrame(
+			self._preview_container,
+			fg_color='white',
+			corner_radius=4,
+			width=220,
+			height=150,
+		)
+		self._preview_label_card.place(relx=0.5, rely=0.4, anchor='center')
+		self._preview_label_card.pack_propagate(False)
+
+		self._build_live_preview_widgets()
+
+	def _build_live_preview_widgets(self):
+		if not self.winfo_exists(): return
+		card = self._preview_label_card
+		for w in list(card.winfo_children()): 
+			try: w.destroy()
+			except: pass
+		
+		# Reset internal widget references
+		self._pw_brand = None
+		self._pw_name = None
+		self._pw_price = None
+		self._pw_footer = None
+		self._pw_body = None
+
+		# Simulación según el template seleccionado
+		if self._tpl_key == 'supermercado':
+			self._pw_header = ctk.CTkFrame(card, fg_color='#1e293b', corner_radius=0, height=20)
+			self._pw_header.pack(fill='x')
+			self._pw_header.pack_propagate(False)
+			self._pw_brand = ctk.CTkLabel(self._pw_header, text='BRAND', font=('Arial', 6, 'bold'), text_color='white')
+			self._pw_brand.pack(side='left', padx=5)
+			
+			self._pw_body = ctk.CTkFrame(card, fg_color='white', corner_radius=0)
+			self._pw_body.pack(fill='both', expand=True, padx=5, pady=5)
+			self._pw_name = ctk.CTkLabel(self._pw_body, text='PRODUCTO', font=('Arial', 10, 'bold'), text_color='black', anchor='w')
+			self._pw_name.pack(fill='x')
+			self._pw_price = ctk.CTkLabel(self._pw_body, text='$0.00', font=('Arial', 20, 'bold'), text_color='#0f172a', anchor='w')
+			self._pw_price.pack(fill='x', pady=(2, 0))
+
+			self._pw_footer = ctk.CTkFrame(card, fg_color='#f8fafc', height=12, corner_radius=0)
+			self._pw_footer.pack(fill='x', side='bottom')
+			ctk.CTkLabel(self._pw_footer, text='IVA INCLUIDO', font=('Arial', 4), text_color='#64748b').pack(side='left', padx=5)
+
+		elif self._tpl_key == 'producto':
+			# Top Bar
+			ctk.CTkFrame(card, fg_color='#1e293b', height=3, corner_radius=0).pack(fill='x')
+			self._pw_body = ctk.CTkFrame(card, fg_color='white', corner_radius=0)
+			self._pw_body.pack(fill='both', expand=True, padx=8, pady=5)
+			
+			self._pw_brand = ctk.CTkLabel(self._pw_body, text='BRAND', font=('Arial', 7, 'bold'), text_color='#1e293b', anchor='w')
+			self._pw_brand.pack(fill='x')
+			
+			self._pw_name = ctk.CTkLabel(self._pw_body, text='Nombre Producto', font=('Arial', 12, 'bold'), text_color='black', anchor='w', justify='left', wraplength=180)
+			self._pw_name.pack(fill='x', pady=2)
+			
+			self._pw_price = ctk.CTkLabel(self._pw_body, text='$0.00', font=('Arial', 24, 'bold'), text_color='black', anchor='w')
+			self._pw_price.pack(fill='x', side='bottom', pady=5)
+
+		elif self._tpl_key == 'precio':
+			card.configure(border_width=1, border_color='#e2e8f0')
+			self._pw_body = ctk.CTkFrame(card, fg_color='white', corner_radius=0)
+			self._pw_body.pack(fill='both', expand=True, padx=10, pady=10)
+			
+			self._pw_name = ctk.CTkLabel(self._pw_body, text='PRODUCTO', font=('Arial', 9, 'bold'), text_color='#334155', anchor='w')
+			self._pw_name.pack(fill='x')
+			
+			# Precio centrado y grande
+			self._pw_price = ctk.CTkLabel(self._pw_body, text='$0.00', font=('Arial', 26, 'bold'), text_color='#0f172a')
+			self._pw_price.place(relx=0.5, rely=0.5, anchor='center')
+			
+			self._pw_brand = ctk.CTkLabel(self._pw_body, text='', height=1) # Hidden but existing for update_live_preview
+
+		elif self._tpl_key == 'mini':
+			card.configure(fg_color='#f8fafc')
+			self._pw_body = ctk.CTkFrame(card, fg_color='transparent', corner_radius=0)
+			self._pw_body.pack(fill='both', expand=True, padx=5, pady=5)
+			
+			self._pw_name = ctk.CTkLabel(self._pw_body, text='PRODUCTO', font=('Arial', 8, 'bold'), text_color='black', anchor='w')
+			self._pw_name.pack(fill='x')
+			
+			self._pw_price = ctk.CTkLabel(self._pw_body, text='$0.00', font=('Arial', 16, 'bold'), text_color='#d97706', anchor='w')
+			self._pw_price.pack(fill='x')
+			
+			# Mini barcode area at bottom
+			ctk.CTkFrame(self._pw_body, fg_color='#334155', height=15, corner_radius=2).pack(fill='x', side='bottom')
+			self._pw_brand = ctk.CTkLabel(self._pw_body, text='', height=1)
+
+		self._update_live_preview()
+
+	def _update_live_preview(self):
+		if not self.winfo_exists(): return
+		if not all([getattr(self, attr, None) for attr in ['_pw_brand', '_pw_name', '_pw_price']]):
+			return
+			
+		try:
+			if not self._pw_name.winfo_exists(): return
+		except: return
+		
+		# Tomamos el primero de la cola o un placeholder
+		item = self._queue[0] if self._queue else {
+			'name': 'Producto de Ejemplo',
+			'price': 1250.0,
+			'barcode': '123456789',
+			'price_mode': 'retail',
+			'discount_price': None,
+			'discount_until': ''
+		}
+		
+		cfg = _cfg_mgr.load()
+		company = cfg.get('company_name', 'MI NEGOCIO')
+		
+		is_offer = bool(item.get('discount_price'))
+		
+		try:
+			# Reset visual styles
+			self._pw_header.configure(fg_color='#1e293b')
+			self._pw_brand.configure(text=company[:15].upper(), text_color='white')
+			self._pw_name.configure(text=item.get('name', 'Producto')[:30], text_color='black')
+			
+			price = self._get_item_display_price(item)
+			self._pw_price.configure(text=fmt_price(price), text_color='#0f172a')
+			
+			# Mostrar fecha si existe
+			if hasattr(self, '_pw_footer'):
+				for child in self._pw_footer.winfo_children():
+					if 'IVA INCLUIDO' in child.cget('text') or 'PROMO' in child.cget('text'):
+						txt = 'IVA INCLUIDO'
+						if is_offer: txt = f"PROMO HASTA: {item.get('discount_until', '')}"
+						child.configure(text=txt)
+
+			# Estilo "OFERTA"
+			if is_offer:
+				self._pw_header.configure(fg_color='#dc2626') # Red 600
+				self._pw_brand.configure(text='🔥 ¡OFERTA! 🔥')
+				self._pw_price.configure(text_color='#dc2626')
+				
+				# Simular tachado si podemos (usando un label adicional o cambiando texto)
+				orig_price = item.get('price', 0)
+				self._pw_name.configure(text=f"{item.get('name', 'Producto')[:20]}\n(Antes: {fmt_price(orig_price)})")
+			
+		except Exception as e:
+			logger.error(f"Error updating preview: {e}")
+
+	def _select_template(self, key: str):
+		self._tpl_key = key
+		for k, btn in self._tpl_btns.items():
+			active = k == key
+			btn.configure(
+				fg_color=ACCENT_DIM if active else 'transparent',
+				text_color=ACCENT_TEXT if active else TEXT_SECONDARY
+			)
+		self._build_live_preview_widgets()
 
 	def _refresh_price_list_bar(self):
 		if not self.winfo_exists():
 			return
 		self._load_price_list_cfg()
-
-		self._wholesale_bar.grid(
-			row=1, column=0, sticky='ew', padx=PAD_LG, pady=(0, PAD_SM)
-		)
 
 		bar = self._wholesale_bar
 		for w in bar.winfo_children():
@@ -356,120 +446,6 @@ class LabelView(BaseView):
 			item['price_mode'] = mode_key
 
 		self._render_queue()
-
-	def _draw_template_preview(self, cv: tk.Canvas, key: str):
-		if not cv.winfo_exists():
-			return
-
-		cv.delete('all')
-		tpl = TEMPLATES[key]
-		W, H = 90, 60
-
-		lw = max(1, tpl['w_mm'])
-		lh = max(1, tpl['h_mm'])
-		scale = min((W - 16) / lw, (H - 12) / lh)
-		lw_px = lw * scale
-		lh_px = lh * scale
-		x0 = (W - lw_px) / 2
-		y0 = (H - lh_px) / 2
-
-		cv.create_rectangle(
-			x0, y0, x0 + lw_px, y0 + lh_px, fill='#f4f4f5', outline='#cbd5e1', width=2
-		)
-		cx = x0 + lw_px / 2
-
-		if key == 'supermercado':
-			cv.create_rectangle(
-				x0 + 2, y0 + 2, x0 + lw_px - 2, y0 + 8, fill='#94a3b8', outline=''
-			)
-			cv.create_rectangle(
-				x0 + 6, y0 + 10, x0 + lw_px - 6, y0 + 14, fill='#475569', outline=''
-			)
-			for i in range(12):
-				bx = x0 + 8 + i * ((lw_px - 16) / 12)
-				cv.create_line(bx, y0 + 16, bx, y0 + 26, fill='#334155', width=1.5)
-			cv.create_text(
-				cx,
-				y0 + lh_px - 6,
-				text='$000',
-				fill='#0f172a',
-				font=('Arial', 9, 'bold'),
-			)
-
-		elif key == 'producto':
-			cv.create_rectangle(
-				x0 + 4, y0 + 4, x0 + 14, y0 + 12, fill='#94a3b8', outline=''
-			)
-			cv.create_rectangle(
-				x0 + 16, y0 + 6, x0 + lw_px - 4, y0 + 10, fill='#475569', outline=''
-			)
-			cv.create_line(x0 + 4, y0 + 14, x0 + lw_px - 4, y0 + 14, fill='#cbd5e1')
-			cv.create_rectangle(
-				x0 + 6, y0 + 16, x0 + lw_px - 6, y0 + 20, fill='#475569', outline=''
-			)
-			cv.create_rectangle(
-				x0 + 10, y0 + 22, x0 + lw_px - 10, y0 + 24, fill='#94a3b8', outline=''
-			)
-			for i in range(10):
-				bx = x0 + 10 + i * ((lw_px - 20) / 10)
-				cv.create_line(bx, y0 + 26, bx, y0 + 34, fill='#334155', width=1.5)
-			cv.create_text(
-				cx,
-				y0 + lh_px - 6,
-				text='$000',
-				fill='#0f172a',
-				font=('Arial', 9, 'bold'),
-			)
-
-		elif key == 'precio':
-			cv.create_rectangle(
-				x0 + 6, y0 + 4, x0 + lw_px - 6, y0 + 10, fill='#475569', outline=''
-			)
-			cv.create_text(
-				cx, y0 + 20, text='$0000', fill='#0f172a', font=FONT_BODY_BOLD
-			)
-			for i in range(8):
-				bx = x0 + 12 + i * ((lw_px - 24) / 8)
-				cv.create_line(bx, y0 + 28, bx, y0 + 34, fill='#334155', width=1.5)
-
-		elif key == 'mini':
-			for i in range(10):
-				bx = x0 + 6 + i * ((lw_px - 12) / 10)
-				cv.create_line(bx, y0 + 4, bx, y0 + 16, fill='#334155', width=1.5)
-			cv.create_rectangle(
-				x0 + 6, y0 + 18, x0 + lw_px - 6, y0 + 22, fill='#475569', outline=''
-			)
-			cv.create_text(
-				cx,
-				y0 + lh_px - 5,
-				text='$00',
-				fill='#0f172a',
-				font=('Arial', 8, 'bold'),
-			)
-
-	def _select_template(self, key: str):
-		if not self.winfo_exists():
-			return
-		self._tpl_key = key
-		for k, f in self._tpl_frames.items():
-			if not f.winfo_exists():
-				continue
-			active = k == key
-			f.configure(fg_color=ACCENT_DIM if active else SURFACE3)
-			cv_bg = ACCENT_DIM if active else SURFACE3
-
-			if self._tpl_canvases[k].winfo_exists():
-				self._tpl_canvases[k].configure(bg=cv_bg)
-				self._draw_template_preview(self._tpl_canvases[k], k)
-
-			for child in f.winfo_children():
-				if isinstance(child, ctk.CTkLabel):
-					if 'icon' in child.cget('text') or any(
-						t['icon'] in child.cget('text') for t in TEMPLATES.values()
-					):
-						child.configure(
-							text_color=ACCENT_TEXT if active else TEXT_SECONDARY
-						)
 
 	def _debounced_search(self, event=None):
 		if self._search_timer:
@@ -747,6 +723,7 @@ class LabelView(BaseView):
 				pass
 
 		self._update_queue_total()
+		self._update_live_preview()
 
 		if not self._queue:
 			ctk.CTkLabel(

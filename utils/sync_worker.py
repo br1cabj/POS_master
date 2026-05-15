@@ -37,14 +37,23 @@ def _sync_models():
     from database.models import (
         Article,
         ArticleVariant,
+        Branch,
         Customer,
         Purchase,
         Sale,
         SaleDetail,
         Stock,
         Supplier,
+        Tenant,
+        User,
+        Warehouse,
     )
+    # Order matters: parents must be pushed before children to satisfy FKs.
     return [
+        Tenant,
+        Branch,
+        Warehouse,
+        User,
         Supplier,
         Article,
         ArticleVariant,
@@ -90,9 +99,11 @@ def _row_to_dict(row) -> dict:
     result = {}
     for attr in mapper.column_attrs:
         val = getattr(row, attr.key)
-        # Ensure Decimal → float so psycopg2 can bind it without issues.
-        if hasattr(val, '__float__') and not isinstance(val, (int, float, bool)):
-            val = float(val)
+        # Convert Decimal to str so psycopg2 binds NUMERIC columns without
+        # floating-point precision loss (float(Decimal('10.15')) ≠ 10.15 exactly).
+        from decimal import Decimal as _Decimal
+        if isinstance(val, _Decimal):
+            val = str(val)
         result[attr.key] = val
     return result
 

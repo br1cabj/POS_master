@@ -26,6 +26,7 @@ class Tenant(Base):
     __tablename__ = 'tenants'
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
 
     users = relationship('User', back_populates='tenant')
     branches = relationship('Branch', back_populates='tenant')
@@ -43,6 +44,7 @@ class User(Base):
     display_name = Column(String, nullable=True)
     role = Column(String, default='cajero')
     is_active = Column(Boolean, default=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
 
     tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
     tenant = relationship('Tenant', back_populates='users')
@@ -64,6 +66,7 @@ class Branch(Base):
     name = Column(String, nullable=False)
     address = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
 
     tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
     tenant = relationship('Tenant', back_populates='branches')
@@ -76,6 +79,7 @@ class Warehouse(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
 
     tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
     tenant = relationship('Tenant', foreign_keys=[tenant_id])
@@ -301,6 +305,11 @@ class Sale(Base):
     discount_amount = Column(Numeric(10, 2), default=0.0)
     payment_method_2 = Column(String, nullable=True)
     amount_method_2 = Column(Numeric(10, 2), nullable=True)
+    # amount_method_1 almacena el monto del primer método en pagos mixtos.
+    # Evita reconstruirlo desde descripciones de CashMovement en devoluciones.
+    amount_method_1 = Column(Numeric(10, 2), nullable=True)
+    # total_returned acumula el monto ya devuelto. No mutar total_amount.
+    total_returned = Column(Numeric(10, 2), nullable=False, default=0.0)
     profit = Column(Numeric(10, 2), nullable=False)
     payment_method = Column(String, default='efectivo')
     status = Column(String, default='completada', index=True)
@@ -322,7 +331,12 @@ class Sale(Base):
         'SaleDetail', back_populates='sale', cascade='all, delete-orphan'
     )
 
-    __table_args__ = (Index('ix_sale_tenant_status', 'tenant_id', 'status'),)
+    __table_args__ = (
+        Index('ix_sale_tenant_status', 'tenant_id', 'status'),
+        CheckConstraint('total_amount >= 0', name='chk_sale_total_positive'),
+        CheckConstraint('discount_amount >= 0', name='chk_sale_discount_positive'),
+        CheckConstraint('total_returned >= 0', name='chk_sale_total_returned_positive'),
+    )
 
 
 class SaleDetail(Base):
@@ -379,7 +393,10 @@ class CashMovement(Base):
     )
     session = relationship('CashSession', back_populates='movements')
 
-    __table_args__ = (CheckConstraint('amount > 0', name='chk_cash_amount_positive'),)
+    __table_args__ = (
+        CheckConstraint('amount > 0', name='chk_cash_amount_positive'),
+        Index('ix_cash_mov_session_time', 'session_id', 'time'),
+    )
 
 
 # ==========================================

@@ -98,6 +98,9 @@ def run_migrations(engine) -> None:
     _v14_add_margin_pct(engine)
     _v15_add_returned_quantity_to_sale_details(engine)
     _v16_add_updated_at(engine)
+    _v17_add_updated_at_core_tables(engine)
+    _v18_add_sale_method1_and_total_returned(engine)
+    _v19_add_cash_movement_index(engine)
 
 
 def setup_cloud_schema(engine) -> None:
@@ -395,3 +398,68 @@ def _v16_add_updated_at(engine) -> None:
                 pass
         conn.commit()
         logger.info('v16: updated_at columns ready for cloud sync.')
+
+
+# ─── v17: updated_at for core tables (tenant, branch, warehouse, user) ────────
+
+def _v17_add_updated_at_core_tables(engine) -> None:
+    """
+    v17: Add `updated_at` to the core tables that are FK parents of the
+    sync tables. Without these the cloud upsert fails with FK violations
+    because Tenant/Branch/Warehouse/User rows are never pushed.
+    """
+    _CORE_TABLES = ['tenants', 'branches', 'warehouses', 'users']
+
+    with engine.connect() as conn:
+        for table in _CORE_TABLES:
+            added = _add_column_if_missing(
+                conn, engine, table, 'updated_at',
+                'DATETIME DEFAULT CURRENT_TIMESTAMP',
+            )
+            if added:
+                conn.execute(
+                    text(f"UPDATE {table} SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
+                )
+                conn.commit()
+
+        for table in _CORE_TABLES:
+            try:
+                conn.execute(text(
+                    f'CREATE INDEX IF NOT EXISTS ix_{table}_updated_at ON {table}(updated_at)'
+                ))
+            except Exception:
+                pass
+        conn.commit()
+        logger.info('v17: updated_at columns ready for core tables.')
+
+
+# ─── v18: amount_method_1 y total_returned en sales ──────────────────────────
+
+def _v18_add_sale_method1_and_total_returned(engine) -> None:
+    """
+    v18: Almacena el monto del primer método de pago en ventas mixtas y el total
+    ya devuelto para evitar mutar total_amount en devoluciones parciales.
+    """
+    with engine.connect() as conn:
+        _add_column_if_missing(
+            conn, engine, 'sales', 'amount_method_1', 'NUMERIC(10, 2) DEFAULT NULL'
+        )
+        _add_column_if_missing(
+            conn, engine, 'sales', 'total_returned', 'NUMERIC(10, 2) NOT NULL DEFAULT 0.0'
+        )
+    logger.info('v18: amount_method_1 y total_returned agregados a sales.')
+
+
+# ─── v19: índice compuesto en cash_movements ──────────────────────────────────
+
+def _v19_add_cash_movement_index(engine) -> None:
+    """v19: Índice compuesto (session_id, time) en cash_movements para consultas de arqueo."""
+    with engine.connect() as conn:
+        try:
+            conn.execute(text(
+                'CREATE INDEX IF NOT EXISTS ix_cash_mov_session_time ON cash_movements(session_id, time)'
+            ))
+            conn.commit()
+            logger.info('v19: índice ix_cash_mov_session_time listo.')
+        except Exception as e:
+            logger.error('v19 failed: %s', e)
