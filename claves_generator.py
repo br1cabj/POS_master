@@ -9,6 +9,7 @@ if sys.stdout.encoding.lower() != 'utf-8':
 
 try:
 	from dotenv import load_dotenv
+
 	load_dotenv()
 except ImportError:
 	pass
@@ -21,9 +22,14 @@ _SEP = '═' * 54
 
 # ── Licencia local ────────────────────────────────────────────
 
+
 def generar_clave(tipo_licencia, dias_duracion):
-	fecha_expiracion = (datetime.now() + timedelta(days=dias_duracion)).strftime('%Y%m%d')
-	fecha_formateada = f'{fecha_expiracion[:4]}-{fecha_expiracion[4:6]}-{fecha_expiracion[6:8]}'
+	fecha_expiracion = (datetime.now() + timedelta(days=dias_duracion)).strftime(
+		'%Y%m%d'
+	)
+	fecha_formateada = (
+		f'{fecha_expiracion[:4]}-{fecha_expiracion[4:6]}-{fecha_expiracion[6:8]}'
+	)
 
 	raw_string = f'{tipo_licencia}|{fecha_formateada}|{SECRET_SALT}'
 	firma = hashlib.sha256(raw_string.encode('utf-8')).hexdigest()[:16]
@@ -32,13 +38,14 @@ def generar_clave(tipo_licencia, dias_duracion):
 	print(f'\n{_SEP}')
 	print(f'  PAGO RECIBIDO  ·  Plan: {tipo_licencia}')
 	print(f'  Vence el: {fecha_formateada}')
-	print(f'\n  ENVIA ESTA CLAVE AL CLIENTE:\n')
+	print('\n  ENVIA ESTA CLAVE AL CLIENTE:\n')
 	print(f'     {clave_final}')
 	print(f'{_SEP}\n')
 	return clave_final
 
 
 # ── Plan cloud ────────────────────────────────────────────────
+
 
 def generar_codigo_cloud(tenant_id: str, dias_duracion: int) -> str:
 	"""
@@ -59,13 +66,13 @@ def generar_codigo_cloud(tenant_id: str, dias_duracion: int) -> str:
 	codigo = f'CLOUD-{fecha_exp}-{tenant_hex}-{firma}'
 
 	print(f'\n{_SEP}')
-	print(f'  PLAN CLOUD ACTIVADO')
+	print('  PLAN CLOUD ACTIVADO')
 	print(f'  Vence el: {fecha_fmt}  ({dias_duracion} días)')
 	print(f'  Tenant ID: {tenant_id}')
-	print(f'\n  ENVIA ESTE CODIGO AL CLIENTE:\n')
+	print('\n  ENVIA ESTE CODIGO AL CLIENTE:\n')
 	print(f'     {codigo}')
-	print(f'\n  El cliente lo ingresa en:')
-	print(f'  Configuracion > Licencias y Plan > Plan Cloud')
+	print('\n  El cliente lo ingresa en:')
+	print('  Configuracion > Licencias y Plan > Plan Cloud')
 	print(f'{_SEP}\n')
 	return codigo
 
@@ -88,7 +95,9 @@ def _menu_cloud():
 	else:
 		tenant_id = str(uuid.uuid4())
 		print(f'\n  Nuevo Tenant ID generado: {tenant_id}')
-		print('  Agregalo a la tabla "tenants" de Supabase antes de enviar el código.\n')
+		print(
+			'  Agregalo a la tabla "tenants" de Supabase antes de enviar el código.\n'
+		)
 
 	print('\n  Duración del plan:')
 	print('  1. Mensual    (30 días)')

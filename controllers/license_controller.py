@@ -75,10 +75,10 @@ class LicenseController:
 			except ValueError:
 				return False, 'La licencia contiene una fecha de vencimiento inválida.'
 
-			if provided_sig != self._generate_signature(l_type, exp_date):
+			if provided_sig != self._generate_signature(l_type, exp_date)[:16]:
 				return False, 'La licencia es falsa o ha sido alterada.'
 
-			stored_expiration = '2099-12-31' if l_type == 'FULL' else exp_date
+			stored_expiration = '2099-12-31' if l_type in ('FULL', 'VITA') else exp_date
 			data = {
 				'type': l_type,
 				'expiration': stored_expiration,
@@ -102,7 +102,7 @@ class LicenseController:
 			if data.get('signature') != expected_sig:
 				return False, 'CORRUPT_LICENSE'
 
-			if data['type'] == 'FULL':
+			if data['type'] in ('FULL', 'VITA'):
 				return True, 'VITALICIA'
 
 			exp_date = datetime.strptime(data['expiration'], '%Y-%m-%d')

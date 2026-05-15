@@ -3,6 +3,7 @@ views/settings_view.py
 ======================
 Panel de configuración del sistema — navegación lateral por secciones.
 """
+
 import glob
 import logging
 import os
@@ -26,7 +27,6 @@ from utils.styles import (
 	FONT_BODY_BOLD,
 	FONT_FAMILY,
 	FONT_FAMILY_MONO,
-	FONT_HEADING,
 	FONT_LABEL,
 	FONT_LABEL_BOLD,
 	FONT_MONO,
@@ -44,7 +44,6 @@ from utils.styles import (
 	PURPLE,
 	PURPLE_DIM,
 	PURPLE_TEXT,
-	RED,
 	RED_DIM,
 	RED_TEXT,
 	SURFACE2,
@@ -61,10 +60,10 @@ logger = logging.getLogger(__name__)
 CURRENCY_SYMBOLS = ['$', '€', 'S/.', '£', 'R$', '₱', '¥', '₩']
 
 _SECTIONS = [
-	('empresa',  '🏪', 'Empresa & Marca'),
-	('moneda',   '💱', 'Moneda'),
-	('ventas',   '🛒', 'Ventas'),
-	('datos',    '📁', 'Datos'),
+	('empresa', '🏪', 'Empresa & Marca'),
+	('moneda', '💱', 'Moneda'),
+	('ventas', '🛒', 'Ventas'),
+	('datos', '📁', 'Datos'),
 	('licencia', '🔑', 'Licencia'),
 ]
 
@@ -108,40 +107,65 @@ class SettingsView(BaseView):
 	# =========================================================
 	def _build_header(self):
 		hdr = ctk.CTkFrame(
-			self, fg_color=SURFACE2, corner_radius=0,
-			border_width=1, border_color=BORDER,
+			self,
+			fg_color=SURFACE2,
+			corner_radius=0,
+			border_width=1,
+			border_color=BORDER,
 		)
 		hdr.grid(row=0, column=0, columnspan=2, sticky='ew')
 		hdr.grid_columnconfigure(1, weight=1)
 
 		ctk.CTkLabel(
-			hdr, text='⚙  Configuración',
-			font=FONT_TITLE, text_color=TEXT_PRIMARY, anchor='w',
+			hdr,
+			text='⚙  Configuración',
+			font=FONT_TITLE,
+			text_color=TEXT_PRIMARY,
+			anchor='w',
 		).grid(row=0, column=0, padx=(PAD_LG, PAD_MD), pady=14, sticky='w')
 
 		ctk.CTkLabel(
-			hdr, text='Ctrl+S para guardar',
-			font=FONT_LABEL, text_color=TEXT_MUTED, anchor='w',
+			hdr,
+			text='Ctrl+S para guardar',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			anchor='w',
 		).grid(row=0, column=1, sticky='w')
 
 		btn_row = ctk.CTkFrame(hdr, fg_color='transparent')
 		btn_row.grid(row=0, column=2, padx=PAD_LG, pady=10, sticky='e')
 
 		self.btn_discard = ctk.CTkButton(
-			btn_row, text='Descartar',
-			fg_color='transparent', hover_color=SURFACE3,
-			text_color=TEXT_MUTED, border_width=1, border_color=BORDER,
-			width=110, height=36, corner_radius=8, font=FONT_BODY,
-			command=self._discard_changes, state='disabled',
+			btn_row,
+			text='Descartar',
+			fg_color='transparent',
+			hover_color=SURFACE3,
+			text_color=TEXT_MUTED,
+			border_width=1,
+			border_color=BORDER,
+			width=110,
+			height=36,
+			corner_radius=8,
+			font=FONT_BODY,
+			command=self._discard_changes,
+			state='disabled',
 		)
 		self.btn_discard.pack(side='left', padx=(0, PAD_SM))
 
 		self.btn_save = ctk.CTkButton(
-			btn_row, text='💾  Guardar cambios',
-			fg_color=GREEN_DIM, hover_color=GREEN,
-			text_color=GREEN_TEXT, border_width=1, border_color=GREEN,
-			width=170, height=36, corner_radius=8, font=FONT_BODY_BOLD,
-			command=self._save_all, state='disabled',
+			btn_row,
+			text='💾  Guardar cambios',
+			fg_color=GREEN_DIM,
+			hover_color=GREEN,
+			text_color=GREEN_TEXT,
+			border_width=1,
+			border_color=GREEN,
+			width=170,
+			height=36,
+			corner_radius=8,
+			font=FONT_BODY_BOLD,
+			command=self._save_all,
+			state='disabled',
 		)
 		self.btn_save.pack(side='left')
 
@@ -150,16 +174,23 @@ class SettingsView(BaseView):
 	# =========================================================
 	def _build_sidebar(self):
 		self._sidebar = ctk.CTkFrame(
-			self, fg_color=SURFACE2, corner_radius=0,
-			border_width=1, border_color=BORDER, width=200,
+			self,
+			fg_color=SURFACE2,
+			corner_radius=0,
+			border_width=1,
+			border_color=BORDER,
+			width=200,
 		)
 		self._sidebar.grid(row=1, column=0, sticky='nsew')
 		self._sidebar.grid_propagate(False)
 		self._sidebar.grid_columnconfigure(0, weight=1)
 
 		ctk.CTkLabel(
-			self._sidebar, text='SECCIONES',
-			font=FONT_LABEL_BOLD, text_color=TEXT_MUTED, anchor='w',
+			self._sidebar,
+			text='SECCIONES',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+			anchor='w',
 		).grid(row=0, column=0, padx=PAD_MD, pady=(PAD_MD, PAD_XS), sticky='w')
 
 		for i, (key, icon, label) in enumerate(_SECTIONS):
@@ -183,8 +214,11 @@ class SettingsView(BaseView):
 			self._nav_btns[key] = btn
 
 			dot = ctk.CTkLabel(
-				row_f, text='⬤',
-				font=('Arial', 7), text_color=ORANGE, width=12,
+				row_f,
+				text='⬤',
+				font=('Arial', 7),
+				text_color=ORANGE,
+				width=12,
 			)
 			dot.grid(row=0, column=1, padx=(2, PAD_XS))
 			dot.grid_remove()
@@ -195,8 +229,11 @@ class SettingsView(BaseView):
 			row=len(_SECTIONS) + 1, column=0, sticky='ew', padx=PAD_MD, pady=PAD_MD
 		)
 		ctk.CTkLabel(
-			self._sidebar, text='CloudPOS v1.0',
-			font=FONT_LABEL, text_color=TEXT_MUTED, anchor='w',
+			self._sidebar,
+			text='CloudPOS v1.0',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			anchor='w',
 		).grid(row=len(_SECTIONS) + 2, column=0, padx=PAD_MD, sticky='w')
 
 	# =========================================================
@@ -217,13 +254,17 @@ class SettingsView(BaseView):
 		for k, btn in self._nav_btns.items():
 			if k == key:
 				btn.configure(
-					fg_color=ACCENT_DIM, text_color=ACCENT_TEXT,
-					font=FONT_BODY_BOLD, hover_color=ACCENT_DIM,
+					fg_color=ACCENT_DIM,
+					text_color=ACCENT_TEXT,
+					font=FONT_BODY_BOLD,
+					hover_color=ACCENT_DIM,
 				)
 			else:
 				btn.configure(
-					fg_color='transparent', text_color=TEXT_SECONDARY,
-					font=FONT_BODY, hover_color=SURFACE3,
+					fg_color='transparent',
+					text_color=TEXT_SECONDARY,
+					font=FONT_BODY,
+					hover_color=SURFACE3,
 				)
 
 		self._active_section = key
@@ -238,10 +279,10 @@ class SettingsView(BaseView):
 		self._content_frame = scroll
 
 		{
-			'empresa':  self._build_sec_empresa,
-			'moneda':   self._build_sec_moneda,
-			'ventas':   self._build_sec_ventas,
-			'datos':    self._build_sec_datos,
+			'empresa': self._build_sec_empresa,
+			'moneda': self._build_sec_moneda,
+			'ventas': self._build_sec_ventas,
+			'datos': self._build_sec_datos,
 			'licencia': self._build_sec_licencia,
 		}[key](scroll)
 
@@ -300,7 +341,9 @@ class SettingsView(BaseView):
 		self._saved = False
 		if dot := self._dot_lbls.get(sec):
 			dot.grid()
-		self.btn_save.configure(fg_color=GREEN, text_color='white', text='💾  Guardar cambios  ●')
+		self.btn_save.configure(
+			fg_color=GREEN, text_color='white', text='💾  Guardar cambios  ●'
+		)
 		self.btn_discard.configure(state='normal', text_color=TEXT_PRIMARY)
 
 	def _clear_dirty(self):
@@ -309,14 +352,18 @@ class SettingsView(BaseView):
 			if dot := self._dot_lbls.get(key):
 				dot.grid_remove()
 		self._saved = True
-		self.btn_save.configure(fg_color=GREEN_DIM, text_color=GREEN_TEXT, text='💾  Guardar cambios')
+		self.btn_save.configure(
+			fg_color=GREEN_DIM, text_color=GREEN_TEXT, text='💾  Guardar cambios'
+		)
 		self.btn_discard.configure(state='disabled', text_color=TEXT_MUTED)
 
 	def has_unsaved_changes(self):
 		return not self._saved
 
 	def _discard_changes(self):
-		if not self.confirm('¿Descartás todos los cambios sin guardar?', 'Descartar cambios'):
+		if not self.confirm(
+			'¿Descartás todos los cambios sin guardar?', 'Descartar cambios'
+		):
 			return
 		self._is_rebuilding = True
 		try:
@@ -332,50 +379,78 @@ class SettingsView(BaseView):
 	# =========================================================
 	def _card(self, parent, title: str, icon: str) -> ctk.CTkFrame:
 		card = ctk.CTkFrame(
-			parent, fg_color=SURFACE2, corner_radius=12,
-			border_width=1, border_color=BORDER,
+			parent,
+			fg_color=SURFACE2,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
 		)
 		card.pack(fill='x', pady=(0, PAD_MD))
 
 		hdr = ctk.CTkFrame(card, fg_color='transparent')
 		hdr.pack(fill='x', padx=PAD_MD, pady=(PAD_MD, 0))
 		ctk.CTkLabel(
-			hdr, text=f'{icon}  {title}',
-			font=FONT_BODY_BOLD, text_color=TEXT_PRIMARY, anchor='w',
+			hdr,
+			text=f'{icon}  {title}',
+			font=FONT_BODY_BOLD,
+			text_color=TEXT_PRIMARY,
+			anchor='w',
 		).pack(side='left')
 
-		ctk.CTkFrame(card, height=1, fg_color=BORDER).pack(fill='x', padx=PAD_MD, pady=(PAD_SM, PAD_SM))
+		ctk.CTkFrame(card, height=1, fg_color=BORDER).pack(
+			fill='x', padx=PAD_MD, pady=(PAD_SM, PAD_SM)
+		)
 		return card
 
 	def _field(self, parent, label: str, hint: str = '', **kw) -> ctk.CTkEntry:
 		make_form_label(parent, label)[0].pack(anchor='w', padx=PAD_MD, pady=(0, 2))
 		e = ctk.CTkEntry(
 			parent,
-			fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-			text_color=TEXT_PRIMARY, height=36, font=FONT_BODY,
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=36,
+			font=FONT_BODY,
 			**kw,
 		)
 		e.pack(fill='x', padx=PAD_MD, pady=(0, PAD_XS if hint else PAD_SM))
 		if hint:
 			ctk.CTkLabel(
-				parent, text=hint,
-				font=FONT_LABEL, text_color=TEXT_MUTED, anchor='w',
+				parent,
+				text=hint,
+				font=FONT_LABEL,
+				text_color=TEXT_MUTED,
+				anchor='w',
 			).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 		return e
 
-	def _toggle_row(self, parent, label: str, hint: str, var: ctk.BooleanVar, section: str = 'ventas'):
+	def _toggle_row(
+		self,
+		parent,
+		label: str,
+		hint: str,
+		var: ctk.BooleanVar,
+		section: str = 'ventas',
+	):
 		row = ctk.CTkFrame(parent, fg_color=SURFACE3, corner_radius=8)
 		row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 		row.grid_columnconfigure(0, weight=1)
 
 		txt = ctk.CTkFrame(row, fg_color='transparent')
 		txt.grid(row=0, column=0, sticky='ew', padx=PAD_MD, pady=PAD_SM)
-		ctk.CTkLabel(txt, text=label, font=FONT_BODY_BOLD, text_color=TEXT_PRIMARY, anchor='w').pack(anchor='w')
+		ctk.CTkLabel(
+			txt, text=label, font=FONT_BODY_BOLD, text_color=TEXT_PRIMARY, anchor='w'
+		).pack(anchor='w')
 		if hint:
-			ctk.CTkLabel(txt, text=hint, font=FONT_LABEL, text_color=TEXT_MUTED, anchor='w').pack(anchor='w')
+			ctk.CTkLabel(
+				txt, text=hint, font=FONT_LABEL, text_color=TEXT_MUTED, anchor='w'
+			).pack(anchor='w')
 
 		ctk.CTkSwitch(
-			row, text='', variable=var, width=46,
+			row,
+			text='',
+			variable=var,
+			width=46,
 			progress_color=ACCENT,
 			command=lambda: self._mark_dirty(section=section),
 		).grid(row=0, column=1, padx=PAD_MD)
@@ -417,44 +492,67 @@ class SettingsView(BaseView):
 		logo_inner.grid_columnconfigure(1, weight=1)
 
 		self._logo_preview = ctk.CTkLabel(
-			logo_inner, text='📷\nSin logo',
-			width=80, height=80,
-			fg_color=SURFACE3, corner_radius=10,
-			font=FONT_LABEL, text_color=TEXT_MUTED,
+			logo_inner,
+			text='📷\nSin logo',
+			width=80,
+			height=80,
+			fg_color=SURFACE3,
+			corner_radius=10,
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
 			justify='center',
 		)
-		self._logo_preview.grid(row=0, column=0, rowspan=3, padx=(0, PAD_MD), sticky='ns')
+		self._logo_preview.grid(
+			row=0, column=0, rowspan=3, padx=(0, PAD_MD), sticky='ns'
+		)
 		self._load_logo_preview()
 
 		logo_path = self._settings.get('company_logo_path', '')
 		self._lbl_logo_name = ctk.CTkLabel(
 			logo_inner,
 			text=os.path.basename(logo_path) if logo_path else 'Sin logo',
-			font=FONT_BODY_BOLD, text_color=TEXT_PRIMARY if logo_path else TEXT_MUTED, anchor='w',
+			font=FONT_BODY_BOLD,
+			text_color=TEXT_PRIMARY if logo_path else TEXT_MUTED,
+			anchor='w',
 		)
 		self._lbl_logo_name.grid(row=0, column=1, sticky='w')
 
 		ctk.CTkLabel(
-			logo_inner, text='PNG / JPG recomendado  ·  máx. 2 MB',
-			font=FONT_LABEL, text_color=TEXT_MUTED, anchor='w',
+			logo_inner,
+			text='PNG / JPG recomendado  ·  máx. 2 MB',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			anchor='w',
 		).grid(row=1, column=1, sticky='w')
 
 		btns = ctk.CTkFrame(logo_inner, fg_color='transparent')
 		btns.grid(row=2, column=1, sticky='w', pady=(PAD_XS, 0))
 
 		ctk.CTkButton(
-			btns, text='📁  Seleccionar imagen',
-			height=32, font=FONT_LABEL_BOLD, corner_radius=8,
-			fg_color=ACCENT_DIM, hover_color=ACCENT, text_color=ACCENT_TEXT,
-			border_width=1, border_color=ACCENT,
+			btns,
+			text='📁  Seleccionar imagen',
+			height=32,
+			font=FONT_LABEL_BOLD,
+			corner_radius=8,
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			border_width=1,
+			border_color=ACCENT,
 			command=self._pick_logo,
 		).pack(side='left', padx=(0, PAD_XS))
 
 		ctk.CTkButton(
-			btns, text='✕ Quitar',
-			height=32, font=FONT_LABEL, corner_radius=8,
-			fg_color='transparent', hover_color=RED_DIM,
-			text_color=TEXT_MUTED, border_width=1, border_color=BORDER,
+			btns,
+			text='✕ Quitar',
+			height=32,
+			font=FONT_LABEL,
+			corner_radius=8,
+			fg_color='transparent',
+			hover_color=RED_DIM,
+			text_color=TEXT_MUTED,
+			border_width=1,
+			border_color=BORDER,
 			command=self._remove_logo,
 		).pack(side='left')
 
@@ -463,6 +561,7 @@ class SettingsView(BaseView):
 		if path and os.path.exists(path):
 			try:
 				from PIL import Image
+
 				img = Image.open(path)
 				img.thumbnail((76, 76))
 				ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(76, 76))
@@ -475,9 +574,13 @@ class SettingsView(BaseView):
 
 	def _pick_logo(self):
 		from tkinter import filedialog
+
 		path = filedialog.askopenfilename(
 			title='Seleccionar logo',
-			filetypes=[('Imágenes', '*.png *.jpg *.jpeg *.gif *.bmp'), ('Todos', '*.*')],
+			filetypes=[
+				('Imágenes', '*.png *.jpg *.jpeg *.gif *.bmp'),
+				('Todos', '*.*'),
+			],
 		)
 		if not path:
 			return
@@ -487,7 +590,9 @@ class SettingsView(BaseView):
 
 		# File copy is deferred to _save_all() to keep discard fully reversible
 		self._pending_logo_path = path
-		self._lbl_logo_name.configure(text=os.path.basename(path), text_color=GREEN_TEXT)
+		self._lbl_logo_name.configure(
+			text=os.path.basename(path), text_color=GREEN_TEXT
+		)
 		self._load_logo_preview()
 		self._mark_dirty(section='empresa')
 
@@ -510,8 +615,11 @@ class SettingsView(BaseView):
 		sym_card = self._card(parent, 'Símbolo de moneda', '💱')
 
 		ctk.CTkLabel(
-			sym_card, text='Seleccioná el símbolo que aparecerá en precios y tickets.',
-			font=FONT_LABEL, text_color=TEXT_MUTED, anchor='w',
+			sym_card,
+			text='Seleccioná el símbolo que aparecerá en precios y tickets.',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			anchor='w',
 		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
 		sym_row = ctk.CTkFrame(sym_card, fg_color='transparent')
@@ -523,7 +631,10 @@ class SettingsView(BaseView):
 		for sym in CURRENCY_SYMBOLS:
 			active = sym == self._sym_var.get()
 			btn = ctk.CTkButton(
-				sym_row, text=sym, width=46, height=40,
+				sym_row,
+				text=sym,
+				width=46,
+				height=40,
 				font=FONT_BODY_BOLD,
 				fg_color=ACCENT_DIM if active else SURFACE3,
 				hover_color=ACCENT if active else SURFACE4,
@@ -536,35 +647,54 @@ class SettingsView(BaseView):
 			btn.pack(side='left', padx=(0, PAD_XS))
 			self._sym_btns[sym] = btn
 
-		ctk.CTkFrame(sym_card, height=1, fg_color=BORDER).pack(fill='x', padx=PAD_MD, pady=(PAD_SM, PAD_SM))
+		ctk.CTkFrame(sym_card, height=1, fg_color=BORDER).pack(
+			fill='x', padx=PAD_MD, pady=(PAD_SM, PAD_SM)
+		)
 
-		make_form_label(sym_card, 'Símbolo personalizado')[0].pack(anchor='w', padx=PAD_MD, pady=(0, 2))
+		make_form_label(sym_card, 'Símbolo personalizado')[0].pack(
+			anchor='w', padx=PAD_MD, pady=(0, 2)
+		)
 		custom_row = ctk.CTkFrame(sym_card, fg_color='transparent')
 		custom_row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
 
 		vcmd = (self.register(lambda s: len(s) <= 5), '%P')
 		self.entry_custom_sym = ctk.CTkEntry(
-			custom_row, width=100, height=36,
-			fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-			text_color=TEXT_PRIMARY, placeholder_text='Ej: Bs.', font=FONT_BODY,
-			validate='key', validatecommand=vcmd,
+			custom_row,
+			width=100,
+			height=36,
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			placeholder_text='Ej: Bs.',
+			font=FONT_BODY,
+			validate='key',
+			validatecommand=vcmd,
 		)
 		if self._sym_var.get() not in CURRENCY_SYMBOLS:
 			self.entry_custom_sym.insert(0, self._sym_var.get())
 		self.entry_custom_sym.pack(side='left', padx=(0, PAD_XS))
 
 		ctk.CTkButton(
-			custom_row, text='Usar este',
-			width=90, height=36, font=FONT_LABEL_BOLD, corner_radius=8,
-			fg_color=ACCENT_DIM, hover_color=ACCENT, text_color=ACCENT_TEXT,
-			border_width=1, border_color=ACCENT,
+			custom_row,
+			text='Usar este',
+			width=90,
+			height=36,
+			font=FONT_LABEL_BOLD,
+			corner_radius=8,
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			border_width=1,
+			border_color=ACCENT,
 			command=self._use_custom_sym,
 		).pack(side='left')
 
 		# ── Formato de precios ──
 		fmt_card = self._card(parent, 'Formato de precios', '🔢')
 
-		self._dec_var = ctk.IntVar(value=int(self._settings.get('currency_decimals', 0)))
+		self._dec_var = ctk.IntVar(
+			value=int(self._settings.get('currency_decimals', 0))
+		)
 
 		for val, label, example in [
 			(0, 'Sin decimales', '$1.500'),
@@ -582,22 +712,28 @@ class SettingsView(BaseView):
 			opt.grid_columnconfigure(0, weight=1)
 
 			ctk.CTkLabel(
-				opt, text=label,
+				opt,
+				text=label,
 				font=FONT_BODY_BOLD,
 				text_color=ACCENT_TEXT if active else TEXT_PRIMARY,
 				anchor='w',
 			).grid(row=0, column=0, padx=PAD_MD, pady=(PAD_SM, 0), sticky='w')
 
 			ctk.CTkLabel(
-				opt, text=f'Ejemplo: {example}',
+				opt,
+				text=f'Ejemplo: {example}',
 				font=FONT_LABEL,
 				text_color=ACCENT_TEXT if active else TEXT_MUTED,
 				anchor='w',
 			).grid(row=1, column=0, padx=PAD_MD, pady=(0, PAD_SM), sticky='w')
 
 			rb = ctk.CTkRadioButton(
-				opt, text='', variable=self._dec_var, value=val,
-				radiobutton_width=20, radiobutton_height=20,
+				opt,
+				text='',
+				variable=self._dec_var,
+				value=val,
+				radiobutton_width=20,
+				radiobutton_height=20,
 				fg_color=ACCENT,
 				command=lambda: [self._update_currency_preview(), dirty()],
 			)
@@ -608,13 +744,17 @@ class SettingsView(BaseView):
 		preview_box.pack(fill='x', padx=PAD_MD, pady=(PAD_SM, PAD_MD))
 
 		ctk.CTkLabel(
-			preview_box, text='Vista previa',
-			font=FONT_LABEL, text_color=TEXT_MUTED,
+			preview_box,
+			text='Vista previa',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
 		).pack(pady=(PAD_SM, 0))
 
 		self.lbl_currency_preview = ctk.CTkLabel(
-			preview_box, text='',
-			font=(FONT_FAMILY, 28, 'bold'), text_color=ACCENT_TEXT,
+			preview_box,
+			text='',
+			font=(FONT_FAMILY, 28, 'bold'),
+			text_color=ACCENT_TEXT,
 		)
 		self.lbl_currency_preview.pack(pady=(0, PAD_SM))
 		self._update_currency_preview()
@@ -654,9 +794,14 @@ class SettingsView(BaseView):
 		if d == 0:
 			num_text = f'{sample:,.0f}'.replace(',', '.')
 		else:
-			num_text = f'{sample:,.{d}f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+			num_text = (
+				f'{sample:,.{d}f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+			)
 		text = f'{s}{num_text}'
-		if hasattr(self, 'lbl_currency_preview') and self.lbl_currency_preview.winfo_exists():
+		if (
+			hasattr(self, 'lbl_currency_preview')
+			and self.lbl_currency_preview.winfo_exists()
+		):
 			self.lbl_currency_preview.configure(text=text)
 
 	# =========================================================
@@ -677,8 +822,12 @@ class SettingsView(BaseView):
 		tax_row.grid_columnconfigure(0, weight=1)
 
 		self.entry_tax = ctk.CTkEntry(
-			tax_row, fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-			text_color=TEXT_PRIMARY, height=36, font=FONT_BODY,
+			tax_row,
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=36,
+			font=FONT_BODY,
 			placeholder_text='0',
 		)
 		self.entry_tax.grid(row=0, column=0, sticky='ew', padx=(0, PAD_XS))
@@ -686,31 +835,41 @@ class SettingsView(BaseView):
 		self.entry_tax.bind('<KeyRelease>', dirty)
 
 		ctk.CTkLabel(
-			tax_row, text='%', font=FONT_BODY_BOLD, text_color=TEXT_MUTED,
+			tax_row,
+			text='%',
+			font=FONT_BODY_BOLD,
+			text_color=TEXT_MUTED,
 		).grid(row=0, column=1)
 
 		ctk.CTkLabel(
 			tax_card,
 			text='Se aplica al crear artículos nuevos. Valor 0 = sin impuesto.',
-			font=FONT_LABEL, text_color=TEXT_MUTED, anchor='w',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			anchor='w',
 		).pack(anchor='w', padx=PAD_MD, pady=(2, PAD_MD))
 
 		# ── Alertas de stock ──
 		stock_card = self._card(parent, 'Alertas de stock crítico', '📦')
 
 		self.entry_low_stock = self._field(
-			stock_card, 'Umbral (unidades)',
+			stock_card,
+			'Umbral (unidades)',
 			'Los productos con stock igual o menor a este valor se muestran en Alertas.',
 			placeholder_text='5',
 		)
-		self.entry_low_stock.insert(0, str(self._settings.get('low_stock_threshold', 5)))
+		self.entry_low_stock.insert(
+			0, str(self._settings.get('low_stock_threshold', 5))
+		)
 		self.entry_low_stock.bind('<KeyRelease>', dirty)
 		ctk.CTkFrame(stock_card, height=6, fg_color='transparent').pack()
 
 		# ── Comportamiento ──
 		beh_card = self._card(parent, 'Comportamiento en ventas', '🛒')
 
-		self._req_customer_var = ctk.BooleanVar(value=self._settings.get('require_customer', False))
+		self._req_customer_var = ctk.BooleanVar(
+			value=self._settings.get('require_customer', False)
+		)
 		self._toggle_row(
 			beh_card,
 			'Requerir cliente en cada venta',
@@ -718,7 +877,9 @@ class SettingsView(BaseView):
 			self._req_customer_var,
 		)
 
-		self._show_bar_var = ctk.BooleanVar(value=self._settings.get('show_shortcuts_bar', True))
+		self._show_bar_var = ctk.BooleanVar(
+			value=self._settings.get('show_shortcuts_bar', True)
+		)
 		self._toggle_row(
 			beh_card,
 			'Mostrar barra de atajos táctiles',
@@ -733,7 +894,9 @@ class SettingsView(BaseView):
 		ctk.CTkLabel(
 			price_card,
 			text='Lista A = precio minorista (estándar).  Lista B = precio especial por cliente.',
-			font=FONT_LABEL, text_color=TEXT_MUTED, anchor='w',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			anchor='w',
 		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
 		names_row = ctk.CTkFrame(price_card, fg_color='transparent')
@@ -746,11 +909,23 @@ class SettingsView(BaseView):
 			(1, '_entry_list_b_name', 'Lista B', 'price_list_b_name', 'Mayorista'),
 		]:
 			f = ctk.CTkFrame(names_row, fg_color='transparent')
-			f.grid(row=0, column=col, sticky='ew', padx=(0 if col == 0 else PAD_SM, PAD_SM if col == 0 else 0))
-			ctk.CTkLabel(f, text=label, font=FONT_LABEL_BOLD, text_color=TEXT_MUTED, anchor='w').pack(anchor='w', pady=(0, 2))
+			f.grid(
+				row=0,
+				column=col,
+				sticky='ew',
+				padx=(0 if col == 0 else PAD_SM, PAD_SM if col == 0 else 0),
+			)
+			ctk.CTkLabel(
+				f, text=label, font=FONT_LABEL_BOLD, text_color=TEXT_MUTED, anchor='w'
+			).pack(anchor='w', pady=(0, 2))
 			entry = ctk.CTkEntry(
-				f, placeholder_text=placeholder, height=36,
-				fg_color=SURFACE3, border_color=BORDER_ACTIVE, text_color=TEXT_PRIMARY, font=FONT_BODY,
+				f,
+				placeholder_text=placeholder,
+				height=36,
+				fg_color=SURFACE3,
+				border_color=BORDER_ACTIVE,
+				text_color=TEXT_PRIMARY,
+				font=FONT_BODY,
 			)
 			entry.insert(0, self._settings.get(key, placeholder))
 			entry.pack(fill='x')
@@ -767,7 +942,9 @@ class SettingsView(BaseView):
 		ctk.CTkLabel(
 			rep_card,
 			text='Reportes PDF, CSV, Reporte Z y respaldos se guardan aquí.',
-			font=FONT_LABEL, text_color=TEXT_MUTED, anchor='w',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			anchor='w',
 		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
 		path_box = ctk.CTkFrame(rep_card, fg_color=SURFACE3, corner_radius=8)
@@ -775,9 +952,13 @@ class SettingsView(BaseView):
 
 		current_path = cfg.get('reports_path', '') or cfg.get_reports_path()
 		self._lbl_reports_path = ctk.CTkLabel(
-			path_box, text=current_path,
-			font=FONT_MONO, text_color=TEXT_SECONDARY,
-			wraplength=400, anchor='w', justify='left',
+			path_box,
+			text=current_path,
+			font=FONT_MONO,
+			text_color=TEXT_SECONDARY,
+			wraplength=400,
+			anchor='w',
+			justify='left',
 		)
 		self._lbl_reports_path.pack(anchor='w', padx=PAD_MD, pady=PAD_SM)
 
@@ -785,16 +966,30 @@ class SettingsView(BaseView):
 		rep_btns.pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
 
 		ctk.CTkButton(
-			rep_btns, text='📁  Elegir carpeta',
-			fg_color=ACCENT_DIM, hover_color=ACCENT, text_color=ACCENT_TEXT,
-			border_width=1, border_color=ACCENT, height=34, corner_radius=8, font=FONT_LABEL_BOLD,
+			rep_btns,
+			text='📁  Elegir carpeta',
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			border_width=1,
+			border_color=ACCENT,
+			height=34,
+			corner_radius=8,
+			font=FONT_LABEL_BOLD,
 			command=self._pick_reports_path,
 		).pack(side='left', padx=(0, PAD_SM))
 
 		ctk.CTkButton(
-			rep_btns, text='↺ Restaurar',
-			fg_color='transparent', hover_color=SURFACE3, text_color=TEXT_MUTED,
-			border_width=1, border_color=BORDER, height=34, corner_radius=8, font=FONT_LABEL,
+			rep_btns,
+			text='↺ Restaurar',
+			fg_color='transparent',
+			hover_color=SURFACE3,
+			text_color=TEXT_MUTED,
+			border_width=1,
+			border_color=BORDER,
+			height=34,
+			corner_radius=8,
+			font=FONT_LABEL,
 			command=self._reset_reports_path,
 		).pack(side='left')
 
@@ -812,26 +1007,43 @@ class SettingsView(BaseView):
 		info_box.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 
 		ctk.CTkLabel(
-			info_box, text=f'📄  {db_path.name}',
-			font=FONT_BODY_BOLD, text_color=TEXT_PRIMARY, anchor='w',
+			info_box,
+			text=f'📄  {db_path.name}',
+			font=FONT_BODY_BOLD,
+			text_color=TEXT_PRIMARY,
+			anchor='w',
 		).pack(anchor='w', padx=PAD_MD, pady=(PAD_SM, 2))
 
 		ctk.CTkLabel(
-			info_box, text=str(db_path.parent),
-			font=(FONT_FAMILY_MONO, 10), text_color=TEXT_MUTED,
-			wraplength=400, anchor='w', justify='left',
+			info_box,
+			text=str(db_path.parent),
+			font=(FONT_FAMILY_MONO, 10),
+			text_color=TEXT_MUTED,
+			wraplength=400,
+			anchor='w',
+			justify='left',
 		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
 		ctk.CTkButton(
-			db_card, text='💾  Crear respaldo ahora',
-			fg_color=ORANGE_DIM, hover_color=ORANGE, text_color=ORANGE_TEXT,
-			border_width=1, border_color=ORANGE, height=38, corner_radius=8, font=FONT_BODY_BOLD,
+			db_card,
+			text='💾  Crear respaldo ahora',
+			fg_color=ORANGE_DIM,
+			hover_color=ORANGE,
+			text_color=ORANGE_TEXT,
+			border_width=1,
+			border_color=ORANGE,
+			height=38,
+			corner_radius=8,
+			font=FONT_BODY_BOLD,
 			command=self._backup_db,
 		).pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
 
 	def _pick_reports_path(self):
 		from tkinter import filedialog
-		path = filedialog.askdirectory(title='Seleccionar carpeta de reportes', initialdir=cfg.get_reports_path())
+
+		path = filedialog.askdirectory(
+			title='Seleccionar carpeta de reportes', initialdir=cfg.get_reports_path()
+		)
 		if not path:
 			return
 		self._settings['reports_path'] = path
@@ -867,8 +1079,8 @@ class SettingsView(BaseView):
 	# SECCIÓN: LICENCIA
 	# =========================================================
 	def _build_sec_licencia(self, parent):
-		from controllers.license_controller import LicenseController
 		from controllers.cloud_license_controller import CloudLicenseController
+		from controllers.license_controller import LicenseController
 
 		if self._lic_ctrl is None:
 			self._lic_ctrl = LicenseController()
@@ -882,24 +1094,40 @@ class SettingsView(BaseView):
 		status_box.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 
 		self._lbl_local_status = ctk.CTkLabel(
-			status_box, text='Verificando…',
-			font=FONT_BODY_BOLD, text_color=TEXT_SECONDARY, anchor='w',
+			status_box,
+			text='Verificando…',
+			font=FONT_BODY_BOLD,
+			text_color=TEXT_SECONDARY,
+			anchor='w',
 		)
 		self._lbl_local_status.pack(anchor='w', padx=PAD_MD, pady=PAD_SM)
 
-		make_form_label(local_card, 'Código de activación')[0].pack(anchor='w', padx=PAD_MD, pady=(0, 2))
+		make_form_label(local_card, 'Código de activación')[0].pack(
+			anchor='w', padx=PAD_MD, pady=(0, 2)
+		)
 		self._entry_local_code = ctk.CTkEntry(
-			local_card, placeholder_text='TIPO-AAAAMMDD-FIRMA',
-			fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-			text_color=TEXT_PRIMARY, height=36, font=FONT_BODY,
+			local_card,
+			placeholder_text='TIPO-AAAAMMDD-FIRMA',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=36,
+			font=FONT_BODY,
 		)
 		self._entry_local_code.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 
 		ctk.CTkButton(
-			local_card, text='✔  Activar licencia',
-			height=36, fg_color=GREEN_DIM, hover_color=GREEN,
-			text_color=GREEN_TEXT, border_width=1, border_color=GREEN,
-			corner_radius=8, font=FONT_BODY_BOLD, command=self._activate_local,
+			local_card,
+			text='✔  Activar licencia',
+			height=36,
+			fg_color=GREEN_DIM,
+			hover_color=GREEN,
+			text_color=GREEN_TEXT,
+			border_width=1,
+			border_color=GREEN,
+			corner_radius=8,
+			font=FONT_BODY_BOLD,
+			command=self._activate_local,
 		).pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
 
 		# ── Plan Cloud ──
@@ -909,55 +1137,90 @@ class SettingsView(BaseView):
 		cloud_box.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 
 		self._lbl_cloud_status = ctk.CTkLabel(
-			cloud_box, text='Verificando…',
-			font=FONT_BODY_BOLD, text_color=TEXT_SECONDARY, anchor='w',
+			cloud_box,
+			text='Verificando…',
+			font=FONT_BODY_BOLD,
+			text_color=TEXT_SECONDARY,
+			anchor='w',
 		)
 		self._lbl_cloud_status.pack(anchor='w', padx=PAD_MD, pady=(PAD_SM, 0))
 
 		self._lbl_cloud_tenant = ctk.CTkLabel(
-			cloud_box, text='',
-			font=(FONT_FAMILY_MONO, 10), text_color=TEXT_MUTED, anchor='w',
+			cloud_box,
+			text='',
+			font=(FONT_FAMILY_MONO, 10),
+			text_color=TEXT_MUTED,
+			anchor='w',
 		)
 		self._lbl_cloud_tenant.pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
-		make_form_label(cloud_card, 'Código de activación Cloud')[0].pack(anchor='w', padx=PAD_MD, pady=(0, 2))
+		make_form_label(cloud_card, 'Código de activación Cloud')[0].pack(
+			anchor='w', padx=PAD_MD, pady=(0, 2)
+		)
 		self._entry_cloud_code = ctk.CTkEntry(
-			cloud_card, placeholder_text='CLOUD-AAAAMMDD-TENANTID-FIRMA',
-			fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-			text_color=TEXT_PRIMARY, height=36, font=FONT_BODY,
+			cloud_card,
+			placeholder_text='CLOUD-AAAAMMDD-TENANTID-FIRMA',
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
+			height=36,
+			font=FONT_BODY,
 		)
 		self._entry_cloud_code.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 
 		ctk.CTkButton(
-			cloud_card, text='☁️  Activar Plan Cloud',
-			height=36, fg_color=PURPLE_DIM, hover_color=PURPLE,
-			text_color=PURPLE_TEXT, border_width=1, border_color=PURPLE,
-			corner_radius=8, font=FONT_BODY_BOLD, command=self._activate_cloud,
+			cloud_card,
+			text='☁️  Activar Plan Cloud',
+			height=36,
+			fg_color=PURPLE_DIM,
+			hover_color=PURPLE,
+			text_color=PURPLE_TEXT,
+			border_width=1,
+			border_color=PURPLE,
+			corner_radius=8,
+			font=FONT_BODY_BOLD,
+			command=self._activate_cloud,
 		).pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
 
-		self.after(0, self._refresh_local_status)
-		self.after(0, self._refresh_cloud_status)
+		self._refresh_local_status()
+		self._refresh_cloud_status()
 
 	def _refresh_local_status(self):
+		lbl = getattr(self, '_lbl_local_status', None)
+		if not lbl or not lbl.winfo_exists():
+			return
 		valid, msg = self._lic_ctrl.check_license_status()
 		if valid:
 			text = '✅  Licencia vitalicia' if msg == 'VITALICIA' else f'✅  {msg}'
 			color = GREEN_TEXT
 		else:
-			text = {'NO_LICENSE': '○  Sin licencia activa', 'EXPIRED': '⚠  Licencia vencida'}.get(msg, '✕  Licencia inválida')
+			text = {
+				'NO_LICENSE': '○  Sin licencia activa',
+				'EXPIRED': '⚠  Licencia vencida',
+			}.get(msg, '✕  Licencia inválida')
 			color = RED_TEXT
-		self._lbl_local_status.configure(text=text, text_color=color)
+		lbl.configure(text=text, text_color=color)
 
 	def _refresh_cloud_status(self):
+		lbl_status = getattr(self, '_lbl_cloud_status', None)
+		lbl_tenant = getattr(self, '_lbl_cloud_tenant', None)
+		if not lbl_status or not lbl_status.winfo_exists():
+			return
 		active, msg = self._cloud_ctrl.check_status()
 		if active:
-			self._lbl_cloud_status.configure(text=f'✅  {msg}', text_color=PURPLE_TEXT)
+			lbl_status.configure(text=f'✅  {msg}', text_color=PURPLE_TEXT)
 			tid = self._cloud_ctrl.get_tenant_id() or ''
-			self._lbl_cloud_tenant.configure(text=f'Tenant ID: {tid}')
+			if lbl_tenant and lbl_tenant.winfo_exists():
+				lbl_tenant.configure(text=f'Tenant ID: {tid}')
 		else:
-			color = RED_TEXT if any(w in msg for w in ('vencido', 'inválido')) else TEXT_MUTED
-			self._lbl_cloud_status.configure(text=f'○  {msg}', text_color=color)
-			self._lbl_cloud_tenant.configure(text='')
+			color = (
+				RED_TEXT
+				if any(w in msg for w in ('vencido', 'inválido'))
+				else TEXT_MUTED
+			)
+			lbl_status.configure(text=f'○  {msg}', text_color=color)
+			if lbl_tenant and lbl_tenant.winfo_exists():
+				lbl_tenant.configure(text='')
 
 	def _activate_local(self):
 		code = self._entry_local_code.get().strip()
@@ -1016,6 +1279,8 @@ class SettingsView(BaseView):
 
 		if cfg.save(self._settings):
 			self._clear_dirty()
-			self.show_success('Configuración guardada. Reiniciá la sesión para aplicar cambios visuales.')
+			self.show_success(
+				'Configuración guardada. Reiniciá la sesión para aplicar cambios visuales.'
+			)
 		else:
 			self.show_error('No se pudo guardar la configuración en el disco.')
