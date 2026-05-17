@@ -49,7 +49,10 @@ a = Analysis(
         'views.history_view',
         'views.article_history_view',
         'views.kardex_view',
-        # ── Controladores (cargados dinámicamente o en cadenas largas) ──
+        'views.batch_edit_view',
+        'views.onboarding_view',
+        'views.setup_wizard_view',
+        #── Controladores (cargados dinámicamente o en cadenas largas) ──
         'controllers.receipt_controller',
         'controllers.article_controller',
         'controllers.auth_controller',
@@ -72,8 +75,16 @@ a = Analysis(
         'controllers.supplier_returns_controller',
         'controllers.user_controller',
         'controllers.alerts_controller',
+        'controllers.promo_controller',
         # ── Backend de matplotlib para Tkinter ──
         'matplotlib.backends.backend_tkagg',
+        # ── psycopg2 (sync cloud) ──
+        'psycopg2',
+        'psycopg2._psycopg',
+        # ── pyserial (impresora tickets) ──
+        'serial',
+        'serial.tools.list_ports',
+        'serial.tools.list_ports_windows',
     ],
     hookspath=[],
     hooksconfig={},

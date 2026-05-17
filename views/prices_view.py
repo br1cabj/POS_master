@@ -30,7 +30,7 @@ from views.price_update_view import PriceUpdateView
 _TABS = [
 	('💵', 'Precios al Dólar', DollarPriceView),
 	('📈', 'Ajuste de Precios', PriceUpdateView),
-	('🛠️', 'Gestión Masiva', BatchEditView),
+	('🛠️', 'Atributos y Precios', BatchEditView),
 ]
 
 

@@ -420,7 +420,17 @@ class ArticleController(BaseController):
 							v.discount_pct = Decimal(str(updates['discount_pct']))
 						except (InvalidOperation, ValueError):
 							pass
-					
+					if 'selling_price' in updates:
+						try:
+							v.selling_price = Decimal(str(updates['selling_price']))
+						except (InvalidOperation, ValueError):
+							pass
+					if 'cost_price' in updates:
+						try:
+							v.cost_price = Decimal(str(updates['cost_price']))
+						except (InvalidOperation, ValueError):
+							pass
+
 					# Campos de Artículo (Padre)
 					art = v.article
 					if art.id not in updated_articles:
@@ -443,45 +453,44 @@ class ArticleController(BaseController):
 		if not changes_list:
 			return False, 'No hay cambios para aplicar.'
 
+		variant_ids = [item['variant_id'] for item in changes_list]
+		changes_by_id = {item['variant_id']: item for item in changes_list}
+
 		with self._Session() as session:
 			try:
-				updated = 0
-				for item in changes_list:
-					variant = (
-						session.query(ArticleVariant)
-						.join(Article)
-						.filter(
-							ArticleVariant.id == item['variant_id'],
-							Article.tenant_id == tenant_id,
-						)
-						.first()
+				# Single query with IN + eager load article (evita N+1 y lazy loads)
+				variants = (
+					session.query(ArticleVariant)
+					.options(joinedload(ArticleVariant.article))
+					.join(Article)
+					.filter(
+						ArticleVariant.id.in_(variant_ids),
+						Article.tenant_id == tenant_id,
 					)
-					if not variant:
-						continue
+					.all()
+				)
 
-					old_cost = variant.cost_price
+				updated = 0
+				not_found = len(variant_ids) - len(variants)
+
+				for variant in variants:
+					item = changes_by_id[variant.id]
+					old_cost  = variant.cost_price
 					old_price = variant.selling_price
-					new_cost = (
-						Decimal(str(item['new_cost']))
-						if 'new_cost' in item
-						else old_cost
-					)
-					new_price = (
-						Decimal(str(item['new_selling']))
-						if 'new_selling' in item
-						else old_price
-					)
+					new_cost  = Decimal(str(item['new_cost']))   if 'new_cost'    in item else old_cost
+					new_price = Decimal(str(item['new_selling'])) if 'new_selling' in item else old_price
 
 					if new_price == old_price and new_cost == old_cost:
-						continue  # No actual change, skip update and history
+						not_found += 1
+						continue
 
-					variant.cost_price = new_cost
+					variant.cost_price    = new_cost
 					variant.selling_price = new_price
 
-					price_up = new_price > old_price
+					price_up   = new_price > old_price
 					price_down = new_price < old_price
-					cost_up = new_cost > old_cost
-					cost_down = new_cost < old_cost
+					cost_up    = new_cost  > old_cost
+					cost_down  = new_cost  < old_cost
 
 					if (price_up or cost_up) and not (price_down or cost_down):
 						action_type = 'AUMENTO MASIVO'
@@ -506,7 +515,10 @@ class ArticleController(BaseController):
 					updated += 1
 
 				session.commit()
-				return True, f'¡Se actualizaron {updated} artículos correctamente!'
+				msg = f'¡Se actualizaron {updated} artículos correctamente!'
+				if not_found:
+					msg += f' ({not_found} sin cambios o no encontrados)'
+				return True, msg
 			except Exception as e:
 				session.rollback()
 				logger.error(f'Error en actualización masiva: {e}', exc_info=True)

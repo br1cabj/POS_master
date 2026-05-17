@@ -6,6 +6,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
 from controllers.dashboard_controller import DashboardController
+from controllers.promo_controller import PromoController
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.styles import (
@@ -24,6 +25,8 @@ from utils.styles import (
 	GREEN_DIM,
 	GREEN_TEXT,
 	ORANGE,
+	ORANGE_DIM,
+	ORANGE_TEXT,
 	PAD_LG,
 	PAD_MD,
 	PAD_SM,
@@ -50,6 +53,7 @@ class HomeView(BaseView):
 	def __init__(self, master, ctx: AppContext, navigate=None):
 		super().__init__(master, ctx)
 		self.controller = DashboardController(ctx.db_engine)
+		self.promo_ctrl = PromoController(ctx.db_engine)
 		self._navigate = navigate
 		self._fig = None
 		self.canvas_widget = None
@@ -62,12 +66,14 @@ class HomeView(BaseView):
 		self.grid_rowconfigure(0, weight=0)
 		self.grid_rowconfigure(1, weight=0)
 		self.grid_rowconfigure(2, weight=0)
-		self.grid_rowconfigure(3, weight=1)
+		self.grid_rowconfigure(3, weight=2)
+		self.grid_rowconfigure(4, weight=1)
 
 		self._build_header(username)
 		self._build_quick_actions()
 		self._build_stat_cards()
 		self._build_chart_area()
+		self._build_promos_area()
 		self._build_top_products_area()
 
 		self.after(150, self.load_dashboard_data)
@@ -268,7 +274,19 @@ class HomeView(BaseView):
 			border_color=BORDER,
 		)
 		self.chart_frame.grid(
-			row=3, column=0, sticky='nsew', padx=(PAD_LG, PAD_SM), pady=(0, PAD_LG)
+			row=3, column=0, rowspan=2, sticky='nsew', padx=(PAD_LG, PAD_SM), pady=(0, PAD_LG)
+		)
+
+	def _build_promos_area(self):
+		self.promo_frame = ctk.CTkFrame(
+			self,
+			fg_color=SURFACE2,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
+		)
+		self.promo_frame.grid(
+			row=3, column=1, sticky='nsew', padx=(PAD_SM, PAD_LG), pady=(0, PAD_SM)
 		)
 
 	def _build_top_products_area(self):
@@ -280,7 +298,7 @@ class HomeView(BaseView):
 			border_color=BORDER,
 		)
 		self.top_frame.grid(
-			row=3, column=1, sticky='nsew', padx=(PAD_SM, PAD_LG), pady=(0, PAD_LG)
+			row=4, column=1, sticky='nsew', padx=(PAD_SM, PAD_LG), pady=(0, PAD_LG)
 		)
 
 	# =========================================================
@@ -309,10 +327,114 @@ class HomeView(BaseView):
 		self.lbl_tickets_sub.configure(text='ventas completadas hoy')
 
 		self.draw_weekly_chart(tenant_id)
+		self.draw_active_promos(tenant_id)
 		self.draw_top_products(tenant_id)
 
 		if hasattr(self, 'btn_refresh'):
 			self.btn_refresh.configure(state='normal', text='↻  Actualizar')
+
+	# =========================================================
+	# PROMOCIONES ACTIVAS
+	# =========================================================
+	_PROMO_TYPE_STYLE = {
+		'pct':   (ACCENT_DIM,  ACCENT_TEXT,  '%'),
+		'nxm':   (GREEN_DIM,   GREEN_TEXT,   'NxM'),
+		'fixed': (ORANGE_DIM,  ORANGE_TEXT,  '$'),
+	}
+
+	def draw_active_promos(self, tenant_id):
+		for w in self.promo_frame.winfo_children():
+			w.destroy()
+
+		hdr = ctk.CTkFrame(self.promo_frame, fg_color='transparent')
+		hdr.pack(fill='x', padx=PAD_MD, pady=(PAD_MD, PAD_SM))
+
+		promos = self.promo_ctrl.get_active_promos_now(tenant_id)
+
+		title_text = f'🎯  Promociones Activas  ({len(promos)})' if promos else '🎯  Promociones Activas'
+		ctk.CTkLabel(
+			hdr,
+			text=title_text,
+			font=FONT_HEADING,
+			text_color=TEXT_PRIMARY,
+			anchor='w',
+		).pack(side='left')
+
+		if not promos:
+			ctk.CTkLabel(
+				self.promo_frame,
+				text='Sin promociones\nactivas ahora.',
+				text_color=TEXT_MUTED,
+				font=FONT_BODY,
+				justify='center',
+			).pack(expand=True)
+			return
+
+		scroll = ctk.CTkScrollableFrame(
+			self.promo_frame,
+			fg_color='transparent',
+			scrollbar_button_color=SURFACE4,
+			scrollbar_button_hover_color=SURFACE3,
+		)
+		scroll.pack(fill='both', expand=True, padx=PAD_SM, pady=(0, PAD_SM))
+
+		for p in promos[:10]:
+			bg_c, fg_c, badge_lbl = self._PROMO_TYPE_STYLE.get(
+				p['promo_type'], (SURFACE3, TEXT_SECONDARY, '?')
+			)
+
+			row = ctk.CTkFrame(scroll, fg_color=SURFACE3, corner_radius=8)
+			row.pack(fill='x', pady=(0, PAD_XS))
+			row.grid_columnconfigure(1, weight=1)
+
+			badge = ctk.CTkFrame(row, fg_color=bg_c, corner_radius=6, width=36, height=22)
+			badge.grid(row=0, column=0, padx=(PAD_SM, 0), pady=PAD_SM, sticky='w')
+			badge.grid_propagate(False)
+			ctk.CTkLabel(
+				badge, text=badge_lbl, font=FONT_LABEL_BOLD, text_color=fg_c
+			).place(relx=0.5, rely=0.5, anchor='center')
+
+			info = ctk.CTkFrame(row, fg_color='transparent')
+			info.grid(row=0, column=1, sticky='ew', padx=PAD_SM, pady=(PAD_XS, PAD_XS))
+
+			name_text = p['name']
+			if len(name_text) > 22:
+				name_text = name_text[:19] + '…'
+			ctk.CTkLabel(
+				info, text=name_text, font=FONT_BODY_BOLD, text_color=TEXT_PRIMARY, anchor='w'
+			).pack(anchor='w')
+
+			sub_parts = []
+			if p.get('variant_name'):
+				sub_parts.append(p['variant_name'][:20])
+			if p['promo_type'] == 'pct' and p.get('discount_value') is not None:
+				sub_parts.append(f"{p['discount_value']:.0f}% off")
+			elif p['promo_type'] == 'nxm' and p.get('buy_qty') and p.get('pay_qty'):
+				sub_parts.append(f"{p['buy_qty']}x{p['pay_qty']}")
+			elif p['promo_type'] == 'fixed' and p.get('discount_value') is not None:
+				sub_parts.append(f"${p['discount_value']:.2f} c/u")
+			if sub_parts:
+				ctk.CTkLabel(
+					info,
+					text='  ·  '.join(sub_parts),
+					font=FONT_LABEL,
+					text_color=TEXT_MUTED,
+					anchor='w',
+				).pack(anchor='w')
+
+			date_to = p.get('date_to')
+			if date_to:
+				try:
+					date_str = date_to.strftime('%d/%m')
+				except AttributeError:
+					date_str = str(date_to)[:5]
+				ctk.CTkLabel(
+					row,
+					text=f'≤ {date_str}',
+					font=FONT_LABEL,
+					text_color=TEXT_MUTED,
+					anchor='e',
+				).grid(row=0, column=2, padx=(0, PAD_SM), pady=PAD_SM, sticky='e')
 
 	# =========================================================
 	# GRÁFICO SEMANAL

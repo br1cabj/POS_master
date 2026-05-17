@@ -7,7 +7,9 @@ Solucionados errores de precisión Decimal, cierres de ciclos asíncronos y seri
 """
 
 import logging
+import threading
 import tkinter
+import winsound
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from tkinter import ttk
@@ -17,6 +19,7 @@ from CTkMessagebox import CTkMessagebox
 
 import utils.settings_manager as _cfg_mgr
 from controllers.cash_controller import CashController
+from controllers.promo_controller import PromoController
 from controllers.sales_controller import SalesController
 from core.base_view import BaseView
 from core.context import AppContext
@@ -74,6 +77,8 @@ class SalesView(BaseView):
 		self._context_data = context_data
 		self.sales_ctrl = SalesController(ctx.db_engine)
 		self._cash_ctrl = CashController(ctx.db_engine)
+		self.promo_ctrl = PromoController(ctx.db_engine)
+		self._active_promos = []
 		self.cart = []
 
 		self._discount_pct = Decimal('0')
@@ -85,6 +90,7 @@ class SalesView(BaseView):
 		self._is_loading_data = False
 		self._search_popup = None
 		self._search_mode = 'scan'
+		self._muted = False
 
 		# Timers unificados
 		self._flash_timers = {}
@@ -229,6 +235,20 @@ class SalesView(BaseView):
 			corner_radius=8,
 			command=self._open_venta_libre_popup,
 		).pack(side='left')
+
+		self._btn_mute = ctk.CTkButton(
+			bottom_search,
+			text='🔔',
+			fg_color='transparent',
+			hover_color=SURFACE3,
+			text_color=TEXT_SECONDARY,
+			font=FONT_BODY_BOLD,
+			height=34,
+			width=40,
+			corner_radius=8,
+			command=self._toggle_mute,
+		)
+		self._btn_mute.pack(side='right')
 
 		customer_row = ctk.CTkFrame(
 			self.main_panel,
@@ -714,6 +734,7 @@ class SalesView(BaseView):
 			tenant_id = self.ctx.tenant_id
 
 			self.db_variants = self.sales_ctrl.get_articles_for_sale(tenant_id)
+			self._active_promos = self.promo_ctrl.get_active_promos_now(tenant_id)
 			customers = self.sales_ctrl.get_customers(tenant_id)
 			self.customer_map = {c.get('name'): c for c in customers}
 
@@ -937,6 +958,43 @@ class SalesView(BaseView):
 			)
 		return base_price, Decimal('0'), ''
 
+	def _find_promo_for_variant(self, variant_id) -> dict | None:
+		"""Devuelve la primera promo activa que aplica a este variant_id, o None."""
+		for p in self._active_promos:
+			if p.get('variant_id') == variant_id:
+				return p
+		return None
+
+	def _apply_promo_price(
+		self, promo: dict, base_price: Decimal, total_qty: Decimal
+	) -> tuple[Decimal, str]:
+		"""
+		Dado una promo activa, retorna (precio_efectivo_por_unidad, etiqueta_para_carrito).
+		Para NxM el precio varía con la cantidad total en carrito.
+		"""
+		ptype = promo.get('promo_type', '')
+		name = promo.get('name', 'Promo')
+
+		if ptype == 'pct':
+			pct = Decimal(str(promo.get('discount_value', 0)))
+			factor = Decimal('1') - (pct / Decimal('100'))
+			price = (base_price * factor).quantize(Decimal('0.01'))
+			return price, f'🎯 -{pct:.4g}% {name}'
+
+		elif ptype == 'nxm':
+			buy = promo.get('buy_qty', 2)
+			pay = promo.get('pay_qty', 1)
+			price = self.promo_ctrl.calc_nxm_price(base_price, buy, pay, total_qty)
+			return price, f'🎯 {buy}×{pay} {name}'
+
+		elif ptype == 'fixed':
+			price = Decimal(str(promo.get('discount_value', base_price))).quantize(
+				Decimal('0.01')
+			)
+			return price, f'🎯 ${price:.2f} {name}'
+
+		return base_price, ''
+
 	def _get_list_price(self, variant: dict) -> Decimal:
 		if self._active_price_list == 'B' and variant.get('selling_price_b'):
 			return Decimal(str(variant.get('selling_price_b')))
@@ -1057,6 +1115,18 @@ class SalesView(BaseView):
 			)
 			btn.pack(fill='x', pady=3)
 
+	def _beep_ok(self):
+		if not self._muted:
+			threading.Thread(target=lambda: winsound.Beep(1000, 80), daemon=True).start()
+
+	def _beep_err(self):
+		if not self._muted:
+			threading.Thread(target=lambda: winsound.Beep(400, 200), daemon=True).start()
+
+	def _toggle_mute(self):
+		self._muted = not self._muted
+		self._btn_mute.configure(text='🔇' if self._muted else '🔔')
+
 	def _add_variant_to_cart(self, variant, qty_str):
 		self.lbl_msg.configure(text='')
 		try:
@@ -1081,11 +1151,17 @@ class SalesView(BaseView):
 		)
 		using_list_b = self._active_price_list == 'B' and variant.get('selling_price_b')
 
-		display_desc = desc
-		if product_disc_pct > Decimal('0'):
+		# Promos con vigencia tienen prioridad sobre descuentos de producto/proveedor
+		promo = self._find_promo_for_variant(variant_id)
+		if promo:
+			price, display_desc = self._apply_promo_price(promo, base_price, total_qty)
+			product_disc_pct = Decimal('0')
+		elif product_disc_pct > Decimal('0'):
 			display_desc = f'🏷️ -{product_disc_pct:.4g}% {desc}'
 		elif using_list_b:
 			display_desc = f'💼 {desc}'
+		else:
+			display_desc = desc
 
 		existing_item = next(
 			(i for i in self.cart if i.get('variant_id') == variant_id), None
@@ -1153,6 +1229,7 @@ class SalesView(BaseView):
 			self._set_msg(f'✓  Agregado: {desc}')
 
 		self.update_total()
+		self._beep_ok()
 		self.qty_entry.delete(0, 'end')
 		self.qty_entry.insert(0, '1')
 		self.entry_barcode.focus()
@@ -1194,24 +1271,16 @@ class SalesView(BaseView):
 	def _barcode_on_key(self, event=None):
 		if event and event.keysym in ('Return', 'KP_Enter'):
 			return
+		if self._search_mode == 'scan':
+			return  # En modo escáner solo el Enter (enviado por el escáner) dispara la acción
 		if self._barcode_timer is not None:
 			self.after_cancel(self._barcode_timer)
 			self._barcode_timer = None
-
 		raw = self.entry_barcode.get().strip()
-		if self._search_mode == 'search':
-			if len(raw) >= 1:
-				self._barcode_timer = self.after(250, self._update_dropdown)
-			else:
-				self._close_dropdown()
+		if len(raw) >= 1:
+			self._barcode_timer = self.after(250, self._update_dropdown)
 		else:
-			if len(raw) >= 4:
-				self._barcode_timer = self.after(800, self._barcode_auto_add)
-
-	def _barcode_auto_add(self):
-		self._barcode_timer = None
-		if self.entry_barcode.get().strip():
-			self.add_by_barcode()
+			self._close_dropdown()
 
 	def _set_search_mode(self, mode: str):
 		self._search_mode = mode
@@ -1322,7 +1391,7 @@ class SalesView(BaseView):
 
 		if len(raw_code) == 13 and raw_code.startswith('20'):
 			plu_code = str(int(raw_code[2:7]))
-			scale_price = Decimal(raw_code[7:12])
+			scale_price = Decimal(raw_code[7:12]) / Decimal('100')
 			search_code = plu_code
 			is_scale_barcode = True
 
@@ -1343,6 +1412,7 @@ class SalesView(BaseView):
 				return
 
 		if not found_variant:
+			self._beep_err()
 			self._set_msg(f'⚠ Código no encontrado: {raw_code}', RED_TEXT)
 			self.entry_barcode.delete(0, 'end')
 			return
@@ -1380,11 +1450,21 @@ class SalesView(BaseView):
 
 		stock_warning = total_qty > total_stock
 
-		display_name = name
-		if product_disc_pct > Decimal('0'):
+		# Promos con vigencia tienen prioridad sobre descuentos de producto/proveedor
+		promo = self._find_promo_for_variant(variant_id)
+		if promo and not is_scale_barcode:
+			list_base_for_promo = self._get_list_price(found_variant)
+			unit_price, display_name = self._apply_promo_price(
+				promo, list_base_for_promo, total_qty
+			)
+			product_disc_pct = Decimal('0')
+			subtotal = unit_price * total_qty
+		elif product_disc_pct > Decimal('0'):
 			display_name = f'🏷️ -{product_disc_pct:.4g}% {name}'
 		elif using_list_b:
 			display_name = f'💼 {name}'
+		else:
+			display_name = name
 
 		existing_item = next(
 			(i for i in self.cart if i.get('variant_id') == variant_id), None
@@ -1445,7 +1525,9 @@ class SalesView(BaseView):
 			self._flash_new_item(item_id, alt_tag)
 
 		self.update_total()
+		self._beep_ok()
 		self.entry_barcode.delete(0, 'end')
+		self.entry_barcode.focus()
 
 		if stock_warning:
 			self._set_msg(f'⚠ Stock superado ({name})', ORANGE_TEXT)
@@ -1680,11 +1762,10 @@ class SalesView(BaseView):
 		if not self.cart:
 			return
 		n_items = len(self.cart)
-		total_str = (
-			f'${float(self.current_total):.2f}'
-			if hasattr(self, 'current_total')
-			else ''
+		cart_total = sum(
+			(item.get('subtotal', Decimal('0')) for item in self.cart), Decimal('0')
 		)
+		total_str = f'${float(cart_total):.2f}' if cart_total else ''
 		detail = (
 			f'{n_items} ítem(s)  ·  {total_str}' if total_str else f'{n_items} ítem(s)'
 		)
@@ -2265,13 +2346,13 @@ class SalesView(BaseView):
 	):
 		tenant_id, user_id = self.ctx.tenant_id, self.ctx.user_id
 
-		# Limpiamos CUALQUIER Decimal antes de enviarlo al backend para prevenir TypeErrors en json.dumps
+		# Convertimos Decimal a str para evitar TypeErrors en json.dumps y preservar precisión exacta
 		clean_cart = []
 		for i in self.cart:
 			cleaned = i.copy()
 			for key, val in cleaned.items():
 				if isinstance(val, Decimal):
-					cleaned[key] = float(val)
+					cleaned[key] = str(val)
 			clean_cart.append(cleaned)
 
 		success, msg = self.sales_ctrl.process_sale(
