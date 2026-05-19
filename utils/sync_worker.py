@@ -219,6 +219,16 @@ class SyncWorker:
             self._cycle_lock.release()
 
     def _do_cycle(self) -> None:
+        # Verify cloud plan is still active before each cycle.
+        # Handles expiry while the app is running without requiring a restart.
+        from controllers.cloud_license_controller import CloudLicenseController
+        active, reason = CloudLicenseController().check_status()
+        if not active:
+            self.last_sync_ok = False
+            self.last_sync_error = reason
+            logger.info('Sync skipped — cloud plan not active: %s', reason)
+            return
+
         cloud_engine = get_cloud_engine()
         if cloud_engine is None:
             return

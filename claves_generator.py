@@ -55,8 +55,9 @@ def generar_codigo_cloud(tenant_id: str, dias_duracion: int) -> str:
 
 	Formato: CLOUD-AAAAMMDD-<tenant_id_32hex>-<firma_16hex>
 
-	El cliente lo ingresa en Configuración > Plan Cloud del POS.
-	El tenant_id debe existir previamente en la tabla 'tenants' de Supabase.
+	El cliente lo ingresa en Configuración > Licencias y Plan > Plan Cloud.
+	El tenant_id se obtiene desde la misma pantalla de Configuración del cliente.
+	El primer ciclo de sync crea el tenant en Supabase automáticamente.
 	"""
 	fecha_exp = (datetime.now() + timedelta(days=dias_duracion)).strftime('%Y%m%d')
 	fecha_fmt = f'{fecha_exp[:4]}-{fecha_exp[4:6]}-{fecha_exp[6:8]}'
@@ -98,7 +99,9 @@ def _menu_cloud():
 		tenant_id = str(uuid.uuid4())
 		print(f'\n  Nuevo Tenant ID generado: {tenant_id}')
 		print(
-			'  Agregalo a la tabla "tenants" de Supabase antes de enviar el código.\n'
+			'  Pedile al cliente que lo configure en Configuración > Licencias y Plan\n'
+			'  o usá el Tenant ID que el cliente ya tiene en esa pantalla.\n'
+			'  El primer sync lo crea en Supabase automáticamente.\n'
 		)
 
 	print('\n  Duración del plan:')
