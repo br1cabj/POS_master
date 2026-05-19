@@ -95,6 +95,18 @@ class PromoController(BaseController):
 				return 'fuera-horario'
 		return 'activa'
 
+	def _build_variant_name_map(self, session, variant_ids: list) -> dict:
+		"""Retorna {variant_id: article_name} en una sola query."""
+		if not variant_ids:
+			return {}
+		rows = (
+			session.query(ArticleVariant.id, Article.name)
+			.join(Article)
+			.filter(ArticleVariant.id.in_(variant_ids))
+			.all()
+		)
+		return {vid: name for vid, name in rows}
+
 	def get_all_promos(self, tenant_id) -> list:
 		with self._Session() as session:
 			try:
@@ -104,19 +116,11 @@ class PromoController(BaseController):
 					.order_by(Promotion.date_from.desc())
 					.all()
 				)
+				variant_ids = [p.variant_id for p in promos if p.variant_id]
+				name_map = self._build_variant_name_map(session, variant_ids)
 				result = []
 				for p in promos:
-					variant_name = None
-					if p.variant_id:
-						v = (
-							session.query(ArticleVariant)
-							.join(Article)
-							.filter(ArticleVariant.id == p.variant_id)
-							.first()
-						)
-						if v:
-							variant_name = v.article.name
-					d = self._promo_to_dict(p, variant_name)
+					d = self._promo_to_dict(p, name_map.get(p.variant_id))
 					d['status'] = self._status_label(d)
 					result.append(d)
 				return result
@@ -139,19 +143,11 @@ class PromoController(BaseController):
 					)
 					.all()
 				)
+				variant_ids = [p.variant_id for p in promos if p.variant_id]
+				name_map = self._build_variant_name_map(session, variant_ids)
 				result = []
 				for p in promos:
-					variant_name = None
-					if p.variant_id:
-						v = (
-							session.query(ArticleVariant)
-							.join(Article)
-							.filter(ArticleVariant.id == p.variant_id)
-							.first()
-						)
-						if v:
-							variant_name = v.article.name
-					d = self._promo_to_dict(p, variant_name)
+					d = self._promo_to_dict(p, name_map.get(p.variant_id))
 					if self._is_active_now(d):
 						result.append(d)
 				return result

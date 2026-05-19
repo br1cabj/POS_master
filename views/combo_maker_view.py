@@ -1121,7 +1121,7 @@ class ComboMakerView(BaseView):
 			border_color=BORDER,
 		)
 		right.grid(row=0, column=1, sticky='nsew', padx=(PAD_SM, 0), pady=PAD_SM)
-		right.grid_rowconfigure(1, weight=1)
+		right.grid_rowconfigure(2, weight=1)
 		right.grid_columnconfigure(0, weight=1)
 
 		ctk.CTkLabel(
@@ -1129,12 +1129,12 @@ class ComboMakerView(BaseView):
 			text='Promociones Configuradas',
 			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
-		).grid(row=0, column=0, pady=(PAD_LG, PAD_SM))
+		).grid(row=0, column=0, pady=(PAD_LG, PAD_XS))
 
 		# Filtro
 		filter_frame = ctk.CTkFrame(right, fg_color='transparent')
 		filter_frame.grid(
-			row=0, column=0, sticky='ew', padx=PAD_MD, pady=(PAD_LG + 24, PAD_SM)
+			row=1, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_SM)
 		)
 
 		self.seg_promo_filter = ctk.CTkSegmentedButton(
@@ -1154,7 +1154,7 @@ class ComboMakerView(BaseView):
 
 		# Treeview
 		tree_frame = ctk.CTkFrame(right, fg_color='transparent')
-		tree_frame.grid(row=1, column=0, sticky='nsew', padx=PAD_MD, pady=(0, PAD_XS))
+		tree_frame.grid(row=2, column=0, sticky='nsew', padx=PAD_MD, pady=(0, PAD_XS))
 		tree_frame.grid_rowconfigure(0, weight=1)
 		tree_frame.grid_columnconfigure(0, weight=1)
 
@@ -1172,6 +1172,7 @@ class ComboMakerView(BaseView):
 		self.tree_promos.column('Estado', width=80, anchor='center', stretch=False)
 		self.tree_promos.grid(row=0, column=0, sticky='nsew')
 		self.tree_promos.bind('<Double-1>', self.edit_promo)
+		self.tree_promos.bind('<<TreeviewSelect>>', self._on_promo_selected)
 
 		self.tree_promos.tag_configure('activa', foreground=GREEN_TEXT)
 		self.tree_promos.tag_configure('vencida', foreground=TEXT_MUTED)
@@ -1182,7 +1183,7 @@ class ComboMakerView(BaseView):
 		# Botones de acción
 		action_row = ctk.CTkFrame(right, fg_color='transparent')
 		action_row.grid(
-			row=2, column=0, sticky='ew', padx=PAD_MD, pady=(PAD_XS, PAD_MD)
+			row=3, column=0, sticky='ew', padx=PAD_MD, pady=(PAD_XS, PAD_MD)
 		)
 
 		ctk.CTkButton(
@@ -1403,6 +1404,14 @@ class ComboMakerView(BaseView):
 				values=(p['name'], tipo_str, prod, vigencia, status_label),
 				tags=(status,),
 			)
+
+	def _on_promo_selected(self, event=None):
+		promo = self._get_selected_promo()
+		if promo and hasattr(self, 'btn_toggle_promo'):
+			if promo.get('status') == 'pausada':
+				self.btn_toggle_promo.configure(text='▶  Activar')
+			else:
+				self.btn_toggle_promo.configure(text='⏸  Pausar')
 
 	def _get_selected_promo(self):
 		selected = self.tree_promos.selection()

@@ -319,6 +319,11 @@ class HomeView(BaseView):
 			except Exception:
 				stats = None
 
+			try:
+				promos = self.promo_ctrl.get_active_promos_now(tenant_id)
+			except Exception:
+				promos = []
+
 			def _update():
 				if not self.winfo_exists():
 					return
@@ -338,7 +343,7 @@ class HomeView(BaseView):
 					self.lbl_tickets_sub.configure(text='ventas completadas hoy')
 
 					self.draw_weekly_chart(tenant_id)
-					self.draw_active_promos(tenant_id)
+					self.draw_active_promos(promos)
 					self.draw_top_products(tenant_id)
 
 				if btn:
@@ -360,14 +365,12 @@ class HomeView(BaseView):
 		'fixed': (ORANGE_DIM,  ORANGE_TEXT,  '$'),
 	}
 
-	def draw_active_promos(self, tenant_id):
+	def draw_active_promos(self, promos: list):
 		for w in self.promo_frame.winfo_children():
 			w.destroy()
 
 		hdr = ctk.CTkFrame(self.promo_frame, fg_color='transparent')
 		hdr.pack(fill='x', padx=PAD_MD, pady=(PAD_MD, PAD_SM))
-
-		promos = self.promo_ctrl.get_active_promos_now(tenant_id)
 
 		title_text = f'🎯  Promociones Activas  ({len(promos)})' if promos else '🎯  Promociones Activas'
 		ctk.CTkLabel(
