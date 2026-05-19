@@ -14,7 +14,9 @@ try:
 except ImportError:
 	pass
 
-SECRET_SALT = 'aantesbajocabeconcontradedesdeenentrehaciahastaparaporsegunsinsobretrasmediantedurante'
+# Importar desde la fuente de verdad para evitar desincronización
+from utils.config import SECRET_SALT
+
 _CLOUD_SALT = SECRET_SALT + '_cloud_v1'
 
 _SEP = '═' * 54
@@ -123,10 +125,11 @@ if __name__ == '__main__':
 	print(f'{_SEP}')
 	print('\n  LICENCIA LOCAL (pago único):')
 	print('    1. Mensual       (30 días)')
-	print('    2. Anual         (365 días)')
-	print('    3. Vitalicia     (sin vencimiento)')
+	print('    2. Trimestral    (90 días)')
+	print('    3. Anual         (365 días)')
+	print('    4. Vitalicia     (sin vencimiento)')
 	print('\n  PLAN CLOUD (suscripción):')
-	print('    4. Código Cloud  (sync + acceso móvil)')
+	print('    5. Código Cloud  (sync + acceso móvil)')
 	print('\n    0. Salir')
 
 	try:
@@ -134,10 +137,12 @@ if __name__ == '__main__':
 		if opcion == '1':
 			generar_clave('MES', 30)
 		elif opcion == '2':
-			generar_clave('ANO', 365)
+			generar_clave('TRIM', 90)
 		elif opcion == '3':
-			generar_clave('VITA', 36500)
+			generar_clave('ANO', 365)
 		elif opcion == '4':
+			generar_clave('VITA', 36500)
+		elif opcion == '5':
 			_menu_cloud()
 		elif opcion == '0':
 			pass

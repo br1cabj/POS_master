@@ -5,12 +5,18 @@ import sys
 import customtkinter as ctk
 
 def _setup_logging():
-	_base = (
-		os.path.dirname(sys.executable)
-		if getattr(sys, 'frozen', False)
-		else os.path.dirname(os.path.abspath(__file__))
-	)
-	log_path = os.path.join(_base, 'cloudpos.log')
+	if getattr(sys, 'frozen', False):
+		_base = os.path.dirname(sys.executable)
+		log_path = os.path.join(_base, 'cloudpos.log')
+		try:
+			open(log_path, 'a').close()
+		except OSError:
+			_appdata = os.environ.get('APPDATA', os.path.expanduser('~'))
+			_base = os.path.join(_appdata, 'CloudPOS')
+			os.makedirs(_base, exist_ok=True)
+			log_path = os.path.join(_base, 'cloudpos.log')
+	else:
+		log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cloudpos.log')
 	logging.basicConfig(
 		filename=log_path,
 		level=logging.WARNING,
@@ -88,11 +94,24 @@ class PosApp(ctk.CTk):
 
 	def _get_or_create_engine(self):
 		if self.db_engine is None:
-			self.db_engine = get_engine()
-			run_migrations(self.db_engine)
-			from utils.sync_worker import SyncWorker
-			self._sync_worker = SyncWorker(self.db_engine)
-			self._sync_worker.start()
+			terminal_mode = settings_get('terminal_mode', 'primary')
+
+			if terminal_mode == 'cashier':
+				# Cajero: conecta al .db remoto, sin migraciones ni sync.
+				# Normalizar la ruta para SQLAlchemy: las rutas UNC de Windows
+				# (\\server\share\file.db) necesitan barras y 4 slashes en la URL.
+				from utils.config import make_engine
+				db_path = settings_get('db_remote_path', '')
+				_p = db_path.replace('\\', '/')
+				_url = f'sqlite://{_p}' if _p.startswith('//') else f'sqlite:///{_p}'
+				self.db_engine = make_engine(_url)
+			else:
+				# Principal: flujo normal con migraciones y sync
+				self.db_engine = get_engine()
+				run_migrations(self.db_engine)
+				from utils.sync_worker import SyncWorker
+				self._sync_worker = SyncWorker(self.db_engine)
+				self._sync_worker.start()
 		return self.db_engine
 
 	# =========================================================
@@ -101,6 +120,21 @@ class PosApp(ctk.CTk):
 	def check_system_state(self):
 		self._clear_window()
 
+		terminal_mode = settings_get('terminal_mode', 'primary')
+
+		# ── Modo Cajero ──────────────────────────────────────────────────
+		if terminal_mode == 'cashier':
+			db_path = settings_get('db_remote_path', '')
+			if db_path:
+				if os.path.exists(db_path):
+					self._get_or_create_engine()
+					self.show_login()
+				else:
+					self._show_cashier_offline(db_path)
+				return
+			# db_remote_path vacío → wizard no completado, continuar al wizard
+
+		# ── Modo Principal (o cajero sin configurar) ─────────────────────
 		_dir = (
 			os.path.dirname(sys.executable)
 			if getattr(sys, 'frozen', False)
@@ -120,6 +154,35 @@ class PosApp(ctk.CTk):
 		else:
 			self.show_license_lock(status_msg)
 
+	def _show_cashier_offline(self, db_path: str):
+		"""Pantalla de error cuando la Terminal Principal no está accesible en la red."""
+		frame = ctk.CTkFrame(self)
+		frame.pack(fill='both', expand=True, padx=60, pady=60)
+
+		ctk.CTkLabel(
+			frame, text='⚠️  Terminal Principal no disponible',
+			font=('Arial', 20, 'bold'), text_color='#E67E22',
+		).pack(pady=(40, 10))
+
+		ctk.CTkLabel(
+			frame,
+			text=(
+				f'No se puede acceder a la base de datos:\n{db_path}\n\n'
+				'Verificá que la Terminal Principal esté encendida\n'
+				'y que ambas PCs estén conectadas a la misma red.'
+			),
+			font=('Arial', 12), text_color='#AAAAAA', justify='center',
+		).pack(pady=10)
+
+		ctk.CTkButton(
+			frame, text='🔄  Reintentar',
+			command=self._retry_cashier,
+		).pack(pady=20)
+
+	def _retry_cashier(self):
+		self._clear_window()
+		self.after(100, self.check_system_state)
+
 	def show_wizard(self):
 		SetupWizard(self, on_complete_callback=self.check_system_state).pack(
 			fill='both', expand=True
@@ -137,11 +200,18 @@ class PosApp(ctk.CTk):
 		El flag 'onboarding_shown' se escribe en settings.json desde OnboardingView._done().
 		"""
 		self._clear_window()
+		engine = self._get_or_create_engine()
 		ctx = AppContext(
-			db_engine=self._get_or_create_engine(),
+			db_engine=engine,
 			current_user=current_user,
 			settings=SettingsManager(),
+			sync_worker=getattr(self, '_sync_worker', None),
 		)
+
+		# Auto-backup diario: solo en Terminal Principal
+		if settings_get('terminal_mode', 'primary') == 'primary':
+			from controllers.backup_controller import BackupController
+			BackupController(engine).auto_backup_if_needed()
 
 		onboarding_shown = settings_get('onboarding_shown', False)
 
@@ -178,6 +248,8 @@ class PosApp(ctk.CTk):
 			view_class = _SECTION_VIEW_MAP.get(navigate_to)
 			if view_class:
 				self.after(150, lambda vc=view_class: dashboard.safe_switch_view(vc))
+			else:
+				logger.warning('Sección de onboarding desconocida: %s', navigate_to)
 
 	# =========================================================
 	# BLOQUEO DE LICENCIA

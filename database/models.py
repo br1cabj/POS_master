@@ -399,6 +399,8 @@ class CashSession(Base):
 	declared_amount = Column(Numeric(10, 2), nullable=True)
 	difference = Column(Numeric(10, 2), nullable=True)
 
+	updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+
 	user = relationship('User')
 	movements = relationship('CashMovement', back_populates='session')
 
@@ -410,6 +412,7 @@ class CashMovement(Base):
 	amount = Column(Numeric(10, 2), nullable=False)
 	description = Column(String, nullable=True)
 	time = Column(DateTime, default=datetime.now)
+	updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
 
 	session_id = Column(
 		String(36), ForeignKey('cash_sessions.id'), nullable=False, index=True

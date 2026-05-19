@@ -274,7 +274,7 @@ class SalesController(BaseController):
 			else Decimal('0.0')
 		)
 		if discount_amount < Decimal('0.0'):
-			discount_amount = Decimal('0.0')
+			return False, 'El descuento no puede ser negativo.'
 
 		# Normalizar pago mixto
 		amount_m2 = Decimal('0')
@@ -418,6 +418,11 @@ class SalesController(BaseController):
 
 						if variant.is_combo:
 							for ci in variant.ingredients:
+								if ci.ingredient is None:
+									raise ValueError(
+										f'El combo "{variant.article.name}" contiene un ingrediente '
+										'que fue eliminado del sistema. Actualiza el combo antes de vender.'
+									)
 								req_qty = ci.quantity_required * qty
 								stock = stocks_db.get(ci.ingredient_id)
 								if not stock or stock.quantity < req_qty:
@@ -425,21 +430,7 @@ class SalesController(BaseController):
 										f'Falta ingrediente para preparar: {variant.article.name}'
 									)
 								stock.quantity -= req_qty
-								# ci.ingredient puede ser None si el producto fue eliminado del catálogo
-								if ci.ingredient is None:
-									logger.warning(
-										'Ingrediente %s del combo %s no encontrado; costo omitido.',
-										ci.ingredient_id,
-										variant.id,
-									)
-								cost_price += (
-									(
-										ci.ingredient.cost_price
-										if ci.ingredient
-										else Decimal('0')
-									)
-									or Decimal('0')
-								) * ci.quantity_required
+								cost_price += (ci.ingredient.cost_price or Decimal('0')) * ci.quantity_required
 								session.add(
 									StockMovement(
 										movement_type='out',
@@ -468,7 +459,7 @@ class SalesController(BaseController):
 									f'Stock insuficiente para {variant.article.name}'
 								)
 							stock.quantity -= deduct_qty
-							cost_price = variant.cost_price
+							cost_price = variant.cost_price or Decimal('0.0')
 							session.add(
 								StockMovement(
 									movement_type='out',
@@ -513,7 +504,9 @@ class SalesController(BaseController):
 				new_sale.profit = final_total - total_cost
 
 				if is_fiado and customer_obj:
-					customer_obj.current_balance += final_total
+					customer_obj.current_balance = (
+						customer_obj.current_balance or Decimal('0.0')
+					) + final_total
 				else:
 					disc_str = (
 						f' (Desc: ${discount_amount:.2f})'

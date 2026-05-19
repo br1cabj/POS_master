@@ -75,6 +75,9 @@ DEFAULTS: dict = {
 	'barcode_baud': '9600',
 	'barcode_prefix': '',
 	'barcode_suffix': 'CR',          # 'none' | 'CR' | 'TAB' | 'CRLF'
+	# Modo terminal
+	'terminal_mode': 'primary',   # 'primary' | 'cashier'
+	'db_remote_path': '',          # Ruta UNC al .db del principal (solo en modo cajero)
 	# Periféricos — Cajón de dinero
 	'cashdrawer_connection': 'printer',  # 'printer' | 'com'
 	'cashdrawer_port': 'COM3',
@@ -117,6 +120,8 @@ def load(force_reload: bool = False) -> dict:
 
 			_cached_settings = merged
 			return _cached_settings.copy()
+	except PermissionError as e:
+		logger.error(f'Sin permisos para leer settings.json, usando defaults: {e}')
 	except Exception as e:
 		logger.warning(f'No se pudo leer settings.json, usando defaults: {e}')
 
@@ -141,6 +146,13 @@ def save(settings: dict) -> bool:
 def get(key: str, default=None, force_reload: bool = False):
 	"""Atajo para leer una sola clave directamente. Permite forzar la recarga."""
 	return load(force_reload=force_reload).get(key, default)
+
+
+def set(key: str, value) -> None:
+	"""Actualiza una sola clave en settings.json."""
+	current = load()
+	current[key] = value
+	save(current)
 
 
 def get_reports_path() -> str:

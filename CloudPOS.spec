@@ -18,6 +18,7 @@ a = Analysis(
     datas=[
         (_pkg_dir('customtkinter'), 'customtkinter/'),
         (_pkg_dir('CTkMessagebox'), 'CTkMessagebox/'),
+        (_pkg_dir('fpdf'), 'fpdf/'),
         ('icono.ico', '.'),
     ],
     hiddenimports=[
@@ -76,6 +77,7 @@ a = Analysis(
         'controllers.user_controller',
         'controllers.alerts_controller',
         'controllers.promo_controller',
+        'controllers.backup_controller',
         # ── Backend de matplotlib para Tkinter ──
         'matplotlib.backends.backend_tkagg',
         # ── psycopg2 (sync cloud) ──

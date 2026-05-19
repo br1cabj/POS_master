@@ -18,7 +18,7 @@ To enable: set DATABASE_CLOUD_URL in .env and restart the app.
 import json
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import inspect as sa_inspect
@@ -27,18 +27,26 @@ from sqlalchemy.orm import sessionmaker
 
 from utils.config import CLOUD_SYNC_INTERVAL, get_cloud_engine, get_engine
 
+_SYNC_BATCH_SIZE = 500
+
 logger = logging.getLogger(__name__)
 
 
 # ─── tables to sync (dependency order: parents before children) ───────────────
 # Import lazily inside functions to avoid circular-import issues at module load.
 
+_CASH_SYNC_DAYS = 7  # ventana máxima de historial de caja sincronizado a la nube
+
+
 def _sync_models():
     from database.models import (
         Article,
         ArticleVariant,
         Branch,
+        CashMovement,
+        CashSession,
         Customer,
+        Promotion,
         Purchase,
         Sale,
         SaleDetail,
@@ -62,6 +70,9 @@ def _sync_models():
         Sale,
         SaleDetail,
         Stock,
+        Promotion,
+        CashSession,   # 7-day window enforced in _cycle()
+        CashMovement,  # 7-day window enforced in _cycle()
     ]
 
 
@@ -157,6 +168,7 @@ class SyncWorker:
         self._local_engine = local_engine or get_engine()
         self._LocalSession = sessionmaker(bind=self._local_engine)
         self._stop = threading.Event()
+        self._cycle_lock = threading.Lock()
         self._thread = threading.Thread(
             target=self._run,
             name='CloudSyncWorker',
@@ -166,6 +178,11 @@ class SyncWorker:
     def start(self) -> None:
         if get_cloud_engine() is None:
             logger.info('Cloud sync disabled — DATABASE_CLOUD_URL not set.')
+            return
+        from controllers.cloud_license_controller import CloudLicenseController
+        active, msg = CloudLicenseController().check_status()
+        if not active:
+            logger.info('Cloud sync disabled — no active cloud plan (%s).', msg)
             return
         self._thread.start()
         logger.info(
@@ -189,6 +206,15 @@ class SyncWorker:
             self._stop.wait(timeout=CLOUD_SYNC_INTERVAL)
 
     def _cycle(self) -> None:
+        if not self._cycle_lock.acquire(blocking=False):
+            logger.debug('Sync cycle already running, skipping.')
+            return
+        try:
+            self._do_cycle()
+        finally:
+            self._cycle_lock.release()
+
+    def _do_cycle(self) -> None:
         cloud_engine = get_cloud_engine()
         if cloud_engine is None:
             return
@@ -219,10 +245,18 @@ class SyncWorker:
                     else datetime.min
                 )
 
+                # Cash tables: never push data older than 7 days to the cloud.
+                if table_name in ('cash_sessions', 'cash_movements'):
+                    cutoff = sync_time - timedelta(days=_CASH_SYNC_DAYS)
+                    if last_sync < cutoff:
+                        last_sync = cutoff
+
                 try:
                     rows_q = (
                         local.query(model)
                         .filter(model.updated_at >= last_sync)
+                        .order_by(model.updated_at)
+                        .limit(_SYNC_BATCH_SIZE)
                         .all()
                     )
                 except Exception as e:
@@ -237,20 +271,20 @@ class SyncWorker:
 
                 try:
                     pushed = _upsert_batch(cloud, model, data)
+                    # Commit each table independently so a failure in one table
+                    # only rolls back that table, not all previously synced data.
+                    cloud.commit()
                     total_pushed += pushed
-                    state[table_name] = sync_time.isoformat()
+                    # Only advance the watermark when the batch was smaller than the
+                    # limit — if we hit the limit there may be more rows to process,
+                    # so keep the same last_sync so the next cycle re-queries them.
+                    if len(rows_q) < _SYNC_BATCH_SIZE:
+                        state[table_name] = sync_time.isoformat()
                     logger.debug('Synced %d rows → %s', pushed, table_name)
                 except Exception as e:
                     logger.error('Upsert failed for %s: %s', table_name, e)
                     cloud.rollback()
                     # Don't update state for this table so it retries next cycle.
-
-            try:
-                cloud.commit()
-            except Exception as e:
-                logger.error('Cloud commit failed: %s', e)
-                cloud.rollback()
-                return
 
         if total_pushed:
             logger.info('Sync complete: %d rows pushed to Supabase.', total_pushed)
@@ -264,5 +298,5 @@ class SyncWorker:
         return self._thread.is_alive()
 
     def force_sync(self) -> None:
-        """Trigger an immediate sync cycle (blocking, call from a worker thread)."""
-        self._cycle()
+        """Trigger an immediate sync cycle in a background thread (non-blocking)."""
+        threading.Thread(target=self._cycle, daemon=True, name='ForcedSync').start()

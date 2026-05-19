@@ -252,6 +252,7 @@ class SupplierReturnsController(BaseController):
 						s.variant_id: s
 						for s in session.query(Stock)
 						.filter(Stock.variant_id.in_(_sids))
+						.with_for_update()
 						.all()
 					}
 					if _sids
@@ -315,10 +316,11 @@ class SupplierReturnsController(BaseController):
 						)
 					)
 				else:
-					# Crédito: suma al balance del proveedor
+					# Crédito: suma al balance del proveedor (with_for_update evita race condition)
 					supplier = (
 						session.query(Supplier)
 						.filter_by(id=purchase.supplier_id)
+						.with_for_update()
 						.first()
 					)
 					if supplier:

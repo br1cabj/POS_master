@@ -106,6 +106,9 @@ def run_migrations(engine) -> None:
 	_v18_add_sale_method1_and_total_returned(engine)
 	_v19_add_cash_movement_index(engine)
 	_v20_create_promotions(engine)
+	_v21_create_combo_items(engine)
+	_v22_create_article_history(engine)
+	_v23_add_updated_at_cash_tables(engine)
 
 
 def setup_cloud_schema(engine) -> None:
@@ -454,8 +457,8 @@ def _v16_add_updated_at(engine) -> None:
 						f'CREATE INDEX IF NOT EXISTS ix_{table}_updated_at ON {table}(updated_at)'
 					)
 				)
-			except Exception:
-				pass
+			except Exception as e:
+				logger.warning('Could not create index on %s.updated_at: %s', table, e)
 		conn.commit()
 		logger.info('v16: updated_at columns ready for cloud sync.')
 
@@ -496,8 +499,8 @@ def _v17_add_updated_at_core_tables(engine) -> None:
 						f'CREATE INDEX IF NOT EXISTS ix_{table}_updated_at ON {table}(updated_at)'
 					)
 				)
-			except Exception:
-				pass
+			except Exception as e:
+				logger.warning('Could not create index on %s.updated_at: %s', table, e)
 		conn.commit()
 		logger.info('v17: updated_at columns ready for core tables.')
 
@@ -591,3 +594,116 @@ def _v20_create_promotions(engine) -> None:
 		except Exception as e:
 			logger.error('v20 failed: %s', e)
 			raise
+
+
+# ─── v21: tabla combo_items ───────────────────────────────────────────────────
+
+
+def _v21_create_combo_items(engine) -> None:
+	"""v21: Crea la tabla combo_items para el armado de combos/recetas."""
+	with engine.connect() as conn:
+		try:
+			conn.execute(
+				text("""
+                CREATE TABLE IF NOT EXISTS combo_items (
+                    id                VARCHAR(36) PRIMARY KEY,
+                    combo_id          VARCHAR(36) NOT NULL REFERENCES article_variants(id),
+                    ingredient_id     VARCHAR(36) NOT NULL REFERENCES article_variants(id),
+                    quantity_required  NUMERIC(12,4) NOT NULL
+                )
+            """)
+			)
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_combo_items_combo_id ON combo_items(combo_id)'
+				)
+			)
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_combo_items_ingredient_id ON combo_items(ingredient_id)'
+				)
+			)
+			conn.commit()
+			logger.info('v21: tabla combo_items lista.')
+		except Exception as e:
+			logger.error('v21 failed: %s', e)
+			raise
+
+
+# ─── v22: tabla article_history ───────────────────────────────────────────────
+
+
+def _v22_create_article_history(engine) -> None:
+	"""v22: Crea la tabla article_history para auditoría de cambios de artículos."""
+	with engine.connect() as conn:
+		try:
+			conn.execute(
+				text("""
+                CREATE TABLE IF NOT EXISTS article_history (
+                    id           VARCHAR(36) PRIMARY KEY,
+                    date         DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    user_id      VARCHAR(36) NOT NULL REFERENCES users(id),
+                    tenant_id    VARCHAR(36) NOT NULL REFERENCES tenants(id),
+                    action_type  VARCHAR NOT NULL,
+                    article_name VARCHAR NOT NULL,
+                    variant_id   VARCHAR(36) REFERENCES article_variants(id),
+                    old_cost     NUMERIC(10, 2) DEFAULT NULL,
+                    new_cost     NUMERIC(10, 2) DEFAULT NULL,
+                    old_price    NUMERIC(10, 2) DEFAULT NULL,
+                    new_price    NUMERIC(10, 2) DEFAULT NULL
+                )
+            """)
+			)
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_article_history_tenant_id ON article_history(tenant_id)'
+				)
+			)
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_article_history_date ON article_history(date)'
+				)
+			)
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_article_history_variant_id ON article_history(variant_id)'
+				)
+			)
+			conn.commit()
+			logger.info('v22: tabla article_history lista.')
+		except Exception as e:
+			logger.error('v22 failed: %s', e)
+			raise
+
+
+# ─── v23: updated_at en tablas de caja (para sync 7 días) ────────────────────
+
+
+def _v23_add_updated_at_cash_tables(engine) -> None:
+	"""v23: Agrega updated_at a cash_sessions y cash_movements para habilitar el sync cloud."""
+	_CASH_TABLES = [
+		('cash_sessions', 'opened_at'),
+		('cash_movements', 'time'),
+	]
+	with engine.connect() as conn:
+		for table, backfill_col in _CASH_TABLES:
+			added = _add_column_if_missing(
+				conn, engine, table, 'updated_at', 'DATETIME DEFAULT NULL'
+			)
+			if added:
+				conn.execute(
+					text(
+						f'UPDATE {table} SET updated_at = {backfill_col} WHERE updated_at IS NULL'
+					)
+				)
+				conn.commit()
+			try:
+				conn.execute(
+					text(
+						f'CREATE INDEX IF NOT EXISTS ix_{table}_updated_at ON {table}(updated_at)'
+					)
+				)
+			except Exception as e:
+				logger.warning('Could not create index on %s.updated_at: %s', table, e)
+		conn.commit()
+		logger.info('v23: updated_at en cash_sessions y cash_movements listo.')

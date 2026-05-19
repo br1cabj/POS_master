@@ -38,6 +38,7 @@ from utils.styles import (
 	FONT_LABEL,
 	FONT_LABEL_BOLD,
 	FONT_MONO,
+	FONT_SMALL,
 	FONT_TITLE,
 	GREEN,
 	GREEN_DIM,
@@ -73,6 +74,7 @@ _SECTIONS = [
 	('ventas', '🛒', 'Ventas'),
 	('perifericos', '🔌', 'Periféricos'),
 	('datos', '📁', 'Datos'),
+	('respaldo', '💾', 'Respaldo'),
 	('licencia', '🔑', 'Licencia'),
 ]
 
@@ -101,7 +103,7 @@ class SettingsView(BaseView):
 		self._build_content_wrapper()
 		self._show_section('empresa')
 
-		self.winfo_toplevel().bind('<Control-s>', lambda e: self._save_all())
+		self.winfo_toplevel().bind('<Control-s>', lambda e: self._save_all() if self.winfo_exists() else None)
 
 	def destroy(self):
 		try:
@@ -201,9 +203,17 @@ class SettingsView(BaseView):
 			anchor='w',
 		).grid(row=0, column=0, padx=PAD_MD, pady=(PAD_MD, PAD_XS), sticky='w')
 
-		for i, (key, icon, label) in enumerate(_SECTIONS):
+		import utils.settings_manager as _sm
+		_is_cashier = _sm.get('terminal_mode', 'primary') == 'cashier'
+		_hidden = {'respaldo'} if _is_cashier else set()
+
+		_row = 1  # contador independiente para no dejar gaps en el grid
+		for key, icon, label in _SECTIONS:
+			if key in _hidden:
+				continue
 			row_f = ctk.CTkFrame(self._sidebar, fg_color='transparent')
-			row_f.grid(row=i + 1, column=0, sticky='ew', padx=PAD_SM, pady=2)
+			row_f.grid(row=_row, column=0, sticky='ew', padx=PAD_SM, pady=2)
+			_row += 1
 			row_f.grid_columnconfigure(0, weight=1)
 
 			btn = ctk.CTkButton(
@@ -254,6 +264,10 @@ class SettingsView(BaseView):
 		self._content_wrapper.grid_rowconfigure(0, weight=1)
 
 	def _show_section(self, key: str):
+		# En modo cajero la sección de respaldo no existe — redirigir a empresa.
+		import utils.settings_manager as _sm
+		if key == 'respaldo' and _sm.get('terminal_mode', 'primary') == 'cashier':
+			key = 'empresa'
 		self._persist_current_section()
 
 		if self._content_frame and self._content_frame.winfo_exists():
@@ -292,6 +306,7 @@ class SettingsView(BaseView):
 			'ventas': self._build_sec_ventas,
 			'perifericos': self._build_sec_perifericos,
 			'datos': self._build_sec_datos,
+			'respaldo': self._build_sec_respaldo,
 			'licencia': self._build_sec_licencia,
 		}[key](scroll)
 
@@ -338,9 +353,12 @@ class SettingsView(BaseView):
 
 		elif sec == 'perifericos':
 			s = self._settings
+			_DETECTING = 'Detectando…'
 			# Impresora tickets
 			if v := getattr(self, '_peri_ticket_printer_var', None):
-				s['printer_ticket_name'] = v.get()
+				val = v.get()
+				if val != _DETECTING:
+					s['printer_ticket_name'] = val
 			if v := getattr(self, '_peri_ticket_type_var', None):
 				s['printer_ticket_type'] = v.get()
 			if w := getattr(self, '_peri_ticket_chars_entry', None):
@@ -350,7 +368,9 @@ class SettingsView(BaseView):
 					pass
 			# Impresora etiquetas
 			if v := getattr(self, '_peri_label_printer_var', None):
-				s['printer_label_name'] = v.get()
+				val = v.get()
+				if val != _DETECTING:
+					s['printer_label_name'] = val
 			# Balanza
 			if v := getattr(self, '_peri_scale_enabled_var', None):
 				s['scale_enabled'] = v.get()
@@ -1987,6 +2007,7 @@ class SettingsView(BaseView):
 		self._lbl_reports_path.configure(text=cfg.get_reports_path())
 
 	def _backup_db(self):
+		import sqlite3
 		_db_dir = (
 			os.path.dirname(sys.executable)
 			if getattr(sys, 'frozen', False)
@@ -2000,11 +2021,288 @@ class SettingsView(BaseView):
 		timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 		dest_path = Path(dest_folder) / f'respaldo_CloudPOS_{timestamp}.db'
 		try:
-			shutil.copy2(db_path, dest_path)
+			# sqlite3.backup() maneja WAL correctamente a diferencia de shutil.copy2
+			src = sqlite3.connect(str(db_path))
+			dst = sqlite3.connect(str(dest_path))
+			src.backup(dst)
+			dst.close()
+			src.close()
 			self.show_success(f'Respaldo creado correctamente:\n{dest_path}')
 		except Exception as e:
 			logger.error(f'Fallo al respaldar BD: {e}', exc_info=True)
 			self.show_error(f'Error al crear el respaldo:\n{e}')
+
+	# =========================================================
+	# =========================================================
+	# SECCIÓN: RESPALDO
+	# =========================================================
+	def _build_sec_respaldo(self, parent):
+		import os
+		import threading
+		from tkinter import filedialog
+
+		from controllers.backup_controller import BackupController
+
+		bk = BackupController(self.ctx.db_engine)
+
+		# ── Estado del último respaldo ──
+		card_status = self._card(parent, 'Respaldo automático', '💾')
+
+		status_box = ctk.CTkFrame(card_status, fg_color=SURFACE3, corner_radius=8)
+		status_box.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
+
+		last = bk.get_last_backup_str()
+		self._lbl_backup_date = ctk.CTkLabel(
+			status_box,
+			text=f'Último respaldo: {last}' if last else 'Sin respaldos aún',
+			font=FONT_BODY_BOLD,
+			text_color=GREEN_TEXT if last else TEXT_MUTED,
+			anchor='w',
+		)
+		self._lbl_backup_date.pack(anchor='w', padx=PAD_MD, pady=(PAD_SM, 0))
+
+		backup_path_str = str(bk.backup_dir())
+		ctk.CTkLabel(
+			status_box,
+			text=f'Carpeta: {backup_path_str}',
+			font=FONT_SMALL,
+			text_color=TEXT_MUTED,
+			anchor='w',
+			wraplength=440,
+		).pack(anchor='w', padx=PAD_MD, pady=(2, PAD_SM))
+
+		self._btn_backup_now = ctk.CTkButton(
+			card_status,
+			text='💾  Respaldar ahora',
+			height=36,
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			border_width=1,
+			border_color=ACCENT,
+			corner_radius=8,
+			font=FONT_BODY_BOLD,
+			command=lambda: self._do_backup(bk),
+		)
+		self._btn_backup_now.pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
+
+		# ── Restaurar ──
+		card_restore = self._card(parent, 'Restaurar datos', '↩️')
+
+		ctk.CTkLabel(
+			card_restore,
+			text=(
+				'Seleccioná un archivo de respaldo para reemplazar la base de datos actual.\n'
+				'Se guardará una copia de seguridad del estado actual antes de restaurar.\n'
+				'La aplicación se reiniciará automáticamente al finalizar.'
+			),
+			font=FONT_SMALL,
+			text_color=TEXT_MUTED,
+			anchor='w',
+			justify='left',
+			wraplength=440,
+		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
+
+		ctk.CTkLabel(
+			card_restore,
+			text='⚠️  Esta acción reemplaza TODOS los datos actuales.',
+			font=FONT_SMALL,
+			text_color=ORANGE_TEXT,
+			anchor='w',
+		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
+
+		ctk.CTkButton(
+			card_restore,
+			text='↩️  Seleccionar respaldo para restaurar…',
+			height=36,
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_SECONDARY,
+			border_width=1,
+			border_color=BORDER,
+			corner_radius=8,
+			font=FONT_BODY_BOLD,
+			command=lambda: self._do_restore(bk),
+		).pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
+
+		# ── Restaurar desde la nube ──
+		from utils.config import DATABASE_CLOUD_URL
+		if DATABASE_CLOUD_URL:
+			card_cloud = self._card(parent, 'Restaurar desde la nube', '☁️')
+
+			ctk.CTkLabel(
+				card_cloud,
+				text=(
+					'Descarga todos los datos sincronizados desde Supabase y reemplaza\n'
+					'la base de datos local. Requiere plan cloud activo.\n'
+					'Se crea un respaldo automático antes de comenzar.'
+				),
+				font=FONT_SMALL,
+				text_color=TEXT_MUTED,
+				anchor='w',
+				justify='left',
+				wraplength=440,
+			).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
+
+			ctk.CTkLabel(
+				card_cloud,
+				text='⚠️  Esta acción reemplaza TODOS los datos locales con los de la nube.',
+				font=FONT_SMALL,
+				text_color=ORANGE_TEXT,
+				anchor='w',
+			).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
+
+			self._lbl_cloud_restore_status = ctk.CTkLabel(
+				card_cloud,
+				text='',
+				font=FONT_SMALL,
+				text_color=TEXT_MUTED,
+				anchor='w',
+				wraplength=440,
+			)
+			self._lbl_cloud_restore_status.pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
+
+			self._btn_cloud_restore = ctk.CTkButton(
+				card_cloud,
+				text='☁️  Restaurar desde la nube…',
+				height=36,
+				fg_color=PURPLE_DIM,
+				hover_color=PURPLE,
+				text_color=PURPLE_TEXT,
+				border_width=1,
+				border_color=PURPLE,
+				corner_radius=8,
+				font=FONT_BODY_BOLD,
+				command=lambda: self._do_cloud_restore(bk),
+			)
+			self._btn_cloud_restore.pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
+
+	def _do_backup(self, bk):
+		from controllers.backup_controller import BackupController
+		self._btn_backup_now.configure(state='disabled', text='⏳  Respaldando…')
+
+		def worker():
+			ok, result = bk.create_backup()
+			self.after(0, lambda: self._on_backup_done(ok, result))
+
+		import threading
+		threading.Thread(target=worker, daemon=True).start()
+
+	def _on_backup_done(self, ok: bool, result: str):
+		if not self.winfo_exists():
+			return
+		self._btn_backup_now.configure(state='normal', text='💾  Respaldar ahora')
+		if ok:
+			lbl = getattr(self, '_lbl_backup_date', None)
+			if lbl and lbl.winfo_exists():
+				lbl.configure(
+					text=f'Último respaldo: {result}',
+					text_color=GREEN_TEXT,
+				)
+			self.show_toast('Respaldo creado correctamente.', 'success')
+		else:
+			self.show_toast(f'Error al respaldar: {result}', 'error')
+
+	def _do_cloud_restore(self, bk):
+		from CTkMessagebox import CTkMessagebox
+
+		confirm = CTkMessagebox(
+			title='Confirmar restauración desde la nube',
+			message=(
+				'Esta acción descargará todos los datos desde Supabase\n'
+				'y reemplazará la base de datos local.\n\n'
+				'Se creará un respaldo automático antes de comenzar.\n'
+				'La aplicación se reiniciará al finalizar.\n\n'
+				'¿Continuar?'
+			),
+			icon='warning',
+			option_1='Cancelar',
+			option_2='Sí, restaurar desde la nube',
+		)
+		if confirm.get() != 'Sí, restaurar desde la nube':
+			return
+
+		self._btn_cloud_restore.configure(state='disabled', text='⏳  Descargando…')
+		self._lbl_cloud_restore_status.configure(text='Iniciando restauración…', text_color=TEXT_MUTED)
+
+		def _progress(msg: str):
+			if self.winfo_exists():
+				self.after(0, lambda m=msg: self._lbl_cloud_restore_status.configure(text=m))
+
+		def worker():
+			ok, result = bk.restore_from_cloud(progress_cb=_progress)
+			if self.winfo_exists():
+				self.after(0, lambda: self._on_cloud_restore_done(ok, result))
+
+		import threading
+		threading.Thread(target=worker, daemon=True, name='CloudRestore').start()
+
+	def _on_cloud_restore_done(self, ok: bool, result: str):
+		if not self.winfo_exists():
+			return
+		btn = getattr(self, '_btn_cloud_restore', None)
+		if btn and btn.winfo_exists():
+			btn.configure(state='normal', text='☁️  Restaurar desde la nube…')
+
+		if ok:
+			from CTkMessagebox import CTkMessagebox
+			CTkMessagebox(
+				title='Restauración completada',
+				message='Los datos fueron restaurados desde la nube.\nLa aplicación se reiniciará ahora.',
+				icon='check',
+			)
+			self._restart_app()
+		else:
+			lbl = getattr(self, '_lbl_cloud_restore_status', None)
+			if lbl and lbl.winfo_exists():
+				lbl.configure(text=f'Error: {result}', text_color=RED_TEXT)
+			self.show_toast(f'Error al restaurar: {result}', 'error')
+
+	def _do_restore(self, bk):
+		from tkinter import filedialog
+
+		from CTkMessagebox import CTkMessagebox
+
+		backup_dir = str(bk.backup_dir())
+		path = filedialog.askopenfilename(
+			initialdir=backup_dir,
+			title='Seleccionar archivo de respaldo',
+			filetypes=[('Base de datos', '*.db'), ('Todos', '*.*')],
+		)
+		if not path:
+			return
+
+		import os
+		confirm = CTkMessagebox(
+			title='Confirmar restauración',
+			message=(
+				f'Se restaurará:\n{os.path.basename(path)}\n\n'
+				'Todos los datos actuales serán reemplazados.\n'
+				'¿Continuar?'
+			),
+			icon='warning',
+			option_1='Cancelar',
+			option_2='Sí, restaurar',
+		)
+		if confirm.get() != 'Sí, restaurar':
+			return
+
+		ok, msg = bk.restore_backup(path)
+		if ok:
+			CTkMessagebox(
+				title='Restauración completa',
+				message='Los datos fueron restaurados. La aplicación se reiniciará ahora.',
+				icon='check',
+			)
+			self._restart_app()
+		else:
+			self.show_toast(f'Error al restaurar: {msg}', 'error')
+
+	def _restart_app(self):
+		import subprocess
+		import sys
+		subprocess.Popen([sys.executable] + sys.argv[1:])
+		self.winfo_toplevel().destroy()
 
 	# =========================================================
 	# SECCIÓN: LICENCIA
@@ -2085,6 +2383,49 @@ class SettingsView(BaseView):
 		)
 		self._lbl_cloud_tenant.pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
+		# Tenant ID local — siempre visible para que el cliente lo comparta con el proveedor
+		tid_box = ctk.CTkFrame(cloud_card, fg_color=SURFACE3, corner_radius=8)
+		tid_box.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
+		tid_box.grid_columnconfigure(0, weight=1)
+
+		ctk.CTkLabel(
+			tid_box,
+			text='Tu Tenant ID (compartilo con tu proveedor para activar el plan cloud)',
+			font=FONT_SMALL,
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).grid(row=0, column=0, columnspan=2, padx=PAD_MD, pady=(PAD_SM, 2), sticky='w')
+
+		local_tid = self.ctx.tenant_id or '—'
+		lbl_local_tid = ctk.CTkLabel(
+			tid_box,
+			text=local_tid,
+			font=(FONT_FAMILY_MONO, 11),
+			text_color=TEXT_PRIMARY,
+			anchor='w',
+		)
+		lbl_local_tid.grid(row=1, column=0, padx=PAD_MD, pady=(0, PAD_SM), sticky='w')
+
+		def _copy_tid():
+			self.clipboard_clear()
+			self.clipboard_append(local_tid)
+			btn_copy_tid.configure(text='✓  Copiado')
+			self.after(1500, lambda: btn_copy_tid.configure(text='Copiar'))
+
+		btn_copy_tid = ctk.CTkButton(
+			tid_box,
+			text='Copiar',
+			width=70,
+			height=26,
+			fg_color=SURFACE4,
+			hover_color=BORDER_ACTIVE,
+			text_color=TEXT_SECONDARY,
+			corner_radius=6,
+			font=FONT_SMALL,
+			command=_copy_tid,
+		)
+		btn_copy_tid.grid(row=1, column=1, padx=(0, PAD_MD), pady=(0, PAD_SM))
+
 		make_form_label(cloud_card, 'Código de activación Cloud')[0].pack(
 			anchor='w', padx=PAD_MD, pady=(0, 2)
 		)
@@ -2133,25 +2474,40 @@ class SettingsView(BaseView):
 		lbl.configure(text=text, text_color=color)
 
 	def _refresh_cloud_status(self):
-		lbl_status = getattr(self, '_lbl_cloud_status', None)
-		lbl_tenant = getattr(self, '_lbl_cloud_tenant', None)
-		if not lbl_status or not lbl_status.winfo_exists():
-			return
-		active, msg = self._cloud_ctrl.check_status()
-		if active:
-			lbl_status.configure(text=f'✅  {msg}', text_color=PURPLE_TEXT)
-			tid = self._cloud_ctrl.get_tenant_id() or ''
-			if lbl_tenant and lbl_tenant.winfo_exists():
-				lbl_tenant.configure(text=f'Tenant ID: {tid}')
-		else:
-			color = (
-				RED_TEXT
-				if any(w in msg for w in ('vencido', 'inválido'))
-				else TEXT_MUTED
-			)
-			lbl_status.configure(text=f'○  {msg}', text_color=color)
-			if lbl_tenant and lbl_tenant.winfo_exists():
-				lbl_tenant.configure(text='')
+		"""Actualiza el estado cloud en un hilo daemon para no bloquear la UI."""
+		def _run():
+			try:
+				active, msg = self._cloud_ctrl.check_status()
+				tid = self._cloud_ctrl.get_tenant_id() or '' if active else ''
+			except Exception as e:
+				logger.warning('Error al verificar estado cloud: %s', e)
+				active, msg, tid = False, 'Error al conectar', ''
+
+			def _update():
+				lbl_status = getattr(self, '_lbl_cloud_status', None)
+				lbl_tenant = getattr(self, '_lbl_cloud_tenant', None)
+				if not lbl_status or not lbl_status.winfo_exists():
+					return
+				if active:
+					lbl_status.configure(text=f'✅  {msg}', text_color=PURPLE_TEXT)
+					if lbl_tenant and lbl_tenant.winfo_exists():
+						lbl_tenant.configure(text=f'Tenant ID: {tid}')
+				else:
+					color = (
+						RED_TEXT
+						if any(w in msg for w in ('vencido', 'inválido'))
+						else TEXT_MUTED
+					)
+					lbl_status.configure(text=f'○  {msg}', text_color=color)
+					if lbl_tenant and lbl_tenant.winfo_exists():
+						lbl_tenant.configure(text='')
+
+			try:
+				self.after(0, _update)
+			except Exception:
+				pass
+
+		threading.Thread(target=_run, daemon=True, name='CloudStatusRefresh').start()
 
 	def _activate_local(self):
 		code = self._entry_local_code.get().strip()
@@ -2175,6 +2531,13 @@ class SettingsView(BaseView):
 		if ok:
 			self._entry_cloud_code.delete(0, 'end')
 			self._refresh_cloud_status()
+			worker = getattr(self.ctx, 'sync_worker', None)
+			if worker and not worker.is_running:
+				try:
+					worker.start()
+					msg += '\n\nEl sync cloud ha iniciado. No es necesario reiniciar.'
+				except Exception:
+					msg += '\n\nReiniciá la app para que el sync comience.'
 			self.show_success(msg)
 		else:
 			self.show_error(msg)

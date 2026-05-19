@@ -159,6 +159,22 @@ class ReturnsController(BaseController):
 					estado = sale.status or 'desconocido'
 					return False, f'Este ticket ya fue {estado}. No se puede anular.'
 
+				# Verificar caja ANTES de modificar stock para evitar estado inconsistente
+				pm1 = (sale.payment_method or '').lower()
+				pm2 = (sale.payment_method_2 or '').lower()
+				if pm1 not in ('', 'fiado') or (pm2 and pm2 != 'fiado'):
+					active_cash_pre = (
+						session.query(CashSession)
+						.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
+						.first()
+					)
+					if not active_cash_pre:
+						metodo = pm1 or pm2
+						return False, (
+							f'No hay caja abierta. Abrí la caja antes de '
+							f'anular un pago en {metodo}.'
+						)
+
 				warnings = self._restore_stock_for_items(
 					session, sale.items, sale_id, user_id, label='Anulación'
 				)
@@ -227,6 +243,22 @@ class ReturnsController(BaseController):
 						False,
 						f'El ticket ya fue {sale.status}. No se puede devolver.',
 					)
+
+				# Verificar caja ANTES de modificar stock para evitar estado inconsistente
+				pm1_ret = (sale.payment_method or '').lower()
+				pm2_ret = (sale.payment_method_2 or '').lower()
+				if pm1_ret not in ('', 'fiado') or (pm2_ret and pm2_ret != 'fiado'):
+					active_cash_pre = (
+						session.query(CashSession)
+						.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
+						.first()
+					)
+					if not active_cash_pre:
+						metodo = pm1_ret or pm2_ret
+						return False, (
+							f'No hay caja abierta. Abrí la caja antes de '
+							f'devolver un pago en {metodo}.'
+						)
 
 				detail_map = {d.id: d for d in sale.items}
 
@@ -298,8 +330,17 @@ class ReturnsController(BaseController):
 
 				new_total_returned = Decimal(str(sale.total_returned or 0)) + refund_total
 				sale.total_returned = new_total_returned
-				net_remaining = Decimal(str(sale.total_amount or 0)) - new_total_returned
-				sale.status = 'devuelta' if net_remaining <= Decimal('0') else 'parcial'
+				total_sale = Decimal(str(sale.total_amount or 0))
+				if total_sale > 0:
+					net_remaining = total_sale - new_total_returned
+					sale.status = 'devuelta' if net_remaining <= Decimal('0') else 'parcial'
+				else:
+					# Venta sin valor monetario: estado basado en cantidades devueltas
+					all_qty_returned = all(
+						Decimal(str(d.returned_quantity or 0)) >= Decimal(str(d.quantity))
+						for d in sale.items
+					)
+					sale.status = 'devuelta' if all_qty_returned else 'parcial'
 				new_profit = Decimal(str(sale.profit or 0)) - profit_reduction
 				sale.profit = max(Decimal('0'), new_profit)
 
@@ -383,7 +424,13 @@ class ReturnsController(BaseController):
 			else:
 				_stock_ids.add(_v.base_variant_id or _detail.variant_id)
 		stocks_map = (
-			{s.variant_id: s for s in session.query(Stock).filter(Stock.variant_id.in_(_stock_ids)).all()}
+			{
+				s.variant_id: s
+				for s in session.query(Stock)
+				.filter(Stock.variant_id.in_(_stock_ids))
+				.with_for_update()
+				.all()
+			}
 			if _stock_ids
 			else {}
 		)
@@ -468,7 +515,9 @@ class ReturnsController(BaseController):
 					session.query(Customer).filter_by(id=sale.customer_id).first()
 				)
 				if customer:
-					customer.current_balance -= split_amount
+					customer.current_balance = (
+						customer.current_balance or Decimal('0.0')
+					) - split_amount
 			else:
 				active_cash = (
 					session.query(CashSession)

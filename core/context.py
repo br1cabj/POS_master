@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
 	from sqlalchemy.engine import Engine
 
 	from utils.settings_manager import SettingsManager
+	from utils.sync_worker import SyncWorker
 
 
 @dataclass
@@ -16,6 +17,7 @@ class AppContext:
 	db_engine: 'Engine'
 	current_user: dict
 	settings: 'SettingsManager'
+	sync_worker: 'Optional[SyncWorker]' = field(default=None)
 
 	@property
 	def tenant_id(self) -> str:

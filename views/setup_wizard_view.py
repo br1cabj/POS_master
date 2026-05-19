@@ -10,6 +10,7 @@ Wizard de primer arranque en 3 pasos:
 import glob
 import logging
 import os
+import re
 import shutil
 import sys
 
@@ -20,7 +21,6 @@ from sqlalchemy.orm import sessionmaker
 
 from controllers.license_controller import LicenseController
 from database.models import Base, Branch, Tenant, User, Warehouse
-from utils.config import make_engine
 from utils.settings_manager import get_reports_path
 from utils.settings_manager import load as _cfg_load
 from utils.settings_manager import save as _cfg_save
@@ -68,12 +68,13 @@ from utils.styles import (
 
 logger = logging.getLogger(__name__)
 
-_STEPS = ['Licencia', 'Tu Negocio', 'Tu Usuario']
+_STEPS = ['Terminal', 'Licencia', 'Tu Negocio', 'Tu Usuario']
 
 _STEP_NEXT_LABELS = {
-    1: 'Siguiente: Tu Negocio  →',
-    2: 'Siguiente: Tu Usuario  →',
-    3: '✓  Finalizar y Comenzar',
+    1: 'Siguiente: Licencia  →',
+    2: 'Siguiente: Tu Negocio  →',
+    3: 'Siguiente: Tu Usuario  →',
+    4: '✓  Finalizar y Comenzar',
 }
 
 _CURRENCY_SYMBOLS = ['$', '€', 'S/.', '£', 'Bs.', '₱']
@@ -103,6 +104,9 @@ class SetupWizard(ctk.CTkFrame):
         self.license_ctrl = LicenseController()
         self._busy = False
         self._step = 1
+
+        self._terminal_mode_sel: str = 'primary'   # 'primary' | 'cashier'
+        self._cashier_db_path: str = ''
 
         self._license_mode: str | None = None
         self._license_key: str = ''
@@ -255,12 +259,18 @@ class SetupWizard(ctk.CTkFrame):
         if self._busy:
             return
         if self._step == 1:
-            if self._validate_step1():
-                self._show_step(2)
+            if self._validate_step_terminal():
+                if self._terminal_mode_sel == 'cashier':
+                    self._finish_cashier()
+                else:
+                    self._show_step(2)
         elif self._step == 2:
-            if self._validate_step2():
+            if self._validate_step1():
                 self._show_step(3)
         elif self._step == 3:
+            if self._validate_step2():
+                self._show_step(4)
+        elif self._step == 4:
             self._finish()
 
     def _show_step(self, step: int):
@@ -282,9 +292,9 @@ class SetupWizard(ctk.CTkFrame):
                 border_width=0, state='normal',
             )
 
-        if step == 3:
+        if step == 4:
             self._btn_next.configure(
-                text=_STEP_NEXT_LABELS[3],
+                text=_STEP_NEXT_LABELS[4],
                 fg_color=GREEN_DIM, hover_color=GREEN,
                 text_color=GREEN_TEXT, border_color=GREEN,
             )
@@ -295,7 +305,12 @@ class SetupWizard(ctk.CTkFrame):
                 text_color=ACCENT_TEXT, border_color=ACCENT,
             )
 
-        {1: self._build_step1, 2: self._build_step2, 3: self._build_step3}[step]()
+        {
+            1: self._build_step_terminal,
+            2: self._build_step1,
+            3: self._build_step2,
+            4: self._build_step3,
+        }[step]()
 
     # ═══════════════════════════════════════════════════════════════════════
     # PASO 1 — LICENCIA
@@ -1077,10 +1092,10 @@ class SetupWizard(ctk.CTkFrame):
         self._clear_field_errors()
 
         username = self._e_username.get().strip()
-        if len(username) < 3 or ' ' in username:
+        if len(username) < 3 or not re.match(r'^[a-zA-Z0-9_]+$', username):
             self._show_field_error(
                 self._e_username, self._err_username,
-                'Mínimo 3 caracteres, sin espacios.',
+                'Mínimo 3 caracteres, solo letras, números y guión bajo.',
             )
             return False
 
@@ -1108,6 +1123,7 @@ class SetupWizard(ctk.CTkFrame):
     # ═══════════════════════════════════════════════════════════════════════
 
     def _finish(self):
+        """Finaliza el wizard para modo Terminal Principal."""
         if self._busy:
             return
         if not self._validate_step3():
@@ -1126,7 +1142,7 @@ class SetupWizard(ctk.CTkFrame):
         if not success:
             CTkMessagebox(title='Licencia rechazada', message=msg, icon='cancel')
             self._busy = False
-            self._btn_next.configure(state='normal', text=_STEP_NEXT_LABELS[3])
+            self._btn_next.configure(state='normal', text=_STEP_NEXT_LABELS[4])
             self._btn_back.configure(state='normal')
             return
 
@@ -1153,11 +1169,12 @@ class SetupWizard(ctk.CTkFrame):
                 icon='cancel',
             )
             self._busy = False
-            self._btn_next.configure(state='normal', text=_STEP_NEXT_LABELS[3])
+            self._btn_next.configure(state='normal', text=_STEP_NEXT_LABELS[4])
             self._btn_back.configure(state='normal')
 
     def _setup_database(self):
-        engine = make_engine()
+        from utils.config import get_engine
+        engine = get_engine()
         Base.metadata.create_all(engine)
         Session = sessionmaker(bind=engine)
         with Session() as session:
@@ -1211,6 +1228,8 @@ class SetupWizard(ctk.CTkFrame):
             except Exception as e:
                 logger.error('Error al copiar logo: %s', e)
 
+        cfg['terminal_mode'] = 'primary'
+        cfg['db_remote_path'] = ''
         cfg['company_name'] = self._d_store
         cfg['company_address'] = self._d_address
         cfg['company_phone'] = self._d_phone
@@ -1220,3 +1239,271 @@ class SetupWizard(ctk.CTkFrame):
         cfg['tax_rate'] = float(self._d_tax) if self._d_tax else 0.0
         cfg['reports_path'] = self._d_reports_path
         _cfg_save(cfg)
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # PASO 1 — SELECCIÓN DE TERMINAL  (nuevo primer paso)
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _build_step_terminal(self):
+        scroll = ctk.CTkScrollableFrame(
+            self._content, fg_color='transparent',
+            scrollbar_button_color=SURFACE3, scrollbar_button_hover_color=SURFACE4,
+        )
+        scroll.grid(row=0, column=0, sticky='nsew')
+        scroll.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            scroll, text='¿Cómo funciona esta terminal?',
+            font=FONT_TITLE, text_color=TEXT_PRIMARY,
+        ).pack(pady=(PAD_XL, PAD_XS))
+
+        ctk.CTkLabel(
+            scroll,
+            text='Definí el rol de esta PC. Podés tener una Terminal Principal y múltiples cajeros.',
+            font=FONT_BODY, text_color=TEXT_MUTED,
+        ).pack(pady=(0, PAD_XL))
+
+        cards_row = ctk.CTkFrame(scroll, fg_color='transparent')
+        cards_row.pack(fill='x', padx=PAD_XL, pady=(0, PAD_MD))
+        cards_row.grid_columnconfigure(0, weight=1)
+        cards_row.grid_columnconfigure(1, weight=1)
+
+        # ── Card Terminal Principal ───────────────────────────────────────
+        self._card_primary = ctk.CTkFrame(
+            cards_row, fg_color=SURFACE2, corner_radius=16,
+            border_width=1, border_color=BORDER,
+        )
+        self._card_primary.grid(row=0, column=0, sticky='nsew', padx=(0, PAD_MD))
+        self._card_primary.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            self._card_primary, text='🖥️',
+            font=(FONT_FAMILY, 34), anchor='w',
+        ).grid(row=0, column=0, padx=PAD_LG, pady=(PAD_LG, 0), sticky='w')
+
+        ctk.CTkLabel(
+            self._card_primary, text='Terminal Principal',
+            font=FONT_HEADING, text_color=TEXT_PRIMARY, anchor='w',
+        ).grid(row=1, column=0, padx=PAD_LG, pady=(PAD_SM, 2), sticky='w')
+
+        ctk.CTkLabel(
+            self._card_primary,
+            text='La base de datos vive en esta PC.\nBackup y sync a la nube incluidos.',
+            font=FONT_BODY, text_color=TEXT_MUTED, anchor='w',
+            justify='left', wraplength=210,
+        ).grid(row=2, column=0, padx=PAD_LG, pady=(0, PAD_MD), sticky='w')
+
+        for i, feat in enumerate([
+            '✓  Gestión completa del negocio',
+            '✓  Reportes y estadísticas',
+            '✓  Backup automático diario',
+            '✓  Sync a la nube (plan cloud)',
+        ]):
+            ctk.CTkLabel(
+                self._card_primary, text=feat,
+                font=FONT_BODY, text_color=TEXT_SECONDARY, anchor='w',
+            ).grid(row=3 + i, column=0, padx=PAD_LG, pady=(0, PAD_XS), sticky='w')
+
+        ctk.CTkFrame(self._card_primary, height=PAD_MD, fg_color='transparent').grid(row=7, column=0)
+
+        self._btn_sel_primary = ctk.CTkButton(
+            self._card_primary,
+            text='🖥️  Usar como Terminal Principal',
+            height=46, corner_radius=10, font=FONT_BODY_BOLD,
+            fg_color=ACCENT_DIM, hover_color=ACCENT,
+            text_color=ACCENT_TEXT, border_width=2, border_color=ACCENT,
+            command=self._select_primary_terminal,
+        )
+        self._btn_sel_primary.grid(row=8, column=0, padx=PAD_LG, pady=(0, PAD_LG), sticky='ew')
+
+        # ── Card Terminal Cajero ──────────────────────────────────────────
+        self._card_cashier = ctk.CTkFrame(
+            cards_row, fg_color=SURFACE2, corner_radius=16,
+            border_width=1, border_color=BORDER,
+        )
+        self._card_cashier.grid(row=0, column=1, sticky='nsew', padx=(PAD_MD, 0))
+        self._card_cashier.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            self._card_cashier, text='🔗',
+            font=(FONT_FAMILY, 34), anchor='w',
+        ).grid(row=0, column=0, padx=PAD_LG, pady=(PAD_LG, 0), sticky='w')
+
+        ctk.CTkLabel(
+            self._card_cashier, text='Terminal Cajero',
+            font=FONT_HEADING, text_color=TEXT_PRIMARY, anchor='w',
+        ).grid(row=1, column=0, padx=PAD_LG, pady=(PAD_SM, 2), sticky='w')
+
+        ctk.CTkLabel(
+            self._card_cashier,
+            text='Se conecta a la base de datos\nde la Terminal Principal por red local.',
+            font=FONT_BODY, text_color=TEXT_MUTED, anchor='w',
+            justify='left', wraplength=210,
+        ).grid(row=2, column=0, padx=PAD_LG, pady=(0, PAD_MD), sticky='w')
+
+        for i, (feat, ok) in enumerate([
+            ('✓  Ventas y cobros', True),
+            ('✓  Consulta de precios y stock', True),
+            ('✓  Historial del turno', True),
+            ('✗  Sin reportes ni backup', False),
+        ]):
+            ctk.CTkLabel(
+                self._card_cashier, text=feat,
+                font=FONT_BODY, text_color=TEXT_SECONDARY if ok else TEXT_MUTED,
+                anchor='w',
+            ).grid(row=3 + i, column=0, padx=PAD_LG, pady=(0, PAD_XS), sticky='w')
+
+        ctk.CTkFrame(self._card_cashier, height=1, fg_color=BORDER).grid(
+            row=7, column=0, sticky='ew', padx=PAD_LG, pady=(PAD_SM, PAD_SM)
+        )
+
+        ctk.CTkLabel(
+            self._card_cashier, text='RUTA A LA BASE DE DATOS',
+            font=FONT_LABEL_BOLD, text_color=TEXT_SECONDARY, anchor='w',
+        ).grid(row=8, column=0, padx=PAD_LG, pady=(0, 2), sticky='w')
+
+        ctk.CTkLabel(
+            self._card_cashier,
+            text='Ruta al pos_system.db en la Terminal Principal (puede ser carpeta de red).',
+            font=FONT_SMALL, text_color=TEXT_MUTED, anchor='w',
+            justify='left', wraplength=220,
+        ).grid(row=9, column=0, padx=PAD_LG, pady=(0, PAD_XS), sticky='w')
+
+        path_row = ctk.CTkFrame(self._card_cashier, fg_color='transparent')
+        path_row.grid(row=10, column=0, sticky='ew', padx=PAD_LG, pady=(0, PAD_SM))
+        path_row.grid_columnconfigure(0, weight=1)
+
+        self._entry_cashier_path = ctk.CTkEntry(
+            path_row,
+            placeholder_text=r'\\PC-PRINCIPAL\POS\pos_system.db',
+            height=36, fg_color=SURFACE3, border_color=BORDER_ACTIVE,
+            text_color=TEXT_PRIMARY, font=FONT_SMALL,
+        )
+        self._entry_cashier_path.grid(row=0, column=0, sticky='ew', padx=(0, PAD_XS))
+        if self._cashier_db_path:
+            self._entry_cashier_path.insert(0, self._cashier_db_path)
+        self._entry_cashier_path.bind('<FocusIn>', lambda e: self._select_cashier_terminal())
+
+        ctk.CTkButton(
+            path_row, text='📁', width=36, height=36,
+            fg_color=SURFACE3, hover_color=SURFACE4,
+            text_color=TEXT_SECONDARY, border_width=1, border_color=BORDER,
+            corner_radius=6, font=FONT_BODY_BOLD,
+            command=self._browse_cashier_db,
+        ).grid(row=0, column=1)
+
+        self._btn_sel_cashier = ctk.CTkButton(
+            self._card_cashier,
+            text='🔗  Usar como Terminal Cajero',
+            height=46, corner_radius=10, font=FONT_BODY_BOLD,
+            fg_color=SURFACE3, hover_color=GREEN,
+            text_color=TEXT_SECONDARY, border_width=2, border_color=BORDER_ACTIVE,
+            command=self._select_cashier_terminal,
+        )
+        self._btn_sel_cashier.grid(row=11, column=0, padx=PAD_LG, pady=(0, PAD_LG), sticky='ew')
+
+        self._lbl_terminal_status = ctk.CTkLabel(
+            scroll, text='', font=FONT_BODY, text_color=TEXT_MUTED,
+        )
+        self._lbl_terminal_status.pack(pady=(PAD_SM, 0))
+
+        # Restaurar selección previa
+        if self._terminal_mode_sel == 'cashier':
+            self._select_cashier_terminal()
+        else:
+            self._select_primary_terminal()
+
+    def _select_primary_terminal(self):
+        self._terminal_mode_sel = 'primary'
+        self._card_primary.configure(border_color=ACCENT, border_width=2)
+        self._btn_sel_primary.configure(fg_color=ACCENT, text_color='white')
+        self._card_cashier.configure(border_color=BORDER, border_width=1)
+        self._btn_sel_cashier.configure(
+            fg_color=SURFACE3, text_color=TEXT_SECONDARY, border_color=BORDER_ACTIVE
+        )
+        self._lbl_terminal_status.configure(
+            text='✓  Terminal Principal seleccionada', text_color=ACCENT_TEXT
+        )
+        self._btn_next.configure(
+            text=_STEP_NEXT_LABELS[1],
+            fg_color=ACCENT_DIM, hover_color=ACCENT,
+            text_color=ACCENT_TEXT, border_color=ACCENT,
+        )
+
+    def _select_cashier_terminal(self):
+        self._terminal_mode_sel = 'cashier'
+        self._card_cashier.configure(border_color=GREEN, border_width=2)
+        self._btn_sel_cashier.configure(
+            fg_color=GREEN, text_color='white', border_color=GREEN
+        )
+        self._card_primary.configure(border_color=BORDER, border_width=1)
+        self._btn_sel_primary.configure(fg_color=ACCENT_DIM, text_color=ACCENT_TEXT)
+        self._lbl_terminal_status.configure(
+            text='✓  Terminal Cajero — ingresá la ruta al archivo de la Terminal Principal',
+            text_color=GREEN_TEXT,
+        )
+        self._btn_next.configure(
+            text='✓  Guardar configuración',
+            fg_color=GREEN_DIM, hover_color=GREEN,
+            text_color=GREEN_TEXT, border_color=GREEN,
+        )
+
+    def _browse_cashier_db(self):
+        from tkinter import filedialog
+        self._select_cashier_terminal()
+        path = filedialog.askopenfilename(
+            title='Seleccionar base de datos de la Terminal Principal',
+            filetypes=[('Base de datos SQLite', '*.db'), ('Todos los archivos', '*.*')],
+        )
+        if path:
+            self._entry_cashier_path.delete(0, 'end')
+            self._entry_cashier_path.insert(0, path)
+
+    def _validate_step_terminal(self) -> bool:
+        if self._terminal_mode_sel == 'primary':
+            return True
+        path = self._entry_cashier_path.get().strip()
+        if not path:
+            self._lbl_terminal_status.configure(
+                text='⚠  Ingresá la ruta a la base de datos de la Terminal Principal',
+                text_color=ORANGE_TEXT,
+            )
+            self._entry_cashier_path.configure(border_color=RED)
+            return False
+        if not os.path.exists(path):
+            self._lbl_terminal_status.configure(
+                text=f'⚠  No se encontró el archivo: {path}',
+                text_color=RED_TEXT,
+            )
+            self._entry_cashier_path.configure(border_color=RED)
+            return False
+        self._cashier_db_path = path
+        return True
+
+    def _finish_cashier(self):
+        """Finaliza el wizard para modo Terminal Cajero (sin licencia ni BD propia)."""
+        if self._busy:
+            return
+        if not self._validate_step_terminal():
+            return
+
+        self._busy = True
+        self._btn_next.configure(state='disabled', text='Guardando…')
+        self._btn_back.configure(state='disabled')
+
+        cfg = _cfg_load()
+        cfg['terminal_mode'] = 'cashier'
+        cfg['db_remote_path'] = self._cashier_db_path
+        _cfg_save(cfg)
+
+        CTkMessagebox(
+            title='Terminal Cajero configurada',
+            message=(
+                f'Esta PC se conectará a:\n{self._cashier_db_path}\n\n'
+                'Asegurate de que la Terminal Principal esté encendida\n'
+                'y accesible en la red antes de iniciar esta terminal.'
+            ),
+            icon='check',
+        ).get()
+
+        self.winfo_toplevel().after(100, self.on_complete_callback)

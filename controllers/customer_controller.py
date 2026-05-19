@@ -208,9 +208,10 @@ class CustomerController(BaseController):
 				if not customer or not customer.is_active:
 					return False, 'Cliente no encontrado o inactivo.'
 
-				# SOLUCIÓN APLICADA: Se remueve la restricción de 'customer.current_balance < amount_dec'
-				# Esto permite que si debe $100 y paga $150, la cuenta quede en -$50 (Saldo a favor)
-				customer.current_balance -= amount_dec
+				# Permite saldo a favor (ej: debe $100, paga $150 → queda en -$50)
+				customer.current_balance = (
+					customer.current_balance or Decimal('0.0')
+				) - amount_dec
 
 				session.add(
 					CashMovement(
@@ -221,13 +222,14 @@ class CustomerController(BaseController):
 					)
 				)
 
+				balance_after = customer.current_balance  # capturar antes del commit (post-commit los atributos expiran)
 				session.commit()
 
 				# Mensaje dinámico según si quedó con saldo a favor o deuda
-				if customer.current_balance < 0:
-					msg = f'Pago registrado. El cliente tiene un saldo A FAVOR de ${abs(customer.current_balance):.2f}'
+				if balance_after < 0:
+					msg = f'Pago registrado. El cliente tiene un saldo A FAVOR de ${abs(balance_after):.2f}'
 				else:
-					msg = f'Pago registrado. Deuda restante: ${customer.current_balance:.2f}'
+					msg = f'Pago registrado. Deuda restante: ${balance_after:.2f}'
 
 				return True, msg
 			except Exception as e:
