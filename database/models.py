@@ -25,7 +25,7 @@ Base = declarative_base()
 class Tenant(Base):
 	__tablename__ = 'tenants'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	name = Column(String, nullable=False)
+	name = Column(String(200), nullable=False)
 	updated_at = Column(
 		DateTime, default=datetime.now, onupdate=datetime.now, index=True
 	)
@@ -40,12 +40,14 @@ class User(Base):
 	__tablename__ = 'users'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
-	username = Column(String, nullable=False)
-	password_hash = Column(String, nullable=False)
-	recovery_pin_hash = Column(String, nullable=True)
-	display_name = Column(String, nullable=True)
-	role = Column(String, default='cajero')
+	username = Column(String(100), nullable=False)
+	password_hash = Column(String(255), nullable=False)
+	recovery_pin_hash = Column(String(255), nullable=True)
+	display_name = Column(String(200), nullable=True)
+	role = Column(String(50), default='cajero')
 	is_active = Column(Boolean, default=True)
+	deleted_at = Column(DateTime, nullable=True)
+	deleted_by = Column(String(36), ForeignKey('users.id'), nullable=True)
 	updated_at = Column(
 		DateTime, default=datetime.now, onupdate=datetime.now, index=True
 	)
@@ -67,8 +69,8 @@ class User(Base):
 class Branch(Base):
 	__tablename__ = 'branches'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	name = Column(String, nullable=False)
-	address = Column(String, nullable=True)
+	name = Column(String(200), nullable=False)
+	address = Column(String(500), nullable=True)
 	is_active = Column(Boolean, default=True)
 	updated_at = Column(
 		DateTime, default=datetime.now, onupdate=datetime.now, index=True
@@ -83,7 +85,7 @@ class Branch(Base):
 class Warehouse(Base):
 	__tablename__ = 'warehouses'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	name = Column(String, nullable=False)
+	name = Column(String(200), nullable=False)
 	is_active = Column(Boolean, default=True)
 	updated_at = Column(
 		DateTime, default=datetime.now, onupdate=datetime.now, index=True
@@ -106,17 +108,19 @@ class Warehouse(Base):
 class Category(Base):
 	__tablename__ = 'categories'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	name = Column(String, nullable=False)
+	name = Column(String(200), nullable=False)
 
 
 class Supplier(Base):
 	__tablename__ = 'suppliers'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	name = Column(String, nullable=False)
-	phone = Column(String, nullable=True)
-	email = Column(String, nullable=True)
-	address = Column(String, nullable=True)
+	name = Column(String(200), nullable=False)
+	phone = Column(String(30), nullable=True)
+	email = Column(String(200), nullable=True)
+	address = Column(String(500), nullable=True)
 	is_active = Column(Boolean, default=True)
+	deleted_at = Column(DateTime, nullable=True)
+	deleted_by = Column(String(36), ForeignKey('users.id'), nullable=True)
 
 	discount_pct = Column(Numeric(5, 2), nullable=True)
 	discount_until = Column(DateTime, nullable=True)
@@ -133,14 +137,16 @@ class Supplier(Base):
 class Article(Base):
 	__tablename__ = 'articles'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	name = Column(String, nullable=False)
-	description = Column(String, nullable=True)
+	name = Column(String(200), nullable=False)
+	description = Column(String(1000), nullable=True)
 
 	min_stock = Column(Integer, default=0)
 	requires_batch = Column(Boolean, default=False)
 	requires_serial = Column(Boolean, default=False)
 	has_variants = Column(Boolean, default=False)
 	is_active = Column(Boolean, default=True)
+	deleted_at = Column(DateTime, nullable=True)
+	deleted_by = Column(String(36), ForeignKey('users.id'), nullable=True)
 
 	updated_at = Column(
 		DateTime, default=datetime.now, onupdate=datetime.now, index=True
@@ -166,10 +172,10 @@ class ArticleVariant(Base):
 	__tablename__ = 'article_variants'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
-	barcode = Column(String, nullable=True, index=True)
+	barcode = Column(String(100), nullable=True, index=True)
 
-	attribute_1 = Column(String, nullable=True)
-	attribute_2 = Column(String, nullable=True)
+	attribute_1 = Column(String(200), nullable=True)
+	attribute_2 = Column(String(200), nullable=True)
 
 	cost_price = Column(Numeric(10, 2), nullable=False)
 	selling_price = Column(Numeric(10, 2), nullable=False)
@@ -179,10 +185,10 @@ class ArticleVariant(Base):
 
 	is_combo = Column(Boolean, default=False)
 	show_on_touch = Column(Boolean, default=False)
-	btn_color = Column(String, default='#1f538d')
+	btn_color = Column(String(20), default='#1f538d')
 
 	units_per_pack = Column(Integer, default=1)
-	pack_label = Column(String, nullable=True)
+	pack_label = Column(String(100), nullable=True)
 	base_variant_id = Column(
 		String(36), ForeignKey('article_variants.id'), nullable=True, index=True
 	)
@@ -223,8 +229,8 @@ class ArticleHistory(Base):
 	user_id = Column(String(36), ForeignKey('users.id'), nullable=False)
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 
-	action_type = Column(String, nullable=False)
-	article_name = Column(String, nullable=False)
+	action_type = Column(String(50), nullable=False)
+	article_name = Column(String(200), nullable=False)
 	variant_id = Column(
 		String(36), ForeignKey('article_variants.id'), nullable=True, index=True
 	)
@@ -246,9 +252,9 @@ class Stock(Base):
 
 	quantity = Column(Numeric(12, 4), default=0.0)
 
-	batch_number = Column(String, nullable=True, index=True)
+	batch_number = Column(String(100), nullable=True, index=True)
 	expiration_date = Column(Date, nullable=True)
-	serial_number = Column(String, unique=True, nullable=True)
+	serial_number = Column(String(200), unique=True, nullable=True)
 
 	updated_at = Column(
 		DateTime, default=datetime.now, onupdate=datetime.now, index=True
@@ -274,9 +280,9 @@ class StockMovement(Base):
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	date = Column(DateTime, default=datetime.now, index=True)
 
-	movement_type = Column(String, nullable=False)
+	movement_type = Column(String(50), nullable=False)
 	quantity = Column(Numeric(12, 4), nullable=False)
-	reference = Column(String, nullable=True)
+	reference = Column(String(200), nullable=True)
 
 	source_warehouse_id = Column(String(36), ForeignKey('warehouses.id'), nullable=True)
 	dest_warehouse_id = Column(String(36), ForeignKey('warehouses.id'), nullable=True)
@@ -300,11 +306,13 @@ class StockMovement(Base):
 class Customer(Base):
 	__tablename__ = 'customers'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	name = Column(String, nullable=False)
-	phone = Column(String, nullable=True)
+	name = Column(String(200), nullable=False)
+	phone = Column(String(30), nullable=True)
 	current_balance = Column(Numeric(10, 2), default=0.0)
-	price_list = Column(String, default='A')
+	price_list = Column(String(10), default='A')
 	is_active = Column(Boolean, default=True)
+	deleted_at = Column(DateTime, nullable=True)
+	deleted_by = Column(String(36), ForeignKey('users.id'), nullable=True)
 
 	updated_at = Column(
 		DateTime, default=datetime.now, onupdate=datetime.now, index=True
@@ -322,7 +330,6 @@ class Sale(Base):
 	date = Column(DateTime, default=datetime.now, index=True)
 	total_amount = Column(Numeric(10, 2), nullable=False)
 	discount_amount = Column(Numeric(10, 2), default=0.0)
-	payment_method_2 = Column(String, nullable=True)
 	amount_method_2 = Column(Numeric(10, 2), nullable=True)
 	# amount_method_1 almacena el monto del primer método en pagos mixtos.
 	# Evita reconstruirlo desde descripciones de CashMovement en devoluciones.
@@ -330,9 +337,10 @@ class Sale(Base):
 	# total_returned acumula el monto ya devuelto. No mutar total_amount.
 	total_returned = Column(Numeric(10, 2), nullable=False, default=0.0)
 	profit = Column(Numeric(10, 2), nullable=False)
-	payment_method = Column(String, default='efectivo')
-	status = Column(String, default='completada', index=True)
-	quotation_number = Column(String, nullable=True)
+	payment_method = Column(String(50), default='efectivo')
+	payment_method_2 = Column(String(50), nullable=True)
+	status = Column(String(50), default='completada', index=True)
+	quotation_number = Column(String(50), nullable=True)
 
 	updated_at = Column(
 		DateTime, default=datetime.now, onupdate=datetime.now, index=True
@@ -357,6 +365,7 @@ class Sale(Base):
 		CheckConstraint('total_amount >= 0', name='chk_sale_total_positive'),
 		CheckConstraint('discount_amount >= 0', name='chk_sale_discount_positive'),
 		CheckConstraint('total_returned >= 0', name='chk_sale_total_returned_positive'),
+		CheckConstraint('total_returned <= total_amount', name='chk_sale_returned_lte_total'),
 	)
 
 
@@ -367,7 +376,7 @@ class SaleDetail(Base):
 	unit_cost = Column(Numeric(10, 2), nullable=False)
 	unit_price = Column(Numeric(10, 2), nullable=False)
 	subtotal = Column(Numeric(10, 2), nullable=False)
-	description = Column(String, nullable=False)
+	description = Column(String(500), nullable=False)
 	returned_quantity = Column(Numeric(12, 4), nullable=False, default=0.0)
 
 	# updated_at doubles as created_at for this append-only table
@@ -408,9 +417,9 @@ class CashSession(Base):
 class CashMovement(Base):
 	__tablename__ = 'cash_movements'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	movement_type = Column(String, nullable=False)
+	movement_type = Column(String(50), nullable=False)
 	amount = Column(Numeric(10, 2), nullable=False)
-	description = Column(String, nullable=True)
+	description = Column(String(500), nullable=True)
 	time = Column(DateTime, default=datetime.now)
 	updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
 
@@ -418,6 +427,10 @@ class CashMovement(Base):
 		String(36), ForeignKey('cash_sessions.id'), nullable=False, index=True
 	)
 	session = relationship('CashSession', back_populates='movements')
+
+	# FK directa al cliente — evita búsquedas frágiles por texto en get_customer_ledger
+	customer_id = Column(String(36), ForeignKey('customers.id'), nullable=True, index=True)
+	customer = relationship('Customer', foreign_keys=[customer_id])
 
 	__table_args__ = (
 		CheckConstraint('amount > 0', name='chk_cash_amount_positive'),
@@ -433,8 +446,8 @@ class Purchase(Base):
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	date = Column(DateTime, default=datetime.now, index=True)
 	total_amount = Column(Numeric(10, 2), nullable=False)
-	invoice_number = Column(String, nullable=True)
-	status = Column(String, default='pagada')
+	invoice_number = Column(String(100), nullable=True)
+	status = Column(String(50), default='pagada')
 
 	updated_at = Column(
 		DateTime, default=datetime.now, onupdate=datetime.now, index=True
@@ -462,7 +475,7 @@ class PurchaseDetail(Base):
 	quantity = Column(Numeric(12, 4), nullable=False)
 	unit_cost = Column(Numeric(10, 2), nullable=False)
 	subtotal = Column(Numeric(10, 2), nullable=False)
-	description = Column(String, nullable=False)
+	description = Column(String(500), nullable=False)
 
 	purchase_id = Column(
 		String(36), ForeignKey('purchases.id'), nullable=False, index=True
@@ -479,11 +492,11 @@ class PurchaseReturn(Base):
 	__tablename__ = 'purchase_returns'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	date = Column(DateTime, default=datetime.now, index=True)
-	reason = Column(String, nullable=False)
-	refund_type = Column(String, nullable=False)
+	reason = Column(String(200), nullable=False)
+	refund_type = Column(String(50), nullable=False)
 	total_refund = Column(Numeric(10, 2), nullable=False)
-	notes = Column(String, nullable=True)
-	file_path = Column(String, nullable=True)
+	notes = Column(String(1000), nullable=True)
+	file_path = Column(String(500), nullable=True)
 
 	purchase_id = Column(
 		String(36), ForeignKey('purchases.id'), nullable=False, index=True
@@ -506,7 +519,7 @@ class PurchaseReturnItem(Base):
 	quantity_returned = Column(Numeric(12, 4), nullable=False)
 	unit_cost = Column(Numeric(10, 2), nullable=False)
 	subtotal = Column(Numeric(10, 2), nullable=False)
-	description = Column(String, nullable=False)
+	description = Column(String(500), nullable=False)
 
 	purchase_return_id = Column(
 		String(36), ForeignKey('purchase_returns.id'), nullable=False, index=True
@@ -537,6 +550,11 @@ class ComboItem(Base):
 	)
 	ingredient = relationship('ArticleVariant', foreign_keys=[ingredient_id])
 
+	__table_args__ = (
+		UniqueConstraint('combo_id', 'ingredient_id', name='uq_combo_ingredient'),
+		CheckConstraint('quantity_required > 0', name='chk_combo_qty_positive'),
+	)
+
 
 # ==========================================
 # 7. COTIZACIONES / PRESUPUESTOS
@@ -545,14 +563,14 @@ class Quotation(Base):
 	__tablename__ = 'quotations'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
-	number = Column(String, nullable=False)
+	number = Column(String(50), nullable=False)
 	date = Column(DateTime, default=datetime.now, index=True)
 	valid_until = Column(Date, nullable=True)
-	status = Column(String, default='borrador')
+	status = Column(String(50), default='borrador')
 
 	total_amount = Column(Numeric(10, 2), nullable=False, default=0)
 	discount_amount = Column(Numeric(10, 2), default=0)
-	notes = Column(String, nullable=True)
+	notes = Column(String(1000), nullable=True)
 
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 	user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
@@ -575,7 +593,7 @@ class QuotationItem(Base):
 	__tablename__ = 'quotation_items'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
-	description = Column(String, nullable=False)
+	description = Column(String(500), nullable=False)
 	quantity = Column(Numeric(12, 4), nullable=False)
 	unit_price = Column(Numeric(10, 2), nullable=False)
 	subtotal = Column(Numeric(10, 2), nullable=False)
@@ -597,11 +615,11 @@ class Promotion(Base):
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
-	name = Column(String, nullable=False)
+	name = Column(String(200), nullable=False)
 	is_active = Column(Boolean, default=True)
 
 	# 'pct' = descuento %, 'nxm' = lleva N paga M, 'fixed' = precio fijo especial
-	promo_type = Column(String, nullable=False)
+	promo_type = Column(String(50), nullable=False)
 	discount_value = Column(
 		Numeric(10, 2), nullable=True
 	)  # % para pct, precio para fixed
@@ -618,9 +636,9 @@ class Promotion(Base):
 	date_from = Column(DateTime, nullable=False)
 	date_to = Column(DateTime, nullable=False)
 	# "0,1,2,3,4,5,6" donde 0=Lunes (Python weekday)
-	days_of_week = Column(String, nullable=True)
-	time_from = Column(String, nullable=True)  # "HH:MM"
-	time_to = Column(String, nullable=True)  # "HH:MM"
+	days_of_week = Column(String(20), nullable=True)
+	time_from = Column(String(10), nullable=True)  # "HH:MM"
+	time_to = Column(String(10), nullable=True)  # "HH:MM"
 
 	updated_at = Column(
 		DateTime, default=datetime.now, onupdate=datetime.now, index=True

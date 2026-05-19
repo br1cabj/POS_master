@@ -219,6 +219,7 @@ class CustomerController(BaseController):
 						movement_type='ingreso',
 						amount=amount_dec,
 						description=f'Abono de Cuenta Corriente: {customer.name} [cid:{customer_id}]',
+						customer_id=customer_id,
 					)
 				)
 
@@ -270,8 +271,8 @@ class CustomerController(BaseController):
 				if not customer:
 					return []
 
-				# 2. Buscar los abonos/pagos. Se busca por ID de cliente (nuevo formato)
-				# y por nombre (compatibilidad con registros anteriores al fix).
+				# 2. Buscar abonos/pagos: FK directa (registros nuevos) + ILIKE (registros
+				# anteriores a v26 que no tienen customer_id).
 				id_filter = f'%[cid:{customer_id}]%'
 				name_filter = f'%Abono de Cuenta Corriente: {customer.name}%'
 				payments = (
@@ -280,10 +281,12 @@ class CustomerController(BaseController):
 					.filter(
 						CashSession.tenant_id == tenant_id,
 						(
-							CashMovement.description.ilike(id_filter)
+							CashMovement.customer_id == customer_id
+							| CashMovement.description.ilike(id_filter)
 							| CashMovement.description.ilike(name_filter)
 						),
 					)
+					.distinct()
 					.all()
 				)
 

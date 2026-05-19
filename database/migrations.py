@@ -109,6 +109,9 @@ def run_migrations(engine) -> None:
 	_v21_create_combo_items(engine)
 	_v22_create_article_history(engine)
 	_v23_add_updated_at_cash_tables(engine)
+	_v24_unique_combo_ingredient(engine)
+	_v25_add_deleted_at_columns(engine)
+	_v26_add_customer_id_to_cash_movements(engine)
 
 
 def setup_cloud_schema(engine) -> None:
@@ -707,3 +710,62 @@ def _v23_add_updated_at_cash_tables(engine) -> None:
 				logger.warning('Could not create index on %s.updated_at: %s', table, e)
 		conn.commit()
 		logger.info('v23: updated_at en cash_sessions y cash_movements listo.')
+
+
+# ─── v24: unique index en combo_items ────────────────────────────────────────
+
+
+def _v24_unique_combo_ingredient(engine) -> None:
+	"""v24: Garantiza que (combo_id, ingredient_id) sea único en combo_items."""
+	with engine.connect() as conn:
+		try:
+			conn.execute(
+				text(
+					'CREATE UNIQUE INDEX IF NOT EXISTS uq_combo_ingredient ON combo_items(combo_id, ingredient_id)'
+				)
+			)
+			conn.commit()
+			logger.info('v24: índice único uq_combo_ingredient listo.')
+		except Exception as e:
+			logger.error('v24 failed: %s', e)
+			raise
+
+
+# ─── v25: deleted_at / deleted_by para soft-delete ───────────────────────────
+
+
+def _v25_add_deleted_at_columns(engine) -> None:
+	"""v25: Agrega deleted_at y deleted_by a las tablas que soportan soft-delete."""
+	_TABLES = ['customers', 'articles', 'article_variants', 'suppliers', 'users']
+	with engine.connect() as conn:
+		for table in _TABLES:
+			_add_column_if_missing(conn, engine, table, 'deleted_at', 'DATETIME DEFAULT NULL')
+			_add_column_if_missing(
+				conn, engine, table, 'deleted_by', 'VARCHAR(36) DEFAULT NULL'
+			)
+	logger.info('v25: columnas deleted_at/deleted_by listas.')
+
+
+# ─── v26: customer_id en cash_movements ──────────────────────────────────────
+
+
+def _v26_add_customer_id_to_cash_movements(engine) -> None:
+	"""v26: FK customer_id en cash_movements para reemplazar búsquedas ILIKE en el libro mayor."""
+	with engine.connect() as conn:
+		_add_column_if_missing(
+			conn,
+			engine,
+			'cash_movements',
+			'customer_id',
+			'VARCHAR(36) DEFAULT NULL REFERENCES customers(id)',
+		)
+		try:
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_cash_movements_customer_id ON cash_movements(customer_id)'
+				)
+			)
+			conn.commit()
+		except Exception as e:
+			logger.warning('v26: no se pudo crear índice customer_id: %s', e)
+	logger.info('v26: customer_id en cash_movements listo.')
