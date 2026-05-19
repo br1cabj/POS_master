@@ -91,6 +91,11 @@ class LabelController:
 		os.makedirs(self._tmp_dir, exist_ok=True)
 		self._bc_cache: dict = {}
 
+	@staticmethod
+	def generate_internal_barcode() -> str:
+		"""Genera un código Code128 interno único para artículos sin EAN."""
+		return 'INT' + uuid.uuid4().hex[:11].upper()
+
 	def _generate_barcode_png(self, code: str) -> Optional[str]:
 		if not code or not str(code).strip():
 			return None
@@ -282,7 +287,7 @@ class LabelController:
 		
 		if is_offer:
 			pdf.set_xy(0, 0)
-			pdf.cell(W, HEADER_H, '🔥 ¡OFERTA IMPERDIBLE! 🔥', align='C')
+			pdf.cell(W, HEADER_H, '* OFERTA IMPERDIBLE *', align='C')
 		else:
 			header_txt = mode_label if mode_label else company[:20] if company else 'CloudPOS'
 			pdf.cell(LEFT_W - 2, HEADER_H, _sanitize(header_txt).upper(), align='L')

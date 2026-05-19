@@ -127,14 +127,41 @@ class LabelView(BaseView):
 			fg_color='transparent',
 			scrollbar_button_color=SURFACE3,
 		)
-		self._catalog_frame.grid(row=2, column=0, sticky='nsew', padx=PAD_SM, pady=(0, PAD_MD))
+		self._catalog_frame.grid(row=2, column=0, sticky='nsew', padx=PAD_SM, pady=(0, PAD_SM))
 		self._catalog_frame.grid_columnconfigure(0, weight=1)
+
+		action_bar = ctk.CTkFrame(left, fg_color='transparent')
+		action_bar.grid(row=3, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_MD))
+		action_bar.grid_columnconfigure(0, weight=1)
+		action_bar.grid_columnconfigure(1, weight=1)
+
+		ctk.CTkButton(
+			action_bar,
+			text='✓  Seleccionados',
+			height=32,
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			font=FONT_LABEL_BOLD,
+			command=self._add_selected_to_queue,
+		).grid(row=0, column=0, sticky='ew', padx=(0, PAD_XS))
+
+		ctk.CTkButton(
+			action_bar,
+			text='✎  Artículo manual',
+			height=32,
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_SECONDARY,
+			font=FONT_LABEL_BOLD,
+			command=self._open_custom_article_dialog,
+		).grid(row=0, column=1, sticky='ew', padx=(PAD_XS, 0))
 
 	def _build_center(self):
 		# Panel de Cola de Impresión (Bento 2)
 		center = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=12, border_width=1, border_color=BORDER)
 		center.grid(row=0, column=1, sticky='nsew', padx=PAD_SM, pady=PAD_MD)
-		center.grid_rowconfigure(2, weight=1)
+		center.grid_rowconfigure(3, weight=1)
 		center.grid_columnconfigure(0, weight=1)
 
 		hdr = ctk.CTkFrame(center, fg_color='transparent')
@@ -248,6 +275,7 @@ class LabelView(BaseView):
 			except: pass
 		
 		# Reset internal widget references
+		self._pw_header = None
 		self._pw_brand = None
 		self._pw_name = None
 		self._pw_price = None
@@ -320,58 +348,58 @@ class LabelView(BaseView):
 		self._update_live_preview()
 
 	def _update_live_preview(self):
-		if not self.winfo_exists(): return
-		if not all([getattr(self, attr, None) for attr in ['_pw_brand', '_pw_name', '_pw_price']]):
+		if not self.winfo_exists():
 			return
-			
+		if not getattr(self, '_pw_name', None) or not getattr(self, '_pw_price', None):
+			return
 		try:
-			if not self._pw_name.winfo_exists(): return
-		except: return
-		
-		# Tomamos el primero de la cola o un placeholder
+			if not self._pw_name.winfo_exists():
+				return
+		except Exception:
+			return
+
 		item = self._queue[0] if self._queue else {
 			'name': 'Producto de Ejemplo',
 			'price': 1250.0,
-			'barcode': '123456789',
+			'barcode': '1234567890',
 			'price_mode': 'retail',
 			'discount_price': None,
-			'discount_until': ''
+			'discount_until': '',
 		}
-		
-		cfg = _cfg_mgr.load()
-		company = cfg.get('company_name', 'MI NEGOCIO')
-		
-		is_offer = bool(item.get('discount_price'))
-		
-		try:
-			# Reset visual styles
-			self._pw_header.configure(fg_color='#1e293b')
-			self._pw_brand.configure(text=company[:15].upper(), text_color='white')
-			self._pw_name.configure(text=item.get('name', 'Producto')[:30], text_color='black')
-			
-			price = self._get_item_display_price(item)
-			self._pw_price.configure(text=fmt_price(price), text_color='#0f172a')
-			
-			# Mostrar fecha si existe
-			if hasattr(self, '_pw_footer'):
-				for child in self._pw_footer.winfo_children():
-					if 'IVA INCLUIDO' in child.cget('text') or 'PROMO' in child.cget('text'):
-						txt = 'IVA INCLUIDO'
-						if is_offer: txt = f"PROMO HASTA: {item.get('discount_until', '')}"
-						child.configure(text=txt)
 
-			# Estilo "OFERTA"
-			if is_offer:
-				self._pw_header.configure(fg_color='#dc2626') # Red 600
-				self._pw_brand.configure(text='🔥 ¡OFERTA! 🔥')
-				self._pw_price.configure(text_color='#dc2626')
-				
-				# Simular tachado si podemos (usando un label adicional o cambiando texto)
-				orig_price = item.get('price', 0)
-				self._pw_name.configure(text=f"{item.get('name', 'Producto')[:20]}\n(Antes: {fmt_price(orig_price)})")
-			
+		cfg = _cfg_mgr.load()
+		company = cfg.get('company_name', 'MI NEGOCIO')[:15].upper()
+		is_offer = bool(item.get('discount_price'))
+		price = self._get_item_display_price(item)
+		disc = item.get('discount_price')
+		p_final = disc if (is_offer and disc) else price
+		name_txt = item.get('name', 'Producto')[:30]
+
+		try:
+			self._pw_name.configure(text=name_txt, text_color='black')
+			self._pw_price.configure(
+				text=fmt_price(p_final),
+				text_color='#dc2626' if is_offer else '#0f172a',
+			)
+
+			header = getattr(self, '_pw_header', None)
+			if header:
+				try:
+					if header.winfo_exists():
+						header.configure(fg_color='#dc2626' if is_offer else '#1e293b')
+				except Exception:
+					pass
+
+			brand = getattr(self, '_pw_brand', None)
+			if brand:
+				try:
+					if brand.winfo_exists():
+						brand.configure(text='¡OFERTA!' if is_offer else company)
+				except Exception:
+					pass
+
 		except Exception as e:
-			logger.error(f"Error updating preview: {e}")
+			logger.debug('Preview update error: %s', e)
 
 	def _select_template(self, key: str):
 		self._tpl_key = key
@@ -683,6 +711,106 @@ class LabelView(BaseView):
 			self._add_one_to_queue(v, render=False)
 		self._render_queue()
 
+	def _open_custom_article_dialog(self):
+		if hasattr(self, '_custom_dialog'):
+			try:
+				if self._custom_dialog.winfo_exists():
+					self._custom_dialog.focus()
+					return
+			except Exception:
+				pass
+
+		dlg = ctk.CTkToplevel(self)
+		dlg.title('Artículo manual')
+		dlg.geometry('440x290')
+		dlg.grab_set()
+		dlg.resizable(False, False)
+		self._custom_dialog = dlg
+
+		frame = ctk.CTkFrame(dlg, fg_color=SURFACE1)
+		frame.pack(fill='both', expand=True, padx=PAD_MD, pady=PAD_MD)
+		frame.grid_columnconfigure(1, weight=1)
+
+		ctk.CTkLabel(frame, text='Nombre:', font=FONT_LABEL_BOLD, text_color=TEXT_PRIMARY, anchor='w').grid(
+			row=0, column=0, sticky='w', padx=(PAD_MD, PAD_SM), pady=(PAD_MD, PAD_XS)
+		)
+		entry_name = ctk.CTkEntry(frame, placeholder_text='Ej: Sandwich de miga', height=34, font=FONT_BODY)
+		entry_name.grid(row=0, column=1, sticky='ew', padx=(0, PAD_MD), pady=(PAD_MD, PAD_XS))
+
+		ctk.CTkLabel(frame, text='Precio:', font=FONT_LABEL_BOLD, text_color=TEXT_PRIMARY, anchor='w').grid(
+			row=1, column=0, sticky='w', padx=(PAD_MD, PAD_SM), pady=PAD_XS
+		)
+		entry_price = ctk.CTkEntry(frame, placeholder_text='0.00', height=34, font=FONT_BODY)
+		entry_price.grid(row=1, column=1, sticky='ew', padx=(0, PAD_MD), pady=PAD_XS)
+
+		ctk.CTkLabel(frame, text='Código:', font=FONT_LABEL_BOLD, text_color=TEXT_PRIMARY, anchor='w').grid(
+			row=2, column=0, sticky='w', padx=(PAD_MD, PAD_SM), pady=PAD_XS
+		)
+		bc_row = ctk.CTkFrame(frame, fg_color='transparent')
+		bc_row.grid(row=2, column=1, sticky='ew', padx=(0, PAD_MD), pady=PAD_XS)
+		bc_row.grid_columnconfigure(0, weight=1)
+
+		entry_bc = ctk.CTkEntry(bc_row, height=34, font=FONT_BODY_BOLD)
+		entry_bc.insert(0, self._ctrl.generate_internal_barcode())
+		entry_bc.grid(row=0, column=0, sticky='ew')
+
+		ctk.CTkButton(
+			bc_row, text='↻', width=36, height=34,
+			fg_color=SURFACE3, hover_color=ACCENT_DIM, font=FONT_BODY_BOLD, text_color=TEXT_PRIMARY,
+			command=lambda: (entry_bc.delete(0, 'end'), entry_bc.insert(0, self._ctrl.generate_internal_barcode())),
+		).grid(row=0, column=1, padx=(PAD_XS, 0))
+
+		ctk.CTkLabel(frame, text='Copias:', font=FONT_LABEL_BOLD, text_color=TEXT_PRIMARY, anchor='w').grid(
+			row=3, column=0, sticky='w', padx=(PAD_MD, PAD_SM), pady=PAD_XS
+		)
+		entry_copies = ctk.CTkEntry(frame, placeholder_text='1', height=34, font=FONT_BODY)
+		entry_copies.insert(0, '1')
+		entry_copies.grid(row=3, column=1, sticky='ew', padx=(0, PAD_MD), pady=PAD_XS)
+
+		def _confirm():
+			name = entry_name.get().strip()
+			if not name:
+				entry_name.configure(border_color=RED)
+				return
+			try:
+				price_val = float(entry_price.get().replace(',', '.'))
+			except ValueError:
+				entry_price.configure(border_color=RED)
+				return
+			bc = entry_bc.get().strip() or self._ctrl.generate_internal_barcode()
+			try:
+				copies_val = max(1, int(entry_copies.get()))
+			except ValueError:
+				copies_val = 1
+			mode = getattr(self, '_current_price_mode', 'retail')
+			new_item = {
+				'variant_id': f'manual_{bc}',
+				'name': name,
+				'attribute': '',
+				'barcode': bc,
+				'price': price_val,
+				'selling_price_b': None,
+				'display': name,
+				'copies': copies_val,
+				'price_mode': mode,
+			}
+			existing = next((x for x in self._queue if x['variant_id'] == new_item['variant_id']), None)
+			if existing:
+				existing['copies'] += copies_val
+			else:
+				self._queue.append(new_item)
+			self._render_queue()
+			dlg.destroy()
+
+		ctk.CTkButton(
+			frame, text='Agregar a cola de impresión',
+			height=40, fg_color=GREEN, hover_color=GREEN_HOVER, font=FONT_BODY_BOLD,
+			command=_confirm,
+		).grid(row=4, column=0, columnspan=2, sticky='ew', padx=PAD_MD, pady=(PAD_MD, PAD_SM))
+
+		entry_name.focus()
+		dlg.bind('<Return>', lambda e: _confirm())
+
 	def _add_one_to_queue(self, variant: dict, render: bool = True):
 		for item in self._queue:
 			if item['variant_id'] == variant['variant_id']:
@@ -691,7 +819,10 @@ class LabelView(BaseView):
 					self._render_queue()
 				return
 		mode = getattr(self, '_current_price_mode', 'retail')
-		self._queue.append({**variant, 'copies': 1, 'price_mode': mode})
+		entry = {**variant, 'copies': 1, 'price_mode': mode}
+		if not entry.get('barcode'):
+			entry['barcode'] = self._ctrl.generate_internal_barcode()
+		self._queue.append(entry)
 		if render:
 			self._render_queue()
 
