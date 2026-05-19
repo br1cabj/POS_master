@@ -168,6 +168,8 @@ class SalesView(BaseView):
 		self.entry_barcode.bind('<Return>', self._barcode_on_enter)
 		self.entry_barcode.bind('<KeyRelease>', self._barcode_on_key)
 		self.entry_barcode.bind('<FocusOut>', self._on_search_entry_focus_out)
+		# Escape sobre el campo de búsqueda: limpia sin afectar el binding global del dashboard
+		self.entry_barcode.bind('<Escape>', lambda e: self._clear_search())
 		self.entry_manual_search = self.entry_barcode
 
 		bottom_search = ctk.CTkFrame(search_zone, fg_color='transparent')
@@ -1307,17 +1309,41 @@ class SalesView(BaseView):
 
 	def _update_dropdown(self):
 		self._barcode_timer = None
-		q = self.entry_barcode.get().strip().lower()
+		q = self.entry_barcode.get().strip()
 		if not q:
 			self._close_dropdown()
 			return
-		matches = [
-			v
-			for v in self.db_variants
-			if q in (v.get('name') or '').lower() or q in str(v.get('barcode') or '')
-		][:10]
+
+		if self._search_mode == 'search':
+			# Búsqueda incremental en el backend — no filtra el catálogo completo en memoria
+			tenant_id = self.ctx.tenant_id
+			def _fetch(query=q):
+				matches = self.sales_ctrl.search_articles(tenant_id, query, limit=50)
+				if self.winfo_exists():
+					self.after(0, lambda m=matches, qq=query: self._show_search_results(qq, m))
+			threading.Thread(target=_fetch, daemon=True, name='ArtSearch').start()
+		else:
+			q_lower = q.lower()
+			matches = [
+				v
+				for v in self.db_variants
+				if q_lower in (v.get('name') or '').lower()
+				or q_lower in str(v.get('barcode') or '')
+			][:10]
+			if matches:
+				self._open_dropdown(matches)
+			else:
+				self._close_dropdown()
+
+	def _show_search_results(self, query: str, matches: list):
+		"""Callback del thread de búsqueda — descarta resultados obsoletos."""
+		if not self.winfo_exists():
+			return
+		current = self.entry_barcode.get().strip()
+		if current != query:
+			return
 		if matches:
-			self._open_dropdown(matches)
+			self._open_dropdown(matches[:10])
 		else:
 			self._close_dropdown()
 
@@ -2589,6 +2615,10 @@ class SalesView(BaseView):
 		top.bind(
 			'<F5>', lambda e: self.process_sale() if self.winfo_ismapped() else None
 		)
+		# F10 como alias de F5 para cobrar (más accesible en teclados estándar)
+		top.bind(
+			'<F10>', lambda e: self.process_sale() if self.winfo_ismapped() else None
+		)
 		top.bind(
 			'<F6>',
 			lambda e: (
@@ -2609,14 +2639,19 @@ class SalesView(BaseView):
 			'<Control-Delete>',
 			lambda e: self._confirm_clear_cart() if self.winfo_ismapped() else None,
 		)
-
 		self.bind(
 			'<Destroy>', lambda e: self.destroy_custom() if e.widget is self else None
 		)
 
+	def _clear_search(self):
+		"""Limpia el campo de búsqueda y cierra el dropdown."""
+		if hasattr(self, 'entry_barcode') and self.entry_barcode.winfo_exists():
+			self.entry_barcode.delete(0, 'end')
+		self._close_dropdown()
+
 	def destroy_custom(self):
 		top = self.winfo_toplevel()
-		for key in ('<F5>', '<F6>', '<F7>', '<Delete>', '<Control-Delete>'):
+		for key in ('<F5>', '<F10>', '<F6>', '<F7>', '<Delete>', '<Control-Delete>'):
 			try:
 				top.unbind(key)
 			except tkinter.TclError:

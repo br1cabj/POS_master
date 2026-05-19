@@ -397,6 +397,23 @@ class MainDashboard(ctk.CTkFrame):
 		area_container = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=0)
 		area_container.pack(side='right', fill='both', expand=True)
 
+		# Banner de modo offline — visible solo cuando el cajero opera sin red
+		if getattr(self.ctx, 'offline_mode', False):
+			offline_banner = ctk.CTkFrame(
+				area_container,
+				fg_color='#7D3C00',
+				corner_radius=0,
+				height=28,
+			)
+			offline_banner.pack(side='top', fill='x')
+			offline_banner.pack_propagate(False)
+			ctk.CTkLabel(
+				offline_banner,
+				text='📴  MODO SIN CONEXIÓN — Las ventas se guardan localmente. Reconectá la red y reiniciá para sincronizar.',
+				font=('Arial', 9, 'bold'),
+				text_color='#F5CBA7',
+			).pack(side='left', padx=12, pady=4)
+
 		self._build_shortcuts_bar(area_container)
 
 		self.main_area = ctk.CTkFrame(
@@ -445,6 +462,41 @@ class MainDashboard(ctk.CTkFrame):
 			bar, text='', font=('Arial', 9, 'italic'), text_color=TEXT_MUTED
 		)
 		self.lbl_view_shortcuts.pack(side='right', padx=12)
+
+		# ── Indicador de sync ──────────────────────────────────────────────────
+		self.lbl_sync = ctk.CTkLabel(
+			bar, text='', font=('Arial', 9), text_color=TEXT_MUTED, cursor='hand2'
+		)
+		self.lbl_sync.pack(side='right', padx=(0, 8))
+		self.lbl_sync.bind('<Button-1>', lambda e: self._go_to_sync())
+		self._sync_job = None
+		self.after(5000, self._refresh_sync_indicator)
+
+	def _refresh_sync_indicator(self):
+		if not self.winfo_exists():
+			return
+		worker = getattr(self.ctx, 'sync_worker', None)
+		if worker is None or not worker.is_running:
+			# Sync no configurado o no corriendo — ocultar el indicador
+			if hasattr(self, 'lbl_sync'):
+				self.lbl_sync.configure(text='')
+		else:
+			ok = worker.last_sync_ok
+			t = worker.last_sync_time
+			time_str = t.strftime('%H:%M') if t else '–'
+			if ok is None:
+				dot, color = '● Sync pendiente', TEXT_MUTED
+			elif ok:
+				dot, color = f'● Sync {time_str}', '#4CAF50'
+			else:
+				dot, color = '● Sync error', '#E74C3C'
+			if hasattr(self, 'lbl_sync'):
+				self.lbl_sync.configure(text=dot, text_color=color)
+		# Reprogramar cada 30 s
+		self._sync_job = self.after(30000, self._refresh_sync_indicator)
+
+	def _go_to_sync(self):
+		self.safe_switch_view(_DATA_SYNC, requires_admin=True)
 
 	def _setup_global_binds(self):
 		self.master_app.bind('<F1>', lambda e: self.safe_switch_view(_SALES))

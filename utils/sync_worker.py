@@ -174,6 +174,10 @@ class SyncWorker:
             name='CloudSyncWorker',
             daemon=True,
         )
+        # Estado de la última sincronización (leído desde el hilo principal para el indicador)
+        self.last_sync_ok: bool | None = None   # None = nunca sincronizó
+        self.last_sync_time: datetime | None = None
+        self.last_sync_error: str = ''
 
     def start(self) -> None:
         if get_cloud_engine() is None:
@@ -225,6 +229,8 @@ class SyncWorker:
             setup_cloud_schema(cloud_engine)
         except Exception as e:
             logger.error('Cannot set up cloud schema, skipping cycle: %s', e)
+            self.last_sync_ok = False
+            self.last_sync_error = str(e)
             return
 
         state = _load_state()
@@ -284,12 +290,17 @@ class SyncWorker:
                 except Exception as e:
                     logger.error('Upsert failed for %s: %s', table_name, e)
                     cloud.rollback()
+                    self.last_sync_ok = False
+                    self.last_sync_error = f'{table_name}: {e}'
                     # Don't update state for this table so it retries next cycle.
 
         if total_pushed:
             logger.info('Sync complete: %d rows pushed to Supabase.', total_pushed)
 
         _save_state(state)
+        self.last_sync_ok = True
+        self.last_sync_time = datetime.now()
+        self.last_sync_error = ''
 
     # ── public helpers ────────────────────────────────────────────────────────
 

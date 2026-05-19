@@ -299,6 +299,21 @@ class CustomersView(BaseView):
 		)
 		self.btn_toggle_filter.pack(side='right')
 
+		ctk.CTkButton(
+			hdr,
+			text='📊 Excel',
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_MUTED,
+			border_width=1,
+			border_color=BORDER,
+			height=28,
+			width=72,
+			corner_radius=6,
+			cursor='hand2',
+			command=self._export_customers_excel,
+		).pack(side='right', padx=(0, 6))
+
 		self.lbl_total_debt_header = ctk.CTkLabel(
 			hdr,
 			text='',
@@ -750,6 +765,71 @@ class CustomersView(BaseView):
 			self.show_success('PDF generado y abierto correctamente.')
 		else:
 			self.show_error(msg)
+
+	def _export_customers_excel(self):
+		"""Exporta la lista de clientes a un archivo Excel usando openpyxl."""
+		if not self._all_customers:
+			self.show_warning('No hay clientes para exportar.', 'Sin datos')
+			return
+		import os
+		import subprocess
+		from datetime import datetime
+		try:
+			import openpyxl
+			from openpyxl.styles import Font, PatternFill, Alignment
+		except ImportError:
+			self.show_error('openpyxl no está instalado. Verificá las dependencias.')
+			return
+
+		wb = openpyxl.Workbook()
+		ws = wb.active
+		ws.title = 'Clientes'
+
+		# Encabezados
+		headers = ['Nombre', 'Teléfono', 'Deuda Acumulada ($)', 'Lista de Precios', 'Último Fiado']
+		header_fill = PatternFill(start_color='1E3A5F', end_color='1E3A5F', fill_type='solid')
+		header_font = Font(bold=True, color='FFFFFF')
+		for col, h in enumerate(headers, 1):
+			cell = ws.cell(row=1, column=col, value=h)
+			cell.font = header_font
+			cell.fill = header_fill
+			cell.alignment = Alignment(horizontal='center')
+
+		# Datos
+		red_fill = PatternFill(start_color='FDECEA', end_color='FDECEA', fill_type='solid')
+		green_fill = PatternFill(start_color='E8F5E9', end_color='E8F5E9', fill_type='solid')
+		for row_idx, c in enumerate(self._all_customers, 2):
+			balance = float(c.get('current_balance') or 0.0)
+			last_mov = c.get('last_movement')
+			last_str = last_mov.strftime('%d/%m/%Y') if last_mov and hasattr(last_mov, 'strftime') else '-'
+			ws.cell(row=row_idx, column=1, value=c.get('name', ''))
+			ws.cell(row=row_idx, column=2, value=c.get('phone') or '')
+			ws.cell(row=row_idx, column=3, value=round(balance, 2))
+			ws.cell(row=row_idx, column=4, value=c.get('price_list', 'A'))
+			ws.cell(row=row_idx, column=5, value=last_str)
+			if balance > 0:
+				for col in range(1, 6):
+					ws.cell(row=row_idx, column=col).fill = red_fill
+			elif balance < 0:
+				for col in range(1, 6):
+					ws.cell(row=row_idx, column=col).fill = green_fill
+
+		# Ancho de columnas
+		for col, width in zip(range(1, 6), [35, 18, 22, 16, 16]):
+			ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = width
+
+		# Guardar
+		import utils.settings_manager as _sm
+		base = _sm.get('export_path', '') or os.path.expanduser('~\\Desktop')
+		timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+		filename = os.path.join(base, f'Clientes_{timestamp}.xlsx')
+		wb.save(filename)
+
+		self.show_success(f'Exportado: {os.path.basename(filename)}')
+		try:
+			os.startfile(filename)
+		except Exception:
+			pass
 
 	def _on_search_change(self, *args):
 		"""Aplica un retraso (debounce) a la búsqueda para no saturar la UI."""

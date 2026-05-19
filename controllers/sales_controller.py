@@ -136,6 +136,65 @@ class SalesController(BaseController):
 				)
 				return []
 
+	def search_articles(self, tenant_id, query: str, limit: int = 50):
+		"""
+		Búsqueda paginada por nombre o código de barras — no carga el catálogo completo.
+		Usado por el dropdown de búsqueda en tiempo real.
+		"""
+		from sqlalchemy import or_
+		with self._Session() as session:
+			try:
+				q_like = f'%{query}%'
+				variants = (
+					session.query(ArticleVariant)
+					.options(
+						joinedload(ArticleVariant.article),
+						joinedload(ArticleVariant.stocks),
+					)
+					.join(Article)
+					.filter(
+						Article.tenant_id == tenant_id,
+						ArticleVariant.is_active,  # noqa: E712
+						or_(
+							Article.name.ilike(q_like),
+							ArticleVariant.barcode.ilike(q_like),
+						),
+					)
+					.limit(limit)
+					.all()
+				)
+				result = []
+				for v in variants:
+					total_stock = sum(s.quantity for s in v.stocks) if v.stocks else 0
+					units = getattr(v, 'units_per_pack', 1) or 1
+					base_vid = getattr(v, 'base_variant_id', None)
+					result.append(
+						{
+							'variant_id': v.id,
+							'name': v.article.name,
+							'barcode': v.barcode,
+							'selling_price': v.selling_price,
+							'selling_price_b': float(v.selling_price_b)
+							if v.selling_price_b
+							else None,
+							'total_stock': total_stock,
+							'is_combo': v.is_combo,
+							'show_on_touch': v.show_on_touch,
+							'btn_color': v.btn_color,
+							'units_per_pack': units,
+							'pack_label': getattr(v, 'pack_label', None),
+							'base_variant_id': base_vid,
+							'discount_pct': float(v.discount_pct) if v.discount_pct else 0.0,
+							'discount_until': v.discount_until,
+							'supplier_discount_pct': 0.0,
+							'supplier_discount_until': None,
+						}
+					)
+				return result
+			except Exception as e:
+				logger.error(f'Error en búsqueda de artículos: {e}', exc_info=True)
+				return []
+
 	def get_customers(self, tenant_id):
 		with self._Session() as session:
 			try:
@@ -521,6 +580,12 @@ class SalesController(BaseController):
 						if amount_m1 <= Decimal('0.0') or amount_m2 <= Decimal('0.0'):
 							raise ValueError(
 								'Error de consistencia: Ambos montos del pago mixto deben ser mayores a cero.'
+							)
+
+						if abs((amount_m1 + amount_m2) - final_total) > Decimal('0.01'):
+							raise ValueError(
+								f'Los montos del pago mixto (${amount_m1:.2f} + ${amount_m2:.2f}) '
+								f'no coinciden con el total (${final_total:.2f}).'
 							)
 
 						new_sale.payment_method_2 = payment_method_2_lower

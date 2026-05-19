@@ -82,11 +82,46 @@ class PosApp(ctk.CTk):
 		self.check_system_state()
 
 	def _on_close(self):
+		# Verificar ventas pendientes de sincronizar antes de cerrar
+		if hasattr(self, '_sync_worker') and self._sync_worker.is_running:
+			pending = self._count_unsynced_sales()
+			if pending > 0:
+				from CTkMessagebox import CTkMessagebox
+				msg = CTkMessagebox(
+					title='Ventas sin sincronizar',
+					message=(
+						f'Hay {pending} venta(s) reciente(s) que podrían no estar sincronizadas con la nube.\n\n'
+						'¿Querés cerrar de todas formas?'
+					),
+					icon='warning',
+					option_1='Cancelar',
+					option_2='Cerrar igual',
+				)
+				if msg.get() != 'Cerrar igual':
+					return
 		if hasattr(self, '_sync_worker'):
 			self._sync_worker.stop()
 		if self.db_engine is not None:
 			self.db_engine.dispose()
 		self.destroy()
+
+	def _count_unsynced_sales(self) -> int:
+		"""Cuenta ventas creadas desde la última sincronización exitosa."""
+		try:
+			from utils.sync_worker import _load_state
+			state = _load_state()
+			last_str = state.get('sales')
+			if not last_str:
+				return 0
+			from datetime import datetime as _dt
+			last_sync = _dt.fromisoformat(last_str)
+			from sqlalchemy.orm import sessionmaker
+			from database.models import Sale
+			Session = sessionmaker(bind=self.db_engine)
+			with Session() as s:
+				return s.query(Sale).filter(Sale.updated_at > last_sync).count()
+		except Exception:
+			return 0
 
 	def _clear_window(self):
 		for widget in self.winfo_children():
@@ -105,6 +140,8 @@ class PosApp(ctk.CTk):
 				_p = db_path.replace('\\', '/')
 				_url = f'sqlite://{_p}' if _p.startswith('//') else f'sqlite:///{_p}'
 				self.db_engine = make_engine(_url)
+				# Actualizar el DB offline de respaldo en segundo plano
+				self._update_offline_backup(db_path)
 			else:
 				# Principal: flujo normal con migraciones y sync
 				self.db_engine = get_engine()
@@ -154,6 +191,23 @@ class PosApp(ctk.CTk):
 		else:
 			self.show_license_lock(status_msg)
 
+	def _update_offline_backup(self, remote_db_path: str):
+		"""Copia el DB remoto al local de respaldo en segundo plano (no bloquea la UI)."""
+		import threading as _th
+		def _do():
+			try:
+				import sqlite3
+				offline = self._offline_db_path()
+				src = sqlite3.connect(remote_db_path)
+				dst = sqlite3.connect(offline)
+				src.backup(dst)
+				src.close()
+				dst.close()
+				logger.info('Backup offline actualizado desde el DB remoto.')
+			except Exception as e:
+				logger.warning('No se pudo actualizar el backup offline: %s', e)
+		_th.Thread(target=_do, daemon=True, name='OfflineBackup').start()
+
 	def _show_cashier_offline(self, db_path: str):
 		"""Pantalla de error cuando la Terminal Principal no está accesible en la red."""
 		frame = ctk.CTkFrame(self)
@@ -177,11 +231,70 @@ class PosApp(ctk.CTk):
 		ctk.CTkButton(
 			frame, text='🔄  Reintentar',
 			command=self._retry_cashier,
-		).pack(pady=20)
+		).pack(pady=(20, 8))
+
+		# Botón de modo offline solo si existe un DB de respaldo local
+		offline_db = self._offline_db_path()
+		if os.path.exists(offline_db):
+			ctk.CTkLabel(
+				frame,
+				text='Se detectó una base de datos local de respaldo.',
+				font=('Arial', 10), text_color='#888888',
+			).pack(pady=(0, 4))
+			ctk.CTkButton(
+				frame,
+				text='📴  Continuar sin conexión',
+				fg_color='#2C3E50',
+				hover_color='#34495E',
+				text_color='#ECF0F1',
+				command=self._start_offline_cashier,
+			).pack(pady=(0, 20))
+
+	def _offline_db_path(self) -> str:
+		"""Ruta del SQLite local de respaldo para modo offline del cajero."""
+		import os
+		appdata = os.environ.get('APPDATA', os.path.expanduser('~'))
+		offline_dir = os.path.join(appdata, 'CloudPOS')
+		os.makedirs(offline_dir, exist_ok=True)
+		return os.path.join(offline_dir, 'cashier_offline.db')
+
+	def _start_offline_cashier(self):
+		"""Abre el DB local de respaldo en modo offline."""
+		offline_path = self._offline_db_path()
+		from utils.config import make_engine
+		self.db_engine = make_engine(f'sqlite:///{offline_path}')
+		from database.migrations import run_migrations
+		run_migrations(self.db_engine)
+		# Guardamos en settings que estamos en modo offline para mostrar banner
+		from utils.settings_manager import set as settings_set
+		settings_set('cashier_offline_mode', True)
+		self.show_login()
 
 	def _retry_cashier(self):
 		self._clear_window()
+		# Limpiar flag de modo offline al reconectar
+		from utils.settings_manager import set as settings_set
+		settings_set('cashier_offline_mode', False)
 		self.after(100, self.check_system_state)
+
+	def _sync_offline_to_remote(self, remote_db_path: str):
+		"""
+		Al reconectar, copia las ventas hechas en modo offline hacia el DB remoto.
+		Usa SQLite backup API para ser WAL-safe.
+		"""
+		offline_path = self._offline_db_path()
+		if not os.path.exists(offline_path):
+			return
+		try:
+			import sqlite3
+			src = sqlite3.connect(offline_path)
+			dst = sqlite3.connect(remote_db_path)
+			src.backup(dst)
+			src.close()
+			dst.close()
+			logger.info('Datos offline sincronizados al DB remoto.')
+		except Exception as e:
+			logger.error('Error al sincronizar offline→remoto: %s', e)
 
 	def show_wizard(self):
 		SetupWizard(self, on_complete_callback=self.check_system_state).pack(
@@ -212,6 +325,9 @@ class PosApp(ctk.CTk):
 		if settings_get('terminal_mode', 'primary') == 'primary':
 			from controllers.backup_controller import BackupController
 			BackupController(engine).auto_backup_if_needed()
+
+		# Pasar flag de modo offline al contexto para que el dashboard muestre el banner
+		ctx.offline_mode = settings_get('cashier_offline_mode', False)
 
 		onboarding_shown = settings_get('onboarding_shown', False)
 
