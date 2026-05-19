@@ -830,7 +830,7 @@ class DollarPriceView(BaseView):
 			)
 			return
 
-		variant_ids = [int(x) for x in selected]
+		variant_ids = list(selected)
 
 		existing_usd, existing_margin = '', ''
 		title_text = 'Asignar precio masivo'
@@ -1026,7 +1026,7 @@ class DollarPriceView(BaseView):
 			)
 			return
 
-		variant_ids = [int(x) for x in selected]
+		variant_ids = list(selected)
 		confirm = CTkMessagebox(
 			title='Quitar precio USD',
 			message=f'Se quitará el precio en dólares a {len(variant_ids)} producto(s).\n\n¿Confirmás?',
