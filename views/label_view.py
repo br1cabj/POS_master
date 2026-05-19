@@ -165,7 +165,7 @@ class LabelView(BaseView):
 			hover_color=RED,
 			text_color=RED_TEXT,
 			font=FONT_LABEL_BOLD,
-			command=self._clear_queue,
+			command=self._confirm_clear_queue,
 		).grid(row=0, column=2)
 
 		# Barra de Precio (Wholesale / Retail)
@@ -936,6 +936,18 @@ class LabelView(BaseView):
 		if 0 <= idx < len(self._queue):
 			self._queue.pop(idx)
 		self._render_queue()
+
+	def _confirm_clear_queue(self):
+		if not self._queue:
+			return
+		from CTkMessagebox import CTkMessagebox
+		r = CTkMessagebox(
+			title='Limpiar cola',
+			message=f'¿Eliminar {len(self._queue)} etiqueta(s) de la cola?',
+			icon='warning', option_1='Cancelar', option_2='Limpiar',
+		)
+		if r.get() == 'Limpiar':
+			self._clear_queue()
 
 	def _clear_queue(self):
 		if not self._queue:

@@ -73,6 +73,7 @@ class QuotationView(BaseView):
 		self._tot_frame = None
 		self._customers: list[dict] = []
 		self._in_form_mode = False
+		self._form_is_dirty = False
 
 		self._build()
 		self.schedule(100, self._load_list)
@@ -82,7 +83,7 @@ class QuotationView(BaseView):
 			self._entry_search.focus_set()
 
 	def has_unsaved_changes(self) -> bool:
-		return self._in_form_mode
+		return self._in_form_mode and self._form_is_dirty
 
 	def _build(self):
 		self.grid_columnconfigure(0, weight=1)
@@ -561,6 +562,7 @@ class QuotationView(BaseView):
 
 	def _render_form(self, prefill: dict | None):
 		self._in_form_mode = True
+		self._form_is_dirty = False
 		self._clear_right()
 		self._entry_disc = None
 		self._tot_frame = None
@@ -609,6 +611,7 @@ class QuotationView(BaseView):
 			text_color=TEXT_PRIMARY,
 			font=FONT_BODY,
 			height=36,
+			command=lambda v: setattr(self, '_form_is_dirty', True),
 		)
 		self._combo_cust.grid(
 			row=2, column=0, sticky='ew', padx=PAD_MD, pady=(PAD_XS, PAD_SM)
@@ -631,6 +634,7 @@ class QuotationView(BaseView):
 			row=2, column=1, sticky='ew', padx=PAD_MD, pady=(PAD_XS, PAD_SM)
 		)
 
+		self._entry_valid.bind('<KeyRelease>', lambda e: setattr(self, '_form_is_dirty', True))
 		if prefill and prefill.get('valid_until'):
 			try:
 				vu_date = datetime.strptime(
@@ -662,7 +666,7 @@ class QuotationView(BaseView):
 		if disc_prefill.endswith('.0'):
 			disc_prefill = disc_prefill[:-2]
 		self._entry_disc.insert(0, disc_prefill)
-		self._entry_disc.bind('<KeyRelease>', lambda e: self._update_totals_label())
+		self._entry_disc.bind('<KeyRelease>', lambda e: (setattr(self, '_form_is_dirty', True), self._update_totals_label()))
 
 		lbl_frame_4, _ = make_form_label(gen, 'Notas / Condiciones')
 		lbl_frame_4.grid(row=3, column=0, columnspan=3, sticky='w', padx=PAD_MD)
@@ -1223,6 +1227,7 @@ class QuotationView(BaseView):
 			new_id = result['id']
 			self._edit_id = None
 			self._in_form_mode = False
+			self._form_is_dirty = False
 			self._load_list()
 			self._selected_id = new_id
 			self._apply_filter()
@@ -1232,13 +1237,14 @@ class QuotationView(BaseView):
 			self.show_error(str(result), 'Error al guardar')
 
 	def _cancel_form(self):
-		if self._in_form_mode:
+		if self._in_form_mode and self._form_is_dirty:
 			if not self.confirm(
 				'¿Seguro querés descartar esta cotización?', 'Cambios sin guardar'
 			):
 				return
 
 		self._in_form_mode = False
+		self._form_is_dirty = False
 		self._edit_id = None
 		if self._selected_id:
 			self._show_detail(self._selected_id)

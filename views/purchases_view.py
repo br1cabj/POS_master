@@ -175,6 +175,14 @@ class PurchasesView(BaseView):
 		self.tree_scroll.pack(side='right', fill='y')
 		self.tree.pack(side='left', fill='both', expand=True)
 
+		self._lbl_cart_empty = ctk.CTkLabel(
+			self.table_container,
+			text='Buscá un artículo para agregar a la compra.',
+			font=('Arial', 11),
+			text_color=TEXT_MUTED,
+		)
+		self._lbl_cart_empty.place(relx=0.5, rely=0.5, anchor='center')
+
 		self.btn_remove = ctk.CTkButton(
 			self.right_panel,
 			text='🗑  Quitar Artículo',
@@ -355,46 +363,54 @@ class PurchasesView(BaseView):
 			Decimal('0.0'),
 		)
 		self.lbl_total.configure(text=f'TOTAL A PAGAR: ${total:.2f}')
+		if hasattr(self, '_lbl_cart_empty'):
+			if self.cart:
+				self._lbl_cart_empty.place_forget()
+			else:
+				self._lbl_cart_empty.place(relx=0.5, rely=0.5, anchor='center')
 
 	def process_purchase(self):
-		if self.btn_pay.cget('state') == 'disabled':
+		btn = getattr(self, 'btn_pay', None)
+		if btn and btn.cget('state') == 'disabled':
 			return
-
-		if not self.cart:
-			CTkMessagebox(
-				title='Carrito vacío', message='Agregá productos.', icon='warning'
-			)
-			return
-
-		supplier_name = self.supplier_combo.get()
-		if supplier_name not in self.supplier_map:
-			CTkMessagebox(
-				title='Proveedor inválido',
-				message='Seleccioná un proveedor válido.',
-				icon='cancel',
-			)
-			return
-
-		supplier_id = self.supplier_map[supplier_name]['id']
-
-		msg_box = CTkMessagebox(
-			title='Confirmar',
-			message='¿Deseás confirmar este ingreso de mercadería?',
-			icon='question',
-			option_1='No',
-			option_2='Sí',
-		)
-		if msg_box.get() != 'Sí':
-			return
-
-		tenant_id = self.ctx.tenant_id
-		user_id = self.ctx.user_id
-
-		orig_text = self.btn_pay.cget('text')
-		self.btn_pay.configure(state='disabled', text='⏳ Procesando...')
-		self.update_idletasks()
-
+		if btn:
+			btn.configure(state='disabled')
 		try:
+			if not self.cart:
+				CTkMessagebox(
+					title='Carrito vacío', message='Agregá productos.', icon='warning'
+				)
+				return
+
+			supplier_name = self.supplier_combo.get()
+			if supplier_name not in self.supplier_map:
+				CTkMessagebox(
+					title='Proveedor inválido',
+					message='Seleccioná un proveedor válido.',
+					icon='cancel',
+				)
+				return
+
+			supplier_id = self.supplier_map[supplier_name]['id']
+
+			msg_box = CTkMessagebox(
+				title='Confirmar',
+				message='¿Deseás confirmar este ingreso de mercadería?',
+				icon='question',
+				option_1='No',
+				option_2='Sí',
+			)
+			if msg_box.get() != 'Sí':
+				return
+
+			tenant_id = self.ctx.tenant_id
+			user_id = self.ctx.user_id
+
+			orig_text = btn.cget('text') if btn else ''
+			if btn:
+				btn.configure(text='⏳ Procesando...')
+			self.update_idletasks()
+
 			success, msg = self.controller.process_purchase(
 				tenant_id, user_id, supplier_id, self.cart
 			)
@@ -409,4 +425,8 @@ class PurchasesView(BaseView):
 			else:
 				self.show_toast(msg, 'error')
 		finally:
-			self.btn_pay.configure(state='normal', text=orig_text)
+			if btn:
+				try:
+					btn.configure(state='normal', text='📦  CONFIRMAR INGRESO Y PAGAR')
+				except Exception:
+					pass

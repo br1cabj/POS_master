@@ -306,10 +306,20 @@ class PriceUpdateView(BaseView):
         if not self._sim_is_stale:
             self._sim_is_stale = True
             self._stale_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        if hasattr(self, 'entry_preview_search'):
+            try:
+                self.entry_preview_search.configure(state='disabled')
+            except Exception:
+                pass
 
     def _hide_stale_overlay(self):
         self._sim_is_stale = False
         self._stale_overlay.place_forget()
+        if hasattr(self, 'entry_preview_search'):
+            try:
+                self.entry_preview_search.configure(state='normal')
+            except Exception:
+                pass
 
     # =========================================================
     # DATA

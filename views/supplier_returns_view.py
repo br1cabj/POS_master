@@ -64,16 +64,31 @@ class SupplierReturnsView(BaseView):
 			text_color=TEXT_PRIMARY,
 		).grid(row=0, column=0, pady=(18, 6), padx=16, sticky='w')
 
+		_search_frame = ctk.CTkFrame(self.left, fg_color='transparent')
+		_search_frame.grid(row=1, column=0, padx=14, pady=(0, 8), sticky='ew')
+		_search_frame.grid_columnconfigure(0, weight=1)
+
 		self.search_entry = ctk.CTkEntry(
-			self.left,
+			_search_frame,
 			placeholder_text='Buscar proveedor...',
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=34,
 		)
-		self.search_entry.grid(row=1, column=0, padx=14, pady=(0, 8), sticky='ew')
+		self.search_entry.grid(row=0, column=0, sticky='ew', padx=(0, 4))
 		self.search_entry.bind('<KeyRelease>', self._on_search)
+
+		ctk.CTkButton(
+			_search_frame,
+			text='✕',
+			width=30,
+			height=34,
+			fg_color='transparent',
+			hover_color=SURFACE3,
+			text_color=TEXT_MUTED,
+			command=lambda: [self.search_entry.delete(0, 'end'), self._load_purchases()],
+		).grid(row=0, column=1)
 
 		tree_frame = ctk.CTkFrame(self.left, fg_color='transparent')
 		tree_frame.grid(row=2, column=0, sticky='nsew', padx=8, pady=(0, 8))

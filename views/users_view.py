@@ -296,6 +296,7 @@ class UsersView(BaseView):
 			height=36,
 			corner_radius=8,
 			font=FONT_BODY_BOLD,
+			state='disabled',
 			command=self._edit_selected,
 		)
 		self.btn_edit.pack(side='left', expand=True, fill='x', padx=(0, PAD_SM))
@@ -311,6 +312,7 @@ class UsersView(BaseView):
 			height=36,
 			corner_radius=8,
 			font=FONT_BODY_BOLD,
+			state='disabled',
 			command=self._open_reset_popup,
 		)
 		self.btn_reset_pass.pack(side='left', expand=True, fill='x', padx=(0, PAD_SM))
@@ -326,6 +328,7 @@ class UsersView(BaseView):
 			height=36,
 			corner_radius=8,
 			font=FONT_BODY_BOLD,
+			state='disabled',
 			command=self._open_pin_popup,
 		)
 		self.btn_update_pin.pack(side='left', expand=True, fill='x', padx=(0, PAD_SM))
@@ -341,11 +344,26 @@ class UsersView(BaseView):
 			height=36,
 			corner_radius=8,
 			font=FONT_BODY_BOLD,
+			state='disabled',
 			command=self.delete_user,
 		)
 		self.btn_delete.pack(side='left', expand=True, fill='x')
 
+		self.tree.bind('<<TreeviewSelect>>', self._on_user_tree_select)
+
 		self.after(50, self.load_data)
+
+	# =========================================================
+	# SELECCIÓN EN TABLA
+	# =========================================================
+	def _on_user_tree_select(self, event=None):
+		has_sel = bool(self.tree.selection())
+		state = 'normal' if has_sel else 'disabled'
+		for btn in (self.btn_edit, self.btn_reset_pass, self.btn_update_pin, self.btn_delete):
+			try:
+				btn.configure(state=state)
+			except Exception:
+				pass
 
 	# =========================================================
 	# DATOS

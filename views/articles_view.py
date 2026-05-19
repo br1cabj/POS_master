@@ -536,6 +536,17 @@ class ArticlesView(BaseView):
 		self.entry_search.pack(side='left', fill='x', expand=True)
 		self.entry_search.bind('<KeyRelease>', self._debounced_search)
 
+		ctk.CTkButton(
+			search_row,
+			text='✕',
+			width=30,
+			height=34,
+			fg_color='transparent',
+			hover_color=SURFACE3,
+			text_color=TEXT_MUTED,
+			command=lambda: [self.entry_search.delete(0, 'end'), self._debounced_search()],
+		).pack(side='left', padx=(4, 0))
+
 		self.lbl_count = ctk.CTkLabel(
 			search_row,
 			text='',

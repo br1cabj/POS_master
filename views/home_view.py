@@ -305,33 +305,51 @@ class HomeView(BaseView):
 	# CARGA DE DATOS
 	# =========================================================
 	def load_dashboard_data(self):
-		if hasattr(self, 'btn_refresh'):
-			self.btn_refresh.configure(state='disabled', text='↻  Cargando...')
+		import threading
+		btn = getattr(self, 'btn_refresh', None)
+		if btn:
+			btn.configure(state='disabled', text='↻  Cargando...')
 
 		tenant_id = self.ctx.tenant_id
-		revenue, profit, tickets = self.controller.get_today_stats(tenant_id)
 
-		rev_f = float(revenue)
-		pro_f = float(profit)
-		margin = (pro_f / rev_f * 100) if rev_f > 0 else 0.0
+		def _run():
+			try:
+				revenue, profit, tickets = self.controller.get_today_stats(tenant_id)
+				stats = (revenue, profit, tickets)
+			except Exception:
+				stats = None
 
-		self.lbl_ventas.configure(text=f'${rev_f:,.0f}')
-		self.lbl_ventas_sub.configure(
-			text=f'{int(tickets)} tickets · ${rev_f / max(tickets, 1):,.0f} prom.'
-		)
+			def _update():
+				if not self.winfo_exists():
+					return
+				if stats is not None:
+					revenue, profit, tickets = stats
+					rev_f = float(revenue)
+					pro_f = float(profit)
+					margin = (pro_f / rev_f * 100) if rev_f > 0 else 0.0
 
-		self.lbl_ganancia.configure(text=f'${pro_f:,.0f}')
-		self.lbl_ganancia_sub.configure(text=f'Margen {margin:.1f}%')
+					self.lbl_ventas.configure(text=f'${rev_f:,.0f}')
+					self.lbl_ventas_sub.configure(
+						text=f'{int(tickets)} tickets · ${rev_f / max(tickets, 1):,.0f} prom.'
+					)
+					self.lbl_ganancia.configure(text=f'${pro_f:,.0f}')
+					self.lbl_ganancia_sub.configure(text=f'Margen {margin:.1f}%')
+					self.lbl_tickets.configure(text=str(tickets))
+					self.lbl_tickets_sub.configure(text='ventas completadas hoy')
 
-		self.lbl_tickets.configure(text=str(tickets))
-		self.lbl_tickets_sub.configure(text='ventas completadas hoy')
+					self.draw_weekly_chart(tenant_id)
+					self.draw_active_promos(tenant_id)
+					self.draw_top_products(tenant_id)
 
-		self.draw_weekly_chart(tenant_id)
-		self.draw_active_promos(tenant_id)
-		self.draw_top_products(tenant_id)
+				if btn:
+					try:
+						btn.configure(state='normal', text='↻  Actualizar')
+					except Exception:
+						pass
 
-		if hasattr(self, 'btn_refresh'):
-			self.btn_refresh.configure(state='normal', text='↻  Actualizar')
+			self.after(0, _update)
+
+		threading.Thread(target=_run, daemon=True).start()
 
 	# =========================================================
 	# PROMOCIONES ACTIVAS
@@ -598,7 +616,8 @@ class HomeView(BaseView):
 
 			bar_bg = ctk.CTkFrame(col, fg_color=SURFACE3, height=6, corner_radius=3)
 			bar_bg.pack(fill='x', pady=(3, 0))
-			bar_fill_width = max(int(pct / 100 * 160), 4)
+			bar_width = max(self.top_frame.winfo_width() - 80, 100) if self.top_frame.winfo_width() > 1 else 160
+			bar_fill_width = max(int(pct / 100 * bar_width), 4)
 			ctk.CTkFrame(
 				bar_bg,
 				fg_color=accent_colors[i],

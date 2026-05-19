@@ -508,6 +508,17 @@ class CashView(BaseView):
 				self.mark_field_error(self.entry_amount)
 				self.show_warning('Ingresá el monto de apertura (puede ser 0).')
 				return
+			try:
+				from decimal import Decimal as _D
+				_apertura = _D(amount_str)
+				if _apertura < 0:
+					self.mark_field_error(self.entry_amount)
+					self.show_error('El monto de apertura no puede ser negativo.')
+					return
+			except Exception:
+				self.mark_field_error(self.entry_amount)
+				self.show_error('Ingresá un monto válido.')
+				return
 
 			original = self.btn_action.cget('text')
 			self.set_loading(self.btn_action, True)
@@ -558,38 +569,48 @@ class CashView(BaseView):
 			self.entry_mov_desc.configure(border_color=GREEN)
 
 	def save_movement(self):
-		self.clear_field_errors(self.entry_mov_desc, self.entry_mov_amount)
-
-		desc = self.entry_mov_desc.get().strip()
-		amount_str = self.entry_mov_amount.get().strip().replace(',', '.')
-		mov_type = self._mov_type
-		tenant_id = self.ctx.tenant_id
-
-		if not desc:
-			self.mark_field_error(self.entry_mov_desc)
-			return
-
-		if not amount_str:
-			self.mark_field_error(self.entry_mov_amount)
-			return
-
-		if not self.active_session:
-			self.show_error('No hay caja abierta. Abrí la caja primero.')
-			return
-
-		session_id = self.active_session.get('id')
-		success, msg = self.controller.add_manual_movement(
-			tenant_id, session_id, mov_type, amount_str, desc
-		)
-
-		if success:
-			self.entry_mov_desc.delete(0, 'end')
-			self.entry_mov_amount.delete(0, 'end')
+		btn = getattr(self, 'btn_mov', None)
+		if btn:
+			btn.configure(state='disabled')
+		try:
 			self.clear_field_errors(self.entry_mov_desc, self.entry_mov_amount)
-			self.entry_mov_desc.focus()
-			self._show_open_state()
-		else:
-			self.show_error(msg)
+
+			desc = self.entry_mov_desc.get().strip()
+			amount_str = self.entry_mov_amount.get().strip().replace(',', '.')
+			mov_type = self._mov_type
+			tenant_id = self.ctx.tenant_id
+
+			if not desc:
+				self.mark_field_error(self.entry_mov_desc)
+				return
+
+			if not amount_str:
+				self.mark_field_error(self.entry_mov_amount)
+				return
+
+			if not self.active_session:
+				self.show_error('No hay caja abierta. Abrí la caja primero.')
+				return
+
+			session_id = self.active_session.get('id')
+			success, msg = self.controller.add_manual_movement(
+				tenant_id, session_id, mov_type, amount_str, desc
+			)
+
+			if success:
+				self.entry_mov_desc.delete(0, 'end')
+				self.entry_mov_amount.delete(0, 'end')
+				self.clear_field_errors(self.entry_mov_desc, self.entry_mov_amount)
+				self.entry_mov_desc.focus()
+				self._show_open_state()
+			else:
+				self.show_error(msg)
+		finally:
+			if btn:
+				try:
+					btn.configure(state='normal')
+				except Exception:
+					pass
 
 	def show_blind_close_popup(self):
 		if hasattr(self, 'popup') and self.popup is not None:
@@ -778,7 +799,7 @@ class CashView(BaseView):
 		btn_frame = ctk.CTkFrame(self.popup, fg_color='transparent')
 		btn_frame.pack(fill='x', padx=30, pady=(0, 16))
 
-		ctk.CTkButton(
+		self._btn_blind_confirm = ctk.CTkButton(
 			btn_frame,
 			text='CONFIRMAR Y CERRAR TURNO',
 			fg_color=RED_DIM,
@@ -790,7 +811,8 @@ class CashView(BaseView):
 			font=FONT_HEADING,
 			corner_radius=8,
 			command=self._confirm_blind_close,
-		).pack(pady=(0, 8), fill='x')
+		)
+		self._btn_blind_confirm.pack(pady=(0, 8), fill='x')
 
 		ctk.CTkButton(
 			btn_frame,
@@ -829,32 +851,41 @@ class CashView(BaseView):
 		self.current_counted_total = str(total)
 
 	def _confirm_blind_close(self):
-		total = Decimal(self.current_counted_total)
-		if total == Decimal('0'):
+		if hasattr(self, '_btn_blind_confirm'):
+			self._btn_blind_confirm.configure(state='disabled')
+		try:
+			total = Decimal(self.current_counted_total)
+			if total == Decimal('0'):
+				if not self.confirm(
+					'⚠ Estás declarando $0.00 en caja.\n\n'
+					'Esto generará una diferencia negativa igual al total de ventas registradas.\n\n'
+					'¿Estás seguro de que querés continuar con monto declarado en cero?',
+					title='Advertencia: monto declarado en cero',
+				):
+					return
 			if not self.confirm(
-				'⚠ Estás declarando $0.00 en caja.\n\n'
-				'Esto generará una diferencia negativa igual al total de ventas registradas.\n\n'
-				'¿Estás seguro de que querés continuar con monto declarado en cero?',
-				title='Advertencia: monto declarado en cero',
+				f'Vas a declarar ${total:,.2f} en caja.\n\n'
+				'Esta acción cierra el turno y no se puede deshacer.\n'
+				'El sistema calculará la diferencia contra las ventas registradas.',
+				title='Confirmar cierre de turno',
 			):
 				return
-		if not self.confirm(
-			f'Vas a declarar ${total:,.2f} en caja.\n\n'
-			'Esta acción cierra el turno y no se puede deshacer.\n'
-			'El sistema calculará la diferencia contra las ventas registradas.',
-			title='Confirmar cierre de turno',
-		):
-			return
 
-		tenant_id = self.ctx.tenant_id
-		session_id = self.active_session.get('id')
-		success, msg = self.controller.close_session(
-			tenant_id, session_id, self.current_counted_total
-		)
+			tenant_id = self.ctx.tenant_id
+			session_id = self.active_session.get('id')
+			success, msg = self.controller.close_session(
+				tenant_id, session_id, self.current_counted_total
+			)
 
-		if success:
-			self.popup.destroy()
-			self.show_success(msg, title='Turno Finalizado')
-			self.refresh_view()
-		else:
-			self.show_error(msg)
+			if success:
+				self.popup.destroy()
+				self.show_success(msg, title='Turno Finalizado')
+				self.refresh_view()
+			else:
+				self.show_error(msg)
+		finally:
+			try:
+				if hasattr(self, '_btn_blind_confirm') and self._btn_blind_confirm.winfo_exists():
+					self._btn_blind_confirm.configure(state='normal')
+			except Exception:
+				pass

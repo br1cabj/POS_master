@@ -185,6 +185,14 @@ class SuppliersView(BaseView):
 		self.tree_scroll.pack(side='right', fill='y')
 		self.tree.pack(side='left', fill='both', expand=True)
 
+		self._lbl_empty_suppliers = ctk.CTkLabel(
+			self.table_container,
+			text='No hay proveedores registrados.\nUsá el formulario para agregar uno.',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			justify='center',
+		)
+
 		self.btn_delete = ctk.CTkButton(
 			self.right_panel,
 			text='🗑  Eliminar Seleccionado',
@@ -236,6 +244,12 @@ class SuppliersView(BaseView):
 			self.lbl_count.configure(
 				text=f'{shown} de {total}' if q else f'{total} prov.'
 			)
+
+		if hasattr(self, '_lbl_empty_suppliers'):
+			if not matches:
+				self._lbl_empty_suppliers.place(relx=0.5, rely=0.5, anchor='center')
+			else:
+				self._lbl_empty_suppliers.place_forget()
 
 		self._on_tree_select()
 

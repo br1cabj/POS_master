@@ -401,7 +401,7 @@ class CustomersView(BaseView):
 		btn_row = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		btn_row.pack(fill='x', padx=14, pady=(0, 14))
 
-		ctk.CTkButton(
+		self.btn_cobrar = ctk.CTkButton(
 			btn_row,
 			text='💰  Cobrar Deuda',
 			fg_color=GREEN_DIM,
@@ -412,10 +412,12 @@ class CustomersView(BaseView):
 			height=36,
 			corner_radius=8,
 			cursor='hand2',
+			state='disabled',
 			command=self._select_for_payment,
-		).pack(side='left', fill='x', expand=True, padx=(0, 5))
+		)
+		self.btn_cobrar.pack(side='left', fill='x', expand=True, padx=(0, 5))
 
-		ctk.CTkButton(
+		self.btn_editar = ctk.CTkButton(
 			btn_row,
 			text='✏️  Editar Cliente',
 			fg_color=ACCENT_DIM,
@@ -426,12 +428,24 @@ class CustomersView(BaseView):
 			height=36,
 			corner_radius=8,
 			cursor='hand2',
+			state='disabled',
 			command=self._edit_selected,
-		).pack(side='left', fill='x', expand=True, padx=(5, 0))
+		)
+		self.btn_editar.pack(side='left', fill='x', expand=True, padx=(5, 0))
+
+		self.tree.bind('<<TreeviewSelect>>', self._on_customer_tree_select)
 
 	# =========================================================
 	# LÓGICA Y FUNCIONES
 	# =========================================================
+	def _on_customer_tree_select(self, event=None):
+		has_sel = bool(self.tree.selection())
+		state = 'normal' if has_sel else 'disabled'
+		if hasattr(self, 'btn_cobrar'):
+			self.btn_cobrar.configure(state=state)
+		if hasattr(self, 'btn_editar'):
+			self.btn_editar.configure(state=state)
+
 	def _toggle_debtor_filter(self):
 		self._only_debtors = not self._only_debtors
 		if self._only_debtors:
@@ -980,6 +994,7 @@ class CustomersView(BaseView):
 			self.show_success(msg)
 			self.entry_payment.delete(0, 'end')
 			self.combo_customers.set('Seleccionar cliente...')
+			self.lbl_debt_info.configure(text='')
 			self.load_data()
 		else:
 			self.show_error(msg)

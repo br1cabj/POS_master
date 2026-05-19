@@ -79,17 +79,31 @@ class ArticleHistoryView(BaseView):
 		)
 		self.lbl_count.pack(anchor='w')
 
+		_search_box = ctk.CTkFrame(header_frame, fg_color='transparent')
+		_search_box.grid(row=0, column=1, padx=20, sticky='e')
+
 		self.entry_search = ctk.CTkEntry(
-			header_frame,
+			_search_box,
 			placeholder_text='🔍 Buscar producto, usuario o acción...',
 			fg_color=SURFACE2,
 			border_color=BORDER,
 			text_color=TEXT_PRIMARY,
 			height=36,
-			width=300,
+			width=280,
 		)
-		self.entry_search.grid(row=0, column=1, padx=20, sticky='e')
+		self.entry_search.pack(side='left')
 		self.entry_search.bind('<KeyRelease>', self._debounced_search)
+
+		ctk.CTkButton(
+			_search_box,
+			text='✕',
+			width=30,
+			height=36,
+			fg_color='transparent',
+			hover_color=SURFACE3,
+			text_color=TEXT_MUTED,
+			command=lambda: [self.entry_search.delete(0, 'end'), self._debounced_search()],
+		).pack(side='left', padx=(4, 0))
 
 		btn_box = ctk.CTkFrame(header_frame, fg_color='transparent')
 		btn_box.grid(row=0, column=2, sticky='e')

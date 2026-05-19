@@ -380,9 +380,11 @@ class SalesView(BaseView):
 			height=32,
 			corner_radius=8,
 			font=FONT_BODY,
+			state='disabled',
 			command=self.remove_from_cart,
 		)
 		self.btn_remove.pack(side='left')
+		self.tree.bind('<<TreeviewSelect>>', self._on_cart_select)
 		ctk.CTkButton(
 			footer,
 			text='✕ Vaciar carrito',
@@ -393,7 +395,7 @@ class SalesView(BaseView):
 			width=110,
 			height=28,
 			corner_radius=6,
-			command=self.clear_entire_cart,
+			command=self._confirm_clear_cart,
 		).pack(side='right')
 
 		self._build_discount_bar()
@@ -1758,6 +1760,22 @@ class SalesView(BaseView):
 			else:
 				self._lbl_wholesale_badge.pack_forget()
 
+	def _confirm_clear_cart(self):
+		if not self.cart:
+			return
+		from CTkMessagebox import CTkMessagebox as _CMB
+		r = _CMB(
+			title='Vaciar carrito',
+			message=f'¿Eliminar los {len(self.cart)} ítem(s) del carrito?',
+			icon='warning', option_1='Cancelar', option_2='Vaciar',
+		)
+		if r.get() == 'Vaciar':
+			self.clear_entire_cart()
+
+	def _on_cart_select(self, event=None):
+		state = 'normal' if self.tree.selection() else 'disabled'
+		self.btn_remove.configure(state=state)
+
 	def clear_entire_cart(self):
 		if not self.cart:
 			return
@@ -1769,27 +1787,18 @@ class SalesView(BaseView):
 		detail = (
 			f'{n_items} ítem(s)  ·  {total_str}' if total_str else f'{n_items} ítem(s)'
 		)
-		if (
-			CTkMessagebox(
-				title='Anular Venta',
-				message=f'¿Vaciar todo el carrito?\n\n{detail}',
-				icon='warning',
-				option_1='No',
-				option_2='Sí',
-			).get()
-			== 'Sí'
-		):
-			self.cart.clear()
-			for timer in self._flash_timers.values():
-				self.after_cancel(timer)
-			self._flash_timers.clear()
-			for item in self.tree.get_children():
-				self.tree.delete(item)
-			self._set_discount_pct(Decimal('0'))
-			self._active_price_list = 'A'
-			self.update_total()
-			self._set_msg('Venta anulada.', RED_TEXT)
-			self.entry_barcode.focus()
+		self.cart.clear()
+		for timer in self._flash_timers.values():
+			self.after_cancel(timer)
+		self._flash_timers.clear()
+		for item in self.tree.get_children():
+			self.tree.delete(item)
+		self.btn_remove.configure(state='disabled')
+		self._set_discount_pct(Decimal('0'))
+		self._active_price_list = 'A'
+		self.update_total()
+		self._set_msg('Venta anulada.', RED_TEXT)
+		self.entry_barcode.focus()
 
 	# =========================================================
 	# POP-UP DE COBRO Y EVENTOS
@@ -2598,7 +2607,7 @@ class SalesView(BaseView):
 		)
 		top.bind(
 			'<Control-Delete>',
-			lambda e: self.clear_entire_cart() if self.winfo_ismapped() else None,
+			lambda e: self._confirm_clear_cart() if self.winfo_ismapped() else None,
 		)
 
 		self.bind(

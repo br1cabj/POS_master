@@ -129,8 +129,12 @@ class ReturnsView(BaseView):
 			'write', lambda *args: self.debounce(300, self._filter_tree, 'search_sales')
 		)
 
+		_search_row = ctk.CTkFrame(self.left, fg_color='transparent')
+		_search_row.grid(row=1, column=0, sticky='ew', padx=14, pady=(4, 4))
+		_search_row.grid_columnconfigure(0, weight=1)
+
 		self._entry_search = ctk.CTkEntry(
-			self.left,
+			_search_row,
 			textvariable=self._search_var,
 			placeholder_text='🔍 Buscar por ID, cliente o fecha...',
 			fg_color=SURFACE3,
@@ -138,7 +142,18 @@ class ReturnsView(BaseView):
 			text_color=TEXT_PRIMARY,
 			height=34,
 		)
-		self._entry_search.grid(row=1, column=0, sticky='ew', padx=14, pady=(4, 4))
+		self._entry_search.grid(row=0, column=0, sticky='ew', padx=(0, 4))
+
+		ctk.CTkButton(
+			_search_row,
+			text='✕',
+			width=30,
+			height=34,
+			fg_color='transparent',
+			hover_color=SURFACE3,
+			text_color=TEXT_MUTED,
+			command=lambda: self._search_var.set(''),
+		).grid(row=0, column=1)
 
 		filter_frame = ctk.CTkFrame(self.left, fg_color='transparent')
 		filter_frame.grid(row=2, column=0, sticky='ew', padx=14, pady=(0, 6))

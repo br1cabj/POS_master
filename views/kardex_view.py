@@ -103,6 +103,7 @@ class KardexView(BaseView):
 			width=130,
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
+			command=lambda v: self.apply_filters(),
 		)
 		self.combo_type.pack(side='left', padx=(0, 10))
 
@@ -362,6 +363,10 @@ class KardexView(BaseView):
 		self.btn_prev.configure(
 			state='disabled' if self.current_page == 1 else 'normal'
 		)
+		if has_next:
+			self.lbl_page.configure(text=f'Pág. {self.current_page}')
+		else:
+			self.lbl_page.configure(text=f'Pág. {self.current_page} de {self.current_page}')
 
 		tot_in = 0.0
 		tot_out = 0.0
