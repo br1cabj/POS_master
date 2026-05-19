@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from controllers.base import BaseController
 from database.models import CashMovement, CashSession, Customer, Sale
@@ -280,10 +280,10 @@ class CustomerController(BaseController):
 					.join(CashSession, CashMovement.session_id == CashSession.id)
 					.filter(
 						CashSession.tenant_id == tenant_id,
-						(
-							CashMovement.customer_id == customer_id
-							| CashMovement.description.ilike(id_filter)
-							| CashMovement.description.ilike(name_filter)
+						or_(
+							CashMovement.customer_id == customer_id,
+							CashMovement.description.ilike(id_filter),
+							CashMovement.description.ilike(name_filter),
 						),
 					)
 					.distinct()

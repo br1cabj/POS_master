@@ -191,6 +191,7 @@ class ReturnsController(BaseController):
 
 				sale.status = 'anulada'
 				sale.profit = Decimal('0')
+				_customer_name = sale.customer.name if sale.customer else 'Consumidor Final'
 				session.commit()
 
 				try:
@@ -203,9 +204,7 @@ class ReturnsController(BaseController):
 						date_str=date_str,
 						items_returned=[],
 						refund_total=float(total),
-						customer_name=sale.customer.name
-						if sale.customer
-						else 'Consumidor Final',
+						customer_name=_customer_name,
 						note_type='Anulación',
 					)
 				except Exception as nc_err:
@@ -343,6 +342,19 @@ class ReturnsController(BaseController):
 					sale.status = 'devuelta' if all_qty_returned else 'parcial'
 				new_profit = Decimal(str(sale.profit or 0)) - profit_reduction
 				sale.profit = max(Decimal('0'), new_profit)
+				_new_status = sale.status
+				_customer_name = sale.customer.name if sale.customer else 'Consumidor Final'
+				_nc_items = [
+					{
+						'desc': detail_map[did].description,
+						'qty': float(qty),
+						'price': float(detail_map[did].unit_price * discount_factor),
+						'subtotal': float(
+							(detail_map[did].unit_price * discount_factor) * qty
+						),
+					}
+					for did, qty in return_map.items()
+				]
 
 				session.commit()
 
@@ -350,28 +362,13 @@ class ReturnsController(BaseController):
 					from controllers.receipt_controller import ReceiptController
 
 					date_str = datetime.now().strftime('%d/%m/%Y  %H:%M')
-					nc_items = [
-						{
-							'desc': detail_map[did].description,
-							'qty': float(qty),
-							'price': float(
-								detail_map[did].unit_price * discount_factor
-							),
-							'subtotal': float(
-								(detail_map[did].unit_price * discount_factor) * qty
-							),
-						}
-						for did, qty in return_map.items()
-					]
 					ReceiptController().generate_credit_note(
 						tenant_id=tenant_id,
 						sale_id=sale_id,
 						date_str=date_str,
-						items_returned=nc_items,
+						items_returned=_nc_items,
 						refund_total=float(refund_total),
-						customer_name=sale.customer.name
-						if sale.customer
-						else 'Consumidor Final',
+						customer_name=_customer_name,
 						note_type='Devolución',
 					)
 				except Exception as nc_err:
@@ -379,7 +376,7 @@ class ReturnsController(BaseController):
 						f'Devolución registrada, pero falló la nota de crédito: {nc_err}'
 					)
 
-				msg = f'Devolución registrada. Reembolso: ${refund_total:.2f}\nEstado del ticket: {sale.status.upper()}'
+				msg = f'Devolución registrada. Reembolso: ${refund_total:.2f}\nEstado del ticket: {_new_status.upper()}'
 				if warnings:
 					msg += '\n\nAvisos:\n' + '\n'.join(f'• {w}' for w in warnings)
 				return True, msg
@@ -512,7 +509,10 @@ class ReturnsController(BaseController):
 			# CORRECCIÓN: Lógica encapsulada para procesar correctamente métodos combinados
 			if method == 'fiado' and sale.customer_id:
 				customer = (
-					session.query(Customer).filter_by(id=sale.customer_id).first()
+					session.query(Customer)
+					.filter_by(id=sale.customer_id)
+					.with_for_update()
+					.first()
 				)
 				if customer:
 					customer.current_balance = (

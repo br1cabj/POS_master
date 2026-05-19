@@ -1498,7 +1498,7 @@ class SalesView(BaseView):
 			(i for i in self.cart if i.get('variant_id') == variant_id), None
 		)
 
-		if existing_item and not is_scale_barcode:
+		if existing_item:
 			existing_item['qty'] = total_qty
 			existing_item['price'] = unit_price
 			existing_item['product_disc_pct'] = product_disc_pct

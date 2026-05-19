@@ -107,6 +107,8 @@ class PosApp(ctk.CTk):
 
 	def _count_unsynced_sales(self) -> int:
 		"""Cuenta ventas creadas desde la última sincronización exitosa."""
+		if self.db_engine is None:
+			return 0
 		try:
 			from utils.sync_worker import _load_state
 			state = _load_state()
@@ -276,25 +278,6 @@ class PosApp(ctk.CTk):
 		from utils.settings_manager import set as settings_set
 		settings_set('cashier_offline_mode', False)
 		self.after(100, self.check_system_state)
-
-	def _sync_offline_to_remote(self, remote_db_path: str):
-		"""
-		Al reconectar, copia las ventas hechas en modo offline hacia el DB remoto.
-		Usa SQLite backup API para ser WAL-safe.
-		"""
-		offline_path = self._offline_db_path()
-		if not os.path.exists(offline_path):
-			return
-		try:
-			import sqlite3
-			src = sqlite3.connect(offline_path)
-			dst = sqlite3.connect(remote_db_path)
-			src.backup(dst)
-			src.close()
-			dst.close()
-			logger.info('Datos offline sincronizados al DB remoto.')
-		except Exception as e:
-			logger.error('Error al sincronizar offline→remoto: %s', e)
 
 	def show_wizard(self):
 		SetupWizard(self, on_complete_callback=self.check_system_state).pack(

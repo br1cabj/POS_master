@@ -765,7 +765,8 @@ def _v26_add_customer_id_to_cash_movements(engine) -> None:
 					'CREATE INDEX IF NOT EXISTS ix_cash_movements_customer_id ON cash_movements(customer_id)'
 				)
 			)
-			conn.commit()
 		except Exception as e:
 			logger.warning('v26: no se pudo crear índice customer_id: %s', e)
+		finally:
+			conn.commit()
 	logger.info('v26: customer_id en cash_movements listo.')

@@ -237,6 +237,7 @@ class SyncWorker:
         CloudSession = sessionmaker(bind=cloud_engine)
         sync_time = datetime.now()
         total_pushed = 0
+        had_error = False
 
         with self._LocalSession() as local, CloudSession() as cloud:
             for model in _sync_models():
@@ -290,7 +291,7 @@ class SyncWorker:
                 except Exception as e:
                     logger.error('Upsert failed for %s: %s', table_name, e)
                     cloud.rollback()
-                    self.last_sync_ok = False
+                    had_error = True
                     self.last_sync_error = f'{table_name}: {e}'
                     # Don't update state for this table so it retries next cycle.
 
@@ -298,9 +299,12 @@ class SyncWorker:
             logger.info('Sync complete: %d rows pushed to Supabase.', total_pushed)
 
         _save_state(state)
-        self.last_sync_ok = True
-        self.last_sync_time = datetime.now()
-        self.last_sync_error = ''
+        if not had_error:
+            self.last_sync_ok = True
+            self.last_sync_time = datetime.now()
+            self.last_sync_error = ''
+        else:
+            self.last_sync_ok = False
 
     # ── public helpers ────────────────────────────────────────────────────────
 
