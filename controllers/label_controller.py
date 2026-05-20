@@ -139,14 +139,23 @@ class LabelController:
 				session.add(article)
 				session.flush()
 
-			variant = ArticleVariant(
-				article_id=article.id,
-				barcode=barcode_val,
-				cost_price=0,
-				selling_price=price,
-				is_active=True,
+			# BUG 7: reusar variante existente con el mismo barcode en lugar de crear duplicado
+			variant = (
+				session.query(ArticleVariant)
+				.filter_by(article_id=article.id, barcode=barcode_val, is_active=True)
+				.first()
 			)
-			session.add(variant)
+			if variant:
+				variant.selling_price = price  # actualizar precio si cambió
+			else:
+				variant = ArticleVariant(
+					article_id=article.id,
+					barcode=barcode_val,
+					cost_price=0,
+					selling_price=price,
+					is_active=True,
+				)
+				session.add(variant)
 			session.commit()
 			return variant.id
 

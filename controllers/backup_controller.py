@@ -24,10 +24,9 @@ _MAX_BACKUPS = 15
 
 
 def _settings_set(key: str, value) -> None:
-    from utils.settings_manager import load, save
-    current = load()
-    current[key] = value
-    save(current)
+    # BUG 20: usar settings_manager.set() para beneficiarse del lock thread-safe
+    from utils import settings_manager
+    settings_manager.set(key, value)
 
 
 class BackupController:
@@ -249,6 +248,14 @@ class BackupController:
             get_engine().dispose()
         except Exception:
             pass
+
+        # BUG 9: abortar si no se descargó NINGÚN dato — indica problema de conexión
+        # o de tenant ID, no un tenant vacío (que tendría al menos su propio registro)
+        if not any(rows for rows in collected.values()):
+            return False, (
+                'No se descargaron datos de la nube. '
+                'Verificá la conexión y el Tenant ID antes de restaurar.'
+            )
 
         # ── Write to local SQLite ───────────────────────────────────────────────
         _report('Escribiendo datos en la base local…')

@@ -243,6 +243,8 @@ class PromoController(BaseController):
 		self, base_price: Decimal, buy_qty: int, pay_qty: int, total_qty: Decimal
 	) -> Decimal:
 		"""Calcula el precio efectivo por unidad para una promo NxM según la cantidad en carrito."""
+		if total_qty <= 0:  # BUG 3: evitar ZeroDivisionError
+			return base_price
 		buy = Decimal(str(buy_qty))
 		pay = Decimal(str(pay_qty))
 		sets = int(total_qty // buy)

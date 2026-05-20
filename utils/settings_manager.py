@@ -9,10 +9,15 @@ import json
 import logging
 import os
 import sys
+import threading
 from decimal import Decimal
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# BUG 11: lock para que load()+save() sean atómicos entre hilos
+# (hilo de backup y hilo de UI pueden escribir simultáneamente)
+_settings_lock = threading.Lock()
 
 
 def _app_data_dir() -> Path:
@@ -97,50 +102,51 @@ def load(force_reload: bool = False) -> dict:
 	"""
 	global _cached_settings
 
-	if _cached_settings is not None and not force_reload:
-		return _cached_settings.copy()
-
-	try:
-		if _SETTINGS_FILE.exists():
-			with open(_SETTINGS_FILE, 'r', encoding='utf-8') as f:
-				saved = json.load(f)
-			merged = {**DEFAULTS, **saved}
-			try:
-				merged['currency_decimals'] = int(merged['currency_decimals'])
-			except (ValueError, TypeError):
-				merged['currency_decimals'] = 0
-			try:
-				merged['tax_rate'] = float(merged['tax_rate'])
-			except (ValueError, TypeError):
-				merged['tax_rate'] = 0.0
-			try:
-				merged['low_stock_threshold'] = int(merged['low_stock_threshold'])
-			except (ValueError, TypeError):
-				merged['low_stock_threshold'] = 5
-
-			_cached_settings = merged
+	with _settings_lock:
+		if _cached_settings is not None and not force_reload:
 			return _cached_settings.copy()
-	except PermissionError as e:
-		logger.error(f'Sin permisos para leer settings.json, usando defaults: {e}')
-	except Exception as e:
-		logger.warning(f'No se pudo leer settings.json, usando defaults: {e}')
 
-	_cached_settings = dict(DEFAULTS)
-	return _cached_settings.copy()
+		try:
+			if _SETTINGS_FILE.exists():
+				with open(_SETTINGS_FILE, 'r', encoding='utf-8') as f:
+					saved = json.load(f)
+				merged = {**DEFAULTS, **saved}
+				try:
+					merged['currency_decimals'] = int(merged['currency_decimals'])
+				except (ValueError, TypeError):
+					merged['currency_decimals'] = 0
+				try:
+					merged['tax_rate'] = float(merged['tax_rate'])
+				except (ValueError, TypeError):
+					merged['tax_rate'] = 0.0
+				try:
+					merged['low_stock_threshold'] = int(merged['low_stock_threshold'])
+				except (ValueError, TypeError):
+					merged['low_stock_threshold'] = 5
+
+				_cached_settings = merged
+				return _cached_settings.copy()
+		except PermissionError as e:
+			logger.error(f'Sin permisos para leer settings.json, usando defaults: {e}')
+		except Exception as e:
+			logger.warning(f'No se pudo leer settings.json, usando defaults: {e}')
+
+		_cached_settings = dict(DEFAULTS)
+		return _cached_settings.copy()
 
 
 def save(settings: dict) -> bool:
 	"""Guarda el dict en settings.json y actualiza el caché."""
 	global _cached_settings
-	try:
-		with open(_SETTINGS_FILE, 'w', encoding='utf-8') as f:
-			json.dump(settings, f, ensure_ascii=False, indent=2)
-
-		_cached_settings = settings.copy()
-		return True
-	except Exception as e:
-		logger.error(f'No se pudo guardar settings.json: {e}')
-		return False
+	with _settings_lock:
+		try:
+			with open(_SETTINGS_FILE, 'w', encoding='utf-8') as f:
+				json.dump(settings, f, ensure_ascii=False, indent=2)
+			_cached_settings = settings.copy()
+			return True
+		except Exception as e:
+			logger.error(f'No se pudo guardar settings.json: {e}')
+			return False
 
 
 def get(key: str, default=None, force_reload: bool = False):

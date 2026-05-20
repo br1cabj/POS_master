@@ -7,15 +7,34 @@ Solucionados errores de precisión Decimal, cierres de ciclos asíncronos y seri
 """
 
 import logging
+import sys
 import threading
 import tkinter
-import winsound
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from tkinter import ttk
 
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
+
+# Platform-safe audio feedback — winsound is Windows-only (BUG 1)
+# Semaphore prevents thread pile-up during rapid barcode scanning (BUG 8)
+_beep_sem = threading.Semaphore(1)
+if sys.platform == 'win32':
+    import winsound as _winsound
+
+    def _do_beep(freq: int, dur: int) -> None:
+        if _beep_sem.acquire(blocking=False):
+            try:
+                _winsound.Beep(freq, dur)
+            except Exception:
+                pass
+            finally:
+                _beep_sem.release()
+else:
+    def _do_beep(freq: int, dur: int) -> None:  # no-op on non-Windows
+        pass
+
 
 import utils.settings_manager as _cfg_mgr
 from controllers.cash_controller import CashController
@@ -725,6 +744,8 @@ class SalesView(BaseView):
 			logger.warning('Cash status check failed: %s', e)
 
 	def load_data(self):
+		if not self.winfo_exists():  # BUG 19: guard contra callback post-destroy
+			return
 		self._is_loading_data = True
 		try:
 			# Si hay un render batch previo en curso, lo matamos
@@ -1121,11 +1142,11 @@ class SalesView(BaseView):
 
 	def _beep_ok(self):
 		if not self._muted:
-			threading.Thread(target=lambda: winsound.Beep(1000, 80), daemon=True).start()
+			threading.Thread(target=_do_beep, args=(1000, 80), daemon=True).start()
 
 	def _beep_err(self):
 		if not self._muted:
-			threading.Thread(target=lambda: winsound.Beep(400, 200), daemon=True).start()
+			threading.Thread(target=_do_beep, args=(400, 200), daemon=True).start()
 
 	def _toggle_mute(self):
 		self._muted = not self._muted
@@ -1589,11 +1610,17 @@ class SalesView(BaseView):
 		)
 		using_list_b = self._active_price_list == 'B' and found.get('selling_price_b')
 
-		display_name = name
-		if product_disc_pct > Decimal('0'):
+		# Promos con vigencia tienen prioridad (BUG 6: add_from_touch ignoraba promos)
+		promo = self._find_promo_for_variant(variant_id)
+		if promo:
+			price, display_name = self._apply_promo_price(promo, base_price, total_qty)
+			product_disc_pct = Decimal('0')
+		elif product_disc_pct > Decimal('0'):
 			display_name = f'🏷️ -{product_disc_pct:.4g}% {name}'
 		elif using_list_b:
 			display_name = f'💼 {name}'
+		else:
+			display_name = name
 
 		existing_item = next(
 			(i for i in self.cart if i.get('variant_id') == variant_id), None
@@ -1861,6 +1888,11 @@ class SalesView(BaseView):
 		self.popup.attributes('-topmost', True)
 		self.popup.grab_set()
 		self.popup.update_idletasks()
+		# Limpiar la referencia cuando el popup se destruya por cualquier medio (BUG 2)
+		self.popup.bind(
+			'<Destroy>',
+			lambda e: setattr(self, 'popup', None) if e.widget is self.popup else None,
+		)
 
 		pw = 480
 		self.popup.bind('<Escape>', lambda e: self.popup.destroy())

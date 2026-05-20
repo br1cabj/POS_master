@@ -130,6 +130,7 @@ class ReturnsController(BaseController):
 							'variant_id': d.variant_id,
 							'description': d.description,
 							'quantity': float(d.quantity),
+							'returned_quantity': float(d.returned_quantity or 0),
 							'unit_price': float(d.unit_price),
 							'unit_cost': float(d.unit_cost),
 							'subtotal': float(d.subtotal),
@@ -175,8 +176,18 @@ class ReturnsController(BaseController):
 							f'anular un pago en {metodo}.'
 						)
 
+				# BUG 17: en ventas parcialmente devueltas, solo restaurar el stock
+				# restante (original - ya devuelto) para no sobre-reponer inventario
+				qty_override_cancel = {
+					d.id: Decimal(str(d.quantity)) - Decimal(str(d.returned_quantity or 0))
+					for d in sale.items
+				}
+				details_to_restore = [
+					d for d in sale.items if qty_override_cancel.get(d.id, Decimal('0')) > 0
+				]
 				warnings = self._restore_stock_for_items(
-					session, sale.items, sale_id, user_id, label='Anulación'
+					session, details_to_restore, sale_id, user_id, label='Anulación',
+					qty_override=qty_override_cancel,
 				)
 
 				total = Decimal(str(sale.total_amount or 0))
@@ -266,8 +277,15 @@ class ReturnsController(BaseController):
 				discount_amount = Decimal(str(sale.discount_amount or 0))
 				if sale_total_gross > 0:
 					raw_factor = (sale_total_gross - discount_amount) / sale_total_gross
-					# Clamp al rango (0, 1]: descuento nunca puede producir factor ≤ 0
-					discount_factor = max(Decimal('0.0001'), min(raw_factor, Decimal('1')))
+					if raw_factor < 0:
+						# BUG 14: discount_amount supera el bruto — datos inconsistentes
+						logger.warning(
+							'discount_amount (%s) supera sale_total_gross (%s) en ticket %s',
+							discount_amount, sale_total_gross, sale_id,
+						)
+						discount_factor = Decimal('1')
+					else:
+						discount_factor = max(Decimal('0.0001'), min(raw_factor, Decimal('1')))
 				else:
 					discount_factor = Decimal('1')
 
@@ -328,8 +346,10 @@ class ReturnsController(BaseController):
 					)
 
 				new_total_returned = Decimal(str(sale.total_returned or 0)) + refund_total
-				sale.total_returned = new_total_returned
+				# BUG 4: capping evita violar el CHECK constraint total_returned <= total_amount
+				# ante errores de redondeo acumulados en devoluciones parciales sucesivas
 				total_sale = Decimal(str(sale.total_amount or 0))
+				sale.total_returned = min(new_total_returned, total_sale)
 				if total_sale > 0:
 					net_remaining = total_sale - new_total_returned
 					sale.status = 'devuelta' if net_remaining <= Decimal('0') else 'parcial'
