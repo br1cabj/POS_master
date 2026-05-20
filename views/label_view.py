@@ -7,6 +7,7 @@ Vista para gestionar y previsualizar la impresión masiva de etiquetas.
 import logging
 import threading
 import tkinter as tk
+from datetime import datetime
 
 import customtkinter as ctk
 from sqlalchemy.orm import sessionmaker
@@ -518,6 +519,8 @@ class LabelView(BaseView):
 							ArticleVariant.barcode,
 							ArticleVariant.selling_price,
 							ArticleVariant.selling_price_b,
+							ArticleVariant.discount_pct,
+							ArticleVariant.discount_until,
 						)
 						.join(Article)
 						.filter(
@@ -530,7 +533,7 @@ class LabelView(BaseView):
 					)
 
 					variants_data = []
-					for v_id, a_name, a1, a2, barcode, price, price_b in rows:
+					for v_id, a_name, a1, a2, barcode, price, price_b, disc_pct, disc_until in rows:
 						attr = ' '.join(filter(None, [a1, a2]))
 						variants_data.append(
 							{
@@ -541,6 +544,8 @@ class LabelView(BaseView):
 								'price': float(price),
 								'selling_price_b': float(price_b) if price_b else None,
 								'display': f'{a_name}{"  –  " + attr if attr else ""}',
+								'discount_pct': float(disc_pct) if disc_pct else None,
+								'discount_until': disc_until,
 							}
 						)
 
@@ -819,9 +824,31 @@ class LabelView(BaseView):
 					self._render_queue()
 				return
 		mode = getattr(self, '_current_price_mode', 'retail')
-		entry = {**variant, 'copies': 1, 'price_mode': mode}
+		entry = {**variant, 'copies': 1, 'price_mode': mode, 'discount_price': None}
+
 		if not entry.get('barcode'):
 			entry['barcode'] = self._ctrl.generate_internal_barcode()
+
+		# Normalizar discount_until (datetime → string dd/mm/AAAA para el date picker)
+		raw_until = entry.get('discount_until')
+		if isinstance(raw_until, datetime):
+			entry['discount_until'] = raw_until.strftime('%d/%m/%Y')
+		else:
+			entry['discount_until'] = ''
+
+		# Auto-poblar discount_price si el descuento del artículo está vigente
+		disc_pct = entry.get('discount_pct')
+		if disc_pct and disc_pct > 0:
+			until_str = entry['discount_until']
+			still_valid = True
+			if until_str:
+				try:
+					still_valid = datetime.strptime(until_str, '%d/%m/%Y') >= datetime.now()
+				except ValueError:
+					still_valid = False
+			if still_valid:
+				entry['discount_price'] = round(entry['price'] * (1 - disc_pct / 100), 2)
+
 		self._queue.append(entry)
 		if render:
 			self._render_queue()
