@@ -884,10 +884,7 @@ class ComboMakerView(BaseView):
 			)
 			return
 		variant_id_str = selected[0]
-		try:
-			variant_id = int(variant_id_str)
-		except ValueError:
-			variant_id = variant_id_str
+		variant_id = variant_id_str  # variant IDs are UUIDs (strings)
 		variant_data = next(
 			(v for v in self.db_variants if v['variant_id'] == variant_id), None
 		)
@@ -1224,6 +1221,12 @@ class ComboMakerView(BaseView):
 		).pack(side='left', expand=True, fill='x')
 
 	def _build_promo_value_widgets(self, promo_type: str = '% Descuento'):
+		# Clear stale widget refs before destroying — prevents TclError when
+		# save_promo calls .get() on a widget destroyed by the type switch.
+		self.entry_promo_pct = None
+		self.entry_promo_buy = None
+		self.entry_promo_pay = None
+		self.entry_promo_fixed = None
 		for w in self.promo_value_frame.winfo_children():
 			w.destroy()
 

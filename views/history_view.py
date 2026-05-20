@@ -280,7 +280,7 @@ class HistoryView(BaseView):
 		)
 		self._btn_load_more.pack(side='left')
 
-		self.after(100, self.load_history)
+		self.after(100, lambda: self.load_history() if self.winfo_exists() else None)
 
 	def debounce_filter(self, *args):
 		self.debounce(200, self._filter_tree)
@@ -543,6 +543,9 @@ class HistoryView(BaseView):
 		pay_amount_2 = (
 			result.get('amount_method_2', 0.0) if isinstance(result, dict) else 0.0
 		)
+		pay_amount_1 = (
+			result.get('amount_method_1', 0.0) if isinstance(result, dict) else 0.0
+		)
 		sale_total = (
 			result.get('total_amount', 0.0) if isinstance(result, dict) else 0.0
 		)
@@ -686,7 +689,7 @@ class HistoryView(BaseView):
 		pm_frame.pack(fill='x', padx=10, pady=(10, 10))
 
 		if pay_method_2 and pay_amount_2 > 0:
-			amount_1 = sale_total - pay_amount_2
+			amount_1 = pay_amount_1 if pay_amount_1 > 0 else sale_total - pay_amount_2
 			pm_text = f'Pago Mixto: {pay_method.capitalize()} (${amount_1:.2f}) + {pay_method_2.capitalize()} (${pay_amount_2:.2f})'
 		else:
 			pm_text = f'Método de Pago: {pay_method.capitalize()}'

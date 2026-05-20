@@ -246,18 +246,20 @@ class SupplierReturnsController(BaseController):
 				session.flush()
 
 				# Ítems de la devolución + movimientos de stock
+				# BUG 10: en multi-almacén puede haber varios Stock por variant_id.
+				# Seleccionar el depósito con mayor cantidad (el más probable receptor original).
 				_sids = [v['variant_id'] for v in validated if v['variant_id']]
-				stocks_map = (
-					{
-						s.variant_id: s
-						for s in session.query(Stock)
+				stocks_map: dict[str, Stock] = {}
+				if _sids:
+					for stock_row in (
+						session.query(Stock)
 						.filter(Stock.variant_id.in_(_sids))
 						.with_for_update()
 						.all()
-					}
-					if _sids
-					else {}
-				)
+					):
+						vid = stock_row.variant_id
+						if vid not in stocks_map or stock_row.quantity > stocks_map[vid].quantity:
+							stocks_map[vid] = stock_row
 				for v in validated:
 					session.add(
 						PurchaseReturnItem(

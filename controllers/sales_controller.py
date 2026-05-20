@@ -269,6 +269,7 @@ class SalesController(BaseController):
 						'discount_amount': 0.0,
 						'payment_method': '',
 						'payment_method_2': '',
+						'amount_method_1': 0.0,
 						'amount_method_2': 0.0,
 						'total_amount': 0.0,
 					}
@@ -290,6 +291,7 @@ class SalesController(BaseController):
 					'discount_amount': discount,
 					'payment_method': sale.payment_method or '',
 					'payment_method_2': sale.payment_method_2 or '',
+					'amount_method_1': float(sale.amount_method_1 or 0),
 					'amount_method_2': float(sale.amount_method_2 or 0),
 					'total_amount': float(sale.total_amount or 0),
 				}
@@ -302,6 +304,7 @@ class SalesController(BaseController):
 					'discount_amount': 0.0,
 					'payment_method': '',
 					'payment_method_2': '',
+					'amount_method_1': 0.0,
 					'amount_method_2': 0.0,
 					'total_amount': 0.0,
 				}

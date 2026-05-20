@@ -274,7 +274,9 @@ class CustomerController(BaseController):
 				# 2. Buscar abonos/pagos: FK directa (registros nuevos) + ILIKE (registros
 				# anteriores a v26 que no tienen customer_id).
 				id_filter = f'%[cid:{customer_id}]%'
-				name_filter = f'%Abono de Cuenta Corriente: {customer.name}%'
+				# BUG 13: SQLite ilike is only ASCII-case-insensitive; use lower() on both
+				# sides so names with accented chars (é, ñ) still match correctly.
+				name_filter_lower = f'%abono de cuenta corriente: {customer.name.lower()}%'
 				payments = (
 					session.query(CashMovement)
 					.join(CashSession, CashMovement.session_id == CashSession.id)
@@ -283,7 +285,7 @@ class CustomerController(BaseController):
 						or_(
 							CashMovement.customer_id == customer_id,
 							CashMovement.description.ilike(id_filter),
-							CashMovement.description.ilike(name_filter),
+							func.lower(CashMovement.description).like(name_filter_lower),
 						),
 					)
 					.distinct()

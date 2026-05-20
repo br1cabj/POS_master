@@ -12,7 +12,7 @@ import tempfile
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from controllers.base import BaseController
 from database.models import (
@@ -20,6 +20,7 @@ from database.models import (
 	ArticleVariant,
 	CashMovement,
 	CashSession,
+	Customer,
 	Quotation,
 	QuotationItem,
 	Sale,
@@ -72,33 +73,36 @@ class QuotationController(BaseController):
 
 	def _next_number(self, session: Session, tenant_id: int) -> str:
 		"""Genera el próximo número correlativo de cotización para un tenant específico."""
-		last = (
-			session.query(Quotation)
+		all_numbers = [
+			row[0]
+			for row in session.query(Quotation.number)
 			.filter_by(tenant_id=tenant_id)
 			.with_for_update()
-			.order_by(Quotation.number.desc())
+			.all()
+		]
+		max_n = 0
+		for num in all_numbers:
+			try:
+				max_n = max(max_n, int(num.split('-')[-1]))
+			except Exception:
+				pass
+		return f'COT-{max_n + 1:04d}'
+
+	@staticmethod
+	def _load_full(s: Session, quotation_id) -> 'Quotation | None':
+		"""Carga una cotización con todas sus relaciones usando joinedload."""
+		return (
+			s.query(Quotation)
+			.options(
+				joinedload(Quotation.customer),
+				joinedload(Quotation.user),
+				joinedload(Quotation.items)
+				.joinedload(QuotationItem.variant)
+				.joinedload(ArticleVariant.stocks),
+			)
+			.filter_by(id=quotation_id)
 			.first()
 		)
-		n = 1
-		if last:
-			try:
-				n = int(last.number.split('-')[-1]) + 1
-			except Exception:
-				# Fallback: recorrer todos los números y tomar el máximo sufijo numérico
-				all_numbers = [
-					row[0]
-					for row in session.query(Quotation.number)
-					.filter_by(tenant_id=tenant_id)
-					.all()
-				]
-				max_n = 0
-				for num in all_numbers:
-					try:
-						max_n = max(max_n, int(num.split('-')[-1]))
-					except Exception:
-						pass
-				n = max_n + 1
-		return f'COT-{n:04d}'
 
 	def _row_to_dict(self, q: Quotation) -> dict:
 		"""Serializa un objeto Quotation de SQLAlchemy a un diccionario de Python."""
@@ -139,7 +143,13 @@ class QuotationController(BaseController):
 	) -> list[dict]:
 		"""Obtiene un listado paginado/limitado de cotizaciones asociadas a un tenant."""
 		with self._Session() as s:
-			q = s.query(Quotation).filter_by(tenant_id=tenant_id)
+			q = s.query(Quotation).options(
+				joinedload(Quotation.customer),
+				joinedload(Quotation.user),
+				joinedload(Quotation.items)
+				.joinedload(QuotationItem.variant)
+				.joinedload(ArticleVariant.stocks),
+			).filter_by(tenant_id=tenant_id)
 			if status and status != 'todas':
 				q = q.filter_by(status=status)
 			rows = q.order_by(Quotation.date.desc()).limit(limit).all()
@@ -148,7 +158,7 @@ class QuotationController(BaseController):
 	def get_quotation(self, quotation_id: int) -> dict | None:
 		"""Recupera los datos completos de una cotización específica por su ID."""
 		with self._Session() as s:
-			q = s.get(Quotation, quotation_id)
+			q = self._load_full(s, quotation_id)
 			return self._row_to_dict(q) if q else None
 
 	def create_quotation(
@@ -202,7 +212,7 @@ class QuotationController(BaseController):
 					s.add(qi)
 
 				s.commit()
-				return True, self._row_to_dict(s.get(Quotation, q.id))
+				return True, self._row_to_dict(self._load_full(s, q.id))
 			except Exception as e:
 				s.rollback()
 				logger.error('Error creando cotización: %s', e, exc_info=True)
@@ -255,7 +265,7 @@ class QuotationController(BaseController):
 					s.add(qi)
 
 				s.commit()
-				return True, self._row_to_dict(s.get(Quotation, q.id))
+				return True, self._row_to_dict(self._load_full(s, q.id))
 			except Exception as e:
 				s.rollback()
 				logger.error(
@@ -355,7 +365,7 @@ class QuotationController(BaseController):
 					)
 
 				s.commit()
-				return True, self._row_to_dict(s.get(Quotation, new_q.id))
+				return True, self._row_to_dict(self._load_full(s, new_q.id))
 			except Exception as e:
 				s.rollback()
 				logger.error(
@@ -476,14 +486,30 @@ class QuotationController(BaseController):
 							)
 						stock_row.quantity -= it.quantity
 
-				# Registro del ingreso en caja, asegurando que sea la del usuario que ejecuta
-				cash_session = (
-					s.query(CashSession)
-					.filter_by(tenant_id=q.tenant_id, user_id=user_id, is_open=True)
-					.first()
-				)
-				if not cash_session:
-					raise ValueError('Debes abrir la caja antes de convertir una cotización en venta.')
+				# Registro del ingreso en caja o actualización de deuda de cliente
+				is_fiado = payment_method.lower() == 'fiado'
+				cash_session = None
+				if not is_fiado:
+					cash_session = (
+						s.query(CashSession)
+						.filter_by(tenant_id=q.tenant_id, user_id=user_id, is_open=True)
+						.first()
+					)
+					if not cash_session:
+						raise ValueError('Debes abrir la caja antes de convertir una cotización en venta.')
+
+				if is_fiado and q.customer_id:
+					customer = (
+						s.query(Customer)
+						.filter_by(id=q.customer_id)
+						.with_for_update()
+						.first()
+					)
+					if customer:
+						customer.current_balance = (
+							customer.current_balance or Decimal('0')
+						) + q.total_amount
+
 				if cash_session and q.total_amount > Decimal('0'):
 					s.add(
 						CashMovement(
@@ -497,6 +523,9 @@ class QuotationController(BaseController):
 				q.status = 'aceptada'
 				s.commit()
 				return True, str(sale.id)
+			except ValueError as ve:
+				s.rollback()
+				return False, str(ve)
 			except Exception as e:
 				s.rollback()
 				logger.error(

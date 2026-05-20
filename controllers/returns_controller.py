@@ -191,12 +191,16 @@ class ReturnsController(BaseController):
 				)
 
 				total = Decimal(str(sale.total_amount or 0))
+				# BUG 16: subtract already-returned amount to avoid double refund
+				# when cancelling a sale that was fully (or partially) returned.
+				already_returned = Decimal(str(sale.total_returned or 0))
+				refund_amount = max(total - already_returned, Decimal('0'))
 				self._register_financial_reversal(
 					session,
 					tenant_id,
 					user_id,
 					sale,
-					total,
+					refund_amount,
 					description=f'Anulación Ticket #{sale_id}',
 				)
 
@@ -214,7 +218,7 @@ class ReturnsController(BaseController):
 						sale_id=sale_id,
 						date_str=date_str,
 						items_returned=[],
-						refund_total=float(total),
+						refund_total=float(refund_amount),
 						customer_name=_customer_name,
 						note_type='Anulación',
 					)
@@ -223,7 +227,7 @@ class ReturnsController(BaseController):
 						f'Venta anulada, pero falló la nota de crédito: {nc_err}'
 					)
 
-				msg = f'Ticket #{sale_id} anulado correctamente. Total reembolsado: ${total:.2f}'
+				msg = f'Ticket #{sale_id} anulado correctamente. Total reembolsado: ${refund_amount:.2f}'
 				if warnings:
 					msg += '\n\nAvisos:\n' + '\n'.join(f'• {w}' for w in warnings)
 				return True, msg

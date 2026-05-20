@@ -45,9 +45,16 @@ def _sync_models():
         Branch,
         CashMovement,
         CashSession,
+        Category,
+        ComboItem,
         Customer,
         Promotion,
         Purchase,
+        PurchaseDetail,
+        PurchaseReturn,
+        PurchaseReturnItem,
+        Quotation,
+        QuotationItem,
         Sale,
         SaleDetail,
         Stock,
@@ -56,23 +63,32 @@ def _sync_models():
         User,
         Warehouse,
     )
-    # Order matters: parents must be pushed before children to satisfy FKs.
+    # Order matters: parents must be inserted before children to satisfy FKs.
+    # Models without updated_at are skipped by the sync loop but included
+    # by restore_from_cloud so that all tables are pulled on a full restore.
     return [
         Tenant,
         Branch,
         Warehouse,
         User,
         Supplier,
+        Category,          # parent of Article (no updated_at — skipped by sync, kept for restore)
         Article,
         ArticleVariant,
+        ComboItem,         # child of ArticleVariant (no updated_at)
         Customer,
         Purchase,
+        PurchaseDetail,    # child of Purchase (no updated_at)
+        PurchaseReturn,    # child of Purchase (no updated_at)
+        PurchaseReturnItem,  # child of PurchaseReturn (no updated_at)
         Sale,
         SaleDetail,
+        Quotation,         # child of Tenant/User/Customer (no updated_at)
+        QuotationItem,     # child of Quotation/ArticleVariant (no updated_at)
         Stock,
         Promotion,
-        CashSession,   # 7-day window enforced in _cycle()
-        CashMovement,  # 7-day window enforced in _cycle()
+        CashSession,       # 7-day window enforced in _cycle()
+        CashMovement,      # 7-day window enforced in _cycle()
     ]
 
 
@@ -292,11 +308,14 @@ class SyncWorker:
                     # only rolls back that table, not all previously synced data.
                     cloud.commit()
                     total_pushed += pushed
-                    # Only advance the watermark when the batch was smaller than the
-                    # limit — if we hit the limit there may be more rows to process,
-                    # so keep the same last_sync so the next cycle re-queries them.
+                    # Advance watermark: if batch < limit, all rows for this cycle
+                    # were sent, so advance to sync_time. If batch == limit, more rows
+                    # may exist; advance to the last row's updated_at so the next cycle
+                    # continues from there (prevents infinite retry on exact batch size).
                     if len(rows_q) < _SYNC_BATCH_SIZE:
                         state[table_name] = sync_time.isoformat()
+                    else:
+                        state[table_name] = rows_q[-1].updated_at.isoformat()
                     logger.debug('Synced %d rows → %s', pushed, table_name)
                 except Exception as e:
                     logger.error('Upsert failed for %s: %s', table_name, e)
