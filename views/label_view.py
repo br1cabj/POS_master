@@ -278,7 +278,7 @@ class LabelView(BaseView):
 			except Exception:
 				pass
 
-		# Reset referencias — estructura unificada para todos los templates
+		# Reset widget references
 		self._pw_header = None
 		self._pw_brand = None
 		self._pw_name = None
@@ -290,22 +290,28 @@ class LabelView(BaseView):
 		self._pw_footer = None
 		self._pw_body = None
 
-		# Estilos por template
 		tpl_styles = {
-			'supermercado': {'hdr_color': '#1e293b', 'hdr_h': 22, 'name_font': 9,  'price_font': 20, 'bc_h': 28, 'price_color': '#0f172a'},
-			'producto':     {'hdr_color': '#0f172a', 'hdr_h': 24, 'name_font': 12, 'price_font': 24, 'bc_h': 32, 'price_color': '#0f172a'},
-			'precio':       {'hdr_color': '#1e293b', 'hdr_h': 10, 'name_font': 9,  'price_font': 22, 'bc_h': 20, 'price_color': '#0f172a'},
-			'mini':         {'hdr_color': '#f77f00', 'hdr_h': 16, 'name_font': 8,  'price_font': 16, 'bc_h': 22, 'price_color': '#f77f00'},
+			'supermercado': {'hdr_color': '#1e293b', 'hdr_h': 20, 'name_font': 9,  'price_font': 18, 'bc_h': 24, 'price_color': '#0f172a'},
+			'producto':     {'hdr_color': '#0f172a', 'hdr_h': 22, 'name_font': 11, 'price_font': 22, 'bc_h': 28, 'price_color': '#0f172a'},
+			'precio':       {'hdr_color': '#1e293b', 'hdr_h': 10, 'name_font': 8,  'price_font': 20, 'bc_h': 18, 'price_color': '#0f172a'},
+			'mini':         {'hdr_color': '#f77f00', 'hdr_h': 14, 'name_font': 7,  'price_font': 14, 'bc_h': 18, 'price_color': '#f77f00'},
 		}
 		st = tpl_styles.get(self._tpl_key, tpl_styles['supermercado'])
 
 		card.configure(fg_color='white', border_width=0)
 
-		# ── Header ─────────────────────────────────────────────────
+		# Grid layout inside card so row weights work correctly.
+		# pack(expand=True) on the body would steal ALL remaining space,
+		# leaving separator / bc_zone / footer with zero height.
+		card.grid_columnconfigure(0, weight=1)
+		card.grid_rowconfigure(1, weight=1)   # body row expands
+		card.grid_propagate(False)            # keep card at its declared 220×150
+
+		# Row 0 — Header
 		self._pw_header = ctk.CTkFrame(
 			card, fg_color=st['hdr_color'], corner_radius=0, height=st['hdr_h']
 		)
-		self._pw_header.pack(fill='x')
+		self._pw_header.grid(row=0, column=0, sticky='ew')
 		self._pw_header.pack_propagate(False)
 		self._pw_brand = ctk.CTkLabel(
 			self._pw_header, text='MI NEGOCIO',
@@ -313,20 +319,20 @@ class LabelView(BaseView):
 		)
 		self._pw_brand.pack(expand=True, fill='both', padx=4)
 
-		# ── Cuerpo ─────────────────────────────────────────────────
+		# Row 1 — Body (expands)
 		self._pw_body = ctk.CTkFrame(card, fg_color='white', corner_radius=0)
-		self._pw_body.pack(fill='both', expand=True, padx=6, pady=(4, 2))
+		self._pw_body.grid(row=1, column=0, sticky='nsew', padx=6, pady=(3, 2))
 
 		self._pw_name = ctk.CTkLabel(
 			self._pw_body, text='Nombre del Producto',
 			font=('Arial', st['name_font'], 'bold'), text_color='black',
-			anchor='w', wraplength=200, justify='left',
+			anchor='w', wraplength=195, justify='left',
 		)
 		self._pw_name.pack(fill='x', anchor='w')
 
 		self._pw_attr = ctk.CTkLabel(
 			self._pw_body, text='',
-			font=('Arial', 7), text_color='#64748b', anchor='w',
+			font=('Arial', 6), text_color='#64748b', anchor='w',
 		)
 		self._pw_attr.pack(fill='x', anchor='w')
 
@@ -334,35 +340,36 @@ class LabelView(BaseView):
 			self._pw_body, text='',
 			font=('Arial', 6), text_color='#94a3b8', anchor='w',
 		)
-		self._pw_price_before.pack(fill='x', anchor='w', pady=(4, 0))
+		self._pw_price_before.pack(fill='x', anchor='w', pady=(2, 0))
 
 		self._pw_price = ctk.CTkLabel(
 			self._pw_body, text='$0',
 			font=('Arial', st['price_font'], 'bold'),
 			text_color=st['price_color'], anchor='w',
 		)
-		self._pw_price.pack(fill='x', side='bottom', anchor='w')
+		self._pw_price.pack(fill='x', anchor='w', pady=(1, 0))
 
-		# ── Separador ──────────────────────────────────────────────
-		ctk.CTkFrame(card, fg_color='#e2e8f0', corner_radius=0, height=1).pack(fill='x')
+		# Row 2 — Separator
+		ctk.CTkFrame(card, fg_color='#e2e8f0', corner_radius=0, height=1).grid(
+			row=2, column=0, sticky='ew'
+		)
 
-		# ── Zona de código de barras ───────────────────────────────
+		# Row 3 — Barcode zone
 		self._pw_bc_zone = ctk.CTkFrame(
 			card, fg_color='#f1f5f9', corner_radius=0, height=st['bc_h']
 		)
-		self._pw_bc_zone.pack(fill='x')
+		self._pw_bc_zone.grid(row=3, column=0, sticky='ew')
 		self._pw_bc_zone.pack_propagate(False)
-		# Barra visual que simula el barcode
 		ctk.CTkFrame(
-			self._pw_bc_zone, fg_color='#334155', corner_radius=0, height=st['bc_h'] - 10
-		).pack(fill='x', padx=12, pady=(3, 0))
+			self._pw_bc_zone, fg_color='#334155', corner_radius=0, height=st['bc_h'] - 8
+		).pack(fill='x', padx=10, pady=(3, 0))
 
-		# ── Footer ─────────────────────────────────────────────────
+		# Row 4 — Footer
 		self._pw_footer = ctk.CTkFrame(card, fg_color='#f8fafc', corner_radius=0, height=14)
-		self._pw_footer.pack(fill='x', side='bottom')
+		self._pw_footer.grid(row=4, column=0, sticky='ew')
 		self._pw_footer.pack_propagate(False)
 		self._pw_footer_label = ctk.CTkLabel(
-			self._pw_footer, text='1234567890   Imp: 19/05/26',
+			self._pw_footer, text='0000000000   Imp: 20/05/26',
 			font=('Arial', 4), text_color='#64748b',
 		)
 		self._pw_footer_label.pack(expand=True)
