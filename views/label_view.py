@@ -269,82 +269,103 @@ class LabelView(BaseView):
 		self._build_live_preview_widgets()
 
 	def _build_live_preview_widgets(self):
-		if not self.winfo_exists(): return
+		if not self.winfo_exists():
+			return
 		card = self._preview_label_card
-		for w in list(card.winfo_children()): 
-			try: w.destroy()
-			except: pass
-		
-		# Reset internal widget references
+		for w in list(card.winfo_children()):
+			try:
+				w.destroy()
+			except Exception:
+				pass
+
+		# Reset referencias — estructura unificada para todos los templates
 		self._pw_header = None
 		self._pw_brand = None
 		self._pw_name = None
+		self._pw_attr = None
+		self._pw_price_before = None
 		self._pw_price = None
+		self._pw_bc_zone = None
+		self._pw_footer_label = None
 		self._pw_footer = None
 		self._pw_body = None
 
-		# Simulación según el template seleccionado
-		if self._tpl_key == 'supermercado':
-			self._pw_header = ctk.CTkFrame(card, fg_color='#1e293b', corner_radius=0, height=20)
-			self._pw_header.pack(fill='x')
-			self._pw_header.pack_propagate(False)
-			self._pw_brand = ctk.CTkLabel(self._pw_header, text='BRAND', font=('Arial', 6, 'bold'), text_color='white')
-			self._pw_brand.pack(side='left', padx=5)
-			
-			self._pw_body = ctk.CTkFrame(card, fg_color='white', corner_radius=0)
-			self._pw_body.pack(fill='both', expand=True, padx=5, pady=5)
-			self._pw_name = ctk.CTkLabel(self._pw_body, text='PRODUCTO', font=('Arial', 10, 'bold'), text_color='black', anchor='w')
-			self._pw_name.pack(fill='x')
-			self._pw_price = ctk.CTkLabel(self._pw_body, text='$0.00', font=('Arial', 20, 'bold'), text_color='#0f172a', anchor='w')
-			self._pw_price.pack(fill='x', pady=(2, 0))
+		# Estilos por template
+		tpl_styles = {
+			'supermercado': {'hdr_color': '#1e293b', 'hdr_h': 22, 'name_font': 9,  'price_font': 20, 'bc_h': 28, 'price_color': '#0f172a'},
+			'producto':     {'hdr_color': '#0f172a', 'hdr_h': 24, 'name_font': 12, 'price_font': 24, 'bc_h': 32, 'price_color': '#0f172a'},
+			'precio':       {'hdr_color': '#1e293b', 'hdr_h': 10, 'name_font': 9,  'price_font': 22, 'bc_h': 20, 'price_color': '#0f172a'},
+			'mini':         {'hdr_color': '#f77f00', 'hdr_h': 16, 'name_font': 8,  'price_font': 16, 'bc_h': 22, 'price_color': '#f77f00'},
+		}
+		st = tpl_styles.get(self._tpl_key, tpl_styles['supermercado'])
 
-			self._pw_footer = ctk.CTkFrame(card, fg_color='#f8fafc', height=12, corner_radius=0)
-			self._pw_footer.pack(fill='x', side='bottom')
-			ctk.CTkLabel(self._pw_footer, text='IVA INCLUIDO', font=('Arial', 4), text_color='#64748b').pack(side='left', padx=5)
+		card.configure(fg_color='white', border_width=0)
 
-		elif self._tpl_key == 'producto':
-			# Top Bar
-			ctk.CTkFrame(card, fg_color='#1e293b', height=3, corner_radius=0).pack(fill='x')
-			self._pw_body = ctk.CTkFrame(card, fg_color='white', corner_radius=0)
-			self._pw_body.pack(fill='both', expand=True, padx=8, pady=5)
-			
-			self._pw_brand = ctk.CTkLabel(self._pw_body, text='BRAND', font=('Arial', 7, 'bold'), text_color='#1e293b', anchor='w')
-			self._pw_brand.pack(fill='x')
-			
-			self._pw_name = ctk.CTkLabel(self._pw_body, text='Nombre Producto', font=('Arial', 12, 'bold'), text_color='black', anchor='w', justify='left', wraplength=180)
-			self._pw_name.pack(fill='x', pady=2)
-			
-			self._pw_price = ctk.CTkLabel(self._pw_body, text='$0.00', font=('Arial', 24, 'bold'), text_color='black', anchor='w')
-			self._pw_price.pack(fill='x', side='bottom', pady=5)
+		# ── Header ─────────────────────────────────────────────────
+		self._pw_header = ctk.CTkFrame(
+			card, fg_color=st['hdr_color'], corner_radius=0, height=st['hdr_h']
+		)
+		self._pw_header.pack(fill='x')
+		self._pw_header.pack_propagate(False)
+		self._pw_brand = ctk.CTkLabel(
+			self._pw_header, text='MI NEGOCIO',
+			font=('Arial', 7, 'bold'), text_color='white', anchor='center',
+		)
+		self._pw_brand.pack(expand=True, fill='both', padx=4)
 
-		elif self._tpl_key == 'precio':
-			card.configure(border_width=1, border_color='#e2e8f0')
-			self._pw_body = ctk.CTkFrame(card, fg_color='white', corner_radius=0)
-			self._pw_body.pack(fill='both', expand=True, padx=10, pady=10)
-			
-			self._pw_name = ctk.CTkLabel(self._pw_body, text='PRODUCTO', font=('Arial', 9, 'bold'), text_color='#334155', anchor='w')
-			self._pw_name.pack(fill='x')
-			
-			# Precio centrado y grande
-			self._pw_price = ctk.CTkLabel(self._pw_body, text='$0.00', font=('Arial', 26, 'bold'), text_color='#0f172a')
-			self._pw_price.place(relx=0.5, rely=0.5, anchor='center')
-			
-			self._pw_brand = ctk.CTkLabel(self._pw_body, text='', height=1) # Hidden but existing for update_live_preview
+		# ── Cuerpo ─────────────────────────────────────────────────
+		self._pw_body = ctk.CTkFrame(card, fg_color='white', corner_radius=0)
+		self._pw_body.pack(fill='both', expand=True, padx=6, pady=(4, 2))
 
-		elif self._tpl_key == 'mini':
-			card.configure(fg_color='#f8fafc')
-			self._pw_body = ctk.CTkFrame(card, fg_color='transparent', corner_radius=0)
-			self._pw_body.pack(fill='both', expand=True, padx=5, pady=5)
-			
-			self._pw_name = ctk.CTkLabel(self._pw_body, text='PRODUCTO', font=('Arial', 8, 'bold'), text_color='black', anchor='w')
-			self._pw_name.pack(fill='x')
-			
-			self._pw_price = ctk.CTkLabel(self._pw_body, text='$0.00', font=('Arial', 16, 'bold'), text_color='#d97706', anchor='w')
-			self._pw_price.pack(fill='x')
-			
-			# Mini barcode area at bottom
-			ctk.CTkFrame(self._pw_body, fg_color='#334155', height=15, corner_radius=2).pack(fill='x', side='bottom')
-			self._pw_brand = ctk.CTkLabel(self._pw_body, text='', height=1)
+		self._pw_name = ctk.CTkLabel(
+			self._pw_body, text='Nombre del Producto',
+			font=('Arial', st['name_font'], 'bold'), text_color='black',
+			anchor='w', wraplength=200, justify='left',
+		)
+		self._pw_name.pack(fill='x', anchor='w')
+
+		self._pw_attr = ctk.CTkLabel(
+			self._pw_body, text='',
+			font=('Arial', 7), text_color='#64748b', anchor='w',
+		)
+		self._pw_attr.pack(fill='x', anchor='w')
+
+		self._pw_price_before = ctk.CTkLabel(
+			self._pw_body, text='',
+			font=('Arial', 6), text_color='#94a3b8', anchor='w',
+		)
+		self._pw_price_before.pack(fill='x', anchor='w', pady=(4, 0))
+
+		self._pw_price = ctk.CTkLabel(
+			self._pw_body, text='$0',
+			font=('Arial', st['price_font'], 'bold'),
+			text_color=st['price_color'], anchor='w',
+		)
+		self._pw_price.pack(fill='x', side='bottom', anchor='w')
+
+		# ── Separador ──────────────────────────────────────────────
+		ctk.CTkFrame(card, fg_color='#e2e8f0', corner_radius=0, height=1).pack(fill='x')
+
+		# ── Zona de código de barras ───────────────────────────────
+		self._pw_bc_zone = ctk.CTkFrame(
+			card, fg_color='#f1f5f9', corner_radius=0, height=st['bc_h']
+		)
+		self._pw_bc_zone.pack(fill='x')
+		self._pw_bc_zone.pack_propagate(False)
+		# Barra visual que simula el barcode
+		ctk.CTkFrame(
+			self._pw_bc_zone, fg_color='#334155', corner_radius=0, height=st['bc_h'] - 10
+		).pack(fill='x', padx=12, pady=(3, 0))
+
+		# ── Footer ─────────────────────────────────────────────────
+		self._pw_footer = ctk.CTkFrame(card, fg_color='#f8fafc', corner_radius=0, height=14)
+		self._pw_footer.pack(fill='x', side='bottom')
+		self._pw_footer.pack_propagate(False)
+		self._pw_footer_label = ctk.CTkLabel(
+			self._pw_footer, text='1234567890   Imp: 19/05/26',
+			font=('Arial', 4), text_color='#64748b',
+		)
+		self._pw_footer_label.pack(expand=True)
 
 		self._update_live_preview()
 
@@ -366,6 +387,7 @@ class LabelView(BaseView):
 			'price_mode': 'retail',
 			'discount_price': None,
 			'discount_until': '',
+			'attribute': '',
 		}
 
 		cfg = _cfg_mgr.load()
@@ -375,30 +397,46 @@ class LabelView(BaseView):
 		disc = item.get('discount_price')
 		p_final = disc if (is_offer and disc) else price
 		name_txt = item.get('name', 'Producto')[:30]
+		attr_txt = item.get('attribute', '')
+		barcode_txt = item.get('barcode', '') or '0000000000'
+		date_str = datetime.now().strftime('%d/%m/%y')
+
+		tpl_colors = {
+			'supermercado': '#1e293b',
+			'producto':     '#0f172a',
+			'precio':       '#1e293b',
+			'mini':         '#f77f00',
+		}
+		hdr_normal = tpl_colors.get(self._tpl_key, '#1e293b')
+
+		def _safe(widget_attr, **kwargs):
+			w = getattr(self, widget_attr, None)
+			if not w:
+				return
+			try:
+				if w.winfo_exists():
+					w.configure(**kwargs)
+			except Exception:
+				pass
 
 		try:
-			self._pw_name.configure(text=name_txt, text_color='black')
-			self._pw_price.configure(
+			_safe('_pw_header', fg_color='#dc2626' if is_offer else hdr_normal)
+			_safe('_pw_brand', text='* OFERTA *' if is_offer else company)
+			_safe('_pw_name', text=name_txt, text_color='black')
+			_safe('_pw_attr', text=attr_txt)
+			_safe(
+				'_pw_price_before',
+				text=f'Antes: {fmt_price(price)}' if is_offer else '',
+			)
+			_safe(
+				'_pw_price',
 				text=fmt_price(p_final),
 				text_color='#dc2626' if is_offer else '#0f172a',
 			)
-
-			header = getattr(self, '_pw_header', None)
-			if header:
-				try:
-					if header.winfo_exists():
-						header.configure(fg_color='#dc2626' if is_offer else '#1e293b')
-				except Exception:
-					pass
-
-			brand = getattr(self, '_pw_brand', None)
-			if brand:
-				try:
-					if brand.winfo_exists():
-						brand.configure(text='¡OFERTA!' if is_offer else company)
-				except Exception:
-					pass
-
+			_safe(
+				'_pw_footer_label',
+				text=f'{barcode_txt[:18]}   Imp: {date_str}',
+			)
 		except Exception as e:
 			logger.debug('Preview update error: %s', e)
 
@@ -1064,6 +1102,8 @@ class LabelView(BaseView):
 				except (ValueError, TypeError):
 					self._queue[i]['discount_price'] = None
 				self._queue[i]['discount_until'] = du.get().strip()
+				if i == 0:
+					self._update_live_preview()
 
 			entry_disc.bind('<KeyRelease>', _on_disc_change)
 			entry_until.bind('<KeyRelease>', _on_disc_change)
