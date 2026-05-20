@@ -1117,9 +1117,6 @@ class LabelView(BaseView):
 			entry_disc.bind(
 				'<FocusIn>', lambda e, ent=entry_disc: ent.select_range(0, 'end')
 			)
-			entry_until.bind(
-				'<FocusIn>', lambda e, ent=entry_until: ent.select_range(0, 'end')
-			)
 
 	def _inc_copies(self, idx: int, ent: ctk.CTkEntry):
 		if 0 <= idx < len(self._queue):
