@@ -2673,6 +2673,12 @@ class SalesView(BaseView):
 		self._focus_restore_cbid = top.bind('<Button-1>', self._maybe_restore_focus, add='+')
 		# También al mostrarse la tab de ventas (cambio de pestaña)
 		self.bind('<Map>', lambda e: self.after(150, self._restore_scan_focus))
+		# Recarga el catálogo cuando label_view guarda un artículo manual
+		self._manual_article_cbid = top.bind(
+			'<<ManualArticleAdded>>',
+			lambda e: self.after(0, self.load_data),
+			add='+',
+		)
 		self.bind(
 			'<Destroy>', lambda e: self.destroy_custom() if e.widget is self else None
 		)
@@ -2693,6 +2699,11 @@ class SalesView(BaseView):
 		if getattr(self, '_focus_restore_cbid', None):
 			try:
 				top.unbind('<Button-1>', self._focus_restore_cbid)
+			except tkinter.TclError:
+				pass
+		if getattr(self, '_manual_article_cbid', None):
+			try:
+				top.unbind('<<ManualArticleAdded>>', self._manual_article_cbid)
 			except tkinter.TclError:
 				pass
 

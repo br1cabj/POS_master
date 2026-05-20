@@ -97,6 +97,59 @@ class LabelController:
 		"""Genera un código Code128 interno único para artículos sin EAN."""
 		return 'INT' + uuid.uuid4().hex[:11].upper()
 
+	def save_manual_article(
+		self, db_engine, tenant_id: str, name: str, price: float, barcode_val: str
+	) -> str:
+		"""
+		Persiste el artículo manual en la DB bajo la categoría 'Artículos Manuales'.
+		Reutiliza el Article si ya existe con ese nombre, siempre crea una Variant nueva.
+		Retorna el variant_id (UUID real) para que sea escaneable en ventas.
+		"""
+		from sqlalchemy.orm import sessionmaker as _sm
+
+		from database.models import Article, ArticleVariant, Category
+
+		Session = _sm(bind=db_engine)
+		with Session() as session:
+			# Categoría compartida "Artículos Manuales"
+			cat = session.query(Category).filter_by(name='Artículos Manuales').first()
+			if not cat:
+				cat = Category(name='Artículos Manuales')
+				session.add(cat)
+				session.flush()
+
+			# Article por nombre + tenant (reutilizar si existe)
+			article = (
+				session.query(Article)
+				.filter(
+					Article.name == name,
+					Article.tenant_id == tenant_id,
+					Article.category_id == cat.id,
+					Article.deleted_at.is_(None),
+				)
+				.first()
+			)
+			if not article:
+				article = Article(
+					name=name,
+					tenant_id=tenant_id,
+					category_id=cat.id,
+					is_active=True,
+				)
+				session.add(article)
+				session.flush()
+
+			variant = ArticleVariant(
+				article_id=article.id,
+				barcode=barcode_val,
+				cost_price=0,
+				selling_price=price,
+				is_active=True,
+			)
+			session.add(variant)
+			session.commit()
+			return variant.id
+
 	def _generate_barcode_png(self, code: str) -> Optional[str]:
 		if not code or not str(code).strip():
 			return None

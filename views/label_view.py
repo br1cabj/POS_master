@@ -31,6 +31,11 @@ from utils.styles import (
 	FONT_LABEL_BOLD,
 	GREEN,
 	GREEN_HOVER,
+	LBL_BLUE,
+	LBL_HEADER_DARK,
+	LBL_HEADER_DEEP,
+	LBL_HEADER_ORANGE,
+	LBL_RED,
 	ORANGE_TEXT,
 	PAD_LG,
 	PAD_MD,
@@ -291,10 +296,22 @@ class LabelView(BaseView):
 		self._pw_body = None
 
 		tpl_styles = {
-			'supermercado': {'hdr_color': '#1e293b', 'hdr_h': 20, 'name_font': 9,  'price_font': 18, 'bc_h': 24, 'price_color': '#0f172a'},
-			'producto':     {'hdr_color': '#0f172a', 'hdr_h': 22, 'name_font': 11, 'price_font': 22, 'bc_h': 28, 'price_color': '#0f172a'},
-			'precio':       {'hdr_color': '#1e293b', 'hdr_h': 10, 'name_font': 8,  'price_font': 20, 'bc_h': 18, 'price_color': '#0f172a'},
-			'mini':         {'hdr_color': '#f77f00', 'hdr_h': 14, 'name_font': 7,  'price_font': 14, 'bc_h': 18, 'price_color': '#f77f00'},
+			'supermercado': {
+				'hdr_color': LBL_HEADER_DARK, 'hdr_h': 20, 'name_font': 9,
+				'price_font': 18, 'bc_h': 24, 'price_color': LBL_HEADER_DEEP
+			},
+			'producto': {
+				'hdr_color': LBL_HEADER_DEEP, 'hdr_h': 22, 'name_font': 11,
+				'price_font': 22, 'bc_h': 28, 'price_color': LBL_HEADER_DEEP
+			},
+			'precio': {
+				'hdr_color': LBL_HEADER_DARK, 'hdr_h': 10, 'name_font': 8,
+				'price_font': 20, 'bc_h': 18, 'price_color': LBL_HEADER_DEEP
+			},
+			'mini': {
+				'hdr_color': LBL_HEADER_ORANGE, 'hdr_h': 14, 'name_font': 7,
+				'price_font': 14, 'bc_h': 18, 'price_color': LBL_HEADER_ORANGE
+			},
 		}
 		st = tpl_styles.get(self._tpl_key, tpl_styles['supermercado'])
 
@@ -394,27 +411,56 @@ class LabelView(BaseView):
 			'price_mode': 'retail',
 			'discount_price': None,
 			'discount_until': '',
-			'attribute': '',
+			'attribute': 'Pack x3',
 		}
 
 		cfg = _cfg_mgr.load()
-		company = cfg.get('company_name', 'MI NEGOCIO')[:15].upper()
-		is_offer = bool(item.get('discount_price'))
+		company = cfg.get('company_name', 'MI NEGOCIO')
+		price_mode = item.get('price_mode', 'retail')
+		list_b_name = cfg.get('price_list_b_name', 'Mayorista')
+
+		# Precios y modo
 		price = self._get_item_display_price(item)
-		disc = item.get('discount_price')
-		p_final = disc if (is_offer and disc) else price
-		name_txt = item.get('name', 'Producto')[:30]
+		raw_disc = item.get('discount_price')
+		try:
+			discount_price = float(raw_disc) if raw_disc else None
+			if discount_price is not None and discount_price <= 0:
+				discount_price = None
+		except (ValueError, TypeError):
+			discount_price = None
+
+		# Lógica de oferta: solo si el descuento es menor al precio actual
+		is_offer = bool(discount_price is not None and discount_price < price)
+		p_final = discount_price if is_offer else price
+		
+		# Texto
+		name_txt = item.get('name', 'Producto')[:40]
 		attr_txt = item.get('attribute', '')
 		barcode_txt = item.get('barcode', '') or '0000000000'
 		date_str = datetime.now().strftime('%d/%m/%y')
 
+		# Colores base según template
 		tpl_colors = {
-			'supermercado': '#1e293b',
-			'producto':     '#0f172a',
-			'precio':       '#1e293b',
-			'mini':         '#f77f00',
+			'supermercado': LBL_HEADER_DARK,
+			'producto':     LBL_HEADER_DEEP,
+			'precio':       LBL_HEADER_DARK,
+			'mini':         LBL_HEADER_ORANGE,
 		}
-		hdr_normal = tpl_colors.get(self._tpl_key, '#1e293b')
+		hdr_normal = tpl_colors.get(self._tpl_key, LBL_HEADER_DARK)
+		
+		# Ajuste de color por modo o estado
+		header_color = hdr_normal
+		brand_text = company[:24].upper()
+
+		if is_offer:
+			header_color = LBL_RED
+			brand_text = '* OFERTA *'
+		elif price_mode == 'price_b':
+			header_color = LBL_BLUE # Azul mayorista (sync con controlador)
+			brand_text = list_b_name.upper()
+
+		# El precio en 'mini' es naranja si no es oferta
+		price_text_color = LBL_RED if is_offer else (LBL_HEADER_ORANGE if self._tpl_key == 'mini' else LBL_HEADER_DEEP)
 
 		def _safe(widget_attr, **kwargs):
 			w = getattr(self, widget_attr, None)
@@ -427,8 +473,8 @@ class LabelView(BaseView):
 				pass
 
 		try:
-			_safe('_pw_header', fg_color='#dc2626' if is_offer else hdr_normal)
-			_safe('_pw_brand', text='* OFERTA *' if is_offer else company)
+			_safe('_pw_header', fg_color=header_color)
+			_safe('_pw_brand', text=brand_text)
 			_safe('_pw_name', text=name_txt, text_color='black')
 			_safe('_pw_attr', text=attr_txt)
 			_safe(
@@ -438,7 +484,7 @@ class LabelView(BaseView):
 			_safe(
 				'_pw_price',
 				text=fmt_price(p_final),
-				text_color='#dc2626' if is_offer else '#0f172a',
+				text_color=price_text_color,
 			)
 			_safe(
 				'_pw_footer_label',
@@ -833,8 +879,18 @@ class LabelView(BaseView):
 			except ValueError:
 				copies_val = 1
 			mode = getattr(self, '_current_price_mode', 'retail')
+
+			# Guardar en DB para que el barcode sea escaneable en ventas
+			try:
+				real_id = self._ctrl.save_manual_article(
+					self._ctx.db_engine, self._ctx.tenant_id, name, price_val, bc
+				)
+			except Exception as e:
+				logger.error('save_manual_article: %s', e, exc_info=True)
+				real_id = f'manual_{bc}'
+
 			new_item = {
-				'variant_id': f'manual_{bc}',
+				'variant_id': real_id,
 				'name': name,
 				'attribute': '',
 				'barcode': bc,
@@ -850,6 +906,13 @@ class LabelView(BaseView):
 			else:
 				self._queue.append(new_item)
 			self._render_queue()
+
+			# Notificar a la vista de ventas para recargar su catálogo
+			try:
+				self.winfo_toplevel().event_generate('<<ManualArticleAdded>>')
+			except Exception:
+				pass
+
 			dlg.destroy()
 
 		ctk.CTkButton(
@@ -1097,20 +1160,24 @@ class LabelView(BaseView):
 				anchor='w',
 			).pack(side='left', padx=(0, PAD_XS))
 
-			entry_until = CTkDatePicker(disc_row, width=155, height=26)
-			if item.get('discount_until'):
-				entry_until.set_text(str(item['discount_until']))
-			entry_until.pack(side='left', padx=(0, PAD_SM))
-
-			def _on_disc_change(e, i=idx, de=entry_disc, du=entry_until):
+			def _on_disc_change(e=None, i=idx, de=entry_disc, du=None):
+				# Use the current entry_until if du is None (it will be bound in closure)
+				target_du = du or entry_until
 				try:
 					val = float(de.get())
 					self._queue[i]['discount_price'] = val if val > 0 else None
 				except (ValueError, TypeError):
 					self._queue[i]['discount_price'] = None
-				self._queue[i]['discount_until'] = du.get().strip()
+				self._queue[i]['discount_until'] = target_du.get().strip()
 				if i == 0:
 					self._update_live_preview()
+
+			entry_until = CTkDatePicker(
+				disc_row, width=155, height=26, on_date_selected=lambda d: _on_disc_change()
+			)
+			if item.get('discount_until'):
+				entry_until.set_text(str(item['discount_until']))
+			entry_until.pack(side='left', padx=(0, PAD_SM))
 
 			entry_disc.bind('<KeyRelease>', _on_disc_change)
 			entry_until.bind('<KeyRelease>', _on_disc_change)
