@@ -2609,6 +2609,36 @@ class SalesView(BaseView):
 	# =========================================================
 	# ATAJOS DE TECLADO SEGUROS
 	# =========================================================
+	def _restore_scan_focus(self):
+		"""Devuelve el foco al campo de barcode si no hay ningún input activo ni popup abierto."""
+		if not self.winfo_ismapped():
+			return
+		try:
+			if not self.entry_barcode.winfo_exists():
+				return
+		except Exception:
+			return
+		# No robar el foco si hay un popup/modal abierto
+		if getattr(self, 'popup', None):
+			try:
+				if self.popup.winfo_exists():
+					return
+			except Exception:
+				pass
+		# No robar el foco si el usuario hizo click en un widget de entrada
+		try:
+			focused = self.winfo_toplevel().focus_get()
+			if focused and hasattr(focused, 'insert'):
+				return
+		except Exception:
+			pass
+		self.entry_barcode.focus()
+
+	def _maybe_restore_focus(self, event=None):
+		"""Callback de Button-1: espera 60ms para que el click handler corra primero."""
+		if self.winfo_ismapped():
+			self.after(60, self._restore_scan_focus)
+
 	def setup_shortcuts(self):
 		top = self.winfo_toplevel()
 		# Forma estándar y segura de registrar eventos en Tkinter sin cruzar identificadores.
@@ -2639,6 +2669,10 @@ class SalesView(BaseView):
 			'<Control-Delete>',
 			lambda e: self._confirm_clear_cart() if self.winfo_ismapped() else None,
 		)
+		# Auto-foco: devuelve el cursor al campo de barcode tras cualquier click
+		self._focus_restore_cbid = top.bind('<Button-1>', self._maybe_restore_focus, add='+')
+		# También al mostrarse la tab de ventas (cambio de pestaña)
+		self.bind('<Map>', lambda e: self.after(150, self._restore_scan_focus))
 		self.bind(
 			'<Destroy>', lambda e: self.destroy_custom() if e.widget is self else None
 		)
@@ -2654,6 +2688,11 @@ class SalesView(BaseView):
 		for key in ('<F5>', '<F10>', '<F6>', '<F7>', '<Delete>', '<Control-Delete>'):
 			try:
 				top.unbind(key)
+			except tkinter.TclError:
+				pass
+		if getattr(self, '_focus_restore_cbid', None):
+			try:
+				top.unbind('<Button-1>', self._focus_restore_cbid)
 			except tkinter.TclError:
 				pass
 
