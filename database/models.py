@@ -121,6 +121,7 @@ class Supplier(Base):
 	is_active = Column(Boolean, default=True)
 	deleted_at = Column(DateTime, nullable=True)
 	deleted_by = Column(String(36), ForeignKey('users.id'), nullable=True)
+	deleted_by_user = relationship('User', foreign_keys=[deleted_by])
 
 	discount_pct = Column(Numeric(5, 2), nullable=True)
 	discount_until = Column(DateTime, nullable=True)
@@ -147,6 +148,7 @@ class Article(Base):
 	is_active = Column(Boolean, default=True)
 	deleted_at = Column(DateTime, nullable=True)
 	deleted_by = Column(String(36), ForeignKey('users.id'), nullable=True)
+	deleted_by_user = relationship('User', foreign_keys=[deleted_by])
 
 	updated_at = Column(
 		DateTime, default=datetime.now, onupdate=datetime.now, index=True
@@ -155,7 +157,7 @@ class Article(Base):
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 	tenant = relationship('Tenant', back_populates='articles')
 
-	category_id = Column(String(36), ForeignKey('categories.id'), nullable=True)
+	category_id = Column(String(36), ForeignKey('categories.id'), nullable=True, index=True)
 	category = relationship('Category')
 
 	supplier_id = Column(
@@ -226,6 +228,7 @@ class ArticleHistory(Base):
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
 	date = Column(DateTime, default=datetime.now, index=True)
+	updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
 	user_id = Column(String(36), ForeignKey('users.id'), nullable=False)
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 
@@ -313,6 +316,7 @@ class Customer(Base):
 	is_active = Column(Boolean, default=True)
 	deleted_at = Column(DateTime, nullable=True)
 	deleted_by = Column(String(36), ForeignKey('users.id'), nullable=True)
+	deleted_by_user = relationship('User', foreign_keys=[deleted_by])
 
 	updated_at = Column(
 		DateTime, default=datetime.now, onupdate=datetime.now, index=True

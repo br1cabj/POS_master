@@ -274,6 +274,7 @@ class BackupController:
                 return v.isoformat()
             return v
 
+        con = None
         con = sqlite3.connect(str(db))
         try:
             con.execute('PRAGMA foreign_keys=OFF')
@@ -317,11 +318,12 @@ class BackupController:
                 logger.error('Rollback de seguridad también falló: %s', rb_err)
             return False, f'Error al escribir datos: {e}'
         finally:
-            try:
-                con.execute('PRAGMA foreign_keys=ON')
-                con.close()
-            except Exception:
-                pass
+            if con is not None:
+                try:
+                    con.execute('PRAGMA foreign_keys=ON')
+                    con.close()
+                except Exception:
+                    pass
 
         return True, 'OK'
 

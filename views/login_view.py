@@ -1,4 +1,5 @@
 import logging
+import threading
 
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
@@ -173,38 +174,35 @@ class LoginView(ctk.CTkFrame):
 			self.show_error('Por favor, completa todos los campos.')
 			return
 
-		# Bloquear inputs y botón mientras carga
 		self.btn_login.configure(state='disabled', text='CONECTANDO...')
 		self.entry_username.configure(state='disabled')
 		self.entry_password.configure(state='disabled')
 
 		tenant_id = self.auth_ctrl.get_first_tenant_id()
-		self.after(50, lambda: self._execute_login(tenant_id, user, pwd))
 
-	def _execute_login(self, tenant_id, username, pwd):
-		success = False
-		try:
-			user_dict = self.auth_ctrl.login(username, pwd, tenant_id=tenant_id)
-			if user_dict:
-				success = True
-				self.on_login_success(user_dict)
-				return  # LoginView puede destruirse aquí — no tocar widgets
-
+		def _run():
+			try:
+				user_dict = self.auth_ctrl.login(user, pwd, tenant_id=tenant_id)
+			except Exception as e:
+				logger.error(f'Error inesperado durante el login: {e}', exc_info=True)
+				user_dict = None
 			if self.winfo_exists():
-				self.show_error('Usuario o contraseña incorrectos.')
-				self.entry_password.focus()
-				self.entry_password.select_range(0, 'end')
+				self.after(0, lambda ud=user_dict: self._on_login_result(ud))
 
-		except Exception as e:
-			logger.error(f'Error inesperado durante el login: {e}', exc_info=True)
-			if self.winfo_exists():
-				self.show_error('Error de conexión a la base de datos.')
-		finally:
-			# Asegura la reactivación de inputs incluso si ocurre una excepción
-			if not success and self.winfo_exists():
-				self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
-				self.entry_username.configure(state='normal')
-				self.entry_password.configure(state='normal')
+		threading.Thread(target=_run, daemon=True).start()
+
+	def _on_login_result(self, user_dict):
+		if not self.winfo_exists():
+			return
+		if user_dict:
+			self.on_login_success(user_dict)
+			return
+		self.show_error('Usuario o contraseña incorrectos.')
+		self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
+		self.entry_username.configure(state='normal')
+		self.entry_password.configure(state='normal')
+		self.entry_password.focus()
+		self.entry_password.select_range(0, 'end')
 
 	def show_error(self, message):
 		if not self.winfo_exists():
@@ -357,10 +355,11 @@ class LoginView(ctk.CTkFrame):
 						message=f'{msg}\n\nYa podés iniciar sesión.',
 						icon='check',
 					)
-					self.entry_username.delete(0, 'end')
-					self.entry_username.insert(0, username)
-					self.entry_password.delete(0, 'end')
-					self.entry_password.focus()
+					if self.winfo_exists():
+						self.entry_username.delete(0, 'end')
+						self.entry_username.insert(0, username)
+						self.entry_password.delete(0, 'end')
+						self.entry_password.focus()
 				else:
 					lbl_err.configure(text=msg)
 					btn_recover.configure(state='normal', text='Restablecer Contraseña')

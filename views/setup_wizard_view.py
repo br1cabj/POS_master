@@ -1512,19 +1512,25 @@ class SetupWizard(ctk.CTkFrame):
         self._btn_next.configure(state='disabled', text='Guardando…')
         self._btn_back.configure(state='disabled')
 
-        cfg = _cfg_load()
-        cfg['terminal_mode'] = 'cashier'
-        cfg['db_remote_path'] = self._cashier_db_path
-        _cfg_save(cfg)
+        try:
+            cfg = _cfg_load()
+            cfg['terminal_mode'] = 'cashier'
+            cfg['db_remote_path'] = self._cashier_db_path
+            _cfg_save(cfg)
 
-        CTkMessagebox(
-            title='Terminal Cajero configurada',
-            message=(
-                f'Esta PC se conectará a:\n{self._cashier_db_path}\n\n'
-                'Asegurate de que la Terminal Principal esté encendida\n'
-                'y accesible en la red antes de iniciar esta terminal.'
-            ),
-            icon='check',
-        ).get()
+            CTkMessagebox(
+                title='Terminal Cajero configurada',
+                message=(
+                    f'Esta PC se conectará a:\n{self._cashier_db_path}\n\n'
+                    'Asegurate de que la Terminal Principal esté encendida\n'
+                    'y accesible en la red antes de iniciar esta terminal.'
+                ),
+                icon='check',
+            ).get()
 
-        self.winfo_toplevel().after(100, self.on_complete_callback)
+            self.winfo_toplevel().after(100, self.on_complete_callback)
+        except Exception as exc:
+            self._busy = False
+            self._btn_next.configure(state='normal', text='Finalizar')
+            self._btn_back.configure(state='normal')
+            raise

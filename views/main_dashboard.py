@@ -601,7 +601,6 @@ class MainDashboard(ctk.CTkFrame):
 
 		if self.current_view:
 			old_view = self.current_view
-			self.current_view = None
 
 			if hasattr(old_view, 'destroy_custom'):
 				try:
@@ -614,6 +613,7 @@ class MainDashboard(ctk.CTkFrame):
 				except Exception:
 					pass
 
+			self.current_view = None
 			old_view.pack_forget()
 			self.after(1500, lambda v=old_view: self._delayed_destroy(v))
 

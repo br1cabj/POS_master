@@ -1,6 +1,7 @@
 # utils/label_printer.py
 import logging
 import os
+import tempfile
 
 import barcode
 from barcode.writer import ImageWriter
@@ -11,9 +12,8 @@ logger = logging.getLogger(__name__)
 
 class LabelPrinter:
 	def __init__(self):
-		self.temp_dir = 'temp_barcodes'
-		if not os.path.exists(self.temp_dir):
-			os.makedirs(self.temp_dir)
+		self.temp_dir = tempfile.mkdtemp(prefix='cloudpos_labels_')
+
 
 	def generate_labels_pdf(self, products_list, filename='etiquetas_gondola.pdf'):
 		"""

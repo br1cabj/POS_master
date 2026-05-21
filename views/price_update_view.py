@@ -543,19 +543,34 @@ class PriceUpdateView(BaseView):
         if msg.get() != 'Sí, Guardar Cambios':
             return
 
-        success, message = self.controller.apply_bulk_price_changes(
-            self.ctx.tenant_id, self.ctx.user_id, self.simulation_results,
-        )
+        self.btn_save.configure(state='disabled', text='⏳ Guardando...')
+        _tenant = self.ctx.tenant_id
+        _user = self.ctx.user_id
+        _results = list(self.simulation_results)
 
-        if success:
-            self.show_toast(message, 'success')
-            self.btn_save.configure(state='disabled')
-            self.entry_preview_search.delete(0, 'end')
-            self.entry_percent.delete(0, 'end')
-            self.simulation_results = []
-            self._current_preview_data = []
-            self._filter_preview()
-            self._set_step(0)
-            self.load_data()
-        else:
-            self.show_toast(message, 'error')
+        def _run():
+            try:
+                ok, message = self.controller.apply_bulk_price_changes(_tenant, _user, _results)
+            except Exception as exc:
+                ok, message = False, str(exc)
+            if self.winfo_exists():
+                self.after(0, lambda: _done(ok, message))
+
+        def _done(ok, message):
+            if not self.winfo_exists():
+                return
+            self.btn_save.configure(state='normal', text='✔ Guardar Cambios')
+            if ok:
+                self.show_toast(message, 'success')
+                self.btn_save.configure(state='disabled')
+                self.entry_preview_search.delete(0, 'end')
+                self.entry_percent.delete(0, 'end')
+                self.simulation_results = []
+                self._current_preview_data = []
+                self._filter_preview()
+                self._set_step(0)
+                self.load_data()
+            else:
+                self.show_toast(message, 'error')
+
+        threading.Thread(target=_run, daemon=True).start()

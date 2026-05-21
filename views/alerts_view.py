@@ -329,6 +329,8 @@ class AlertsView(BaseView):
 			items = [i for i in self._all_items if float(i['stock']) <= 0]
 		elif self._active_filter == 'critico':
 			items = [i for i in self._all_items if i['_sev_key'] == 'critico']
+		elif self._active_filter == 'alerta':
+			items = [i for i in self._all_items if i['_sev_key'] == 'alerta']
 		else:
 			items = list(self._all_items)
 

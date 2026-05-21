@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
@@ -96,14 +97,17 @@ def make_cloud_engine() -> Engine | None:
 
 _shared_engine: Engine | None = None
 _cloud_engine: Engine | None = None
+_engine_lock = threading.Lock()
+_cloud_engine_lock = threading.Lock()
 
 
 def get_engine(url: str = None) -> Engine:
     """Returns the shared local (SQLite) engine — singleton."""
     global _shared_engine
-    if _shared_engine is None:
-        _shared_engine = make_engine(url)
-    return _shared_engine
+    with _engine_lock:
+        if _shared_engine is None:
+            _shared_engine = make_engine(url)
+        return _shared_engine
 
 
 def get_cloud_engine() -> Engine | None:
@@ -112,6 +116,7 @@ def get_cloud_engine() -> Engine | None:
     Returns None when DATABASE_CLOUD_URL is not configured.
     """
     global _cloud_engine
-    if _cloud_engine is None and DATABASE_CLOUD_URL:
-        _cloud_engine = make_cloud_engine()
-    return _cloud_engine
+    with _cloud_engine_lock:
+        if _cloud_engine is None and DATABASE_CLOUD_URL:
+            _cloud_engine = make_cloud_engine()
+        return _cloud_engine

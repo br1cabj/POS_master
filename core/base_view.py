@@ -108,9 +108,11 @@ class BaseView(ctk.CTkFrame):
 		self, btn: ctk.CTkButton, loading: bool, original_text: str = ''
 	) -> None:
 		if loading:
+			btn._loading_original = btn.cget('text')
 			btn.configure(state='disabled', text='Procesando…')
 		else:
-			btn.configure(state='normal', text=original_text)
+			text = original_text or getattr(btn, '_loading_original', '')
+			btn.configure(state='normal', text=text)
 
 	def mark_field_error(self, entry: ctk.CTkEntry, message: str | None = None) -> None:
 		entry.configure(border_color=RED_TEXT)
@@ -155,7 +157,7 @@ class BaseView(ctk.CTkFrame):
 		self._debounce_timers[key] = self.after(delay_ms, callback)
 
 	def destroy(self) -> None:
-		for job in getattr(self, '_pending_jobs', []):
+		for job in list(getattr(self, '_pending_jobs', [])):
 			try:
 				self.after_cancel(job)
 			except Exception:

@@ -104,8 +104,8 @@ def _load_state() -> dict:
     if f.exists():
         try:
             return json.loads(f.read_text(encoding='utf-8'))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error('sync_state.json corrupted, resetting watermarks: %s', e)
     return {}
 
 
@@ -190,6 +190,7 @@ class SyncWorker:
             name='CloudSyncWorker',
             daemon=True,
         )
+        self._state_lock = threading.Lock()
         # Estado de la última sincronización (leído desde el hilo principal para el indicador)
         self.last_sync_ok: bool | None = None   # None = nunca sincronizó
         self.last_sync_time: datetime | None = None
@@ -240,8 +241,9 @@ class SyncWorker:
         from controllers.cloud_license_controller import CloudLicenseController
         active, reason = CloudLicenseController().check_status()
         if not active:
-            self.last_sync_ok = False
-            self.last_sync_error = reason
+            with self._state_lock:
+                self.last_sync_ok = False
+                self.last_sync_error = reason
             logger.info('Sync skipped — cloud plan not active: %s', reason)
             return
 
@@ -255,8 +257,9 @@ class SyncWorker:
             setup_cloud_schema(cloud_engine)
         except Exception as e:
             logger.error('Cannot set up cloud schema, skipping cycle: %s', e)
-            self.last_sync_ok = False
-            self.last_sync_error = str(e)
+            with self._state_lock:
+                self.last_sync_ok = False
+                self.last_sync_error = str(e)
             return
 
         state = _load_state()
@@ -315,7 +318,10 @@ class SyncWorker:
                     if len(rows_q) < _SYNC_BATCH_SIZE:
                         state[table_name] = sync_time.isoformat()
                     else:
-                        state[table_name] = rows_q[-1].updated_at.isoformat()
+                        # Advance past the last timestamp to avoid re-sending rows
+                        # with the exact same updated_at on the next cycle.
+                        next_ts = rows_q[-1].updated_at + timedelta(microseconds=1)
+                        state[table_name] = next_ts.isoformat()
                     logger.debug('Synced %d rows → %s', pushed, table_name)
                 except Exception as e:
                     logger.error('Upsert failed for %s: %s', table_name, e)
@@ -328,12 +334,13 @@ class SyncWorker:
             logger.info('Sync complete: %d rows pushed to Supabase.', total_pushed)
 
         _save_state(state)
-        if not had_error:
-            self.last_sync_ok = True
-            self.last_sync_time = datetime.now()
-            self.last_sync_error = ''
-        else:
-            self.last_sync_ok = False
+        with self._state_lock:
+            if not had_error:
+                self.last_sync_ok = True
+                self.last_sync_time = datetime.now()
+                self.last_sync_error = ''
+            else:
+                self.last_sync_ok = False
 
     # ── public helpers ────────────────────────────────────────────────────────
 

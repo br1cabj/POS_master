@@ -112,6 +112,7 @@ def run_migrations(engine) -> None:
 	_v24_unique_combo_ingredient(engine)
 	_v25_add_deleted_at_columns(engine)
 	_v26_add_customer_id_to_cash_movements(engine)
+	_v27_add_updated_at_article_history(engine)
 
 
 def setup_cloud_schema(engine) -> None:
@@ -546,6 +547,7 @@ def _v19_add_cash_movement_index(engine) -> None:
 			logger.info('v19: índice ix_cash_mov_session_time listo.')
 		except Exception as e:
 			logger.error('v19 failed: %s', e)
+			raise
 
 
 # ─── v20: tabla de promociones con vigencia ───────────────────────────────────
@@ -770,3 +772,26 @@ def _v26_add_customer_id_to_cash_movements(engine) -> None:
 		finally:
 			conn.commit()
 	logger.info('v26: customer_id en cash_movements listo.')
+
+
+def _v27_add_updated_at_article_history(engine) -> None:
+	"""v27: Agrega updated_at a article_history (sync incremental) e índice en articles.category_id."""
+	with engine.connect() as conn:
+		try:
+			_add_column_if_missing(
+				conn, engine,
+				'article_history', 'updated_at',
+				'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+			)
+		except Exception as e:
+			logger.warning('v27: no se pudo agregar updated_at a article_history: %s', e)
+		try:
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_articles_category_id ON articles(category_id)'
+				)
+			)
+		except Exception as e:
+			logger.warning('v27: no se pudo crear índice category_id: %s', e)
+		conn.commit()
+	logger.info('v27: updated_at en article_history e índice articles.category_id listos.')

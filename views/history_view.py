@@ -1,4 +1,5 @@
 import csv
+import threading
 import tkinter.filedialog as filedialog
 from datetime import date, datetime, timedelta
 from tkinter import ttk
@@ -493,23 +494,49 @@ class HistoryView(BaseView):
 
 	def load_history(self):
 		tenant_id = self.ctx.tenant_id
-		self._all_sales, self._has_more = self.controller.get_history(tenant_id)
-		self._update_load_more_btn()
-		self._filter_tree()
+
+		def _run():
+			try:
+				items, has_more = self.controller.get_history(tenant_id)
+			except Exception:
+				items, has_more = [], False
+			if self.winfo_exists():
+				self.after(0, lambda: _done(items, has_more))
+
+		def _done(items, has_more):
+			if not self.winfo_exists():
+				return
+			self._all_sales = items
+			self._has_more = has_more
+			self._update_load_more_btn()
+			self._filter_tree()
+
+		threading.Thread(target=_run, daemon=True).start()
 
 	def _load_more(self):
 		if not self._all_sales:
 			return
 		self._btn_load_more.configure(state='disabled', text='⏳ Cargando...')
-		self.update_idletasks()
+		tenant_id = self.ctx.tenant_id
 		before_date = self._all_sales[-1]['date']
-		more, has_more = self.controller.get_history(
-			self.ctx.tenant_id, before_date=before_date
-		)
-		self._all_sales.extend(more)
-		self._has_more = has_more
-		self._update_load_more_btn()
-		self._filter_tree()
+
+		def _run():
+			try:
+				more, has_more = self.controller.get_history(tenant_id, before_date=before_date)
+			except Exception:
+				more, has_more = [], False
+			if self.winfo_exists():
+				self.after(0, lambda: _done(more, has_more))
+
+		def _done(more, has_more):
+			if not self.winfo_exists():
+				return
+			self._all_sales.extend(more)
+			self._has_more = has_more
+			self._update_load_more_btn()
+			self._filter_tree()
+
+		threading.Thread(target=_run, daemon=True).start()
 
 	def _update_load_more_btn(self):
 		if not hasattr(self, '_btn_load_more'):

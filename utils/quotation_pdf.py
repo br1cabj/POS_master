@@ -277,6 +277,9 @@ class QuotationPDF:
 	def _open_file(self, filepath: str):
 		try:
 			abs_path = os.path.abspath(filepath)
+			if not os.path.exists(abs_path):
+				logger.warning('PDF no encontrado, no se puede abrir: %s', abs_path)
+				return
 			os_name = platform.system()
 			if os_name == 'Windows':
 				os.startfile(abs_path, 'open')

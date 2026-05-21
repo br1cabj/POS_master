@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # BUG 11: lock para que load()+save() sean atómicos entre hilos
 # (hilo de backup y hilo de UI pueden escribir simultáneamente)
-_settings_lock = threading.Lock()
+_settings_lock = threading.RLock()
 
 
 def _app_data_dir() -> Path:
@@ -155,10 +155,11 @@ def get(key: str, default=None, force_reload: bool = False):
 
 
 def set(key: str, value) -> None:
-	"""Actualiza una sola clave en settings.json."""
-	current = load()
-	current[key] = value
-	save(current)
+	"""Actualiza una sola clave en settings.json de forma atómica."""
+	with _settings_lock:
+		current = load()
+		current[key] = value
+		save(current)
 
 
 def get_reports_path() -> str:
@@ -207,6 +208,9 @@ class SettingsManager:
 
 	def get(self, key: str, default=None, force_reload: bool = False):
 		return get(key, default, force_reload=force_reload)
+
+	def set(self, key: str, value) -> None:
+		set(key, value)
 
 	def fmt_price(self, amount) -> str:
 		return fmt_price(amount)

@@ -1370,7 +1370,7 @@ class ArticlesView(BaseView):
 			self.mark_field_error(self.entry_name, 'El nombre es obligatorio.')
 			return
 
-		raw_barcode = self.entry_barcode.get().strip().lstrip('0')
+		raw_barcode = self.entry_barcode.get().strip()
 
 		assigned_random_code = False
 		if raw_barcode:

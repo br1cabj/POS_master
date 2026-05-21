@@ -1,3 +1,4 @@
+import threading
 from decimal import Decimal, InvalidOperation
 from tkinter import ttk
 
@@ -126,8 +127,17 @@ class SupplierReturnsView(BaseView):
 		)
 
 	def _load_purchases(self):
-		self._purchases = self.controller.get_purchases(self.ctx.tenant_id)
-		self._populate_purchases_tree(self._purchases)
+		tenant_id = self.ctx.tenant_id
+
+		def _run():
+			try:
+				purchases = self.controller.get_purchases(tenant_id)
+			except Exception:
+				purchases = []
+			if self.winfo_exists():
+				self.after(0, lambda: self._populate_purchases_tree(purchases))
+
+		threading.Thread(target=_run, daemon=True).start()
 
 	def _populate_purchases_tree(self, purchases):
 		self.purchases_tree.delete(*self.purchases_tree.get_children())
@@ -175,10 +185,20 @@ class SupplierReturnsView(BaseView):
 		if not sel:
 			return
 		purchase_id = sel[0]
-		purchase = self.controller.get_purchase_with_details(
-			self.ctx.tenant_id, purchase_id
-		)
-		if not purchase:
+		tenant_id = self.ctx.tenant_id
+
+		def _run():
+			try:
+				purchase = self.controller.get_purchase_with_details(tenant_id, purchase_id)
+			except Exception:
+				purchase = None
+			if self.winfo_exists():
+				self.after(0, lambda p=purchase: self._on_purchase_loaded(p))
+
+		threading.Thread(target=_run, daemon=True).start()
+
+	def _on_purchase_loaded(self, purchase):
+		if not self.winfo_exists() or not purchase:
 			return
 		self._selected_purchase = purchase
 		self._return_cart.clear()
