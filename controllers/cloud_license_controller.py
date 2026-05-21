@@ -41,7 +41,7 @@ class CloudLicenseController:
 
 	def _sign(self, tenant_id: str, expiry: str) -> str:
 		raw = f'CLOUD|{tenant_id}|{expiry}|{_CLOUD_SALT}'
-		return hashlib.sha256(raw.encode()).hexdigest()[:16]
+		return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 	def _write(self, data: dict) -> None:
 		encoded = base64.b64encode(json.dumps(data).encode()).decode()
@@ -105,7 +105,8 @@ class CloudLicenseController:
 		try:
 			data = self._read()
 			expected = self._sign(data['tenant_id'], data['expiry'])
-			if data.get('signature') != expected:
+			stored_sig = data.get('signature', '')
+			if stored_sig != expected and stored_sig != expected[:16]:
 				return False, 'Plan cloud inválido'
 
 			exp = datetime.strptime(data['expiry'], '%Y-%m-%d')

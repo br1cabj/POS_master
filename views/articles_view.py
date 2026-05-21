@@ -93,9 +93,10 @@ class ArticlesView(BaseView):
 		self._build_left_panel()
 		self._build_right_panel()
 
-		self.winfo_toplevel().bind(
+		self._ctrl_g_funcid = self.winfo_toplevel().bind(
 			'<Control-g>',
 			lambda e: self.save_article() if self.winfo_exists() else None,
+			add='+',
 		)
 		self.bind('<Escape>', lambda e: self.reset_form())
 
@@ -1329,10 +1330,12 @@ class ArticlesView(BaseView):
 		return bool(self.entry_name.get().strip())
 
 	def destroy_custom(self):
-		try:
-			self.winfo_toplevel().unbind('<Control-g>')
-		except Exception:
-			pass
+		if getattr(self, '_ctrl_g_funcid', None):
+			try:
+				self.winfo_toplevel().unbind('<Control-g>', self._ctrl_g_funcid)
+			except Exception:
+				pass
+			self._ctrl_g_funcid = None
 		for var, tid in (
 			(self._var_cost_str, getattr(self, '_trace_cost', None)),
 			(self._var_margin, getattr(self, '_trace_margin', None)),
@@ -1357,7 +1360,9 @@ class ArticlesView(BaseView):
 				return new_code
 		raise RuntimeError('No se pudo generar un código de barras único después de 100 intentos.')
 
-	def save_article(self):
+	def save_article(self, event=None):
+		if not self.winfo_exists():
+			return
 		self.clear_field_errors(self.entry_name, self.entry_barcode)
 
 		name = self.entry_name.get().strip()

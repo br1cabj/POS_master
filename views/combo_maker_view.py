@@ -97,7 +97,7 @@ class ComboMakerView(BaseView):
 		self._setup_tab_sueltos()
 		self._setup_tab_promos()
 
-		self.winfo_toplevel().bind(
+		self._ctrl_g_funcid = self.winfo_toplevel().bind(
 			'<Control-g>',
 			lambda e: (
 				(
@@ -112,15 +112,18 @@ class ComboMakerView(BaseView):
 				if self.winfo_exists()
 				else None
 			),
+			add='+',
 		)
 
 		self.after(100, self.load_data)
 
 	def destroy_custom(self):
-		try:
-			self.winfo_toplevel().unbind('<Control-g>')
-		except Exception:
-			pass
+		if getattr(self, '_ctrl_g_funcid', None):
+			try:
+				self.winfo_toplevel().unbind('<Control-g>', self._ctrl_g_funcid)
+			except Exception:
+				pass
+			self._ctrl_g_funcid = None
 
 	def load_data(self):
 		tenant_id = self.ctx.tenant_id

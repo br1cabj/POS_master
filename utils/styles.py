@@ -45,6 +45,13 @@ PURPLE = '#7e22ce'
 PURPLE_TEXT = '#a78bfa'
 PURPLE_DIM = '#2d1a4a'
 
+# Colores específicos para etiquetas (Labels)
+LBL_HEADER_DARK = '#1e293b'
+LBL_HEADER_DEEP = '#0f172a'
+LBL_HEADER_ORANGE = '#f77f00'
+LBL_BLUE = '#2563eb'
+LBL_RED = '#dc2626'
+
 TEXT_PRIMARY = '#f0f0f0'
 TEXT_SECONDARY = '#888888'
 TEXT_MUTED = '#737373'

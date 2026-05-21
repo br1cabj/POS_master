@@ -40,6 +40,7 @@ class StockHistoryView(BaseView):
 		self._tab_btns: list = []
 		self._views: list = []
 		self._init_done = False
+		self._ctx = ctx
 
 		# ── Tab bar ───────────────────────────────────────────────────────
 		tab_bar = ctk.CTkFrame(
@@ -74,16 +75,14 @@ class StockHistoryView(BaseView):
 			btn.pack(side='left', padx=(0, 4), pady=7)
 			self._tab_btns.append(btn)
 
-		# ── Contenedor de sub-vistas ──────────────────────────────────────
-		content = ctk.CTkFrame(self, fg_color='transparent', corner_radius=0)
-		content.pack(fill='both', expand=True)
+		# ── Contenedor de sub-vistas (lazy loading) ───────────────────────
+		self._content = ctk.CTkFrame(self, fg_color='transparent', corner_radius=0)
+		self._content.pack(fill='both', expand=True)
 
-		for _, _, view_cls in _TABS:
-			frame = ctk.CTkFrame(content, fg_color='transparent', corner_radius=0)
-			view_instance = view_cls(frame, ctx)
-			view_instance.pack(fill='both', expand=True)
-
-			self._views.append({'frame': frame, 'instance': view_instance})
+		for _ in _TABS:
+			frame = ctk.CTkFrame(self._content, fg_color='transparent', corner_radius=0)
+			# instance starts as None; created on first tab switch
+			self._views.append({'frame': frame, 'instance': None})
 
 		self._switch_tab(0)
 		self._init_done = True
@@ -104,6 +103,12 @@ class StockHistoryView(BaseView):
 		# Mostrar el frame correcto y refrescar sus datos si es posible
 		for i, view_dict in enumerate(self._views):
 			if i == idx:
+				# Lazy: instanciar la sub-vista la primera vez que se selecciona
+				if view_dict['instance'] is None:
+					_, _, cls = _TABS[i]
+					instance = cls(view_dict['frame'], self._ctx)
+					instance.pack(fill='both', expand=True)
+					view_dict['instance'] = instance
 				view_dict['frame'].pack(fill='both', expand=True)
 				# Solo refrescar en cambios de pestaña iniciados por el usuario, no en el init
 				if self._init_done and hasattr(view_dict['instance'], 'load_data'):

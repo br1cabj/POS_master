@@ -42,7 +42,7 @@ def _machine_id() -> str:
         return hmac.new(
             SECRET_SALT.encode('utf-8'),
             raw.encode('utf-8'),
-            'sha256',
+            hashlib.sha256,
         ).hexdigest()[:32]
     except Exception:
         return hashlib.sha256(str(uuid.getnode()).encode()).hexdigest()[:32]
@@ -60,7 +60,7 @@ def _appdata_path() -> str:
 def _sign_record(mid: str, ts: str) -> str:
     key = (SECRET_SALT + mid).encode('utf-8')
     msg = f'{mid}|{ts}'.encode('utf-8')
-    return hmac.new(key, msg, 'sha256').hexdigest()
+    return hmac.new(key, msg, hashlib.sha256).hexdigest()
 
 
 def _read_appdata_record() -> dict | None:

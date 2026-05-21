@@ -1,3 +1,4 @@
+import threading
 from decimal import Decimal, InvalidOperation
 
 import customtkinter as ctk
@@ -522,21 +523,28 @@ class CashView(BaseView):
 
 			original = self.btn_action.cget('text')
 			self.set_loading(self.btn_action, True)
-			self.update_idletasks()
-			try:
-				success, msg = self.controller.open_session(
-					tenant_id, user_id, amount_str
-				)
-			finally:
-				self.set_loading(self.btn_action, False, original)
 
-			if success:
-				self.show_success(msg)
-				self.entry_amount.delete(0, 'end')
-				self.clear_field_errors(self.entry_amount)
-				self.refresh_view()
-			else:
-				self.show_error(msg)
+			def _run_open():
+				try:
+					ok, result_msg = self.controller.open_session(
+						tenant_id, user_id, amount_str
+					)
+				except Exception as exc:
+					ok, result_msg = False, str(exc)
+				if self.winfo_exists():
+					self.after(0, lambda: _on_open_done(ok, result_msg))
+
+			def _on_open_done(ok, result_msg):
+				self.set_loading(self.btn_action, False, original)
+				if ok:
+					self.show_success(result_msg)
+					self.entry_amount.delete(0, 'end')
+					self.clear_field_errors(self.entry_amount)
+					self.refresh_view()
+				else:
+					self.show_error(result_msg)
+
+			threading.Thread(target=_run_open, daemon=True).start()
 
 	def _select_mov_type(self, mov_type: str):
 		self._mov_type = mov_type
@@ -586,6 +594,17 @@ class CashView(BaseView):
 
 			if not amount_str:
 				self.mark_field_error(self.entry_mov_amount)
+				return
+
+			try:
+				amount_val = Decimal(amount_str)
+				if amount_val <= 0:
+					self.mark_field_error(self.entry_mov_amount)
+					self.show_error('El monto debe ser mayor a cero.')
+					return
+			except (InvalidOperation, Exception):
+				self.mark_field_error(self.entry_mov_amount)
+				self.show_error('Monto inválido.')
 				return
 
 			if not self.active_session:
@@ -836,8 +855,8 @@ class CashView(BaseView):
 		total = Decimal('0.0')
 		for denom, entry in self.bill_entries.items():
 			qty = entry.get().strip()
-			if qty.isdigit():
-				total += Decimal(str(denom)) * Decimal(qty)
+			if qty.strip().isdigit():
+				total += Decimal(str(denom)) * Decimal(qty.strip())
 
 		otros = self.entry_otros.get().strip().replace(',', '.')
 		if otros:
@@ -850,7 +869,10 @@ class CashView(BaseView):
 		self.lbl_popup_total.configure(text=f'Total Declarado: ${total:,.2f}')
 		self.current_counted_total = str(total)
 
-	def _confirm_blind_close(self):
+	def _confirm_blind_close(self, *args):
+		if not self.active_session:
+			self.show_error('La sesión de caja ya fue cerrada.')
+			return
 		if hasattr(self, '_btn_blind_confirm'):
 			self._btn_blind_confirm.configure(state='disabled')
 		try:

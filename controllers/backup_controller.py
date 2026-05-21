@@ -274,11 +274,11 @@ class BackupController:
                 return v.isoformat()
             return v
 
+        con = sqlite3.connect(str(db))
         try:
-            con = sqlite3.connect(str(db))
             con.execute('PRAGMA foreign_keys=OFF')
             con.execute('PRAGMA synchronous=OFF')
-            con.execute('PRAGMA journal_mode=MEMORY')
+            con.execute('PRAGMA journal_mode=WAL')
             con.execute('PRAGMA cache_size=-65536')   # 64 MB page cache
 
             # Clear synced tables in reverse FK order
@@ -301,12 +301,7 @@ class BackupController:
 
             con.commit()
             con.execute('PRAGMA synchronous=NORMAL')
-            con.execute('PRAGMA journal_mode=WAL')
-            con.execute('PRAGMA foreign_keys=ON')
-            con.close()
-
             logger.info('Restauración desde la nube completada.')
-            return True, 'OK'
 
         except Exception as e:
             logger.error('Error escribiendo en SQLite: %s', e, exc_info=True)
@@ -321,6 +316,14 @@ class BackupController:
             except Exception as rb_err:
                 logger.error('Rollback de seguridad también falló: %s', rb_err)
             return False, f'Error al escribir datos: {e}'
+        finally:
+            try:
+                con.execute('PRAGMA foreign_keys=ON')
+                con.close()
+            except Exception:
+                pass
+
+        return True, 'OK'
 
     def restore_backup(self, backup_path: str) -> tuple[bool, str]:
         """

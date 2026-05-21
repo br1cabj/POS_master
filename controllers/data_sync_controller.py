@@ -641,17 +641,29 @@ class DataSyncController(BaseController):
 					if phone in ('nan', ''):
 						phone = None
 
+					raw_balance = str(getattr(row, 'Deuda_Actual', '') or '').strip()
+					if not raw_balance or raw_balance in ('nan', ''):
+						raw_balance = str(getattr(row, 'Deuda Actual', '') or '').strip()
+					initial_balance = Decimal('0')
+					if raw_balance and raw_balance not in ('nan', ''):
+						try:
+							initial_balance = Decimal(str(raw_balance))
+						except Exception:
+							initial_balance = Decimal('0')
+
 					existing = existing_map.get(name)
 					if existing:
 						if phone:
 							existing.phone = phone
+						if initial_balance != Decimal('0'):
+							existing.current_balance = initial_balance
 						updated += 1
 					else:
 						new_customer = Customer(
 							tenant_id=tenant_id,
 							name=name,
 							phone=phone,
-							current_balance=Decimal('0'),
+							current_balance=initial_balance,
 						)
 						session.add(new_customer)
 						existing_map[name] = new_customer  # evita duplicados dentro del mismo archivo

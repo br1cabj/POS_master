@@ -187,6 +187,15 @@ class ArticleHistoryView(BaseView):
 		self.tree.tag_configure('odd', background='#161616')
 		self.tree.tag_configure('even', background='#1a1a1a')
 
+	def destroy(self):
+		if getattr(self, '_search_timer', None):
+			try:
+				self.after_cancel(self._search_timer)
+			except Exception:
+				pass
+			self._search_timer = None
+		super().destroy()
+
 	def load_data(self):
 		"""Obtiene el historial completo desde la base de datos y refresca la vista."""
 		if not self.winfo_exists():

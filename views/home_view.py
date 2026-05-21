@@ -324,11 +324,21 @@ class HomeView(BaseView):
 			except Exception:
 				promos = []
 
-			def _update():
+			try:
+				weekly = self.controller.get_weekly_sales(tenant_id)
+			except Exception:
+				weekly = None
+
+			try:
+				top_products = self.controller.get_top_products(tenant_id)
+			except Exception:
+				top_products = None
+
+			def _update(s=stats, p=promos, w=weekly, t=top_products):
 				if not self.winfo_exists():
 					return
-				if stats is not None:
-					revenue, profit, tickets = stats
+				if s is not None:
+					revenue, profit, tickets = s
 					rev_f = float(revenue)
 					pro_f = float(profit)
 					margin = (pro_f / rev_f * 100) if rev_f > 0 else 0.0
@@ -342,9 +352,9 @@ class HomeView(BaseView):
 					self.lbl_tickets.configure(text=str(tickets))
 					self.lbl_tickets_sub.configure(text='ventas completadas hoy')
 
-					self.draw_weekly_chart(tenant_id)
-					self.draw_active_promos(promos)
-					self.draw_top_products(tenant_id)
+					self.draw_weekly_chart(tenant_id, data=w)
+					self.draw_active_promos(p)
+					self.draw_top_products(tenant_id, data=t)
 
 				if btn:
 					try:
@@ -399,7 +409,10 @@ class HomeView(BaseView):
 		)
 		scroll.pack(fill='both', expand=True, padx=PAD_SM, pady=(0, PAD_SM))
 
-		for p in promos[:10]:
+		shown = promos[:10]
+		remaining = len(promos) - len(shown)
+
+		for p in shown:
 			bg_c, fg_c, badge_lbl = self._PROMO_TYPE_STYLE.get(
 				p['promo_type'], (SURFACE3, TEXT_SECONDARY, '?')
 			)
@@ -457,10 +470,19 @@ class HomeView(BaseView):
 					anchor='e',
 				).grid(row=0, column=2, padx=(0, PAD_SM), pady=PAD_SM, sticky='e')
 
+		if remaining > 0:
+			ctk.CTkLabel(
+				scroll,
+				text=f'...y {remaining} promociones más',
+				font=FONT_LABEL,
+				text_color=TEXT_MUTED,
+				anchor='w',
+			).pack(anchor='w', padx=PAD_SM, pady=(PAD_XS, 0))
+
 	# =========================================================
 	# GRÁFICO SEMANAL
 	# =========================================================
-	def draw_weekly_chart(self, tenant_id):
+	def draw_weekly_chart(self, tenant_id, data=None):
 		if self.canvas_widget:
 			self.canvas_widget.destroy()
 			self.canvas_widget = None
@@ -470,7 +492,10 @@ class HomeView(BaseView):
 		for w in self.chart_frame.winfo_children():
 			w.destroy()
 
-		dates, totals = self.controller.get_weekly_sales(tenant_id)
+		if data is not None:
+			dates, totals = data
+		else:
+			dates, totals = self.controller.get_weekly_sales(tenant_id)
 
 		hdr = ctk.CTkFrame(self.chart_frame, fg_color='transparent')
 		hdr.pack(fill='x', padx=PAD_MD, pady=(PAD_MD, 0))
@@ -548,7 +573,7 @@ class HomeView(BaseView):
 	# =========================================================
 	# TOP 5 PRODUCTOS
 	# =========================================================
-	def draw_top_products(self, tenant_id):
+	def draw_top_products(self, tenant_id, data=None):
 		for w in self.top_frame.winfo_children():
 			w.destroy()
 
@@ -563,7 +588,10 @@ class HomeView(BaseView):
 			anchor='w',
 		).pack(side='left')
 
-		top_items = self.controller.get_top_products(tenant_id)
+		if data is not None:
+			top_items = data
+		else:
+			top_items = self.controller.get_top_products(tenant_id)
 
 		if not top_items:
 			ctk.CTkLabel(
@@ -630,6 +658,13 @@ class HomeView(BaseView):
 			).place(x=0, y=0)
 
 	def destroy(self):
+		if getattr(self, 'canvas_widget', None):
+			try:
+				if self.canvas_widget.winfo_exists():
+					self.canvas_widget.destroy()
+			except Exception:
+				pass
+			self.canvas_widget = None
 		if self._fig is not None:
 			plt.close(self._fig)
 			self._fig = None

@@ -714,7 +714,7 @@ class ReturnsView(BaseView):
 		popup = ctk.CTkToplevel(self)
 		popup.title(f'Devolución Parcial — Ticket #{sale["id"]}')
 		popup.configure(fg_color=SURFACE1)
-		popup.resizable(False, False)
+		popup.resizable(False, True)
 		popup.attributes('-topmost', True)
 		popup.grab_set()
 
@@ -722,7 +722,8 @@ class ReturnsView(BaseView):
 		popup.update_idletasks()
 		pw = 640
 		sh = popup.winfo_screenheight()
-		ph = min(120 + len(items) * 68 + 190, int(sh * 0.88))
+		max_popup_height = min(600, int(sh * 0.80))
+		ph = min(len(items) * 68 + 150, max_popup_height)
 		ph = max(ph, 480)
 		sx = popup.winfo_screenwidth()
 		rx = max(0, (sx - pw) // 2)

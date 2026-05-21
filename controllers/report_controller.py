@@ -164,11 +164,10 @@ class ReportController(BaseController):
 			key2 = pm2 or 'efectivo'
 			if key2 in by_method:
 				by_method[key2]['total'] += float(total2 or 0)
-				by_method[key2]['count'] += int(count2 or 0)
 			else:
 				by_method[key2] = {
 					'total': float(total2 or 0),
-					'count': int(count2 or 0),
+					'count': 0,
 				}
 
 		return {
@@ -451,6 +450,7 @@ class ReportController(BaseController):
 				.filter(
 					Sale.tenant_id == data['_tenant_id'],
 					Sale.date.between(dt_from, dt_to),
+					Sale.status != 'anulada',
 				)
 				.order_by(Sale.date)
 				.all()

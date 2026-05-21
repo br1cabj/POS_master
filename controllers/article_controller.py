@@ -19,6 +19,16 @@ from utils.shared import get_or_create_default_warehouse
 logger = logging.getLogger(__name__)
 
 
+def _to_decimal_or_none(val):
+    if not val:
+        return None
+    try:
+        d = Decimal(str(val))
+        return d if d > 0 else None
+    except Exception:
+        return None
+
+
 class ArticleController(BaseController):
 	def __init__(self, db_engine=None):
 		super().__init__(db_engine)
@@ -162,7 +172,7 @@ class ArticleController(BaseController):
 					selling_price=selling_price,
 					selling_price_b=spb,
 					article_id=article.id,
-					discount_pct=Decimal(str(discount_pct)) if discount_pct and Decimal(str(discount_pct)) > 0 else None,
+					discount_pct=_to_decimal_or_none(discount_pct),
 					discount_until=discount_until,
 				)
 				session.add(variant)
@@ -276,7 +286,7 @@ class ArticleController(BaseController):
 
 				# Descuento por producto
 				variant.discount_pct = (
-					Decimal(str(discount_pct)) if discount_pct and Decimal(str(discount_pct)) > 0 else None
+					_to_decimal_or_none(discount_pct)
 				)
 				variant.discount_until = discount_until
 
@@ -765,7 +775,7 @@ class ArticleController(BaseController):
 				if not variant:
 					return False, 'Artículo no encontrado.'
 				variant.discount_pct = (
-					Decimal(str(discount_pct)) if discount_pct and Decimal(str(discount_pct)) > 0 else None
+					_to_decimal_or_none(discount_pct)
 				)
 				variant.discount_until = discount_until
 				session.commit()
@@ -787,7 +797,7 @@ class ArticleController(BaseController):
 				if not supplier:
 					return False, 'Proveedor no encontrado.'
 				supplier.discount_pct = (
-					Decimal(str(discount_pct)) if discount_pct and Decimal(str(discount_pct)) > 0 else None
+					_to_decimal_or_none(discount_pct)
 				)
 				supplier.discount_until = discount_until
 				session.commit()

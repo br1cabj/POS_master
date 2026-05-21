@@ -2673,33 +2673,38 @@ class SalesView(BaseView):
 
 	def setup_shortcuts(self):
 		top = self.winfo_toplevel()
+		self._shortcut_ids = {}
 		# Forma estándar y segura de registrar eventos en Tkinter sin cruzar identificadores.
-		top.bind(
-			'<F5>', lambda e: self.process_sale() if self.winfo_ismapped() else None
+		self._shortcut_ids['<F5>'] = top.bind(
+			'<F5>', lambda e: self.process_sale() if self.winfo_ismapped() else None, add='+'
 		)
 		# F10 como alias de F5 para cobrar (más accesible en teclados estándar)
-		top.bind(
-			'<F10>', lambda e: self.process_sale() if self.winfo_ismapped() else None
+		self._shortcut_ids['<F10>'] = top.bind(
+			'<F10>', lambda e: self.process_sale() if self.winfo_ismapped() else None, add='+'
 		)
-		top.bind(
+		self._shortcut_ids['<F6>'] = top.bind(
 			'<F6>',
 			lambda e: (
 				self.entry_barcode.focus()
 				if self.winfo_ismapped() and self.entry_barcode.winfo_exists()
 				else None
 			),
+			add='+',
 		)
-		top.bind(
+		self._shortcut_ids['<F7>'] = top.bind(
 			'<F7>',
 			lambda e: self._open_venta_libre_popup() if self.winfo_ismapped() else None,
+			add='+',
 		)
-		top.bind(
+		self._shortcut_ids['<Delete>'] = top.bind(
 			'<Delete>',
 			lambda e: self.remove_from_cart() if self.winfo_ismapped() else None,
+			add='+',
 		)
-		top.bind(
+		self._shortcut_ids['<Control-Delete>'] = top.bind(
 			'<Control-Delete>',
 			lambda e: self._confirm_clear_cart() if self.winfo_ismapped() else None,
+			add='+',
 		)
 		# Auto-foco: devuelve el cursor al campo de barcode tras cualquier click
 		self._focus_restore_cbid = top.bind('<Button-1>', self._maybe_restore_focus, add='+')
@@ -2723,11 +2728,12 @@ class SalesView(BaseView):
 
 	def destroy_custom(self):
 		top = self.winfo_toplevel()
-		for key in ('<F5>', '<F10>', '<F6>', '<F7>', '<Delete>', '<Control-Delete>'):
+		for key, funcid in getattr(self, '_shortcut_ids', {}).items():
 			try:
-				top.unbind(key)
+				top.unbind(key, funcid)
 			except tkinter.TclError:
 				pass
+		self._shortcut_ids = {}
 		if getattr(self, '_focus_restore_cbid', None):
 			try:
 				top.unbind('<Button-1>', self._focus_restore_cbid)

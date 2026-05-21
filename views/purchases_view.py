@@ -1,3 +1,4 @@
+import threading
 from decimal import Decimal, InvalidOperation
 from tkinter import ttk
 
@@ -227,7 +228,21 @@ class PurchasesView(BaseView):
 	def load_combos(self):
 		tenant_id = self.ctx.tenant_id
 
-		suppliers = self.controller.get_suppliers(tenant_id)
+		def _run():
+			try:
+				suppliers = self.controller.get_suppliers(tenant_id)
+				variants = self.controller.get_variants(tenant_id)
+			except Exception:
+				suppliers, variants = [], []
+			if self.winfo_exists():
+				self.after(0, lambda: self._populate_combos(suppliers, variants))
+
+		threading.Thread(target=_run, daemon=True).start()
+
+	def _populate_combos(self, suppliers, variants):
+		if not self.winfo_exists():
+			return
+
 		self.supplier_map = {s['name']: s for s in suppliers}
 
 		if self.supplier_map:
@@ -237,7 +252,6 @@ class PurchasesView(BaseView):
 			self.supplier_combo.configure(values=['Sin Proveedores'])
 			self.supplier_combo.set('No hay proveedores activos')
 
-		variants = self.controller.get_variants(tenant_id)
 		self.variant_map = {}
 		for v in variants:
 			if v.get('name'):
@@ -316,6 +330,31 @@ class PurchasesView(BaseView):
 		subtotal = cost * qty
 		qty_visual = f'{int(qty)}' if qty % 1 == 0 else f'{qty:.2f}'
 
+		# Verificar duplicado: si el artículo ya está en el carrito, sumar cantidad
+		variant_id = variant['variant_id']
+		for existing in self.cart:
+			if existing.get('variant_id') == variant_id:
+				new_qty = Decimal(str(existing['qty'])) + qty
+				new_subtotal = Decimal(str(existing['cost'])) * new_qty
+				existing['qty'] = float(new_qty)
+				existing['subtotal'] = float(new_subtotal)
+				new_qty_visual = f'{int(new_qty)}' if new_qty % 1 == 0 else f'{new_qty:.2f}'
+				self.tree.item(
+					existing['tree_id'],
+					values=(
+						existing['desc'],
+						new_qty_visual,
+						f'${existing["cost"]:.2f}',
+						f'${new_subtotal:.2f}',
+					),
+				)
+				self.update_total()
+				self.cost_entry.delete(0, 'end')
+				self.qty_entry.delete(0, 'end')
+				self.articles_combo.set('Seleccionar Artículo...')
+				self.articles_combo.focus()
+				return
+
 		item_id = self.tree.insert(
 			'',
 			'end',
@@ -325,7 +364,7 @@ class PurchasesView(BaseView):
 		self.cart.append(
 			{
 				'tree_id': item_id,
-				'variant_id': variant['variant_id'],
+				'variant_id': variant_id,
 				'desc': variant['name'],
 				'cost': float(cost),
 				'qty': float(qty),
@@ -373,60 +412,65 @@ class PurchasesView(BaseView):
 		btn = getattr(self, 'btn_pay', None)
 		if btn and btn.cget('state') == 'disabled':
 			return
+
+		if not self.cart:
+			CTkMessagebox(
+				title='Carrito vacío', message='Agregá productos.', icon='warning'
+			)
+			return
+
+		supplier_name = self.supplier_combo.get()
+		if supplier_name not in self.supplier_map:
+			CTkMessagebox(
+				title='Proveedor inválido',
+				message='Seleccioná un proveedor válido.',
+				icon='cancel',
+			)
+			return
+
+		supplier_id = self.supplier_map[supplier_name]['id']
+
+		msg_box = CTkMessagebox(
+			title='Confirmar',
+			message='¿Deseás confirmar este ingreso de mercadería?',
+			icon='question',
+			option_1='No',
+			option_2='Sí',
+		)
+		if msg_box.get() != 'Sí':
+			return
+
+		tenant_id = self.ctx.tenant_id
+		user_id = self.ctx.user_id
+		cart_snapshot = list(self.cart)
+
 		if btn:
-			btn.configure(state='disabled')
-		try:
-			if not self.cart:
-				CTkMessagebox(
-					title='Carrito vacío', message='Agregá productos.', icon='warning'
+			btn.configure(state='disabled', text='⏳ Procesando...')
+
+		def _run():
+			try:
+				ok, result_msg = self.controller.process_purchase(
+					tenant_id, user_id, supplier_id, cart_snapshot
 				)
-				return
+			except Exception as exc:
+				ok, result_msg = False, str(exc)
+			if self.winfo_exists():
+				self.after(0, lambda: _done(ok, result_msg))
 
-			supplier_name = self.supplier_combo.get()
-			if supplier_name not in self.supplier_map:
-				CTkMessagebox(
-					title='Proveedor inválido',
-					message='Seleccioná un proveedor válido.',
-					icon='cancel',
-				)
-				return
-
-			supplier_id = self.supplier_map[supplier_name]['id']
-
-			msg_box = CTkMessagebox(
-				title='Confirmar',
-				message='¿Deseás confirmar este ingreso de mercadería?',
-				icon='question',
-				option_1='No',
-				option_2='Sí',
-			)
-			if msg_box.get() != 'Sí':
-				return
-
-			tenant_id = self.ctx.tenant_id
-			user_id = self.ctx.user_id
-
-			orig_text = btn.cget('text') if btn else ''
+		def _done(ok, result_msg):
 			if btn:
-				btn.configure(text='⏳ Procesando...')
-			self.update_idletasks()
-
-			success, msg = self.controller.process_purchase(
-				tenant_id, user_id, supplier_id, self.cart
-			)
-
-			if success:
-				self.show_toast(msg, 'success')
+				try:
+					btn.configure(state='normal', text='📦  CONFIRMAR INGRESO Y PAGAR')
+				except Exception:
+					pass
+			if ok:
+				self.show_toast(result_msg, 'success')
 				self.cart = []
 				for item in self.tree.get_children():
 					self.tree.delete(item)
 				self.update_total()
 				self.load_combos()
 			else:
-				self.show_toast(msg, 'error')
-		finally:
-			if btn:
-				try:
-					btn.configure(state='normal', text='📦  CONFIRMAR INGRESO Y PAGAR')
-				except Exception:
-					pass
+				self.show_toast(result_msg, 'error')
+
+		threading.Thread(target=_run, daemon=True).start()

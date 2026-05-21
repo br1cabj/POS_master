@@ -158,7 +158,7 @@ class ReturnsController(BaseController):
 					return False, 'Ticket no encontrado.'
 				if sale.status not in _OPERABLE:
 					estado = sale.status or 'desconocido'
-					return False, f'Este ticket ya fue {estado}. No se puede anular.'
+					return False, f'Este ticket ya fue marcado como "{estado}". No se puede anular.'
 
 				# Verificar caja ANTES de modificar stock para evitar estado inconsistente
 				pm1 = (sale.payment_method or '').lower()
@@ -255,7 +255,7 @@ class ReturnsController(BaseController):
 				if sale.status not in _OPERABLE:
 					return (
 						False,
-						f'El ticket ya fue {sale.status}. No se puede devolver.',
+						f'El ticket ya fue marcado como "{sale.status}". No se puede devolver.',
 					)
 
 				# Verificar caja ANTES de modificar stock para evitar estado inconsistente
@@ -365,7 +365,7 @@ class ReturnsController(BaseController):
 					)
 					sale.status = 'devuelta' if all_qty_returned else 'parcial'
 				new_profit = Decimal(str(sale.profit or 0)) - profit_reduction
-				sale.profit = max(Decimal('0'), new_profit)
+				sale.profit = new_profit
 				_new_status = sale.status
 				_customer_name = sale.customer.name if sale.customer else 'Consumidor Final'
 				_nc_items = [

@@ -87,7 +87,7 @@ class DashboardController(BaseController):
 					{'description': item[0], 'quantity': float(item[1])}
 					for item in (
 						session.query(
-							SaleDetail.description,
+							func.max(SaleDetail.description).label('description'),
 							func.sum(SaleDetail.quantity).label('total_qty'),
 						)
 						.join(Sale)
@@ -95,7 +95,7 @@ class DashboardController(BaseController):
 							Sale.tenant_id == tenant_id,
 							Sale.status.in_(['completada', 'parcial']),
 						)
-						.group_by(SaleDetail.variant_id, SaleDetail.description)
+						.group_by(SaleDetail.variant_id)
 						.order_by(func.sum(SaleDetail.quantity).desc())
 						.limit(limit)
 						.all()

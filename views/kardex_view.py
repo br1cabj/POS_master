@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime
 from tkinter import ttk
 
@@ -332,24 +333,45 @@ class KardexView(BaseView):
 		self.btn_prev.configure(state='disabled')
 		self.update_idletasks()
 
-		# Solicitamos limit + 1 para saber si hay una página siguiente
-		try:
-			movements = self.controller.get_kardex(
-				self.ctx.tenant_id,
-				page=self.current_page,
-				limit=self.limit_per_page + 1,
-				search=self.current_search,
-				mov_type=self.current_type,
-				date_from=self.current_date_from,
-				date_to=self.current_date_to,
-			)
-		except TypeError:
-			# Fallback por si el controlador aún no soporta los nuevos parámetros de filtro
-			movements = self.controller.get_kardex(
-				self.ctx.tenant_id,
-				page=self.current_page,
-				limit=self.limit_per_page + 1,
-			)
+		page = self.current_page
+		limit = self.limit_per_page
+		tenant_id = self.ctx.tenant_id
+		search = self.current_search
+		mov_type = self.current_type
+		date_from = self.current_date_from
+		date_to = self.current_date_to
+
+		def _run():
+			try:
+				data = self.controller.get_kardex(
+					tenant_id,
+					page=page,
+					limit=limit + 1,
+					search=search,
+					mov_type=mov_type,
+					date_from=date_from,
+					date_to=date_to,
+				)
+			except TypeError:
+				# Fallback por si el controlador aún no soporta los nuevos parámetros de filtro
+				try:
+					data = self.controller.get_kardex(
+						tenant_id,
+						page=page,
+						limit=limit + 1,
+					)
+				except Exception:
+					data = []
+			except Exception:
+				data = []
+			if self.winfo_exists():
+				self.after(0, lambda d=data: self._populate_kardex(d))
+
+		threading.Thread(target=_run, daemon=True).start()
+
+	def _populate_kardex(self, movements: list):
+		if not self.winfo_exists():
+			return
 
 		# ── Lógica Look-Ahead ("Paginación fantasma") ──
 		if len(movements) > self.limit_per_page:

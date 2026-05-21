@@ -54,7 +54,7 @@ class AlertsView(BaseView):
 		self._build_summary_and_filters()
 		self._build_table()
 
-		self.load_data()
+		self.after(50, self.load_data)
 
 	# =========================================================
 	# CONSTRUCCIÓN DE LA UI

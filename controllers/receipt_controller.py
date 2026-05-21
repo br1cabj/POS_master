@@ -104,7 +104,7 @@ class ReceiptController:
 				return False, 'ID de venta inválido.'
 
 			display_sale_id = safe_sale_id
-			is_uuid = len(safe_sale_id) > 15
+			is_uuid = '-' in str(safe_sale_id)
 			if is_uuid:
 				display_sale_id = safe_sale_id.split('-')[0].upper()
 
@@ -542,7 +542,7 @@ class ReceiptController:
 
 			# TOLERANCIA UUID
 			display_sale_id = safe_sale_id
-			is_uuid = len(safe_sale_id) > 15
+			is_uuid = '-' in str(safe_sale_id)
 			if is_uuid:
 				display_sale_id = safe_sale_id.split('-')[0].upper()
 

@@ -334,26 +334,38 @@ class LoginView(ctk.CTkFrame):
 			)
 
 		def _execute_recovery(tenant_id, username, pin, new_pass):
-			try:
-				success, msg = self.user_ctrl.reset_password_with_pin(
-					tenant_id, username, pin, new_pass
-				)
-			except Exception as exc:
-				success, msg = False, f'Error del sistema: {exc}'
-			if success:
-				dialog.destroy()
-				CTkMessagebox(
-					title='Contraseña restablecida',
-					message=f'{msg}\n\nYa podés iniciar sesión.',
-					icon='check',
-				)
-				self.entry_username.delete(0, 'end')
-				self.entry_username.insert(0, username)
-				self.entry_password.delete(0, 'end')
-				self.entry_password.focus()
-			else:
-				lbl_err.configure(text=msg)
-				btn_recover.configure(state='normal', text='Restablecer Contraseña')
+			import threading
+
+			def _run():
+				try:
+					result = self.user_ctrl.reset_password_with_pin(
+						tenant_id, username, pin, new_pass
+					)
+				except Exception as exc:
+					result = (False, f'Error del sistema: {exc}')
+				if dialog.winfo_exists():
+					dialog.after(0, lambda r=result: _on_done(r))
+
+			def _on_done(result):
+				if not dialog.winfo_exists():
+					return
+				success, msg = result
+				if success:
+					dialog.destroy()
+					CTkMessagebox(
+						title='Contraseña restablecida',
+						message=f'{msg}\n\nYa podés iniciar sesión.',
+						icon='check',
+					)
+					self.entry_username.delete(0, 'end')
+					self.entry_username.insert(0, username)
+					self.entry_password.delete(0, 'end')
+					self.entry_password.focus()
+				else:
+					lbl_err.configure(text=msg)
+					btn_recover.configure(state='normal', text='Restablecer Contraseña')
+
+			threading.Thread(target=_run, daemon=True).start()
 
 		entry_confirm.bind('<Return>', _do_recovery)
 

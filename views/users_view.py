@@ -1,3 +1,4 @@
+import threading
 from tkinter import ttk
 
 import customtkinter as ctk
@@ -445,75 +446,80 @@ class UsersView(BaseView):
 		role = 'admin' if role_ui == 'Administrador' else 'cajero'
 		password = self.entry_pass.get().strip()
 		pin = self.entry_pin.get().strip() or None
+		display_name = self.entry_display_name.get().strip() or None
 
 		if not username:
 			self.show_warning('El nombre de usuario es obligatorio.')
 			return
 
 		tenant_id = self.ctx.tenant_id
+		editing_id = self._editing_user_id
+
+		# Validaciones síncronas antes de lanzar el thread
+		if editing_id:
+			if role != 'admin':
+				edited_user = next(
+					(u for u in self._all_users if str(u.get('id')) == str(editing_id)),
+					None,
+				)
+				if edited_user and edited_user.get('role') == 'admin':
+					admin_count = sum(1 for u in self._all_users if u.get('role') == 'admin')
+					if admin_count <= 1:
+						self.show_error(
+							'No podés quitarle el rol de administrador al único admin del sistema.',
+							'Acción Denegada',
+						)
+						return
+		else:
+			if not password or len(password) < 6:
+				self.show_warning('La contraseña debe tener al menos 6 caracteres.')
+				return
+			if pin and (not pin.isdigit() or len(pin) < 4):
+				self.show_warning('El PIN debe tener al menos 4 dígitos numéricos.')
+				return
 
 		orig_text = self.btn_add.cget('text')
 		self.btn_add.configure(state='disabled', text='⏳ Procesando...')
-		self.update_idletasks()
 
-		display_name = self.entry_display_name.get().strip() or None
-
-		try:
-			if self._editing_user_id:
-				if role != 'admin':
-					edited_user = next(
-						(u for u in self._all_users if str(u.get('id')) == str(self._editing_user_id)),
-						None,
-					)
-					if edited_user and edited_user.get('role') == 'admin':
-						admin_count = sum(1 for u in self._all_users if u.get('role') == 'admin')
-						if admin_count <= 1:
-							self.show_error(
-								'No podés quitarle el rol de administrador al único admin del sistema.',
-								'Acción Denegada',
-							)
-							return
-				success, msg = self.controller.update_user(
-					tenant_id,
-					self._editing_user_id,
-					username=username,
-					role=role,
-					display_name=display_name or '',
-				)
-			else:
-				if not password or len(password) < 6:
-					self.show_warning('La contraseña debe tener al menos 6 caracteres.')
-					return
-
-				if pin and (not pin.isdigit() or len(pin) < 4):
-					self.show_warning('El PIN debe tener al menos 4 dígitos numéricos.')
-					return
-
-				success, msg = self.controller.add_user(
-					tenant_id, username, password, role, recovery_pin=pin,
-					display_name=display_name,
-				)
-		except Exception as e:
-			success, msg = False, f'Error del sistema: {str(e)}'
-		finally:
-			self.btn_add.configure(state='normal', text=orig_text)
-
-		if success:
-			if self._editing_user_id:
-				self.show_success(msg, 'Empleado actualizado')
-			else:
-				if pin:
-					self.show_success(
-						f'{msg}\n\nPIN de recuperación guardado correctamente.\nAsegurate de que el empleado lo recuerde.',
-						'Empleado creado',
+		def _run():
+			try:
+				if editing_id:
+					ok, result_msg = self.controller.update_user(
+						tenant_id,
+						editing_id,
+						username=username,
+						role=role,
+						display_name=display_name or '',
 					)
 				else:
-					self.show_success(msg)
+					ok, result_msg = self.controller.add_user(
+						tenant_id, username, password, role, recovery_pin=pin,
+						display_name=display_name,
+					)
+			except Exception as exc:
+				ok, result_msg = False, f'Error del sistema: {str(exc)}'
+			if self.winfo_exists():
+				self.after(0, lambda: _done(ok, result_msg))
 
-			self._cancel_edit()
-			self.load_data()
-		else:
-			self.show_error(msg)
+		def _done(ok, result_msg):
+			self.btn_add.configure(state='normal', text=orig_text)
+			if ok:
+				if editing_id:
+					self.show_success(result_msg, 'Empleado actualizado')
+				else:
+					if pin:
+						self.show_success(
+							f'{result_msg}\n\nPIN de recuperación guardado correctamente.\nAsegurate de que el empleado lo recuerde.',
+							'Empleado creado',
+						)
+					else:
+						self.show_success(result_msg)
+				self._cancel_edit()
+				self.load_data()
+			else:
+				self.show_error(result_msg)
+
+		threading.Thread(target=_run, daemon=True).start()
 
 	# =========================================================
 	# POPUP: RESTABLECER CONTRASEÑA (admin → usuario)
@@ -799,11 +805,28 @@ class UsersView(BaseView):
 		):
 			tenant_id = self.ctx.tenant_id
 			current_id = self.ctx.user_id
-			success, msg = self.controller.delete_user(
-				tenant_id, user_id, current_user_id=current_id
-			)
-			if success:
-				self.load_data()
-				self.show_success(msg, 'Eliminado')
-			else:
-				self.show_error(msg)
+
+			self.btn_delete.configure(state='disabled')
+
+			def _run():
+				try:
+					ok, result_msg = self.controller.delete_user(
+						tenant_id, user_id, current_user_id=current_id
+					)
+				except Exception as exc:
+					ok, result_msg = False, str(exc)
+				if self.winfo_exists():
+					self.after(0, lambda: _done(ok, result_msg))
+
+			def _done(ok, result_msg):
+				try:
+					self.btn_delete.configure(state='disabled')
+				except Exception:
+					pass
+				if ok:
+					self.load_data()
+					self.show_success(result_msg, 'Eliminado')
+				else:
+					self.show_error(result_msg)
+
+			threading.Thread(target=_run, daemon=True).start()

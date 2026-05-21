@@ -42,6 +42,8 @@ class ComboController(BaseController):
 
 		if price < Decimal('0.0'):
 			return False, 'El precio de venta no puede poseer valor negativo.'
+		if price == Decimal('0.0'):
+			logger.warning('Combo creado con precio $0. Verificar si es intencional.')
 
 		# Consolidación O(N) para unificar ingredientes repetidos enviados por la capa vista
 		aggregated_ingredients = defaultdict(Decimal)

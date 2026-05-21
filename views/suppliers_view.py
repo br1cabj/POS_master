@@ -1,3 +1,4 @@
+import threading
 from tkinter import ttk
 
 import customtkinter as ctk
@@ -136,7 +137,7 @@ class SuppliersView(BaseView):
 		search_row.pack(fill='x', padx=14, pady=(0, 6))
 
 		self._search_var = ctk.StringVar()
-		self._search_var.trace_add('write', self._on_search_change)
+		self._trace_search = self._search_var.trace_add('write', self._on_search_change)
 
 		ctk.CTkEntry(
 			search_row,
@@ -213,6 +214,21 @@ class SuppliersView(BaseView):
 	# =========================================================
 	# LÓGICA Y EVENTOS
 	# =========================================================
+	def destroy_custom(self):
+		if getattr(self, '_trace_search', None):
+			try:
+				self._search_var.trace_remove('write', self._trace_search)
+			except Exception:
+				pass
+		if getattr(self, '_search_timer', None):
+			try:
+				self.after_cancel(self._search_timer)
+			except Exception:
+				pass
+		parent = super()
+		if hasattr(parent, 'destroy_custom'):
+			parent.destroy_custom()
+
 	def _on_search_change(self, *args):
 		if self._search_timer:
 			self.after_cancel(self._search_timer)
@@ -309,23 +325,31 @@ class SuppliersView(BaseView):
 			return
 
 		tenant_id = self.ctx.tenant_id
+		editing_id = self.editing_id
 
 		original = self.btn_save.cget('text')
 		self.set_loading(self.btn_save, True)
-		self.update_idletasks()
-		try:
-			success, msg = self.controller.save_supplier(
-				tenant_id, self.editing_id, name, phone, email, address
-			)
-		finally:
-			self.set_loading(self.btn_save, False, original)
 
-		if success:
-			self.show_success(msg)
-			self.reset_form()
-			self.load_data()
-		else:
-			self.show_error(msg)
+		def _run():
+			try:
+				ok, result_msg = self.controller.save_supplier(
+					tenant_id, editing_id, name, phone, email, address
+				)
+			except Exception as exc:
+				ok, result_msg = False, str(exc)
+			if self.winfo_exists():
+				self.after(0, lambda: _done(ok, result_msg))
+
+		def _done(ok, result_msg):
+			self.set_loading(self.btn_save, False, original)
+			if ok:
+				self.show_success(result_msg)
+				self.reset_form()
+				self.load_data()
+			else:
+				self.show_error(result_msg)
+
+		threading.Thread(target=_run, daemon=True).start()
 
 	def delete_supplier(self):
 		selected = self.tree.selection()

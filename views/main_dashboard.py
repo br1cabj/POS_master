@@ -334,7 +334,7 @@ class MainDashboard(ctk.CTkFrame):
 
 		avatar = ctk.CTkLabel(
 			inner,
-			text=self.username[0].upper(),
+			text=self.username[0].upper() if self.username else '?',
 			font=FONT_HEADING,
 			width=34,
 			height=34,
@@ -571,6 +571,9 @@ class MainDashboard(ctk.CTkFrame):
 
 		# Normaliza: acepta clase o path string
 		view_path = _to_path(view)
+		if not view_path:
+			logger.error('Vista no registrada: %s', view)
+			return
 		view_class = _load_view_class(view_path)
 
 		if requires_admin and not self.is_admin:
@@ -643,6 +646,17 @@ class MainDashboard(ctk.CTkFrame):
 		try:
 			self.current_view = view_class(self.main_area, self.ctx, **kwargs)
 			self.current_view.pack(fill='both', expand=True)
+		except Exception as e:
+			logger.error('Error al cargar vista: %s', e, exc_info=True)
+			try:
+				err_label = ctk.CTkLabel(
+					self.main_area,
+					text='Error al cargar la vista.\nRevisa los logs.',
+					text_color='#ef4444',
+				)
+				err_label.pack(expand=True)
+			except Exception:
+				pass
 		finally:
 			self.after(0, _loading.destroy)
 
@@ -666,6 +680,8 @@ class MainDashboard(ctk.CTkFrame):
 		self.safe_switch_view(_CASH)
 
 	def _refresh_cash_dot(self):
+		import threading
+
 		if not self.winfo_exists():
 			return
 
@@ -676,23 +692,29 @@ class MainDashboard(ctk.CTkFrame):
 			except Exception:
 				pass
 
-		try:
-			session = self._cash_ctrl.get_active_session(
-				self.ctx.tenant_id, self.ctx.user_id
-			)
+		def _run():
+			try:
+				session = self._cash_ctrl.get_active_session(
+					self.ctx.tenant_id, self.ctx.user_id
+				)
+			except Exception:
+				session = None
+			if self.winfo_exists():
+				self.after(0, lambda s=session: _update(s))
+
+		def _update(session):
+			if not self.winfo_exists():
+				return
 			color = '#22c55e' if session else RED_TEXT
 			label = '● Abierta' if session else '● Cerrada'
-		except Exception:
-			color = TEXT_SECONDARY
-			label = '●'
+			if hasattr(self, 'lbl_dot') and self.lbl_dot.winfo_exists():
+				self.lbl_dot.configure(text_color=color, text=label)
 
-		if hasattr(self, 'lbl_dot') and self.lbl_dot.winfo_exists():
-			self.lbl_dot.configure(text_color=color, text=label)
-
+		threading.Thread(target=_run, daemon=True).start()
 		self._cash_job = self.after(30_000, self._refresh_cash_dot)
 
 	def handle_logout(self):
-		for job_attr in ('_clock_job', '_cash_job'):
+		for job_attr in ('_clock_job', '_cash_job', '_sync_job'):
 			job = getattr(self, job_attr, None)
 			if job:
 				try:
@@ -731,7 +753,7 @@ class MainDashboard(ctk.CTkFrame):
 			self.safe_switch_view(_HOME)
 
 	def destroy(self):
-		for job_attr in ('_clock_job', '_cash_job'):
+		for job_attr in ('_clock_job', '_cash_job', '_sync_job'):
 			job = getattr(self, job_attr, None)
 			if job:
 				try:

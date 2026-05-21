@@ -9,6 +9,8 @@ import logging
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
+from sqlalchemy import or_
+
 from controllers.base import BaseController
 from database.models import Article, ArticleVariant, Promotion
 
@@ -59,9 +61,14 @@ class PromoController(BaseController):
 		time_from = promo_dict.get('time_from')
 		time_to = promo_dict.get('time_to')
 		if time_from and time_to:
-			now_str = now.strftime('%H:%M')
-			if not (time_from <= now_str <= time_to):
-				return False
+			try:
+				tf = datetime.strptime(time_from, '%H:%M').time()
+				tt = datetime.strptime(time_to, '%H:%M').time()
+				now_time = now.time().replace(second=0, microsecond=0)
+				if not (tf <= now_time <= tt):
+					return False
+			except ValueError:
+				pass
 		return True
 
 	def _status_label(self, promo_dict) -> str:
@@ -90,9 +97,14 @@ class PromoController(BaseController):
 		time_from = promo_dict.get('time_from')
 		time_to = promo_dict.get('time_to')
 		if time_from and time_to:
-			now_str = now.strftime('%H:%M')
-			if not (time_from <= now_str <= time_to):
-				return 'fuera-horario'
+			try:
+				tf = datetime.strptime(time_from, '%H:%M').time()
+				tt = datetime.strptime(time_to, '%H:%M').time()
+				now_time = now.time().replace(second=0, microsecond=0)
+				if not (tf <= now_time <= tt):
+					return 'fuera-horario'
+			except ValueError:
+				pass
 		return 'activa'
 
 	def _build_variant_name_map(self, session, variant_ids: list) -> dict:
@@ -138,8 +150,8 @@ class PromoController(BaseController):
 					.filter(
 						Promotion.tenant_id == tenant_id,
 						Promotion.is_active == True,  # noqa: E712
-						Promotion.date_from <= now,
-						Promotion.date_to >= now,
+						or_(Promotion.date_from.is_(None), Promotion.date_from <= now),
+						or_(Promotion.date_to.is_(None), Promotion.date_to >= now),
 					)
 					.all()
 				)

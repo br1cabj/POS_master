@@ -273,6 +273,7 @@ class DollarPriceController(BaseController):
 						Decimal('0.01'), rounding=ROUND_HALF_UP
 					)
 
+					old_base_price_b = v.selling_price_b
 					if v.selling_price_b is not None and old_price and old_price > 0:
 						scale = new_price / old_price
 						v.selling_price_b = (v.selling_price_b * scale).quantize(
@@ -298,15 +299,17 @@ class DollarPriceController(BaseController):
 						child_old_price = child.selling_price
 						child.cost_price = new_cost * units
 						child.selling_price = child_new_price
-						if (
-							child.selling_price_b is not None
-							and child_old_price
-							and child_old_price > 0
-						):
-							child_scale = child_new_price / Decimal(str(child_old_price))
-							child.selling_price_b = (
-								child.selling_price_b * child_scale
-							).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+						if child.selling_price_b is not None:
+							if v.selling_price_b is not None and old_base_price_b and old_base_price_b > 0:
+								child_b_scale = v.selling_price_b / old_base_price_b
+								child.selling_price_b = (
+									child.selling_price_b * child_b_scale
+								).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+							elif child_old_price and child_old_price > 0:
+								child_scale = child_new_price / Decimal(str(child_old_price))
+								child.selling_price_b = (
+									child.selling_price_b * child_scale
+								).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
 					if new_price != old_price:
 						session.add(

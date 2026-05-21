@@ -428,6 +428,8 @@ class BatchEditView(BaseView):
 		self.refresh_table()
 
 	def refresh_table(self):
+		if not self.winfo_exists():
+			return
 		search = self.entry_search.get().lower().strip()
 		sup_f  = self.combo_filter_supplier.get()
 		cat_f  = self.combo_filter_category.get()
@@ -532,6 +534,15 @@ class BatchEditView(BaseView):
 		self._last_clicked_idx = None
 		self.refresh_table()
 		self._update_action_bar()
+
+	def destroy(self):
+		if getattr(self, '_search_after_id', None):
+			try:
+				self.after_cancel(self._search_after_id)
+			except Exception:
+				pass
+			self._search_after_id = None
+		super().destroy()
 
 	# =========================================================
 	# BÚSQUEDA CON DEBOUNCE

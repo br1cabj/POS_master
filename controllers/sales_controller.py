@@ -578,12 +578,15 @@ class SalesController(BaseController):
 					_CASH_METHODS = {'efectivo'}
 					if payment_method_2_lower and amount_m2 > 0:
 						# Pago mixto: dos movimientos de caja
-						amount_m1 = final_total - amount_m2
-
-						if amount_m1 <= Decimal('0.0') or amount_m2 <= Decimal('0.0'):
+						if amount_m2 > final_total:
 							raise ValueError(
-								'Error de consistencia: Ambos montos del pago mixto deben ser mayores a cero.'
+								f'El monto del segundo método (${amount_m2:.2f}) supera el total (${final_total:.2f}).'
 							)
+						if amount_m2 <= Decimal('0.0'):
+							raise ValueError(
+								'El monto del segundo método de pago debe ser mayor a cero.'
+							)
+						amount_m1 = final_total - amount_m2
 
 						if abs((amount_m1 + amount_m2) - final_total) > Decimal('0.01'):
 							raise ValueError(

@@ -114,16 +114,27 @@ class InventoryController(BaseController):
 				if delta == 0:
 					return False, 'El stock ya está en ese valor. Sin cambios.'
 
-				# Aplica delta al almacén con mayor existencia
-				primary = max(stocks, key=lambda s: s.quantity)
-				new_primary = primary.quantity + delta
-				if new_primary < 0:
+				# Verificar factibilidad total antes de distribuir entre almacenes
+				if current_total + delta < 0:
 					return (
 						False,
-						f'El almacén principal solo tiene {float(primary.quantity):.2f} unidades. '
-						f'No es posible reducir en {abs(float(delta)):.2f}.',
+						f'Stock insuficiente. Total disponible: {float(current_total):.2f} unidades.',
 					)
-				primary.quantity = new_primary
+
+				# Distribuir el delta entre almacenes (primero los de mayor stock para reducciones)
+				remaining = delta
+				stocks_sorted = sorted(stocks, key=lambda s: s.quantity, reverse=(delta < 0))
+				primary = stocks_sorted[0]
+				for st in stocks_sorted:
+					if remaining == 0:
+						break
+					if delta < 0:
+						take = max(remaining, -int(st.quantity))
+						st.quantity += take
+						remaining -= take
+					else:
+						st.quantity += remaining
+						remaining = 0
 
 				abs_delta = abs(delta)
 				mov_type = 'ajuste_entrada' if delta > 0 else 'ajuste_salida'

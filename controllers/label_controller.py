@@ -156,6 +156,23 @@ class LabelController:
 					is_active=True,
 				)
 				session.add(variant)
+				session.flush()
+
+				from database.models import Branch, Stock, Warehouse
+				branch = session.query(Branch).filter_by(
+					tenant_id=tenant_id, name='Sede Principal'
+				).first()
+				if branch:
+					warehouse = session.query(Warehouse).filter_by(
+						branch_id=branch.id, name='Depósito General'
+					).first()
+					if warehouse:
+						session.add(Stock(
+							quantity=0,
+							warehouse_id=warehouse.id,
+							variant_id=variant.id,
+						))
+
 			session.commit()
 			return variant.id
 

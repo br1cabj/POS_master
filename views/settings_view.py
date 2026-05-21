@@ -103,13 +103,19 @@ class SettingsView(BaseView):
 		self._build_content_wrapper()
 		self._show_section('empresa')
 
-		self.winfo_toplevel().bind('<Control-s>', lambda e: self._save_all() if self.winfo_exists() else None)
+		self._ctrl_s_funcid = self.winfo_toplevel().bind(
+			'<Control-s>',
+			lambda e: self._save_all() if self.winfo_exists() else None,
+			add='+',
+		)
 
 	def destroy(self):
-		try:
-			self.winfo_toplevel().unbind('<Control-s>')
-		except Exception:
-			pass
+		if getattr(self, '_ctrl_s_funcid', None):
+			try:
+				self.winfo_toplevel().unbind('<Control-s>', self._ctrl_s_funcid)
+			except Exception:
+				pass
+			self._ctrl_s_funcid = None
 		super().destroy()
 
 	# =========================================================

@@ -1134,38 +1134,59 @@ class SetupWizard(ctk.CTkFrame):
         self._btn_back.configure(state='disabled')
         self.update_idletasks()
 
-        if self._license_mode == 'DEMO':
-            success, msg = self.license_ctrl.activate_demo()
-        else:
-            success, msg = self.license_ctrl.activate_license(self._license_key)
+        import threading
 
-        if not success:
-            CTkMessagebox(title='Licencia rechazada', message=msg, icon='cancel')
-            self._busy = False
-            self._btn_next.configure(state='normal', text=_STEP_NEXT_LABELS[4])
-            self._btn_back.configure(state='normal')
+        def _run():
+            if self._license_mode == 'DEMO':
+                success, msg = self.license_ctrl.activate_demo()
+            else:
+                success, msg = self.license_ctrl.activate_license(self._license_key)
+
+            if not success:
+                if self.winfo_exists():
+                    self.after(0, lambda: self._on_finish_license_failed(msg))
+                return
+
+            try:
+                self._setup_database()
+                self._save_settings()
+                if self.winfo_exists():
+                    self.after(0, lambda m=msg: self._on_finish_done(True, m))
+            except Exception as e:
+                logger.error('Error al crear la base de datos: %s', e, exc_info=True)
+                try:
+                    lf = self.license_ctrl.license_file
+                    if os.path.exists(lf):
+                        os.remove(lf)
+                except Exception:
+                    pass
+                if self.winfo_exists():
+                    self.after(0, lambda err=str(e): self._on_finish_done(False, err))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_finish_license_failed(self, msg: str):
+        if not self.winfo_exists():
             return
+        CTkMessagebox(title='Licencia rechazada', message=msg, icon='cancel')
+        self._busy = False
+        self._btn_next.configure(state='normal', text=_STEP_NEXT_LABELS[4])
+        self._btn_back.configure(state='normal')
 
-        try:
-            self._setup_database()
-            self._save_settings()
+    def _on_finish_done(self, success: bool, msg: str):
+        if not self.winfo_exists():
+            return
+        if success:
             CTkMessagebox(
                 title='¡Todo listo!',
                 message=f'Tu sistema CloudPOS está configurado.\n¡Bienvenido, {self._d_username}!',
                 icon='check',
             ).get()
             self.winfo_toplevel().after(100, self.on_complete_callback)
-        except Exception as e:
-            logger.error('Error al crear la base de datos: %s', e, exc_info=True)
-            try:
-                lf = self.license_ctrl.license_file
-                if os.path.exists(lf):
-                    os.remove(lf)
-            except Exception:
-                pass
+        else:
             CTkMessagebox(
                 title='Error Fatal',
-                message=f'Falló la creación de la base de datos:\n{str(e)}',
+                message=f'Falló la creación de la base de datos:\n{msg}',
                 icon='cancel',
             )
             self._busy = False

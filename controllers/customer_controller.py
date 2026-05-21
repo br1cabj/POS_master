@@ -309,7 +309,7 @@ class CustomerController(BaseController):
 							'date': getattr(s, 'date', None) or datetime.now(),
 							'type': 'cargo',  # Aumenta la deuda
 							'concept': f'Compra a crédito - Ticket #{s.id[:8]}',
-							'amount': s.total_amount,
+							'amount': (s.total_amount or 0) - (s.total_returned or 0),
 							'items': items_detail,
 						}
 					)

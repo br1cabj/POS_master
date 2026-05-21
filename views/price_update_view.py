@@ -60,7 +60,7 @@ class PriceUpdateView(BaseView):
         self._build_left_panel()
         self._build_right_panel()
 
-        self.winfo_toplevel().bind(
+        self._ctrl_g_funcid = self.winfo_toplevel().bind(
             '<Control-g>',
             lambda e: (
                 self.apply_changes()
@@ -69,16 +69,19 @@ class PriceUpdateView(BaseView):
                 and self.btn_save.cget('state') == 'normal'
                 else None
             ),
+            add='+',
         )
 
         self.suppliers_map = {}
         self.after(100, self.load_data)
 
     def destroy_custom(self):
-        try:
-            self.winfo_toplevel().unbind('<Control-g>')
-        except Exception:
-            pass
+        if getattr(self, '_ctrl_g_funcid', None):
+            try:
+                self.winfo_toplevel().unbind('<Control-g>', self._ctrl_g_funcid)
+            except Exception:
+                pass
+            self._ctrl_g_funcid = None
 
     # =========================================================
     # LEFT PANEL

@@ -12,6 +12,7 @@ import tempfile
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from controllers.base import BaseController
@@ -173,50 +174,56 @@ class QuotationController(BaseController):
 	) -> tuple[bool, str | dict]:
 		"""Registra una nueva cotización en la base de datos."""
 		with self._Session() as s:
-			try:
-				number = self._next_number(s, tenant_id)
-				discount = _to_dec(discount_amount)
+			for attempt in range(3):
+				try:
+					number = self._next_number(s, tenant_id)
+					discount = _to_dec(discount_amount)
 
-				subtotal = sum(_to_dec(it.get('subtotal', 0)) for it in items)
-				total = (subtotal - discount).quantize(Decimal('0.01'), ROUND_HALF_UP)
-				if total < Decimal('0'):
-					total = Decimal('0')
+					subtotal = sum(_to_dec(it.get('subtotal', 0)) for it in items)
+					total = (subtotal - discount).quantize(Decimal('0.01'), ROUND_HALF_UP)
+					if total < Decimal('0'):
+						total = Decimal('0')
 
-				valid_until = None
-				if valid_days and valid_days > 0:
-					valid_until = (datetime.now() + timedelta(days=valid_days)).date()
+					valid_until = None
+					if valid_days and valid_days > 0:
+						valid_until = (datetime.now() + timedelta(days=valid_days)).date()
 
-				q = Quotation(
-					number=number,
-					tenant_id=tenant_id,
-					user_id=user_id,
-					customer_id=customer_id or None,
-					valid_until=valid_until,
-					total_amount=total,
-					discount_amount=discount,
-					notes=notes,
-					status='borrador',
-				)
-				s.add(q)
-				s.flush()
-
-				for it in items:
-					qi = QuotationItem(
-						quotation_id=q.id,
-						description=it.get('description', ''),
-						quantity=_to_dec(it.get('quantity', 1)),
-						unit_price=_to_dec(it.get('unit_price', 0)),
-						subtotal=_to_dec(it.get('subtotal', 0)),
-						variant_id=it.get('variant_id') or None,
+					q = Quotation(
+						number=number,
+						tenant_id=tenant_id,
+						user_id=user_id,
+						customer_id=customer_id or None,
+						valid_until=valid_until,
+						total_amount=total,
+						discount_amount=discount,
+						notes=notes,
+						status='borrador',
 					)
-					s.add(qi)
+					s.add(q)
+					s.flush()
 
-				s.commit()
-				return True, self._row_to_dict(self._load_full(s, q.id))
-			except Exception as e:
-				s.rollback()
-				logger.error('Error creando cotización: %s', e, exc_info=True)
-				return False, 'Error interno al procesar la cotización.'
+					for it in items:
+						qi = QuotationItem(
+							quotation_id=q.id,
+							description=it.get('description', ''),
+							quantity=_to_dec(it.get('quantity', 1)),
+							unit_price=_to_dec(it.get('unit_price', 0)),
+							subtotal=_to_dec(it.get('subtotal', 0)),
+							variant_id=it.get('variant_id') or None,
+						)
+						s.add(qi)
+
+					s.commit()
+					return True, self._row_to_dict(self._load_full(s, q.id))
+				except IntegrityError:
+					s.rollback()
+					if attempt == 2:
+						return False, 'Error al generar número de cotización. Intente nuevamente.'
+					continue
+				except Exception as e:
+					s.rollback()
+					logger.error('Error creando cotización: %s', e, exc_info=True)
+					return False, 'Error interno al procesar la cotización.'
 
 	def update_quotation(
 		self,
@@ -336,7 +343,7 @@ class QuotationController(BaseController):
 				if orig.valid_until:
 					# Protección ante diferencias horarias
 					diff = (orig.valid_until - datetime.now().date()).days
-					days_valid = max(diff, 1)
+					days_valid = diff if diff > 0 else 15
 
 				new_q = Quotation(
 					number=number,

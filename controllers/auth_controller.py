@@ -37,6 +37,8 @@ class AuthController(BaseController):
 		if not username or not password:
 			logger.warning('Intento de login con campos vacios.')
 			return None
+		if not tenant_id:
+			logger.warning('login() llamado sin tenant_id — autenticación sin aislamiento de tenant.')
 
 		username_clean = str(username).strip()
 

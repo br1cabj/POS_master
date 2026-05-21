@@ -231,6 +231,16 @@ class SupplierReturnsController(BaseController):
 				if total_refund <= 0:
 					return False, 'El total a recuperar debe ser mayor a cero.'
 
+				# Verificar caja abierta ANTES de crear registros o modificar stock
+				if refund_type == 'efectivo':
+					pre_check_cash = (
+						session.query(CashSession)
+						.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
+						.first()
+					)
+					if not pre_check_cash:
+						return False, '⚠️ Debes ABRIR LA CAJA para registrar reembolsos en efectivo.'
+
 				# Crear registro de devolución
 				purchase_return = PurchaseReturn(
 					purchase_id=purchase_id,
