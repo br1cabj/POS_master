@@ -301,6 +301,7 @@ class SupplierReturnsController(BaseController):
 									source_warehouse_id=stock.warehouse_id,
 									variant_id=v['variant_id'],
 									user_id=user_id,
+									tenant_id=tenant_id,
 								)
 							)
 

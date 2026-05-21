@@ -111,10 +111,10 @@ class LabelController:
 
 		Session = _sm(bind=db_engine)
 		with Session() as session:
-			# Categoría compartida "Artículos Manuales"
-			cat = session.query(Category).filter_by(name='Artículos Manuales').first()
+			# Categoría por tenant para "Artículos Manuales"
+			cat = session.query(Category).filter_by(name='Artículos Manuales', tenant_id=tenant_id).first()
 			if not cat:
-				cat = Category(name='Artículos Manuales')
+				cat = Category(name='Artículos Manuales', tenant_id=tenant_id)
 				session.add(cat)
 				session.flush()
 

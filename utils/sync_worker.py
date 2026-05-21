@@ -41,6 +41,7 @@ _CASH_SYNC_DAYS = 7  # ventana máxima de historial de caja sincronizado a la nu
 def _sync_models():
     from database.models import (
         Article,
+        ArticleHistory,
         ArticleVariant,
         Branch,
         CashMovement,
@@ -58,6 +59,7 @@ def _sync_models():
         Sale,
         SaleDetail,
         Stock,
+        StockMovement,
         Supplier,
         Tenant,
         User,
@@ -72,9 +74,10 @@ def _sync_models():
         Warehouse,
         User,
         Supplier,
-        Category,          # parent of Article (no updated_at — skipped by sync, kept for restore)
+        Category,
         Article,
         ArticleVariant,
+        ArticleHistory,    # child of User/Tenant/ArticleVariant
         ComboItem,         # child of ArticleVariant (no updated_at)
         Customer,
         Purchase,
@@ -86,6 +89,7 @@ def _sync_models():
         Quotation,         # child of Tenant/User/Customer (no updated_at)
         QuotationItem,     # child of Quotation/ArticleVariant (no updated_at)
         Stock,
+        StockMovement,     # child of Tenant/Warehouse/ArticleVariant/User
         Promotion,
         CashSession,       # 7-day window enforced in _cycle()
         CashMovement,      # 7-day window enforced in _cycle()

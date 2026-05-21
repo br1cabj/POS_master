@@ -50,6 +50,26 @@ def _column_exists(engine, table: str, column: str) -> bool:
 	return column in cols
 
 
+def _add_column_if_missing_tx(
+	conn, engine, table: str, column: str, definition: str
+) -> bool:
+	"""
+	Like _add_column_if_missing but does NOT commit — the caller manages the
+	transaction (e.g. via `with engine.begin() as conn`).
+	Use for multi-column migrations that must be atomic.
+	"""
+	if _column_exists(engine, table, column):
+		return False
+	if _is_sqlite(engine):
+		conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {definition}'))
+	else:
+		conn.execute(
+			text(f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}')
+		)
+	logger.info('Migration staged: %s in %s', column, table)
+	return True
+
+
 def _add_column_if_missing(
 	conn, engine, table: str, column: str, definition: str
 ) -> bool:
@@ -113,6 +133,7 @@ def run_migrations(engine) -> None:
 	_v25_add_deleted_at_columns(engine)
 	_v26_add_customer_id_to_cash_movements(engine)
 	_v27_add_updated_at_article_history(engine)
+	_v28_add_tenant_updated_at_stock_movement_category(engine)
 
 
 def setup_cloud_schema(engine) -> None:
@@ -162,13 +183,10 @@ def _v3_add_discount_amount(engine) -> None:
 
 
 def _v4_add_mixto_fields(engine) -> None:
-	with engine.connect() as conn:
-		_add_column_if_missing(
-			conn, engine, 'sales', 'payment_method_2', 'VARCHAR DEFAULT NULL'
-		)
-		_add_column_if_missing(
-			conn, engine, 'sales', 'amount_method_2', 'NUMERIC(10, 2) DEFAULT NULL'
-		)
+	with engine.begin() as conn:
+		_add_column_if_missing_tx(conn, engine, 'sales', 'payment_method_2', 'VARCHAR DEFAULT NULL')
+		_add_column_if_missing_tx(conn, engine, 'sales', 'amount_method_2', 'NUMERIC(10, 2) DEFAULT NULL')
+	logger.info('v4: mixto fields ready.')
 
 
 def _v5_create_quotations(engine) -> None:
@@ -228,20 +246,14 @@ def _v5_create_quotations(engine) -> None:
 
 
 def _v6_add_packaging_variants(engine) -> None:
-	with engine.connect() as conn:
-		_add_column_if_missing(
-			conn, engine, 'article_variants', 'units_per_pack', 'INTEGER DEFAULT 1'
-		)
-		_add_column_if_missing(
-			conn, engine, 'article_variants', 'pack_label', 'VARCHAR DEFAULT NULL'
-		)
-		_add_column_if_missing(
-			conn,
-			engine,
-			'article_variants',
-			'base_variant_id',
+	with engine.begin() as conn:
+		_add_column_if_missing_tx(conn, engine, 'article_variants', 'units_per_pack', 'INTEGER DEFAULT 1')
+		_add_column_if_missing_tx(conn, engine, 'article_variants', 'pack_label', 'VARCHAR DEFAULT NULL')
+		_add_column_if_missing_tx(
+			conn, engine, 'article_variants', 'base_variant_id',
 			'VARCHAR(36) DEFAULT NULL REFERENCES article_variants(id)',
 		)
+	logger.info('v6: packaging variants ready.')
 
 
 def _v7_add_quotation_number_to_sales(engine) -> None:
@@ -252,27 +264,17 @@ def _v7_add_quotation_number_to_sales(engine) -> None:
 
 
 def _v8_add_product_discount_fields(engine) -> None:
-	with engine.connect() as conn:
-		_add_column_if_missing(
-			conn,
-			engine,
-			'article_variants',
-			'discount_pct',
-			'NUMERIC(5,2) DEFAULT NULL',
-		)
-		_add_column_if_missing(
-			conn, engine, 'article_variants', 'discount_until', 'DATETIME DEFAULT NULL'
-		)
+	with engine.begin() as conn:
+		_add_column_if_missing_tx(conn, engine, 'article_variants', 'discount_pct', 'NUMERIC(5,2) DEFAULT NULL')
+		_add_column_if_missing_tx(conn, engine, 'article_variants', 'discount_until', 'DATETIME DEFAULT NULL')
+	logger.info('v8: product discount fields ready.')
 
 
 def _v9_add_supplier_discount_fields(engine) -> None:
-	with engine.connect() as conn:
-		_add_column_if_missing(
-			conn, engine, 'suppliers', 'discount_pct', 'NUMERIC(5,2) DEFAULT NULL'
-		)
-		_add_column_if_missing(
-			conn, engine, 'suppliers', 'discount_until', 'DATETIME DEFAULT NULL'
-		)
+	with engine.begin() as conn:
+		_add_column_if_missing_tx(conn, engine, 'suppliers', 'discount_pct', 'NUMERIC(5,2) DEFAULT NULL')
+		_add_column_if_missing_tx(conn, engine, 'suppliers', 'discount_until', 'DATETIME DEFAULT NULL')
+	logger.info('v9: supplier discount fields ready.')
 
 
 def _v10_purchase_details_and_returns(engine) -> None:
@@ -382,17 +384,10 @@ def _v12_add_sale_status_indexes(engine) -> None:
 
 
 def _v13_add_price_list_fields(engine) -> None:
-	with engine.connect() as conn:
-		_add_column_if_missing(
-			conn,
-			engine,
-			'article_variants',
-			'selling_price_b',
-			'NUMERIC(10, 2) DEFAULT NULL',
-		)
-		_add_column_if_missing(
-			conn, engine, 'customers', 'price_list', "VARCHAR DEFAULT 'A'"
-		)
+	with engine.begin() as conn:
+		_add_column_if_missing_tx(conn, engine, 'article_variants', 'selling_price_b', 'NUMERIC(10, 2) DEFAULT NULL')
+		_add_column_if_missing_tx(conn, engine, 'customers', 'price_list', "VARCHAR DEFAULT 'A'")
+	logger.info('v13: price list fields ready.')
 
 
 def _v14_add_margin_pct(engine) -> None:
@@ -517,17 +512,9 @@ def _v18_add_sale_method1_and_total_returned(engine) -> None:
 	v18: Almacena el monto del primer método de pago en ventas mixtas y el total
 	ya devuelto para evitar mutar total_amount en devoluciones parciales.
 	"""
-	with engine.connect() as conn:
-		_add_column_if_missing(
-			conn, engine, 'sales', 'amount_method_1', 'NUMERIC(10, 2) DEFAULT NULL'
-		)
-		_add_column_if_missing(
-			conn,
-			engine,
-			'sales',
-			'total_returned',
-			'NUMERIC(10, 2) NOT NULL DEFAULT 0.0',
-		)
+	with engine.begin() as conn:
+		_add_column_if_missing_tx(conn, engine, 'sales', 'amount_method_1', 'NUMERIC(10, 2) DEFAULT NULL')
+		_add_column_if_missing_tx(conn, engine, 'sales', 'total_returned', 'NUMERIC(10, 2) NOT NULL DEFAULT 0.0')
 	logger.info('v18: amount_method_1 y total_returned agregados a sales.')
 
 
@@ -739,12 +726,10 @@ def _v24_unique_combo_ingredient(engine) -> None:
 def _v25_add_deleted_at_columns(engine) -> None:
 	"""v25: Agrega deleted_at y deleted_by a las tablas que soportan soft-delete."""
 	_TABLES = ['customers', 'articles', 'article_variants', 'suppliers', 'users']
-	with engine.connect() as conn:
+	with engine.begin() as conn:
 		for table in _TABLES:
-			_add_column_if_missing(conn, engine, table, 'deleted_at', 'DATETIME DEFAULT NULL')
-			_add_column_if_missing(
-				conn, engine, table, 'deleted_by', 'VARCHAR(36) DEFAULT NULL'
-			)
+			_add_column_if_missing_tx(conn, engine, table, 'deleted_at', 'DATETIME DEFAULT NULL')
+			_add_column_if_missing_tx(conn, engine, table, 'deleted_by', 'VARCHAR(36) DEFAULT NULL')
 	logger.info('v25: columnas deleted_at/deleted_by listas.')
 
 
@@ -795,3 +780,97 @@ def _v27_add_updated_at_article_history(engine) -> None:
 			logger.warning('v27: no se pudo crear índice category_id: %s', e)
 		conn.commit()
 	logger.info('v27: updated_at en article_history e índice articles.category_id listos.')
+
+
+# ─── v28: tenant_id + updated_at en stock_movements y categories ──────────────
+
+
+def _v28_add_tenant_updated_at_stock_movement_category(engine) -> None:
+	"""
+	v28: Agrega tenant_id y updated_at a stock_movements y categories para
+	habilitar el sync incremental multi-tenant de ambas tablas.
+	Backfill automático: tenant_id se infiere desde el warehouse para movimientos
+	existentes, y desde el primer tenant para categorías.
+	"""
+	with engine.begin() as conn:
+		# stock_movements: tenant_id + updated_at
+		_add_column_if_missing_tx(conn, engine, 'stock_movements', 'tenant_id', 'VARCHAR(36) DEFAULT NULL')
+		_add_column_if_missing_tx(conn, engine, 'stock_movements', 'updated_at', 'DATETIME DEFAULT NULL')
+		# categories: tenant_id + updated_at
+		_add_column_if_missing_tx(conn, engine, 'categories', 'tenant_id', 'VARCHAR(36) DEFAULT NULL')
+		_add_column_if_missing_tx(conn, engine, 'categories', 'updated_at', 'DATETIME DEFAULT NULL')
+
+	# Backfill stock_movements.tenant_id desde la cadena warehouse→branch→tenant
+	with engine.connect() as conn:
+		try:
+			if _is_sqlite(engine):
+				conn.execute(text("""
+					UPDATE stock_movements
+					SET tenant_id = (
+						SELECT b.tenant_id
+						FROM warehouses wh
+						JOIN branches b ON b.id = wh.branch_id
+						WHERE wh.id = COALESCE(
+							stock_movements.dest_warehouse_id,
+							stock_movements.source_warehouse_id
+						)
+						LIMIT 1
+					)
+					WHERE tenant_id IS NULL
+				"""))
+			else:
+				conn.execute(text("""
+					UPDATE stock_movements sm
+					SET tenant_id = b.tenant_id
+					FROM warehouses wh
+					JOIN branches b ON b.id = wh.branch_id
+					WHERE wh.id = COALESCE(sm.dest_warehouse_id, sm.source_warehouse_id)
+					  AND sm.tenant_id IS NULL
+				"""))
+		except Exception as e:
+			logger.warning('v28: backfill stock_movements.tenant_id falló: %s', e)
+
+		try:
+			conn.execute(text("""
+				UPDATE stock_movements
+				SET updated_at = date
+				WHERE updated_at IS NULL AND date IS NOT NULL
+			"""))
+			conn.execute(text("""
+				UPDATE stock_movements
+				SET updated_at = CURRENT_TIMESTAMP
+				WHERE updated_at IS NULL
+			"""))
+		except Exception as e:
+			logger.warning('v28: backfill stock_movements.updated_at falló: %s', e)
+
+		# Backfill categories.tenant_id con el primer tenant disponible
+		try:
+			conn.execute(text("""
+				UPDATE categories
+				SET tenant_id = (SELECT id FROM tenants ORDER BY rowid LIMIT 1)
+				WHERE tenant_id IS NULL
+			"""))
+			conn.execute(text("""
+				UPDATE categories
+				SET updated_at = CURRENT_TIMESTAMP
+				WHERE updated_at IS NULL
+			"""))
+		except Exception as e:
+			logger.warning('v28: backfill categories falló: %s', e)
+
+		# Índices
+		for idx_sql in [
+			'CREATE INDEX IF NOT EXISTS ix_stock_movements_tenant_id ON stock_movements(tenant_id)',
+			'CREATE INDEX IF NOT EXISTS ix_stock_movements_updated_at ON stock_movements(updated_at)',
+			'CREATE INDEX IF NOT EXISTS ix_categories_tenant_id ON categories(tenant_id)',
+			'CREATE INDEX IF NOT EXISTS ix_categories_updated_at ON categories(updated_at)',
+		]:
+			try:
+				conn.execute(text(idx_sql))
+			except Exception as e:
+				logger.warning('v28: índice falló: %s — %s', idx_sql, e)
+
+		conn.commit()
+
+	logger.info('v28: tenant_id + updated_at en stock_movements y categories listos.')

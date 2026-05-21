@@ -187,7 +187,7 @@ class ReturnsController(BaseController):
 				]
 				warnings = self._restore_stock_for_items(
 					session, details_to_restore, sale_id, user_id, label='Anulación',
-					qty_override=qty_override_cancel,
+					qty_override=qty_override_cancel, tenant_id=tenant_id,
 				)
 
 				total = Decimal(str(sale.total_amount or 0))
@@ -332,6 +332,7 @@ class ReturnsController(BaseController):
 					user_id,
 					label='Devolución',
 					qty_override=return_map,
+					tenant_id=tenant_id,
 				)
 
 				self._register_financial_reversal(
@@ -413,7 +414,7 @@ class ReturnsController(BaseController):
 				return False, f'Error interno al procesar la devolución: {e}'
 
 	def _restore_stock_for_items(
-		self, session, details, sale_id, user_id, label='Devolución', qty_override=None
+		self, session, details, sale_id, user_id, label='Devolución', qty_override=None, tenant_id=None
 	):
 		warnings = []
 		variant_ids = [d.variant_id for d in details if d.variant_id]
@@ -487,6 +488,7 @@ class ReturnsController(BaseController):
 								dest_warehouse_id=stock.warehouse_id,
 								variant_id=ci.ingredient_id,
 								user_id=user_id,
+								tenant_id=tenant_id,
 							)
 						)
 					else:
@@ -511,6 +513,7 @@ class ReturnsController(BaseController):
 							dest_warehouse_id=stock.warehouse_id,
 							variant_id=target_vid,
 							user_id=user_id,
+							tenant_id=tenant_id,
 						)
 					)
 				else:

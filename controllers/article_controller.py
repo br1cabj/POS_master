@@ -195,6 +195,7 @@ class ArticleController(BaseController):
 							dest_warehouse_id=warehouse_id,
 							variant_id=variant.id,
 							user_id=user_id,
+							tenant_id=tenant_id,
 						)
 					)
 

@@ -109,6 +109,8 @@ class Category(Base):
 	__tablename__ = 'categories'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	name = Column(String(200), nullable=False)
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=True, index=True)
+	updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
 
 
 class Supplier(Base):
@@ -282,11 +284,13 @@ class StockMovement(Base):
 	__tablename__ = 'stock_movements'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	date = Column(DateTime, default=datetime.now, index=True)
+	updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
 
 	movement_type = Column(String(50), nullable=False)
 	quantity = Column(Numeric(12, 4), nullable=False)
 	reference = Column(String(200), nullable=True)
 
+	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=True, index=True)
 	source_warehouse_id = Column(String(36), ForeignKey('warehouses.id'), nullable=True)
 	dest_warehouse_id = Column(String(36), ForeignKey('warehouses.id'), nullable=True)
 

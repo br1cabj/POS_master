@@ -421,7 +421,9 @@ class DataSyncController(BaseController):
 						)
 					}
 
+				_IMPORT_BATCH = 500
 				created_barcodes: set = set()
+				_batch_count = 0
 				for row in df.itertuples():
 					row_num = row.Index + 2  # +2 por encabezado y base-0
 					name = str(row.Nombre).strip()
@@ -527,6 +529,7 @@ class DataSyncController(BaseController):
 						updated += 1
 
 					else:
+						session.flush()  # free pending writes before adding new objects
 						article = Article(
 							name=name,
 							tenant_id=tenant_id,
@@ -562,6 +565,7 @@ class DataSyncController(BaseController):
 									dest_warehouse_id=warehouse_id,
 									variant_id=variant.id,
 									user_id=user_id,
+									tenant_id=tenant_id,
 								)
 							)
 						elif stock_val > 0:
@@ -570,6 +574,10 @@ class DataSyncController(BaseController):
 								'(depósito predeterminado no encontrado).'
 							)
 						created += 1
+
+					_batch_count += 1
+					if _batch_count % _IMPORT_BATCH == 0:
+						session.commit()
 
 				session.commit()
 
@@ -631,6 +639,8 @@ class DataSyncController(BaseController):
 					.all()
 				}
 
+				_IMPORT_BATCH = 500
+				_batch_count = 0
 				for row in df.itertuples():
 					name = str(row.Nombre).strip()
 					if not name or name == 'nan':
@@ -668,6 +678,10 @@ class DataSyncController(BaseController):
 						session.add(new_customer)
 						existing_map[name] = new_customer  # evita duplicados dentro del mismo archivo
 						created += 1
+
+					_batch_count += 1
+					if _batch_count % _IMPORT_BATCH == 0:
+						session.commit()
 
 				session.commit()
 

@@ -151,6 +151,7 @@ class InventoryController(BaseController):
 						variant_id=variant_id,
 						user_id=user_id,
 						source_warehouse_id=primary.warehouse_id,
+						tenant_id=tenant_id,
 					)
 				)
 

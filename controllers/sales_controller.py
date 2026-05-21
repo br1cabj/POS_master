@@ -501,6 +501,7 @@ class SalesController(BaseController):
 										source_warehouse_id=stock.warehouse_id,
 										variant_id=ci.ingredient_id,
 										user_id=user_id,
+										tenant_id=tenant_id,
 									)
 								)
 						else:
@@ -530,6 +531,7 @@ class SalesController(BaseController):
 									source_warehouse_id=stock.warehouse_id,
 									variant_id=deduct_vid,
 									user_id=user_id,
+									tenant_id=tenant_id,
 								)
 							)
 					else:
