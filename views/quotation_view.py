@@ -1296,7 +1296,7 @@ class QuotationView(BaseView):
 		if not data:
 			return
 
-		if data['status'] in ('rechazada', 'vencida', 'aceptada'):
+		if data['status'] in ('rechazada', 'vencida'):
 			status_text = data['status'].capitalize()
 			self.show_warning(
 				f'No se puede convertir una cotización que ya está {status_text}.',

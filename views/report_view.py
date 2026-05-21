@@ -942,4 +942,4 @@ class ReportView(BaseView):
 		self._lbl_status.configure(text=message, text_color=color)
 		self._btn_pdf.configure(state='normal')
 		self._btn_csv.configure(state='normal')
-		self.schedule(6000, lambda: self._lbl_status.configure(text=''))
+		self.schedule(6000, lambda: self._lbl_status.configure(text='') if self._lbl_status.winfo_exists() else None)

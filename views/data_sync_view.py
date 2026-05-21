@@ -70,11 +70,11 @@ class DataSyncView(BaseView):
 		self._build_ui()
 
 		top = self.winfo_toplevel()
-		top.bind(
+		self._bind_id_e = top.bind(
 			'<Control-e>',
 			lambda e: self.handle_export() if self.winfo_exists() else None,
 		)
-		top.bind(
+		self._bind_id_i = top.bind(
 			'<Control-i>',
 			lambda e: (
 				self.handle_import()
@@ -85,11 +85,14 @@ class DataSyncView(BaseView):
 
 	def destroy_custom(self):
 		top = self.winfo_toplevel()
-		for key in ('<Control-e>', '<Control-i>'):
-			try:
-				top.unbind(key)
-			except Exception:
-				pass
+		try:
+			top.unbind('<Control-e>', self._bind_id_e)
+		except Exception:
+			pass
+		try:
+			top.unbind('<Control-i>', self._bind_id_i)
+		except Exception:
+			pass
 
 	# ═══════════════════════════════════════════════════════════════════════════
 	# LAYOUT PRINCIPAL

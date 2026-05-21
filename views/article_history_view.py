@@ -184,8 +184,8 @@ class ArticleHistoryView(BaseView):
 		self.tree.tag_configure('neutro', foreground=TEXT_MUTED)
 		self.tree.tag_configure('normal', foreground=TEXT_PRIMARY)
 
-		self.tree.tag_configure('odd', background='#161616')
-		self.tree.tag_configure('even', background='#1a1a1a')
+		self.tree.tag_configure('odd', background=SURFACE2)
+		self.tree.tag_configure('even', background=SURFACE3)
 
 	def destroy(self):
 		if getattr(self, '_search_timer', None):

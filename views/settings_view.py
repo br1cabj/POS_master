@@ -250,7 +250,7 @@ class SettingsView(BaseView):
 
 		# Separador + versión
 		ctk.CTkFrame(self._sidebar, height=1, fg_color=BORDER).grid(
-			row=len(_SECTIONS) + 1, column=0, sticky='ew', padx=PAD_MD, pady=PAD_MD
+			row=_row + 1, column=0, sticky='ew', padx=PAD_MD, pady=PAD_MD
 		)
 		ctk.CTkLabel(
 			self._sidebar,
@@ -258,7 +258,7 @@ class SettingsView(BaseView):
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 			anchor='w',
-		).grid(row=len(_SECTIONS) + 2, column=0, padx=PAD_MD, sticky='w')
+		).grid(row=_row + 2, column=0, padx=PAD_MD, sticky='w')
 
 	# =========================================================
 	# CONTENT AREA

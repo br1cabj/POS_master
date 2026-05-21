@@ -225,9 +225,6 @@ class SuppliersView(BaseView):
 				self.after_cancel(self._search_timer)
 			except Exception:
 				pass
-		parent = super()
-		if hasattr(parent, 'destroy_custom'):
-			parent.destroy_custom()
 
 	def _on_search_change(self, *args):
 		if self._search_timer:

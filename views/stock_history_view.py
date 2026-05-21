@@ -40,7 +40,6 @@ class StockHistoryView(BaseView):
 		self._tab_btns: list = []
 		self._views: list = []
 		self._init_done = False
-		self._ctx = ctx
 
 		# ── Tab bar ───────────────────────────────────────────────────────
 		tab_bar = ctk.CTkFrame(
@@ -106,7 +105,7 @@ class StockHistoryView(BaseView):
 				# Lazy: instanciar la sub-vista la primera vez que se selecciona
 				if view_dict['instance'] is None:
 					_, _, cls = _TABS[i]
-					instance = cls(view_dict['frame'], self._ctx)
+					instance = cls(view_dict['frame'], self.ctx)
 					instance.pack(fill='both', expand=True)
 					view_dict['instance'] = instance
 				view_dict['frame'].pack(fill='both', expand=True)

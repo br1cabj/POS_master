@@ -5,6 +5,7 @@ Gestión masiva de atributos y precios.
 Layout vertical: filtros → tabla → barra de acción fija al fondo.
 """
 
+import threading
 from decimal import Decimal, InvalidOperation
 from tkinter import ttk
 
@@ -667,22 +668,28 @@ class BatchEditView(BaseView):
 
 		orig = self.btn_apply.cget('text')
 		self.set_loading(self.btn_apply, True)
-		self.update_idletasks()
 
-		try:
-			success, message = self.controller.bulk_update_variants(
-				self.ctx.tenant_id, self.ctx.user_id, list(self.selected_ids), updates
-			)
-		except Exception as e:
-			success, message = False, str(e)
-		finally:
+		_tenant = self.ctx.tenant_id
+		_user = self.ctx.user_id
+		_ids = list(self.selected_ids)
+
+		def _run():
+			try:
+				ok, msg = self.controller.bulk_update_variants(_tenant, _user, _ids, updates)
+			except Exception as exc:
+				ok, msg = False, str(exc)
+			if self.winfo_exists():
+				self.after(0, lambda: _done(ok, msg))
+
+		def _done(ok, msg):
 			self.set_loading(self.btn_apply, False, orig)
+			if ok:
+				self.show_success(msg)
+				self.selected_ids.clear()
+				self._last_clicked_idx = None
+				self._clear_fields()
+				self.load_data()
+			else:
+				self.show_error(msg)
 
-		if success:
-			self.show_success(message)
-			self.selected_ids.clear()
-			self._last_clicked_idx = None
-			self._clear_fields()
-			self.load_data()
-		else:
-			self.show_error(message)
+		threading.Thread(target=_run, daemon=True).start()

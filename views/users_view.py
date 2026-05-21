@@ -819,14 +819,18 @@ class UsersView(BaseView):
 					self.after(0, lambda: _done(ok, result_msg))
 
 			def _done(ok, result_msg):
-				try:
-					self.btn_delete.configure(state='disabled')
-				except Exception:
-					pass
 				if ok:
+					try:
+						self.btn_delete.configure(state='disabled')
+					except Exception:
+						pass
 					self.load_data()
 					self.show_success(result_msg, 'Eliminado')
 				else:
+					try:
+						self.btn_delete.configure(state='normal')
+					except Exception:
+						pass
 					self.show_error(result_msg)
 
 			threading.Thread(target=_run, daemon=True).start()

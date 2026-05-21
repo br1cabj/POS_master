@@ -883,7 +883,7 @@ class LabelView(BaseView):
 			# Guardar en DB para que el barcode sea escaneable en ventas
 			try:
 				real_id = self._ctrl.save_manual_article(
-					self._ctx.db_engine, self._ctx.tenant_id, name, price_val, bc
+					self.ctx.db_engine, self.ctx.tenant_id, name, price_val, bc
 				)
 			except Exception as e:
 				logger.error('save_manual_article: %s', e, exc_info=True)
@@ -1160,25 +1160,22 @@ class LabelView(BaseView):
 				anchor='w',
 			).pack(side='left', padx=(0, PAD_XS))
 
-			def _on_disc_change(e=None, i=idx, de=entry_disc, du=None):
-				# Use the current entry_until if du is None (it will be bound in closure)
-				target_du = du or entry_until
+			entry_until = CTkDatePicker(disc_row, width=155, height=26)
+			if item.get('discount_until'):
+				entry_until.set_text(str(item['discount_until']))
+			entry_until.pack(side='left', padx=(0, PAD_SM))
+
+			def _on_disc_change(e=None, i=idx, de=entry_disc, eu=entry_until):
 				try:
 					val = float(de.get())
 					self._queue[i]['discount_price'] = val if val > 0 else None
 				except (ValueError, TypeError):
 					self._queue[i]['discount_price'] = None
-				self._queue[i]['discount_until'] = target_du.get().strip()
+				self._queue[i]['discount_until'] = eu.get().strip()
 				if i == 0:
 					self._update_live_preview()
 
-			entry_until = CTkDatePicker(
-				disc_row, width=155, height=26, on_date_selected=lambda d: _on_disc_change()
-			)
-			if item.get('discount_until'):
-				entry_until.set_text(str(item['discount_until']))
-			entry_until.pack(side='left', padx=(0, PAD_SM))
-
+			entry_until._on_date_selected = lambda d, f=_on_disc_change: f()
 			entry_disc.bind('<KeyRelease>', _on_disc_change)
 			entry_until.bind('<KeyRelease>', _on_disc_change)
 			entry_disc.bind(

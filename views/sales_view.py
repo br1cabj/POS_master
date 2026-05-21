@@ -1478,13 +1478,13 @@ class SalesView(BaseView):
 				self.entry_barcode.delete(0, 'end')
 				return
 			qty_to_add = scale_price / base_price
+			total_qty = current_cart_qty + qty_to_add
 			unit_price = self._get_list_price(found_variant)
-			subtotal = unit_price * qty_to_add
+			subtotal = unit_price * total_qty
 			product_disc_pct = Decimal('0')
 			using_list_b = self._active_price_list == 'B' and found_variant.get(
 				'selling_price_b'
 			)
-			total_qty = current_cart_qty + qty_to_add
 		else:
 			qty_to_add = Decimal('1')
 			total_qty = current_cart_qty + qty_to_add
