@@ -118,7 +118,9 @@ class QuotationController(BaseController):
 				'unit_price': float(it.unit_price),
 				'subtotal': float(it.subtotal),
 				'variant_id': it.variant_id,
-				'stock': float(sum(s.quantity for s in it.variant.stocks)) if it.variant and it.variant.stocks else None,
+				'stock': float(sum(s.quantity for s in it.variant.stocks))
+				if it.variant and it.variant.stocks
+				else None,
 			}
 			for it in q.items
 		]
@@ -144,13 +146,17 @@ class QuotationController(BaseController):
 	) -> list[dict]:
 		"""Obtiene un listado paginado/limitado de cotizaciones asociadas a un tenant."""
 		with self._Session() as s:
-			q = s.query(Quotation).options(
-				joinedload(Quotation.customer),
-				joinedload(Quotation.user),
-				joinedload(Quotation.items)
-				.joinedload(QuotationItem.variant)
-				.joinedload(ArticleVariant.stocks),
-			).filter_by(tenant_id=tenant_id)
+			q = (
+				s.query(Quotation)
+				.options(
+					joinedload(Quotation.customer),
+					joinedload(Quotation.user),
+					joinedload(Quotation.items)
+					.joinedload(QuotationItem.variant)
+					.joinedload(ArticleVariant.stocks),
+				)
+				.filter_by(tenant_id=tenant_id)
+			)
 			if status and status != 'todas':
 				q = q.filter_by(status=status)
 			rows = q.order_by(Quotation.date.desc()).limit(limit).all()
@@ -180,13 +186,17 @@ class QuotationController(BaseController):
 					discount = _to_dec(discount_amount)
 
 					subtotal = sum(_to_dec(it.get('subtotal', 0)) for it in items)
-					total = (subtotal - discount).quantize(Decimal('0.01'), ROUND_HALF_UP)
+					total = (subtotal - discount).quantize(
+						Decimal('0.01'), ROUND_HALF_UP
+					)
 					if total < Decimal('0'):
 						total = Decimal('0')
 
 					valid_until = None
 					if valid_days and valid_days > 0:
-						valid_until = (datetime.now() + timedelta(days=valid_days)).date()
+						valid_until = (
+							datetime.now() + timedelta(days=valid_days)
+						).date()
 
 					q = Quotation(
 						number=number,
@@ -218,7 +228,10 @@ class QuotationController(BaseController):
 				except IntegrityError:
 					s.rollback()
 					if attempt == 2:
-						return False, 'Error al generar número de cotización. Intente nuevamente.'
+						return (
+							False,
+							'Error al generar número de cotización. Intente nuevamente.',
+						)
 					continue
 				except Exception as e:
 					s.rollback()
@@ -503,7 +516,9 @@ class QuotationController(BaseController):
 						.first()
 					)
 					if not cash_session:
-						raise ValueError('Debes abrir la caja antes de convertir una cotización en venta.')
+						raise ValueError(
+							'Debes abrir la caja antes de convertir una cotización en venta.'
+						)
 
 				if is_fiado and q.customer_id:
 					customer = (

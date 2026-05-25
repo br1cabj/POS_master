@@ -11,7 +11,6 @@ import unicodedata
 from decimal import Decimal, InvalidOperation
 
 import pandas as pd
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
@@ -193,7 +192,9 @@ def _normalize_df_columns(df):
 		if matched_canonical in used_canonicals:
 			logger.warning(
 				'Columna "%s" ignorada: el canónico "%s" ya fue mapeado desde la columna "%s".',
-				col, matched_canonical, used_canonicals[matched_canonical],
+				col,
+				matched_canonical,
+				used_canonicals[matched_canonical],
 			)
 		else:
 			rename_map[col] = matched_canonical
@@ -285,7 +286,9 @@ class DataSyncController(BaseController):
 						session.query(ArticleVariant)
 						.options(
 							joinedload(ArticleVariant.stocks),
-							joinedload(ArticleVariant.article).joinedload(Article.supplier),
+							joinedload(ArticleVariant.article).joinedload(
+								Article.supplier
+							),
 						)
 						.join(Article)
 						.filter(
@@ -301,7 +304,9 @@ class DataSyncController(BaseController):
 							'Codigo_Barras': v.barcode or '',
 							'Costo': float(v.cost_price),
 							'Precio_Venta': float(v.selling_price),
-							'Precio_Lista_B': float(v.selling_price_b) if v.selling_price_b else '',
+							'Precio_Lista_B': float(v.selling_price_b)
+							if v.selling_price_b
+							else '',
 							'Stock': float(
 								sum(s.quantity for s in v.stocks) if v.stocks else 0
 							),
@@ -446,13 +451,19 @@ class DataSyncController(BaseController):
 					try:
 						cost = Decimal(str(row.Costo).replace(',', '.'))
 						price = Decimal(str(row.Precio_Venta).replace(',', '.'))
-						stock_raw = str(getattr(row, 'Stock', '')).replace(',', '.').strip()
+						stock_raw = (
+							str(getattr(row, 'Stock', '')).replace(',', '.').strip()
+						)
 						stock_val = (
 							Decimal(stock_raw)
 							if stock_raw and stock_raw not in ('', 'nan')
 							else Decimal('0')
 						)
-						price_b_raw = str(getattr(row, 'Precio_Lista_B', '')).replace(',', '.').strip()
+						price_b_raw = (
+							str(getattr(row, 'Precio_Lista_B', ''))
+							.replace(',', '.')
+							.strip()
+						)
 						price_b = (
 							Decimal(price_b_raw)
 							if price_b_raw and price_b_raw not in ('', 'nan')
@@ -653,7 +664,9 @@ class DataSyncController(BaseController):
 
 					raw_balance = str(getattr(row, 'Deuda_Actual', '') or '').strip()
 					if not raw_balance or raw_balance in ('nan', ''):
-						raw_balance = str(getattr(row, 'Deuda Actual', '') or '').strip()
+						raw_balance = str(
+							getattr(row, 'Deuda Actual', '') or ''
+						).strip()
 					initial_balance = Decimal('0')
 					if raw_balance and raw_balance not in ('nan', ''):
 						try:
@@ -676,7 +689,9 @@ class DataSyncController(BaseController):
 							current_balance=initial_balance,
 						)
 						session.add(new_customer)
-						existing_map[name] = new_customer  # evita duplicados dentro del mismo archivo
+						existing_map[name] = (
+							new_customer  # evita duplicados dentro del mismo archivo
+						)
 						created += 1
 
 					_batch_count += 1

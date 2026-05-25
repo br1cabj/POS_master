@@ -70,8 +70,6 @@ def _fmt_price(amount: float, symbol: str = '$', decimals: int = 0) -> str:
 	return f'{symbol}{amount:,.{decimals}f}'
 
 
-
-
 def _split_text(text: str, max_chars: int) -> list:
 	if len(text) <= max_chars:
 		return [text]
@@ -112,7 +110,11 @@ class LabelController:
 		Session = _sm(bind=db_engine)
 		with Session() as session:
 			# Categoría por tenant para "Artículos Manuales"
-			cat = session.query(Category).filter_by(name='Artículos Manuales', tenant_id=tenant_id).first()
+			cat = (
+				session.query(Category)
+				.filter_by(name='Artículos Manuales', tenant_id=tenant_id)
+				.first()
+			)
 			if not cat:
 				cat = Category(name='Artículos Manuales', tenant_id=tenant_id)
 				session.add(cat)
@@ -159,19 +161,26 @@ class LabelController:
 				session.flush()
 
 				from database.models import Branch, Stock, Warehouse
-				branch = session.query(Branch).filter_by(
-					tenant_id=tenant_id, name='Sede Principal'
-				).first()
+
+				branch = (
+					session.query(Branch)
+					.filter_by(tenant_id=tenant_id, name='Sede Principal')
+					.first()
+				)
 				if branch:
-					warehouse = session.query(Warehouse).filter_by(
-						branch_id=branch.id, name='Depósito General'
-					).first()
+					warehouse = (
+						session.query(Warehouse)
+						.filter_by(branch_id=branch.id, name='Depósito General')
+						.first()
+					)
 					if warehouse:
-						session.add(Stock(
-							quantity=0,
-							warehouse_id=warehouse.id,
-							variant_id=variant.id,
-						))
+						session.add(
+							Stock(
+								quantity=0,
+								warehouse_id=warehouse.id,
+								variant_id=variant.id,
+							)
+						)
 
 			session.commit()
 			return variant.id
@@ -284,7 +293,9 @@ class LabelController:
 						try:
 							display_price = float(price_b)
 							mode_label = list_b_name.upper()
-							retail_str = _sanitize(_fmt_price(base_price, symbol, decimals))
+							retail_str = _sanitize(
+								_fmt_price(base_price, symbol, decimals)
+							)
 						except (TypeError, ValueError):
 							pass
 
@@ -392,7 +403,9 @@ class LabelController:
 			pdf.set_xy(0, 0)
 			pdf.cell(W, HEADER_H, '* OFERTA IMPERDIBLE *', align='C')
 		else:
-			header_txt = mode_label if mode_label else (company[:24] if company else 'CloudPOS')
+			header_txt = (
+				mode_label if mode_label else (company[:24] if company else 'CloudPOS')
+			)
 			if logo_path and os.path.exists(logo_path) and not mode_label:
 				try:
 					pdf.image(logo_path, x=MARGIN, y=0.8, h=HEADER_H - 1.6)
@@ -439,7 +452,9 @@ class LabelController:
 				pdf.set_xy(MARGIN, price_zone_top + 13)
 				pdf.set_font('Arial', 'I', 5)
 				pdf.set_text_color(160, 50, 50)
-				pdf.cell(W - MARGIN * 2, 3, f'Valido hasta: {discount_until}', align='L')
+				pdf.cell(
+					W - MARGIN * 2, 3, f'Valido hasta: {discount_until}', align='L'
+				)
 				pdf.set_text_color(0, 0, 0)
 		else:
 			price_str = _sanitize(_fmt_price(display_price, symbol, decimals))
@@ -457,7 +472,9 @@ class LabelController:
 		pdf.set_draw_color(0, 0, 0)
 
 		# ── Barcode + footer ───────────────────────────────────
-		self._draw_barcode_footer(pdf, barcode_val, W, H, sep_y + 0.5, BC_H - 1, FOOT_H, MARGIN)
+		self._draw_barcode_footer(
+			pdf, barcode_val, W, H, sep_y + 0.5, BC_H - 1, FOOT_H, MARGIN
+		)
 
 	def _draw_producto(self, pdf, item, W, H, company, logo_path, symbol, decimals):
 		"""70×50 mm — producto completo con más espacio para nombre."""
@@ -482,7 +499,9 @@ class LabelController:
 		MARGIN = 3.0
 
 		# ── Header ─────────────────────────────────────────────
-		accent = (220, 38, 38) if is_offer else (37, 99, 235) if mode_label else (15, 23, 42)
+		accent = (
+			(220, 38, 38) if is_offer else (37, 99, 235) if mode_label else (15, 23, 42)
+		)
 		pdf.set_fill_color(*accent)
 		pdf.rect(0, 0, W, HEADER_H, 'F')
 		pdf.set_text_color(255, 255, 255)
@@ -492,7 +511,9 @@ class LabelController:
 			pdf.set_xy(0, 0)
 			pdf.cell(W, HEADER_H, '* OFERTA IMPERDIBLE *', align='C')
 		else:
-			brand_txt = mode_label if mode_label else (company[:30] if company else 'CloudPOS')
+			brand_txt = (
+				mode_label if mode_label else (company[:30] if company else 'CloudPOS')
+			)
 			if logo_path and os.path.exists(logo_path) and not mode_label:
 				try:
 					pdf.image(logo_path, x=MARGIN, y=1, h=HEADER_H - 2)
@@ -545,7 +566,9 @@ class LabelController:
 				pdf.set_xy(MARGIN, price_zone_top + 16)
 				pdf.set_font('Arial', 'I', 5.5)
 				pdf.set_text_color(160, 50, 50)
-				pdf.cell(W - MARGIN * 2, 3.5, f'Valido hasta: {discount_until}', align='L')
+				pdf.cell(
+					W - MARGIN * 2, 3.5, f'Valido hasta: {discount_until}', align='L'
+				)
 				pdf.set_text_color(0, 0, 0)
 		else:
 			price_str = _sanitize(_fmt_price(display_price, symbol, decimals))
@@ -563,7 +586,9 @@ class LabelController:
 		pdf.set_draw_color(0, 0, 0)
 
 		# ── Barcode + footer ───────────────────────────────────
-		self._draw_barcode_footer(pdf, barcode_val, W, H, sep_y + 0.5, BC_H - 1, FOOT_H, MARGIN, font_size=4.5)
+		self._draw_barcode_footer(
+			pdf, barcode_val, W, H, sep_y + 0.5, BC_H - 1, FOOT_H, MARGIN, font_size=4.5
+		)
 
 	def _draw_precio(self, pdf, item, W, H, company, logo_path, symbol, decimals):
 		"""50×30 mm — etiqueta de precio puro, minimalista."""
@@ -609,7 +634,9 @@ class LabelController:
 			pdf.set_font('Arial', '', 6)
 			pdf.set_text_color(150, 150, 150)
 			pdf.cell(W - MARGIN * 2, 3, f'Antes: {orig_str}', align='C')
-			self._draw_strikethrough(pdf, (W - pdf.get_string_width(orig_str)) / 2 - 4, y, orig_str, 1.8)
+			self._draw_strikethrough(
+				pdf, (W - pdf.get_string_width(orig_str)) / 2 - 4, y, orig_str, 1.8
+			)
 			y += 3.5
 
 		price_to_show = discount_price if is_offer else display_price
@@ -631,7 +658,9 @@ class LabelController:
 
 		# ── Barcode + footer ───────────────────────────────────
 		sep_y = H - BC_H - FOOT_H
-		self._draw_barcode_footer(pdf, barcode_val, W, H, sep_y, BC_H, FOOT_H, MARGIN, font_size=3.5)
+		self._draw_barcode_footer(
+			pdf, barcode_val, W, H, sep_y, BC_H, FOOT_H, MARGIN, font_size=3.5
+		)
 
 	def _draw_mini(self, pdf, item, W, H, company, logo_path, symbol, decimals):
 		"""38×25 mm — mini tag para productos pequeños."""
@@ -645,14 +674,12 @@ class LabelController:
 			display_price = 0.0
 
 		discount_price = item.get('_discount_price')
-		discount_until = item.get('_discount_until', '')
 		mode_label = item.get('_mode_label')
 		is_offer = bool(discount_price and discount_price < display_price)
 
 		HEADER_H = 4.0
 		BC_H = 5.0
 		FOOT_H = 2.8
-		BODY_H = H - HEADER_H - BC_H - FOOT_H
 		MARGIN = 1.5
 
 		# ── Header ─────────────────────────────────────────────
@@ -708,7 +735,9 @@ class LabelController:
 
 		# ── Barcode + footer ───────────────────────────────────
 		sep_y = H - BC_H - FOOT_H
-		self._draw_barcode_footer(pdf, barcode_val, W, H, sep_y, BC_H, FOOT_H, MARGIN, font_size=3.5)
+		self._draw_barcode_footer(
+			pdf, barcode_val, W, H, sep_y, BC_H, FOOT_H, MARGIN, font_size=3.5
+		)
 
 	def _open(self, filepath: str):
 		try:

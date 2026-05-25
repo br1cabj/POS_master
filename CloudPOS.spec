@@ -19,6 +19,8 @@ a = Analysis(
         (_pkg_dir('customtkinter'), 'customtkinter/'),
         (_pkg_dir('CTkMessagebox'), 'CTkMessagebox/'),
         (_pkg_dir('fpdf'), 'fpdf/'),
+        # python-barcode necesita sus fuentes para renderizar imágenes de códigos de barra
+        (os.path.join(_pkg_dir('barcode'), 'fonts'), 'barcode/fonts'),
         ('icono.ico', '.'),
     ],
     hiddenimports=[
@@ -53,7 +55,7 @@ a = Analysis(
         'views.batch_edit_view',
         'views.onboarding_view',
         'views.setup_wizard_view',
-        #── Controladores (cargados dinámicamente o en cadenas largas) ──
+        # ── Controladores (cargados dinámicamente o en cadenas largas) ──
         'controllers.receipt_controller',
         'controllers.article_controller',
         'controllers.auth_controller',
@@ -78,6 +80,16 @@ a = Analysis(
         'controllers.alerts_controller',
         'controllers.promo_controller',
         'controllers.backup_controller',
+        # ── SQLAlchemy dialects (cargados dinámicamente por el engine) ──
+        'sqlalchemy.dialects.sqlite',
+        'sqlalchemy.dialects.sqlite.pysqlite',
+        'sqlalchemy.dialects.postgresql',
+        'sqlalchemy.dialects.postgresql.psycopg2',
+        # ── python-barcode ──
+        'barcode',
+        'barcode.writer',
+        'barcode.ean',
+        'barcode.codex',
         # ── Backend de matplotlib para Tkinter ──
         'matplotlib.backends.backend_tkagg',
         # ── psycopg2 (sync cloud) ──
@@ -87,6 +99,8 @@ a = Analysis(
         'serial',
         'serial.tools.list_ports',
         'serial.tools.list_ports_windows',
+        # ── python-dotenv ──
+        'dotenv',
     ],
     hookspath=[],
     hooksconfig={},

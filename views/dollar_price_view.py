@@ -836,7 +836,11 @@ class DollarPriceView(BaseView):
 		title_text = 'Asignar precio masivo'
 		if len(selected) == 1:
 			variant = next(
-				(v for v in self._all_variants if str(v['variant_id']) == str(variant_ids[0])),
+				(
+					v
+					for v in self._all_variants
+					if str(v['variant_id']) == str(variant_ids[0])
+				),
 				None,
 			)
 			if variant:

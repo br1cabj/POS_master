@@ -21,21 +21,13 @@ from utils.styles import (
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
-	FONT_BODY,
 	FONT_BODY_BOLD,
-	FONT_HEADING,
 	FONT_LABEL,
 	FONT_LABEL_BOLD,
-	FONT_SMALL_BOLD,
-	GREEN,
 	GREEN_DIM,
 	GREEN_TEXT,
-	ORANGE,
 	ORANGE_DIM,
 	ORANGE_TEXT,
-	RED,
-	RED_DIM,
-	RED_TEXT,
 	SURFACE2,
 	SURFACE3,
 	SURFACE4,
@@ -79,8 +71,11 @@ class BatchEditView(BaseView):
 	# =========================================================
 	def _build_filter_bar(self):
 		bar = ctk.CTkFrame(
-			self, fg_color=SURFACE2, corner_radius=12,
-			border_width=1, border_color=BORDER,
+			self,
+			fg_color=SURFACE2,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
 		)
 		bar.grid(row=0, column=0, sticky='ew', padx=16, pady=(14, 6))
 		bar.grid_columnconfigure(0, weight=1)
@@ -102,10 +97,14 @@ class BatchEditView(BaseView):
 
 		# Proveedor
 		self.combo_filter_supplier = ctk.CTkComboBox(
-			inner, values=['Todos los proveedores'],
-			width=170, height=36,
-			fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-			button_color=SURFACE4, dropdown_fg_color=SURFACE2,
+			inner,
+			values=['Todos los proveedores'],
+			width=170,
+			height=36,
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			button_color=SURFACE4,
+			dropdown_fg_color=SURFACE2,
 			text_color=TEXT_PRIMARY,
 			command=lambda v: self.refresh_table(),
 		)
@@ -113,10 +112,14 @@ class BatchEditView(BaseView):
 
 		# Categoría
 		self.combo_filter_category = ctk.CTkComboBox(
-			inner, values=['Todas las categorías'],
-			width=160, height=36,
-			fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-			button_color=SURFACE4, dropdown_fg_color=SURFACE2,
+			inner,
+			values=['Todas las categorías'],
+			width=160,
+			height=36,
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			button_color=SURFACE4,
+			dropdown_fg_color=SURFACE2,
 			text_color=TEXT_PRIMARY,
 			command=lambda v: self.refresh_table(),
 		)
@@ -125,30 +128,49 @@ class BatchEditView(BaseView):
 		# Inactivos
 		self.show_inactive_var = ctk.BooleanVar(value=False)
 		ctk.CTkCheckBox(
-			inner, text='Ver inactivos',
+			inner,
+			text='Ver inactivos',
 			variable=self.show_inactive_var,
-			fg_color=ACCENT, font=FONT_LABEL,
+			fg_color=ACCENT,
+			font=FONT_LABEL,
 			text_color=TEXT_SECONDARY,
 			command=self.load_data,
 		).pack(side='left', padx=(0, 10))
 
 		# Botones selección
-		ctk.CTkFrame(inner, width=1, fg_color=BORDER).pack(side='left', fill='y', padx=(0, 10))
+		ctk.CTkFrame(inner, width=1, fg_color=BORDER).pack(
+			side='left', fill='y', padx=(0, 10)
+		)
 
 		ctk.CTkButton(
-			inner, text='☑ Todos', width=80, height=30,
-			font=FONT_LABEL_BOLD, fg_color=SURFACE3, hover_color=SURFACE4,
-			text_color=TEXT_SECONDARY, command=self.select_all_visible,
+			inner,
+			text='☑ Todos',
+			width=80,
+			height=30,
+			font=FONT_LABEL_BOLD,
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_SECONDARY,
+			command=self.select_all_visible,
 		).pack(side='left', padx=(0, 6))
 
 		ctk.CTkButton(
-			inner, text='☐ Ninguno', width=90, height=30,
-			font=FONT_LABEL_BOLD, fg_color=SURFACE3, hover_color=SURFACE4,
-			text_color=TEXT_SECONDARY, command=self.deselect_all,
+			inner,
+			text='☐ Ninguno',
+			width=90,
+			height=30,
+			font=FONT_LABEL_BOLD,
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_SECONDARY,
+			command=self.deselect_all,
 		).pack(side='left')
 
 		self.lbl_count = ctk.CTkLabel(
-			inner, text='', font=FONT_LABEL, text_color=TEXT_MUTED,
+			inner,
+			text='',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
 		)
 		self.lbl_count.pack(side='right')
 
@@ -157,8 +179,11 @@ class BatchEditView(BaseView):
 	# =========================================================
 	def _build_table(self):
 		wrap = ctk.CTkFrame(
-			self, fg_color=SURFACE2, corner_radius=12,
-			border_width=1, border_color=BORDER,
+			self,
+			fg_color=SURFACE2,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
 		)
 		wrap.grid(row=1, column=0, sticky='nsew', padx=16, pady=4)
 		wrap.grid_rowconfigure(0, weight=1)
@@ -170,37 +195,52 @@ class BatchEditView(BaseView):
 		tree_wrap.grid_columnconfigure(0, weight=1)
 
 		vsb = ttk.Scrollbar(tree_wrap, orient='vertical')
-		columns = ('Sel', 'Producto', 'Proveedor', 'Categoría', 'P.Venta', 'P.Costo', 'Stock', 'Estado', 'Táctil')
+		columns = (
+			'Sel',
+			'Producto',
+			'Proveedor',
+			'Categoría',
+			'P.Venta',
+			'P.Costo',
+			'Stock',
+			'Estado',
+			'Táctil',
+		)
 		self.tree = ttk.Treeview(
-			tree_wrap, columns=columns, show='headings',
-			yscrollcommand=vsb.set, selectmode='none',
+			tree_wrap,
+			columns=columns,
+			show='headings',
+			yscrollcommand=vsb.set,
+			selectmode='none',
 		)
 		vsb.configure(command=self.tree.yview)
 
 		col_cfg = {
-			'Sel':       (36,  'center'),
-			'Producto':  (220, 'w'),
+			'Sel': (36, 'center'),
+			'Producto': (220, 'w'),
 			'Proveedor': (110, 'center'),
 			'Categoría': (110, 'center'),
-			'P.Venta':   (85,  'center'),
-			'P.Costo':   (85,  'center'),
-			'Stock':     (55,  'center'),
-			'Estado':    (72,  'center'),
-			'Táctil':    (60,  'center'),
+			'P.Venta': (85, 'center'),
+			'P.Costo': (85, 'center'),
+			'Stock': (55, 'center'),
+			'Estado': (72, 'center'),
+			'Táctil': (60, 'center'),
 		}
 		for col in columns:
 			w, anchor = col_cfg[col]
 			self.tree.heading(col, text=col, command=lambda c=col: self._sort(c, False))
 			self.tree.column(col, width=w, anchor=anchor, minwidth=w)
 
-		self.tree.tag_configure('selected', background=ACCENT_DIM, foreground=ACCENT_TEXT)
-		self.tree.tag_configure('odd',      background=SURFACE2)
-		self.tree.tag_configure('even',     background=SURFACE3)
+		self.tree.tag_configure(
+			'selected', background=ACCENT_DIM, foreground=ACCENT_TEXT
+		)
+		self.tree.tag_configure('odd', background=SURFACE2)
+		self.tree.tag_configure('even', background=SURFACE3)
 
 		vsb.grid(row=0, column=1, sticky='ns')
 		self.tree.grid(row=0, column=0, sticky='nsew')
 
-		self.tree.bind('<Button-1>',       self._on_click)
+		self.tree.bind('<Button-1>', self._on_click)
 		self.tree.bind('<Shift-Button-1>', self._on_shift_click)
 
 	# =========================================================
@@ -208,8 +248,11 @@ class BatchEditView(BaseView):
 	# =========================================================
 	def _build_action_bar(self):
 		self.action_bar = ctk.CTkFrame(
-			self, fg_color=SURFACE2, corner_radius=12,
-			border_width=1, border_color=BORDER,
+			self,
+			fg_color=SURFACE2,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
 		)
 		self.action_bar.grid(row=2, column=0, sticky='ew', padx=16, pady=(4, 14))
 
@@ -228,54 +271,85 @@ class BatchEditView(BaseView):
 			fg_color=SURFACE3,
 			text_color=TEXT_MUTED,
 			corner_radius=8,
-			padx=12, pady=6,
+			padx=12,
+			pady=6,
 			width=220,
 		)
 		self.lbl_sel_badge.pack(side='left', padx=(0, 16))
 
-		ctk.CTkFrame(row1, width=1, fg_color=BORDER).pack(side='left', fill='y', padx=(0, 14))
+		ctk.CTkFrame(row1, width=1, fg_color=BORDER).pack(
+			side='left', fill='y', padx=(0, 14)
+		)
 
 		# Precio de venta
-		ctk.CTkLabel(row1, text='Venta $', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED).pack(side='left', padx=(0, 4))
+		ctk.CTkLabel(
+			row1, text='Venta $', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
+		).pack(side='left', padx=(0, 4))
 		self.entry_selling_price = ctk.CTkEntry(
-			row1, placeholder_text='Sin cambio',
-			width=100, height=32,
-			fg_color=SURFACE3, border_color=BORDER_ACTIVE, text_color=TEXT_PRIMARY,
+			row1,
+			placeholder_text='Sin cambio',
+			width=100,
+			height=32,
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
 		)
 		self.entry_selling_price.pack(side='left', padx=(0, 14))
-		self.entry_selling_price.bind('<KeyRelease>', lambda e: self._update_action_bar())
+		self.entry_selling_price.bind(
+			'<KeyRelease>', lambda e: self._update_action_bar()
+		)
 
 		# Precio de costo
-		ctk.CTkLabel(row1, text='Costo $', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED).pack(side='left', padx=(0, 4))
+		ctk.CTkLabel(
+			row1, text='Costo $', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
+		).pack(side='left', padx=(0, 4))
 		self.entry_cost_price = ctk.CTkEntry(
-			row1, placeholder_text='Sin cambio',
-			width=100, height=32,
-			fg_color=SURFACE3, border_color=BORDER_ACTIVE, text_color=TEXT_PRIMARY,
+			row1,
+			placeholder_text='Sin cambio',
+			width=100,
+			height=32,
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			text_color=TEXT_PRIMARY,
 		)
 		self.entry_cost_price.pack(side='left', padx=(0, 14))
 		self.entry_cost_price.bind('<KeyRelease>', lambda e: self._update_action_bar())
 
-		ctk.CTkFrame(row1, width=1, fg_color=BORDER).pack(side='left', fill='y', padx=(0, 14))
+		ctk.CTkFrame(row1, width=1, fg_color=BORDER).pack(
+			side='left', fill='y', padx=(0, 14)
+		)
 
 		# Proveedor
-		ctk.CTkLabel(row1, text='Proveedor', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED).pack(side='left', padx=(0, 4))
+		ctk.CTkLabel(
+			row1, text='Proveedor', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
+		).pack(side='left', padx=(0, 4))
 		self.combo_new_supplier = ctk.CTkComboBox(
-			row1, values=['(Sin cambio)'],
-			width=155, height=32,
-			fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-			button_color=SURFACE4, dropdown_fg_color=SURFACE2,
+			row1,
+			values=['(Sin cambio)'],
+			width=155,
+			height=32,
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			button_color=SURFACE4,
+			dropdown_fg_color=SURFACE2,
 			text_color=TEXT_PRIMARY,
 			command=lambda v: self._update_action_bar(),
 		)
 		self.combo_new_supplier.pack(side='left', padx=(0, 14))
 
 		# Categoría
-		ctk.CTkLabel(row1, text='Categoría', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED).pack(side='left', padx=(0, 4))
+		ctk.CTkLabel(
+			row1, text='Categoría', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
+		).pack(side='left', padx=(0, 4))
 		self.combo_new_category = ctk.CTkComboBox(
-			row1, values=['(Sin cambio)'],
-			width=145, height=32,
-			fg_color=SURFACE3, border_color=BORDER_ACTIVE,
-			button_color=SURFACE4, dropdown_fg_color=SURFACE2,
+			row1,
+			values=['(Sin cambio)'],
+			width=145,
+			height=32,
+			fg_color=SURFACE3,
+			border_color=BORDER_ACTIVE,
+			button_color=SURFACE4,
+			dropdown_fg_color=SURFACE2,
 			text_color=TEXT_PRIMARY,
 			command=lambda v: self._update_action_bar(),
 		)
@@ -285,7 +359,9 @@ class BatchEditView(BaseView):
 		row2 = ctk.CTkFrame(inner, fg_color='transparent')
 		row2.pack(fill='x')
 
-		ctk.CTkLabel(row2, text='Estado', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED).pack(side='left', padx=(0, 6))
+		ctk.CTkLabel(
+			row2, text='Estado', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
+		).pack(side='left', padx=(0, 6))
 		self.seg_estado = ctk.CTkSegmentedButton(
 			row2,
 			values=['—', 'Activo', 'Inactivo'],
@@ -303,7 +379,9 @@ class BatchEditView(BaseView):
 		self.seg_estado.set('—')
 		self.seg_estado.pack(side='left', padx=(0, 20))
 
-		ctk.CTkLabel(row2, text='Táctil', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED).pack(side='left', padx=(0, 6))
+		ctk.CTkLabel(
+			row2, text='Táctil', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
+		).pack(side='left', padx=(0, 6))
 		self.seg_tactil = ctk.CTkSegmentedButton(
 			row2,
 			values=['—', 'Sí', 'No'],
@@ -328,7 +406,8 @@ class BatchEditView(BaseView):
 			fg_color=ACCENT_DIM,
 			hover_color=ACCENT_HOVER,
 			text_color=TEXT_MUTED,
-			height=36, width=180,
+			height=36,
+			width=180,
 			font=FONT_BODY_BOLD,
 			corner_radius=8,
 			state='disabled',
@@ -342,7 +421,8 @@ class BatchEditView(BaseView):
 			fg_color=SURFACE3,
 			hover_color=SURFACE4,
 			text_color=TEXT_SECONDARY,
-			height=36, width=100,
+			height=36,
+			width=100,
 			font=FONT_LABEL_BOLD,
 			corner_radius=8,
 			command=self._clear_fields,
@@ -368,29 +448,38 @@ class BatchEditView(BaseView):
 		if count == 0:
 			self.lbl_sel_badge.configure(
 				text='Seleccioná productos para editar',
-				fg_color=SURFACE3, text_color=TEXT_MUTED,
+				fg_color=SURFACE3,
+				text_color=TEXT_MUTED,
 			)
 			self.btn_apply.configure(
-				state='disabled', fg_color=ACCENT_DIM,
-				text_color=TEXT_MUTED, text='🚀  APLICAR CAMBIOS',
+				state='disabled',
+				fg_color=ACCENT_DIM,
+				text_color=TEXT_MUTED,
+				text='🚀  APLICAR CAMBIOS',
 			)
 		elif has_change:
 			self.lbl_sel_badge.configure(
 				text=f'✓  {count} producto{"s" if count > 1 else ""} listo{"s" if count > 1 else ""}',
-				fg_color=GREEN_DIM, text_color=GREEN_TEXT,
+				fg_color=GREEN_DIM,
+				text_color=GREEN_TEXT,
 			)
 			self.btn_apply.configure(
-				state='normal', fg_color=ACCENT,
-				text_color=TEXT_PRIMARY, text='🚀  APLICAR CAMBIOS',
+				state='normal',
+				fg_color=ACCENT,
+				text_color=TEXT_PRIMARY,
+				text='🚀  APLICAR CAMBIOS',
 			)
 		else:
 			self.lbl_sel_badge.configure(
 				text=f'{count} seleccionado{"s" if count > 1 else ""}  ·  completá un campo',
-				fg_color=ORANGE_DIM, text_color=ORANGE_TEXT,
+				fg_color=ORANGE_DIM,
+				text_color=ORANGE_TEXT,
 			)
 			self.btn_apply.configure(
-				state='disabled', fg_color=ACCENT_DIM,
-				text_color=TEXT_MUTED, text='🚀  APLICAR CAMBIOS',
+				state='disabled',
+				fg_color=ACCENT_DIM,
+				text_color=TEXT_MUTED,
+				text='🚀  APLICAR CAMBIOS',
 			)
 
 	def _clear_fields(self):
@@ -423,8 +512,12 @@ class BatchEditView(BaseView):
 		c_vals = ['Todas las categorías'] + list(self.categories_map.keys())
 		self.combo_filter_supplier.configure(values=s_vals)
 		self.combo_filter_category.configure(values=c_vals)
-		self.combo_new_supplier.configure(values=['(Sin cambio)'] + list(self.suppliers_map.keys()))
-		self.combo_new_category.configure(values=['(Sin cambio)'] + list(self.categories_map.keys()))
+		self.combo_new_supplier.configure(
+			values=['(Sin cambio)'] + list(self.suppliers_map.keys())
+		)
+		self.combo_new_category.configure(
+			values=['(Sin cambio)'] + list(self.categories_map.keys())
+		)
 
 		self.refresh_table()
 
@@ -432,15 +525,19 @@ class BatchEditView(BaseView):
 		if not self.winfo_exists():
 			return
 		search = self.entry_search.get().lower().strip()
-		sup_f  = self.combo_filter_supplier.get()
-		cat_f  = self.combo_filter_category.get()
+		sup_f = self.combo_filter_supplier.get()
+		cat_f = self.combo_filter_category.get()
 
 		for row in self.tree.get_children():
 			self.tree.delete(row)
 
 		self._display_list = []
 		for item in self.catalog:
-			if search and search not in item['name'].lower() and search not in (item.get('barcode') or '').lower():
+			if (
+				search
+				and search not in item['name'].lower()
+				and search not in (item.get('barcode') or '').lower()
+			):
 				continue
 			if sup_f != 'Todos los proveedores' and item.get('supplier_name') != sup_f:
 				continue
@@ -449,26 +546,36 @@ class BatchEditView(BaseView):
 			self._display_list.append(item)
 
 		for i, item in enumerate(self._display_list):
-			vid    = item['variant_id']
+			vid = item['variant_id']
 			is_sel = vid in self.selected_ids
-			sel    = '☑' if is_sel else '☐'
-			tags   = ('selected',) if is_sel else ('odd' if i % 2 == 0 else 'even',)
-			venta  = f'${float(item.get("selling_price") or 0):,.2f}'
-			costo  = f'${float(item.get("cost_price") or 0):,.2f}'
+			sel = '☑' if is_sel else '☐'
+			tags = ('selected',) if is_sel else ('odd' if i % 2 == 0 else 'even',)
+			venta = f'${float(item.get("selling_price") or 0):,.2f}'
+			costo = f'${float(item.get("cost_price") or 0):,.2f}'
 			estado = '✔ Activo' if item.get('is_active', True) else '✕ Inactivo'
 			tactil = '✔' if item.get('show_on_touch') else '—'
 
 			self.tree.insert(
-				'', 'end', iid=str(vid),
-				values=(sel, item['name'],
-						item.get('supplier_name', '—'), item.get('category_name', '—'),
-						venta, costo, item.get('total_stock', 0), estado, tactil),
+				'',
+				'end',
+				iid=str(vid),
+				values=(
+					sel,
+					item['name'],
+					item.get('supplier_name', '—'),
+					item.get('category_name', '—'),
+					venta,
+					costo,
+					item.get('total_stock', 0),
+					estado,
+					tactil,
+				),
 				tags=tags,
 			)
 
 		total = len(self._display_list)
-		sel   = len(self.selected_ids)
-		txt   = f'{total} producto{"s" if total != 1 else ""}'
+		sel = len(self.selected_ids)
+		txt = f'{total} producto{"s" if total != 1 else ""}'
 		if sel:
 			txt += f'  ·  {sel} seleccionado{"s" if sel != 1 else ""}'
 		self.lbl_count.configure(text=txt)
@@ -505,14 +612,18 @@ class BatchEditView(BaseView):
 			self._last_clicked_idx = cur
 			return
 		lo, hi = min(self._last_clicked_idx, cur), max(self._last_clicked_idx, cur)
-		for item in self._display_list[lo: hi + 1]:
+		for item in self._display_list[lo : hi + 1]:
 			self.selected_ids.add(item['variant_id'])
 		self.refresh_table()
 		self._update_action_bar()
 
 	def _toggle(self, iid: str):
 		match = next(
-			(item['variant_id'] for item in self._display_list if str(item['variant_id']) == iid),
+			(
+				item['variant_id']
+				for item in self._display_list
+				if str(item['variant_id']) == iid
+			),
 			None,
 		)
 		if match is None:
@@ -580,7 +691,17 @@ class BatchEditView(BaseView):
 		self.tree.heading(col, command=lambda: self._sort(col, not reverse))
 
 	def _refresh_sort_indicators(self):
-		columns = ('Sel', 'Producto', 'Proveedor', 'Categoría', 'P.Venta', 'P.Costo', 'Stock', 'Estado', 'Táctil')
+		columns = (
+			'Sel',
+			'Producto',
+			'Proveedor',
+			'Categoría',
+			'P.Venta',
+			'P.Costo',
+			'Stock',
+			'Estado',
+			'Táctil',
+		)
 		for c in columns:
 			if c == self._sort_col:
 				arrow = ' ▲' if not self._sort_reverse else ' ▼'
@@ -659,7 +780,9 @@ class BatchEditView(BaseView):
 		if 'category_id' in updates:
 			lines.append(f'• Categoría → {new_cat}')
 		if 'is_active' in updates:
-			lines.append(f'• Estado → {"Activo" if updates["is_active"] else "Inactivo"}')
+			lines.append(
+				f'• Estado → {"Activo" if updates["is_active"] else "Inactivo"}'
+			)
 		if 'show_on_touch' in updates:
 			lines.append(f'• Táctil → {"Sí" if updates["show_on_touch"] else "No"}')
 
@@ -675,7 +798,9 @@ class BatchEditView(BaseView):
 
 		def _run():
 			try:
-				ok, msg = self.controller.bulk_update_variants(_tenant, _user, _ids, updates)
+				ok, msg = self.controller.bulk_update_variants(
+					_tenant, _user, _ids, updates
+				)
 			except Exception as exc:
 				ok, msg = False, str(exc)
 			if self.winfo_exists():

@@ -6,7 +6,6 @@ Vista para gestionar y previsualizar la impresión masiva de etiquetas.
 
 import logging
 import threading
-import tkinter as tk
 from datetime import datetime
 
 import customtkinter as ctk
@@ -14,9 +13,9 @@ from sqlalchemy.orm import sessionmaker
 
 import utils.settings_manager as _cfg_mgr
 from controllers.label_controller import TEMPLATES, LabelController
-from utils.date_picker import CTkDatePicker
 from core.base_view import BaseView
 from core.context import AppContext
+from utils.date_picker import CTkDatePicker
 from utils.settings_manager import fmt_price
 from utils.styles import (
 	ACCENT,
@@ -26,7 +25,6 @@ from utils.styles import (
 	BORDER,
 	FONT_BODY,
 	FONT_BODY_BOLD,
-	FONT_HEADING,
 	FONT_LABEL,
 	FONT_LABEL_BOLD,
 	GREEN,
@@ -90,18 +88,24 @@ class LabelView(BaseView):
 		self._load_price_list_cfg()
 
 	def _build(self):
-		self.grid_columnconfigure(0, weight=2) # Catálogo
-		self.grid_columnconfigure(1, weight=3) # Cola
-		self.grid_columnconfigure(2, weight=2) # Preview
+		self.grid_columnconfigure(0, weight=2)  # Catálogo
+		self.grid_columnconfigure(1, weight=3)  # Cola
+		self.grid_columnconfigure(2, weight=2)  # Preview
 		self.grid_rowconfigure(0, weight=1)
-		
+
 		self._build_left()
 		self._build_center()
 		self._build_right()
 
 	def _build_left(self):
 		# Panel de Catálogo (Bento 1)
-		left = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=12, border_width=1, border_color=BORDER)
+		left = ctk.CTkFrame(
+			self,
+			fg_color=SURFACE1,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
+		)
 		left.grid(row=0, column=0, sticky='nsew', padx=(PAD_MD, PAD_SM), pady=PAD_MD)
 		left.grid_rowconfigure(2, weight=1)
 		left.grid_columnconfigure(0, weight=1)
@@ -133,7 +137,9 @@ class LabelView(BaseView):
 			fg_color='transparent',
 			scrollbar_button_color=SURFACE3,
 		)
-		self._catalog_frame.grid(row=2, column=0, sticky='nsew', padx=PAD_SM, pady=(0, PAD_SM))
+		self._catalog_frame.grid(
+			row=2, column=0, sticky='nsew', padx=PAD_SM, pady=(0, PAD_SM)
+		)
 		self._catalog_frame.grid_columnconfigure(0, weight=1)
 
 		action_bar = ctk.CTkFrame(left, fg_color='transparent')
@@ -165,7 +171,13 @@ class LabelView(BaseView):
 
 	def _build_center(self):
 		# Panel de Cola de Impresión (Bento 2)
-		center = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=12, border_width=1, border_color=BORDER)
+		center = ctk.CTkFrame(
+			self,
+			fg_color=SURFACE1,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
+		)
 		center.grid(row=0, column=1, sticky='nsew', padx=PAD_SM, pady=PAD_MD)
 		center.grid_rowconfigure(3, weight=1)
 		center.grid_columnconfigure(0, weight=1)
@@ -203,17 +215,19 @@ class LabelView(BaseView):
 
 		# Barra de Precio (Wholesale / Retail)
 		self._wholesale_bar = ctk.CTkFrame(center, fg_color=SURFACE2, corner_radius=8)
-		self._wholesale_bar.grid(row=1, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_MD))
+		self._wholesale_bar.grid(
+			row=1, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_MD)
+		)
 
 		# Selector de Plantilla rápido
 		tpl_bar = ctk.CTkFrame(center, fg_color=SURFACE2, corner_radius=8)
 		tpl_bar.grid(row=2, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_MD))
-		
+
 		self._tpl_btns = {}
 		for i, (key, tpl) in enumerate(TEMPLATES.items()):
 			btn = ctk.CTkButton(
 				tpl_bar,
-				text=f"{tpl['icon']} {tpl['label']}",
+				text=f'{tpl["icon"]} {tpl["label"]}',
 				height=30,
 				font=FONT_LABEL_BOLD,
 				fg_color=ACCENT_DIM if key == self._tpl_key else 'transparent',
@@ -229,7 +243,9 @@ class LabelView(BaseView):
 			fg_color='transparent',
 			scrollbar_button_color=SURFACE3,
 		)
-		self._queue_frame.grid(row=3, column=0, sticky='nsew', padx=PAD_SM, pady=(0, PAD_SM))
+		self._queue_frame.grid(
+			row=3, column=0, sticky='nsew', padx=PAD_SM, pady=(0, PAD_SM)
+		)
 		self._queue_frame.grid_columnconfigure(0, weight=1)
 
 		# Botón de Impresión
@@ -246,7 +262,13 @@ class LabelView(BaseView):
 
 	def _build_right(self):
 		# Panel de Preview (Bento 3)
-		right = ctk.CTkFrame(self, fg_color=SURFACE1, corner_radius=12, border_width=1, border_color=BORDER)
+		right = ctk.CTkFrame(
+			self,
+			fg_color=SURFACE1,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
+		)
 		right.grid(row=0, column=2, sticky='nsew', padx=(PAD_SM, PAD_MD), pady=PAD_MD)
 		right.grid_columnconfigure(0, weight=1)
 
@@ -258,9 +280,13 @@ class LabelView(BaseView):
 		).pack(anchor='w', padx=PAD_MD, pady=PAD_MD)
 
 		# Contenedor de la etiqueta simulada
-		self._preview_container = ctk.CTkFrame(right, fg_color=SURFACE2, corner_radius=12)
-		self._preview_container.pack(fill='both', expand=True, padx=PAD_MD, pady=(0, PAD_MD))
-		
+		self._preview_container = ctk.CTkFrame(
+			right, fg_color=SURFACE2, corner_radius=12
+		)
+		self._preview_container.pack(
+			fill='both', expand=True, padx=PAD_MD, pady=(0, PAD_MD)
+		)
+
 		self._preview_label_card = ctk.CTkFrame(
 			self._preview_container,
 			fg_color='white',
@@ -297,20 +323,36 @@ class LabelView(BaseView):
 
 		tpl_styles = {
 			'supermercado': {
-				'hdr_color': LBL_HEADER_DARK, 'hdr_h': 20, 'name_font': 9,
-				'price_font': 18, 'bc_h': 24, 'price_color': LBL_HEADER_DEEP
+				'hdr_color': LBL_HEADER_DARK,
+				'hdr_h': 20,
+				'name_font': 9,
+				'price_font': 18,
+				'bc_h': 24,
+				'price_color': LBL_HEADER_DEEP,
 			},
 			'producto': {
-				'hdr_color': LBL_HEADER_DEEP, 'hdr_h': 22, 'name_font': 11,
-				'price_font': 22, 'bc_h': 28, 'price_color': LBL_HEADER_DEEP
+				'hdr_color': LBL_HEADER_DEEP,
+				'hdr_h': 22,
+				'name_font': 11,
+				'price_font': 22,
+				'bc_h': 28,
+				'price_color': LBL_HEADER_DEEP,
 			},
 			'precio': {
-				'hdr_color': LBL_HEADER_DARK, 'hdr_h': 10, 'name_font': 8,
-				'price_font': 20, 'bc_h': 18, 'price_color': LBL_HEADER_DEEP
+				'hdr_color': LBL_HEADER_DARK,
+				'hdr_h': 10,
+				'name_font': 8,
+				'price_font': 20,
+				'bc_h': 18,
+				'price_color': LBL_HEADER_DEEP,
 			},
 			'mini': {
-				'hdr_color': LBL_HEADER_ORANGE, 'hdr_h': 14, 'name_font': 7,
-				'price_font': 14, 'bc_h': 18, 'price_color': LBL_HEADER_ORANGE
+				'hdr_color': LBL_HEADER_ORANGE,
+				'hdr_h': 14,
+				'name_font': 7,
+				'price_font': 14,
+				'bc_h': 18,
+				'price_color': LBL_HEADER_ORANGE,
 			},
 		}
 		st = tpl_styles.get(self._tpl_key, tpl_styles['supermercado'])
@@ -321,8 +363,8 @@ class LabelView(BaseView):
 		# pack(expand=True) on the body would steal ALL remaining space,
 		# leaving separator / bc_zone / footer with zero height.
 		card.grid_columnconfigure(0, weight=1)
-		card.grid_rowconfigure(1, weight=1)   # body row expands
-		card.grid_propagate(False)            # keep card at its declared 220×150
+		card.grid_rowconfigure(1, weight=1)  # body row expands
+		card.grid_propagate(False)  # keep card at its declared 220×150
 
 		# Row 0 — Header
 		self._pw_header = ctk.CTkFrame(
@@ -331,8 +373,11 @@ class LabelView(BaseView):
 		self._pw_header.grid(row=0, column=0, sticky='ew')
 		self._pw_header.pack_propagate(False)
 		self._pw_brand = ctk.CTkLabel(
-			self._pw_header, text='MI NEGOCIO',
-			font=('Arial', 7, 'bold'), text_color='white', anchor='center',
+			self._pw_header,
+			text='MI NEGOCIO',
+			font=('Arial', 7, 'bold'),
+			text_color='white',
+			anchor='center',
 		)
 		self._pw_brand.pack(expand=True, fill='both', padx=4)
 
@@ -341,28 +386,40 @@ class LabelView(BaseView):
 		self._pw_body.grid(row=1, column=0, sticky='nsew', padx=6, pady=(3, 2))
 
 		self._pw_name = ctk.CTkLabel(
-			self._pw_body, text='Nombre del Producto',
-			font=('Arial', st['name_font'], 'bold'), text_color='black',
-			anchor='w', wraplength=195, justify='left',
+			self._pw_body,
+			text='Nombre del Producto',
+			font=('Arial', st['name_font'], 'bold'),
+			text_color='black',
+			anchor='w',
+			wraplength=195,
+			justify='left',
 		)
 		self._pw_name.pack(fill='x', anchor='w')
 
 		self._pw_attr = ctk.CTkLabel(
-			self._pw_body, text='',
-			font=('Arial', 6), text_color='#64748b', anchor='w',
+			self._pw_body,
+			text='',
+			font=('Arial', 6),
+			text_color='#64748b',
+			anchor='w',
 		)
 		self._pw_attr.pack(fill='x', anchor='w')
 
 		self._pw_price_before = ctk.CTkLabel(
-			self._pw_body, text='',
-			font=('Arial', 6), text_color='#94a3b8', anchor='w',
+			self._pw_body,
+			text='',
+			font=('Arial', 6),
+			text_color='#94a3b8',
+			anchor='w',
 		)
 		self._pw_price_before.pack(fill='x', anchor='w', pady=(2, 0))
 
 		self._pw_price = ctk.CTkLabel(
-			self._pw_body, text='$0',
+			self._pw_body,
+			text='$0',
 			font=('Arial', st['price_font'], 'bold'),
-			text_color=st['price_color'], anchor='w',
+			text_color=st['price_color'],
+			anchor='w',
 		)
 		self._pw_price.pack(fill='x', anchor='w', pady=(1, 0))
 
@@ -382,12 +439,16 @@ class LabelView(BaseView):
 		).pack(fill='x', padx=10, pady=(3, 0))
 
 		# Row 4 — Footer
-		self._pw_footer = ctk.CTkFrame(card, fg_color='#f8fafc', corner_radius=0, height=14)
+		self._pw_footer = ctk.CTkFrame(
+			card, fg_color='#f8fafc', corner_radius=0, height=14
+		)
 		self._pw_footer.grid(row=4, column=0, sticky='ew')
 		self._pw_footer.pack_propagate(False)
 		self._pw_footer_label = ctk.CTkLabel(
-			self._pw_footer, text='0000000000   Imp: 20/05/26',
-			font=('Arial', 4), text_color='#64748b',
+			self._pw_footer,
+			text='0000000000   Imp: 20/05/26',
+			font=('Arial', 4),
+			text_color='#64748b',
 		)
 		self._pw_footer_label.pack(expand=True)
 
@@ -404,15 +465,19 @@ class LabelView(BaseView):
 		except Exception:
 			return
 
-		item = self._queue[0] if self._queue else {
-			'name': 'Producto de Ejemplo',
-			'price': 1250.0,
-			'barcode': '1234567890',
-			'price_mode': 'retail',
-			'discount_price': None,
-			'discount_until': '',
-			'attribute': 'Pack x3',
-		}
+		item = (
+			self._queue[0]
+			if self._queue
+			else {
+				'name': 'Producto de Ejemplo',
+				'price': 1250.0,
+				'barcode': '1234567890',
+				'price_mode': 'retail',
+				'discount_price': None,
+				'discount_until': '',
+				'attribute': 'Pack x3',
+			}
+		)
 
 		cfg = _cfg_mgr.load()
 		company = cfg.get('company_name', 'MI NEGOCIO')
@@ -432,7 +497,7 @@ class LabelView(BaseView):
 		# Lógica de oferta: solo si el descuento es menor al precio actual
 		is_offer = bool(discount_price is not None and discount_price < price)
 		p_final = discount_price if is_offer else price
-		
+
 		# Texto
 		name_txt = item.get('name', 'Producto')[:40]
 		attr_txt = item.get('attribute', '')
@@ -442,12 +507,12 @@ class LabelView(BaseView):
 		# Colores base según template
 		tpl_colors = {
 			'supermercado': LBL_HEADER_DARK,
-			'producto':     LBL_HEADER_DEEP,
-			'precio':       LBL_HEADER_DARK,
-			'mini':         LBL_HEADER_ORANGE,
+			'producto': LBL_HEADER_DEEP,
+			'precio': LBL_HEADER_DARK,
+			'mini': LBL_HEADER_ORANGE,
 		}
 		hdr_normal = tpl_colors.get(self._tpl_key, LBL_HEADER_DARK)
-		
+
 		# Ajuste de color por modo o estado
 		header_color = hdr_normal
 		brand_text = company[:24].upper()
@@ -456,11 +521,15 @@ class LabelView(BaseView):
 			header_color = LBL_RED
 			brand_text = '* OFERTA *'
 		elif price_mode == 'price_b':
-			header_color = LBL_BLUE # Azul mayorista (sync con controlador)
+			header_color = LBL_BLUE  # Azul mayorista (sync con controlador)
 			brand_text = list_b_name.upper()
 
 		# El precio en 'mini' es naranja si no es oferta
-		price_text_color = LBL_RED if is_offer else (LBL_HEADER_ORANGE if self._tpl_key == 'mini' else LBL_HEADER_DEEP)
+		price_text_color = (
+			LBL_RED
+			if is_offer
+			else (LBL_HEADER_ORANGE if self._tpl_key == 'mini' else LBL_HEADER_DEEP)
+		)
 
 		def _safe(widget_attr, **kwargs):
 			w = getattr(self, widget_attr, None)
@@ -499,7 +568,7 @@ class LabelView(BaseView):
 			active = k == key
 			btn.configure(
 				fg_color=ACCENT_DIM if active else 'transparent',
-				text_color=ACCENT_TEXT if active else TEXT_SECONDARY
+				text_color=ACCENT_TEXT if active else TEXT_SECONDARY,
 			)
 		self._build_live_preview_widgets()
 
@@ -624,7 +693,17 @@ class LabelView(BaseView):
 					)
 
 					variants_data = []
-					for v_id, a_name, a1, a2, barcode, price, price_b, disc_pct, disc_until in rows:
+					for (
+						v_id,
+						a_name,
+						a1,
+						a2,
+						barcode,
+						price,
+						price_b,
+						disc_pct,
+						disc_until,
+					) in rows:
 						attr = ' '.join(filter(None, [a1, a2]))
 						variants_data.append(
 							{
@@ -827,21 +906,41 @@ class LabelView(BaseView):
 		frame.pack(fill='both', expand=True, padx=PAD_MD, pady=PAD_MD)
 		frame.grid_columnconfigure(1, weight=1)
 
-		ctk.CTkLabel(frame, text='Nombre:', font=FONT_LABEL_BOLD, text_color=TEXT_PRIMARY, anchor='w').grid(
+		ctk.CTkLabel(
+			frame,
+			text='Nombre:',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_PRIMARY,
+			anchor='w',
+		).grid(
 			row=0, column=0, sticky='w', padx=(PAD_MD, PAD_SM), pady=(PAD_MD, PAD_XS)
 		)
-		entry_name = ctk.CTkEntry(frame, placeholder_text='Ej: Sandwich de miga', height=34, font=FONT_BODY)
-		entry_name.grid(row=0, column=1, sticky='ew', padx=(0, PAD_MD), pady=(PAD_MD, PAD_XS))
-
-		ctk.CTkLabel(frame, text='Precio:', font=FONT_LABEL_BOLD, text_color=TEXT_PRIMARY, anchor='w').grid(
-			row=1, column=0, sticky='w', padx=(PAD_MD, PAD_SM), pady=PAD_XS
+		entry_name = ctk.CTkEntry(
+			frame, placeholder_text='Ej: Sandwich de miga', height=34, font=FONT_BODY
 		)
-		entry_price = ctk.CTkEntry(frame, placeholder_text='0.00', height=34, font=FONT_BODY)
+		entry_name.grid(
+			row=0, column=1, sticky='ew', padx=(0, PAD_MD), pady=(PAD_MD, PAD_XS)
+		)
+
+		ctk.CTkLabel(
+			frame,
+			text='Precio:',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_PRIMARY,
+			anchor='w',
+		).grid(row=1, column=0, sticky='w', padx=(PAD_MD, PAD_SM), pady=PAD_XS)
+		entry_price = ctk.CTkEntry(
+			frame, placeholder_text='0.00', height=34, font=FONT_BODY
+		)
 		entry_price.grid(row=1, column=1, sticky='ew', padx=(0, PAD_MD), pady=PAD_XS)
 
-		ctk.CTkLabel(frame, text='Código:', font=FONT_LABEL_BOLD, text_color=TEXT_PRIMARY, anchor='w').grid(
-			row=2, column=0, sticky='w', padx=(PAD_MD, PAD_SM), pady=PAD_XS
-		)
+		ctk.CTkLabel(
+			frame,
+			text='Código:',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_PRIMARY,
+			anchor='w',
+		).grid(row=2, column=0, sticky='w', padx=(PAD_MD, PAD_SM), pady=PAD_XS)
 		bc_row = ctk.CTkFrame(frame, fg_color='transparent')
 		bc_row.grid(row=2, column=1, sticky='ew', padx=(0, PAD_MD), pady=PAD_XS)
 		bc_row.grid_columnconfigure(0, weight=1)
@@ -851,15 +950,30 @@ class LabelView(BaseView):
 		entry_bc.grid(row=0, column=0, sticky='ew')
 
 		ctk.CTkButton(
-			bc_row, text='↻', width=36, height=34,
-			fg_color=SURFACE3, hover_color=ACCENT_DIM, font=FONT_BODY_BOLD, text_color=TEXT_PRIMARY,
-			command=lambda: (entry_bc.delete(0, 'end'), entry_bc.insert(0, self._ctrl.generate_internal_barcode())),
+			bc_row,
+			text='↻',
+			width=36,
+			height=34,
+			fg_color=SURFACE3,
+			hover_color=ACCENT_DIM,
+			font=FONT_BODY_BOLD,
+			text_color=TEXT_PRIMARY,
+			command=lambda: (
+				entry_bc.delete(0, 'end'),
+				entry_bc.insert(0, self._ctrl.generate_internal_barcode()),
+			),
 		).grid(row=0, column=1, padx=(PAD_XS, 0))
 
-		ctk.CTkLabel(frame, text='Copias:', font=FONT_LABEL_BOLD, text_color=TEXT_PRIMARY, anchor='w').grid(
-			row=3, column=0, sticky='w', padx=(PAD_MD, PAD_SM), pady=PAD_XS
+		ctk.CTkLabel(
+			frame,
+			text='Copias:',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_PRIMARY,
+			anchor='w',
+		).grid(row=3, column=0, sticky='w', padx=(PAD_MD, PAD_SM), pady=PAD_XS)
+		entry_copies = ctk.CTkEntry(
+			frame, placeholder_text='1', height=34, font=FONT_BODY
 		)
-		entry_copies = ctk.CTkEntry(frame, placeholder_text='1', height=34, font=FONT_BODY)
 		entry_copies.insert(0, '1')
 		entry_copies.grid(row=3, column=1, sticky='ew', padx=(0, PAD_MD), pady=PAD_XS)
 
@@ -900,7 +1014,10 @@ class LabelView(BaseView):
 				'copies': copies_val,
 				'price_mode': mode,
 			}
-			existing = next((x for x in self._queue if x['variant_id'] == new_item['variant_id']), None)
+			existing = next(
+				(x for x in self._queue if x['variant_id'] == new_item['variant_id']),
+				None,
+			)
 			if existing:
 				existing['copies'] += copies_val
 			else:
@@ -916,10 +1033,21 @@ class LabelView(BaseView):
 			dlg.destroy()
 
 		ctk.CTkButton(
-			frame, text='Agregar a cola de impresión',
-			height=40, fg_color=GREEN, hover_color=GREEN_HOVER, font=FONT_BODY_BOLD,
+			frame,
+			text='Agregar a cola de impresión',
+			height=40,
+			fg_color=GREEN,
+			hover_color=GREEN_HOVER,
+			font=FONT_BODY_BOLD,
 			command=_confirm,
-		).grid(row=4, column=0, columnspan=2, sticky='ew', padx=PAD_MD, pady=(PAD_MD, PAD_SM))
+		).grid(
+			row=4,
+			column=0,
+			columnspan=2,
+			sticky='ew',
+			padx=PAD_MD,
+			pady=(PAD_MD, PAD_SM),
+		)
 
 		entry_name.focus()
 		dlg.bind('<Return>', lambda e: _confirm())
@@ -951,11 +1079,15 @@ class LabelView(BaseView):
 			still_valid = True
 			if until_str:
 				try:
-					still_valid = datetime.strptime(until_str, '%d/%m/%Y') >= datetime.now()
+					still_valid = (
+						datetime.strptime(until_str, '%d/%m/%Y') >= datetime.now()
+					)
 				except ValueError:
 					still_valid = False
 			if still_valid:
-				entry['discount_price'] = round(entry['price'] * (1 - disc_pct / 100), 2)
+				entry['discount_price'] = round(
+					entry['price'] * (1 - disc_pct / 100), 2
+				)
 
 		self._queue.append(entry)
 		if render:
@@ -1207,10 +1339,13 @@ class LabelView(BaseView):
 		if not self._queue:
 			return
 		from CTkMessagebox import CTkMessagebox
+
 		r = CTkMessagebox(
 			title='Limpiar cola',
 			message=f'¿Eliminar {len(self._queue)} etiqueta(s) de la cola?',
-			icon='warning', option_1='Cancelar', option_2='Limpiar',
+			icon='warning',
+			option_1='Cancelar',
+			option_2='Limpiar',
 		)
 		if r.get() == 'Limpiar':
 			self._clear_queue()

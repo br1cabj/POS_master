@@ -9,8 +9,8 @@ from controllers.article_controller import ArticleController
 from controllers.combo_controller import ComboController
 from controllers.promo_controller import PromoController
 from core.base_view import BaseView
-from utils.date_picker import CTkDatePicker
 from core.context import AppContext
+from utils.date_picker import CTkDatePicker
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
@@ -1133,9 +1133,7 @@ class ComboMakerView(BaseView):
 
 		# Filtro
 		filter_frame = ctk.CTkFrame(right, fg_color='transparent')
-		filter_frame.grid(
-			row=1, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_SM)
-		)
+		filter_frame.grid(row=1, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_SM))
 
 		self.seg_promo_filter = ctk.CTkSegmentedButton(
 			filter_frame,

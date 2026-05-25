@@ -522,7 +522,9 @@ class HistoryView(BaseView):
 
 		def _run():
 			try:
-				more, has_more = self.controller.get_history(tenant_id, before_date=before_date)
+				more, has_more = self.controller.get_history(
+					tenant_id, before_date=before_date
+				)
 			except Exception:
 				more, has_more = [], False
 			if self.winfo_exists():

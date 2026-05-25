@@ -274,7 +274,12 @@ class HomeView(BaseView):
 			border_color=BORDER,
 		)
 		self.chart_frame.grid(
-			row=3, column=0, rowspan=2, sticky='nsew', padx=(PAD_LG, PAD_SM), pady=(0, PAD_LG)
+			row=3,
+			column=0,
+			rowspan=2,
+			sticky='nsew',
+			padx=(PAD_LG, PAD_SM),
+			pady=(0, PAD_LG),
 		)
 
 	def _build_promos_area(self):
@@ -306,6 +311,7 @@ class HomeView(BaseView):
 	# =========================================================
 	def load_dashboard_data(self):
 		import threading
+
 		btn = getattr(self, 'btn_refresh', None)
 		if btn:
 			btn.configure(state='disabled', text='↻  Cargando...')
@@ -370,9 +376,9 @@ class HomeView(BaseView):
 	# PROMOCIONES ACTIVAS
 	# =========================================================
 	_PROMO_TYPE_STYLE = {
-		'pct':   (ACCENT_DIM,  ACCENT_TEXT,  '%'),
-		'nxm':   (GREEN_DIM,   GREEN_TEXT,   'NxM'),
-		'fixed': (ORANGE_DIM,  ORANGE_TEXT,  '$'),
+		'pct': (ACCENT_DIM, ACCENT_TEXT, '%'),
+		'nxm': (GREEN_DIM, GREEN_TEXT, 'NxM'),
+		'fixed': (ORANGE_DIM, ORANGE_TEXT, '$'),
 	}
 
 	def draw_active_promos(self, promos: list):
@@ -382,7 +388,11 @@ class HomeView(BaseView):
 		hdr = ctk.CTkFrame(self.promo_frame, fg_color='transparent')
 		hdr.pack(fill='x', padx=PAD_MD, pady=(PAD_MD, PAD_SM))
 
-		title_text = f'🎯  Promociones Activas  ({len(promos)})' if promos else '🎯  Promociones Activas'
+		title_text = (
+			f'🎯  Promociones Activas  ({len(promos)})'
+			if promos
+			else '🎯  Promociones Activas'
+		)
 		ctk.CTkLabel(
 			hdr,
 			text=title_text,
@@ -421,7 +431,9 @@ class HomeView(BaseView):
 			row.pack(fill='x', pady=(0, PAD_XS))
 			row.grid_columnconfigure(1, weight=1)
 
-			badge = ctk.CTkFrame(row, fg_color=bg_c, corner_radius=6, width=36, height=22)
+			badge = ctk.CTkFrame(
+				row, fg_color=bg_c, corner_radius=6, width=36, height=22
+			)
 			badge.grid(row=0, column=0, padx=(PAD_SM, 0), pady=PAD_SM, sticky='w')
 			badge.grid_propagate(False)
 			ctk.CTkLabel(
@@ -435,18 +447,22 @@ class HomeView(BaseView):
 			if len(name_text) > 22:
 				name_text = name_text[:19] + '…'
 			ctk.CTkLabel(
-				info, text=name_text, font=FONT_BODY_BOLD, text_color=TEXT_PRIMARY, anchor='w'
+				info,
+				text=name_text,
+				font=FONT_BODY_BOLD,
+				text_color=TEXT_PRIMARY,
+				anchor='w',
 			).pack(anchor='w')
 
 			sub_parts = []
 			if p.get('variant_name'):
 				sub_parts.append(p['variant_name'][:20])
 			if p['promo_type'] == 'pct' and p.get('discount_value') is not None:
-				sub_parts.append(f"{p['discount_value']:.0f}% off")
+				sub_parts.append(f'{p["discount_value"]:.0f}% off')
 			elif p['promo_type'] == 'nxm' and p.get('buy_qty') and p.get('pay_qty'):
-				sub_parts.append(f"{p['buy_qty']}x{p['pay_qty']}")
+				sub_parts.append(f'{p["buy_qty"]}x{p["pay_qty"]}')
 			elif p['promo_type'] == 'fixed' and p.get('discount_value') is not None:
-				sub_parts.append(f"${p['discount_value']:.2f} c/u")
+				sub_parts.append(f'${p["discount_value"]:.2f} c/u')
 			if sub_parts:
 				ctk.CTkLabel(
 					info,
@@ -647,7 +663,11 @@ class HomeView(BaseView):
 
 			bar_bg = ctk.CTkFrame(col, fg_color=SURFACE3, height=6, corner_radius=3)
 			bar_bg.pack(fill='x', pady=(3, 0))
-			bar_width = max(self.top_frame.winfo_width() - 80, 100) if self.top_frame.winfo_width() > 1 else 160
+			bar_width = (
+				max(self.top_frame.winfo_width() - 80, 100)
+				if self.top_frame.winfo_width() > 1
+				else 160
+			)
 			bar_fill_width = max(int(pct / 100 * bar_width), 4)
 			ctk.CTkFrame(
 				bar_bg,

@@ -74,7 +74,9 @@ class DashboardController(BaseController):
 					if day_str in daily_totals:
 						daily_totals[day_str] += Decimal(str(sale.total_amount or 0))
 
-				return list(daily_totals.keys()), [float(v) for v in daily_totals.values()]
+				return list(daily_totals.keys()), [
+					float(v) for v in daily_totals.values()
+				]
 			except Exception as e:
 				logger.error(f'Error al generar gráfico semanal: {e}', exc_info=True)
 				return [], []

@@ -138,7 +138,11 @@ class CashController(BaseController):
 				if hasattr(cash_session, 'closing_balance'):
 					cash_session.closing_balance = parsed_declared
 
-				user_name = get_display_name(cash_session.user) if cash_session.user else 'Cajero'
+				user_name = (
+					get_display_name(cash_session.user)
+					if cash_session.user
+					else 'Cajero'
+				)
 				session.commit()
 
 				# PDF generation is non-fatal: the session is already committed
@@ -180,8 +184,7 @@ class CashController(BaseController):
 				return True, (
 					f'Caja cerrada correctamente.\n\n'
 					f'Resultado del Arqueo: {estado}\n'
-					f'Diferencia: ${abs(difference):,.2f}'
-					+ pdf_msg
+					f'Diferencia: ${abs(difference):,.2f}' + pdf_msg
 				)
 			except Exception as e:
 				session.rollback()
@@ -249,7 +252,9 @@ class CashController(BaseController):
 				)
 				.scalar()
 			)
-			total_digital = Decimal(str(_raw_digital)) if _raw_digital else Decimal('0.0')
+			total_digital = (
+				Decimal(str(_raw_digital)) if _raw_digital else Decimal('0.0')
+			)
 
 			return total_ventas, totals['ingreso'], totals['gasto'], total_digital
 
@@ -301,7 +306,10 @@ class CashController(BaseController):
 		if parsed is None or parsed <= Decimal('0.0'):
 			return False, 'El monto debe ser numérico y mayor a cero.'
 		if mov_type not in ['ingreso', 'gasto']:
-			return False, 'Tipo de movimiento no soportado. Solo se permiten "ingreso" o "gasto".'
+			return (
+				False,
+				'Tipo de movimiento no soportado. Solo se permiten "ingreso" o "gasto".',
+			)
 		if not description or not str(description).strip():
 			return False, 'La descripción del movimiento es obligatoria.'
 
@@ -392,7 +400,12 @@ class CashController(BaseController):
 			pdf.cell(0, 8, f'${float(value):,.2f}', ln=True, align='R')
 		if ventas_digital and ventas_digital > 0:
 			pdf.set_font('Arial', 'I', 9)
-			pdf.cell(0, 5, '(*) Tarjeta / Transferencia / QR. No afectan el saldo fisico.', ln=True)
+			pdf.cell(
+				0,
+				5,
+				'(*) Tarjeta / Transferencia / QR. No afectan el saldo fisico.',
+				ln=True,
+			)
 			pdf.set_font('Arial', '', 12)
 
 		pdf.line(10, pdf.get_y() + 2, 138, pdf.get_y() + 2)

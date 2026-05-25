@@ -52,7 +52,9 @@ class InventoryController(BaseController):
 						if mov.variant and mov.variant.article
 						else 'Producto Eliminado',
 						'barcode': mov.variant.barcode if mov.variant else 'N/A',
-						'user_name': get_display_name(mov.user) if mov.user else 'Sistema',
+						'user_name': get_display_name(mov.user)
+						if mov.user
+						else 'Sistema',
 					}
 					for mov in movements
 				]
@@ -76,7 +78,9 @@ class InventoryController(BaseController):
 	def get_adjust_reasons():
 		return list(InventoryController._ADJUST_REASONS)
 
-	def adjust_stock(self, tenant_id, user_id, variant_id, new_qty_raw, reason, notes=''):
+	def adjust_stock(
+		self, tenant_id, user_id, variant_id, new_qty_raw, reason, notes=''
+	):
 		"""Ajusta el stock de una variante al valor exacto indicado y registra el movimiento."""
 		try:
 			new_qty = Decimal(str(new_qty_raw)).quantize(Decimal('0.0001'))
@@ -90,7 +94,9 @@ class InventoryController(BaseController):
 				variant = (
 					session.query(ArticleVariant)
 					.join(Article)
-					.filter(ArticleVariant.id == variant_id, Article.tenant_id == tenant_id)
+					.filter(
+						ArticleVariant.id == variant_id, Article.tenant_id == tenant_id
+					)
 					.first()
 				)
 				if not variant:
@@ -104,7 +110,12 @@ class InventoryController(BaseController):
 				if not user:
 					return False, 'Usuario no válido.'
 
-				stocks = session.query(Stock).filter_by(variant_id=variant_id).with_for_update().all()
+				stocks = (
+					session.query(Stock)
+					.filter_by(variant_id=variant_id)
+					.with_for_update()
+					.all()
+				)
 				if not stocks:
 					return False, 'No hay registro de stock para este producto.'
 
@@ -123,7 +134,9 @@ class InventoryController(BaseController):
 
 				# Distribuir el delta entre almacenes (primero los de mayor stock para reducciones)
 				remaining = delta
-				stocks_sorted = sorted(stocks, key=lambda s: s.quantity, reverse=(delta < 0))
+				stocks_sorted = sorted(
+					stocks, key=lambda s: s.quantity, reverse=(delta < 0)
+				)
 				primary = stocks_sorted[0]
 				for st in stocks_sorted:
 					if remaining == 0:
@@ -157,7 +170,11 @@ class InventoryController(BaseController):
 
 				session.commit()
 
-				sign = f'+{float(abs_delta):.2f}' if delta > 0 else f'-{float(abs_delta):.2f}'
+				sign = (
+					f'+{float(abs_delta):.2f}'
+					if delta > 0
+					else f'-{float(abs_delta):.2f}'
+				)
 				return (
 					True,
 					f'Stock ajustado ({sign}). Nuevo total: {float(new_qty):.2f} unidades.',

@@ -15,7 +15,6 @@ from utils.styles import (
 	ACCENT_TEXT,
 	BORDER,
 	BORDER_ACTIVE,
-	FONT_BODY,
 	FONT_BODY_BOLD,
 	FONT_HEADING,
 	FONT_LABEL,
@@ -742,9 +741,7 @@ class ReturnsView(BaseView):
 		popup.geometry(f'{pw}x{ph}+{rx}+{ry}')
 
 		# ── HEADER ──────────────────────────────────────────────────
-		header = ctk.CTkFrame(
-			popup, fg_color=SURFACE2, corner_radius=0, border_width=0
-		)
+		header = ctk.CTkFrame(popup, fg_color=SURFACE2, corner_radius=0, border_width=0)
 		header.pack(fill='x')
 		header.grid_columnconfigure(0, weight=1)
 
@@ -786,7 +783,9 @@ class ReturnsView(BaseView):
 			for cv, ent, it in row_data:
 				max_q = float(it['quantity'])
 				ent.delete(0, 'end')
-				ent.insert(0, f'{int(max_q)}' if float(max_q).is_integer() else f'{max_q:.3f}')
+				ent.insert(
+					0, f'{int(max_q)}' if float(max_q).is_integer() else f'{max_q:.3f}'
+				)
 				cv.set(True)
 			_update_refund_and_btn()
 
@@ -828,9 +827,7 @@ class ReturnsView(BaseView):
 		).pack(side='right', padx=(0, 4), pady=6)
 
 		# ── FOOTER FIJO (se pack-ea ANTES del scroll para garantizar visibilidad) ──
-		footer = ctk.CTkFrame(
-			popup, fg_color=SURFACE2, corner_radius=0, border_width=0
-		)
+		footer = ctk.CTkFrame(popup, fg_color=SURFACE2, corner_radius=0, border_width=0)
 		footer.pack(side='bottom', fill='x')
 		footer.grid_columnconfigure(0, weight=1)
 
@@ -1001,7 +998,9 @@ class ReturnsView(BaseView):
 							ent_ref.delete(0, 'end')
 							ent_ref.insert(
 								0,
-								f'{int(max_q)}' if float(max_q).is_integer() else f'{max_q:.3f}',
+								f'{int(max_q)}'
+								if float(max_q).is_integer()
+								else f'{max_q:.3f}',
 							)
 					except (ValueError, TypeError):
 						pass
@@ -1052,7 +1051,11 @@ class ReturnsView(BaseView):
 			entry.insert(0, '0')
 			entry.bind('<FocusIn>', lambda e, ent=entry: ent.select_range(0, 'end'))
 
-			cb.configure(command=lambda cv=check_var, e=entry, m=qty_orig_float: _on_checkbox(cv, e, m))
+			cb.configure(
+				command=lambda cv=check_var, e=entry, m=qty_orig_float: _on_checkbox(
+					cv, e, m
+				)
+			)
 
 			def adjust_qty(delta, ent=entry, max_q=qty_orig_float, cv=check_var):
 				try:
@@ -1061,14 +1064,20 @@ class ReturnsView(BaseView):
 					current = 0.0
 				new_val = round(max(0.0, min(current + delta, max_q)), 3)
 				ent.delete(0, 'end')
-				ent.insert(0, f'{int(new_val)}' if float(new_val).is_integer() else f'{new_val:.3f}')
+				ent.insert(
+					0,
+					f'{int(new_val)}'
+					if float(new_val).is_integer()
+					else f'{new_val:.3f}',
+				)
 				cv.set(new_val > 0)
 				_update_refund_and_btn()
 
 			ctk.CTkButton(
 				ctrl_frame,
 				text='−',
-				width=36, height=36,
+				width=36,
+				height=36,
 				font=('Arial', 16, 'bold'),
 				fg_color=SURFACE3,
 				hover_color=RED_DIM,
@@ -1076,7 +1085,9 @@ class ReturnsView(BaseView):
 				corner_radius=8,
 				border_width=1,
 				border_color=BORDER,
-				command=lambda e=entry, m=qty_orig_float, c=check_var: adjust_qty(-1.0, e, m, c),
+				command=lambda e=entry, m=qty_orig_float, c=check_var: adjust_qty(
+					-1.0, e, m, c
+				),
 			).pack(side='left', padx=(0, 4))
 
 			entry.pack(side='left')
@@ -1084,7 +1095,8 @@ class ReturnsView(BaseView):
 			ctk.CTkButton(
 				ctrl_frame,
 				text='+',
-				width=36, height=36,
+				width=36,
+				height=36,
 				font=('Arial', 16, 'bold'),
 				fg_color=SURFACE3,
 				hover_color=ACCENT_DIM,
@@ -1092,7 +1104,9 @@ class ReturnsView(BaseView):
 				corner_radius=8,
 				border_width=1,
 				border_color=BORDER,
-				command=lambda e=entry, m=qty_orig_float, c=check_var: adjust_qty(1.0, e, m, c),
+				command=lambda e=entry, m=qty_orig_float, c=check_var: adjust_qty(
+					1.0, e, m, c
+				),
 			).pack(side='left', padx=(4, 0))
 
 			entry.bind('<KeyRelease>', _update_refund_and_btn)
@@ -1117,10 +1131,14 @@ class ReturnsView(BaseView):
 					)
 					return
 
-				items_to_return.append({'detail_id': it['detail_id'], 'qty_to_return': qty})
+				items_to_return.append(
+					{'detail_id': it['detail_id'], 'qty_to_return': qty}
+				)
 
 			if not items_to_return:
-				self.show_warning('Seleccioná al menos un ítem para devolver.', 'Sin selección')
+				self.show_warning(
+					'Seleccioná al menos un ítem para devolver.', 'Sin selección'
+				)
 				return
 
 			btn_confirm.configure(text='⏳  Procesando...', state='disabled')
@@ -1184,6 +1202,7 @@ class ReturnsView(BaseView):
 				self.show_error(msg)
 				return
 			from views.sales_view import SalesView
+
 			self.navigate(SalesView, context_data={'restore_sale': sale})
 
 		threading.Thread(target=_run, daemon=True).start()

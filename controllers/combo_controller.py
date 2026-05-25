@@ -162,7 +162,9 @@ class ComboController(BaseController):
 				)
 				return []
 
-	def update_combo(self, tenant_id, combo_variant_id, name, price, btn_color, ingredients_list):
+	def update_combo(
+		self, tenant_id, combo_variant_id, name, price, btn_color, ingredients_list
+	):
 		"""Actualiza nombre, precio, color y receta de un combo existente."""
 		if not name or not str(name).strip():
 			return False, 'El nombre de la promoción es obligatorio.'
@@ -182,7 +184,10 @@ class ComboController(BaseController):
 			try:
 				qty = Decimal(str(item.get('qty', 0)))
 				if qty <= 0:
-					return False, 'Las proporciones en la receta deben ser mayores a cero.'
+					return (
+						False,
+						'Las proporciones en la receta deben ser mayores a cero.',
+					)
 				aggregated_ingredients[item['variant_id']] += qty
 			except (ValueError, InvalidOperation, KeyError):
 				return False, 'Estructura de payload de ingrediente inválida.'

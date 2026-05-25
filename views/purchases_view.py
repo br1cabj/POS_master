@@ -338,7 +338,9 @@ class PurchasesView(BaseView):
 				new_subtotal = Decimal(str(existing['cost'])) * new_qty
 				existing['qty'] = float(new_qty)
 				existing['subtotal'] = float(new_subtotal)
-				new_qty_visual = f'{int(new_qty)}' if new_qty % 1 == 0 else f'{new_qty:.2f}'
+				new_qty_visual = (
+					f'{int(new_qty)}' if new_qty % 1 == 0 else f'{new_qty:.2f}'
+				)
 				self.tree.item(
 					existing['tree_id'],
 					values=(

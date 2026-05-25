@@ -65,7 +65,7 @@ DEFAULTS: dict = {
 	'price_list_b_name': 'Mayorista',
 	# Periféricos — Impresora de tickets
 	'printer_ticket_name': '',
-	'printer_ticket_type': '80mm',   # '58mm' | '80mm' | 'laser'
+	'printer_ticket_type': '80mm',  # '58mm' | '80mm' | 'laser'
 	'printer_ticket_chars': 48,
 	# Periféricos — Impresora de etiquetas
 	'printer_label_name': '',
@@ -73,16 +73,16 @@ DEFAULTS: dict = {
 	'scale_enabled': False,
 	'scale_port': 'COM1',
 	'scale_baud': '9600',
-	'scale_protocol': 'toledo',      # 'toledo' | 'fairbanks' | 'generic'
+	'scale_protocol': 'toledo',  # 'toledo' | 'fairbanks' | 'generic'
 	# Periféricos — Lector de código de barras
-	'barcode_mode': 'hid',           # 'hid' | 'serial'
+	'barcode_mode': 'hid',  # 'hid' | 'serial'
 	'barcode_port': 'COM2',
 	'barcode_baud': '9600',
 	'barcode_prefix': '',
-	'barcode_suffix': 'CR',          # 'none' | 'CR' | 'TAB' | 'CRLF'
+	'barcode_suffix': 'CR',  # 'none' | 'CR' | 'TAB' | 'CRLF'
 	# Modo terminal
-	'terminal_mode': 'primary',   # 'primary' | 'cashier'
-	'db_remote_path': '',          # Ruta UNC al .db del principal (solo en modo cajero)
+	'terminal_mode': 'primary',  # 'primary' | 'cashier'
+	'db_remote_path': '',  # Ruta UNC al .db del principal (solo en modo cajero)
 	# Periféricos — Cajón de dinero
 	'cashdrawer_connection': 'printer',  # 'printer' | 'com'
 	'cashdrawer_port': 'COM3',

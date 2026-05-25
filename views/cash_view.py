@@ -354,7 +354,9 @@ class CashView(BaseView):
 			text=f'Turno #{session_id}   -   Abierta a las {hora_str}'
 		)
 
-		_, ingresos, gastos, _digital = self.controller.get_session_summary(tenant_id, session_id)
+		_, ingresos, gastos, _digital = self.controller.get_session_summary(
+			tenant_id, session_id
+		)
 		self._lbl_totals['apertura'].configure(text=f'${opening:,.2f}')
 		self._lbl_totals['ingresos'].configure(text=f'${float(ingresos):,.2f}')
 		self._lbl_totals['gastos'].configure(text=f'${float(gastos):,.2f}')
@@ -429,10 +431,10 @@ class CashView(BaseView):
 		accent_color = RED if is_gasto else GREEN
 		prefix = '-' if is_gasto else '+'
 		_type_labels = {
-			'venta':         'Venta Efectivo',
+			'venta': 'Venta Efectivo',
 			'venta_digital': 'Venta Digital',
-			'ingreso':       'Ingreso Manual',
-			'gasto':         'Retiro / Gasto',
+			'ingreso': 'Ingreso Manual',
+			'gasto': 'Retiro / Gasto',
 		}
 		type_label = _type_labels.get(mov_type, 'Movimiento')
 
@@ -511,6 +513,7 @@ class CashView(BaseView):
 				return
 			try:
 				from decimal import Decimal as _D
+
 				_apertura = _D(amount_str)
 				if _apertura < 0:
 					self.mark_field_error(self.entry_amount)
@@ -907,7 +910,10 @@ class CashView(BaseView):
 				self.show_error(msg)
 		finally:
 			try:
-				if hasattr(self, '_btn_blind_confirm') and self._btn_blind_confirm.winfo_exists():
+				if (
+					hasattr(self, '_btn_blind_confirm')
+					and self._btn_blind_confirm.winfo_exists()
+				):
 					self._btn_blind_confirm.configure(state='normal')
 			except Exception:
 				pass

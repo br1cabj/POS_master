@@ -52,7 +52,9 @@ class UserController(BaseController):
 	# =========================================================
 	# CREACION
 	# =========================================================
-	def add_user(self, tenant_id, username, password, role, recovery_pin=None, display_name=None):
+	def add_user(
+		self, tenant_id, username, password, role, recovery_pin=None, display_name=None
+	):
 		username_clean = str(username).strip()
 		if not username_clean:
 			return False, 'El nombre de usuario es obligatorio.'
@@ -123,7 +125,9 @@ class UserController(BaseController):
 	# =========================================================
 	# ACTUALIZAR DATOS
 	# =========================================================
-	def update_user(self, tenant_id, user_id, username=None, role=None, display_name=None):
+	def update_user(
+		self, tenant_id, user_id, username=None, role=None, display_name=None
+	):
 		with self._Session() as session:
 			try:
 				user = (
@@ -140,7 +144,9 @@ class UserController(BaseController):
 						return False, 'El nombre de usuario no puede estar vacío.'
 					conflict = (
 						session.query(User)
-						.filter_by(tenant_id=tenant_id, username=username_clean, is_active=True)
+						.filter_by(
+							tenant_id=tenant_id, username=username_clean, is_active=True
+						)
 						.first()
 					)
 					if conflict and str(conflict.id) != str(user_id):
@@ -161,7 +167,9 @@ class UserController(BaseController):
 
 			except Exception as e:
 				session.rollback()
-				logger.error(f'Error al actualizar usuario {user_id}: {e}', exc_info=True)
+				logger.error(
+					f'Error al actualizar usuario {user_id}: {e}', exc_info=True
+				)
 				return False, 'Error interno al actualizar el empleado.'
 
 	# =========================================================

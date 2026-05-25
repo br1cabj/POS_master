@@ -114,6 +114,7 @@ class CustomersView(BaseView):
 		self.entry_phone.pack(pady=(0, 10), padx=20, fill='x')
 
 		import utils.settings_manager as _sm_c
+
 		_name_a = _sm_c.get('price_list_a_name', 'Minorista')
 		_name_b = _sm_c.get('price_list_b_name', 'Mayorista')
 
@@ -490,7 +491,9 @@ class CustomersView(BaseView):
 			self.on_customer_select(name)
 			self.entry_payment.focus_set()
 		else:
-			self.show_warning('Este cliente no tiene una cuenta de cobro registrada.', 'Sin cuenta')
+			self.show_warning(
+				'Este cliente no tiene una cuenta de cobro registrada.', 'Sin cuenta'
+			)
 
 	def _edit_selected(self):
 		"""Prepara el formulario de la izquierda para editar un cliente existente."""
@@ -532,11 +535,19 @@ class CustomersView(BaseView):
 	def _select_price_list(self, key: str):
 		self._price_list_var.set(key)
 		if key == 'B':
-			self._btn_list_a.configure(fg_color='transparent', border_color=BORDER, text_color=TEXT_MUTED)
-			self._btn_list_b.configure(fg_color=ACCENT_DIM, border_color=ACCENT, text_color=ACCENT_TEXT)
+			self._btn_list_a.configure(
+				fg_color='transparent', border_color=BORDER, text_color=TEXT_MUTED
+			)
+			self._btn_list_b.configure(
+				fg_color=ACCENT_DIM, border_color=ACCENT, text_color=ACCENT_TEXT
+			)
 		else:
-			self._btn_list_a.configure(fg_color=ACCENT_DIM, border_color=ACCENT, text_color=ACCENT_TEXT)
-			self._btn_list_b.configure(fg_color='transparent', border_color=BORDER, text_color=TEXT_MUTED)
+			self._btn_list_a.configure(
+				fg_color=ACCENT_DIM, border_color=ACCENT, text_color=ACCENT_TEXT
+			)
+			self._btn_list_b.configure(
+				fg_color='transparent', border_color=BORDER, text_color=TEXT_MUTED
+			)
 
 	def _cancel_edit(self):
 		"""Limpia el formulario de edición y regresa al modo de nuevo cliente."""
@@ -668,7 +679,11 @@ class CustomersView(BaseView):
 
 		# ── Sección abono rápido ──
 		pay_frame = ctk.CTkFrame(
-			modal, fg_color=SURFACE2, corner_radius=8, border_width=1, border_color=BORDER
+			modal,
+			fg_color=SURFACE2,
+			corner_radius=8,
+			border_width=1,
+			border_color=BORDER,
 		)
 		pay_frame.pack(fill='x', padx=16, pady=(8, 0))
 
@@ -772,11 +787,11 @@ class CustomersView(BaseView):
 			self.show_warning('No hay clientes para exportar.', 'Sin datos')
 			return
 		import os
-		import subprocess
 		from datetime import datetime
+
 		try:
 			import openpyxl
-			from openpyxl.styles import Font, PatternFill, Alignment
+			from openpyxl.styles import Alignment, Font, PatternFill
 		except ImportError:
 			self.show_error('openpyxl no está instalado. Verificá las dependencias.')
 			return
@@ -786,8 +801,16 @@ class CustomersView(BaseView):
 		ws.title = 'Clientes'
 
 		# Encabezados
-		headers = ['Nombre', 'Teléfono', 'Deuda Acumulada ($)', 'Lista de Precios', 'Último Fiado']
-		header_fill = PatternFill(start_color='1E3A5F', end_color='1E3A5F', fill_type='solid')
+		headers = [
+			'Nombre',
+			'Teléfono',
+			'Deuda Acumulada ($)',
+			'Lista de Precios',
+			'Último Fiado',
+		]
+		header_fill = PatternFill(
+			start_color='1E3A5F', end_color='1E3A5F', fill_type='solid'
+		)
 		header_font = Font(bold=True, color='FFFFFF')
 		for col, h in enumerate(headers, 1):
 			cell = ws.cell(row=1, column=col, value=h)
@@ -796,12 +819,20 @@ class CustomersView(BaseView):
 			cell.alignment = Alignment(horizontal='center')
 
 		# Datos
-		red_fill = PatternFill(start_color='FDECEA', end_color='FDECEA', fill_type='solid')
-		green_fill = PatternFill(start_color='E8F5E9', end_color='E8F5E9', fill_type='solid')
+		red_fill = PatternFill(
+			start_color='FDECEA', end_color='FDECEA', fill_type='solid'
+		)
+		green_fill = PatternFill(
+			start_color='E8F5E9', end_color='E8F5E9', fill_type='solid'
+		)
 		for row_idx, c in enumerate(self._all_customers, 2):
 			balance = float(c.get('current_balance') or 0.0)
 			last_mov = c.get('last_movement')
-			last_str = last_mov.strftime('%d/%m/%Y') if last_mov and hasattr(last_mov, 'strftime') else '-'
+			last_str = (
+				last_mov.strftime('%d/%m/%Y')
+				if last_mov and hasattr(last_mov, 'strftime')
+				else '-'
+			)
 			ws.cell(row=row_idx, column=1, value=c.get('name', ''))
 			ws.cell(row=row_idx, column=2, value=c.get('phone') or '')
 			ws.cell(row=row_idx, column=3, value=round(balance, 2))
@@ -820,6 +851,7 @@ class CustomersView(BaseView):
 
 		# Guardar
 		import utils.settings_manager as _sm
+
 		base = _sm.get('export_path', '') or os.path.expanduser('~\\Desktop')
 		timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 		filename = os.path.join(base, f'Clientes_{timestamp}.xlsx')
@@ -887,12 +919,22 @@ class CustomersView(BaseView):
 				tags = ()
 
 			last_mov = c.get('last_movement')
-			last_mov_str = last_mov.strftime('%d/%m/%Y') if last_mov and hasattr(last_mov, 'strftime') else '-'
+			last_mov_str = (
+				last_mov.strftime('%d/%m/%Y')
+				if last_mov and hasattr(last_mov, 'strftime')
+				else '-'
+			)
 
 			self.tree.insert(
 				'',
 				'end',
-				values=(c['id'], c['name'], c.get('phone') or '-', saldo_str, last_mov_str),
+				values=(
+					c['id'],
+					c['name'],
+					c.get('phone') or '-',
+					saldo_str,
+					last_mov_str,
+				),
 				tags=tags,
 			)
 
@@ -919,7 +961,9 @@ class CustomersView(BaseView):
 		shown = len(matches)
 		if hasattr(self, 'lbl_count'):
 			self.lbl_count.configure(
-				text=f'{shown} de {total}' if (q or self._only_debtors) else f'{total} clientes'
+				text=f'{shown} de {total}'
+				if (q or self._only_debtors)
+				else f'{total} clientes'
 			)
 
 		# Total deuda de todos los clientes (no solo los visibles)
@@ -954,6 +998,7 @@ class CustomersView(BaseView):
 
 	def add_customer(self):
 		import re as _re
+
 		name = self.entry_name.get().strip()
 		phone = self.entry_phone.get().strip()
 
@@ -983,10 +1028,16 @@ class CustomersView(BaseView):
 		try:
 			if self._editing_customer_id:
 				success, msg = self.controller.update_customer(
-					tenant_id, self._editing_customer_id, name, phone, price_list=price_list
+					tenant_id,
+					self._editing_customer_id,
+					name,
+					phone,
+					price_list=price_list,
 				)
 			else:
-				success, msg = self.controller.add_customer(tenant_id, name, phone, price_list=price_list)
+				success, msg = self.controller.add_customer(
+					tenant_id, name, phone, price_list=price_list
+				)
 		finally:
 			self.btn_add.configure(state='normal', text=orig_text)
 

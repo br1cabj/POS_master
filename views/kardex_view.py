@@ -5,9 +5,9 @@ from tkinter import ttk
 import customtkinter as ctk
 
 from controllers.inventory_controller import InventoryController
-from utils.date_picker import CTkDatePicker
 from core.base_view import BaseView
 from core.context import AppContext
+from utils.date_picker import CTkDatePicker
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
@@ -388,7 +388,9 @@ class KardexView(BaseView):
 		if has_next:
 			self.lbl_page.configure(text=f'Pág. {self.current_page}')
 		else:
-			self.lbl_page.configure(text=f'Pág. {self.current_page} de {self.current_page}')
+			self.lbl_page.configure(
+				text=f'Pág. {self.current_page} de {self.current_page}'
+			)
 
 		tot_in = 0.0
 		tot_out = 0.0

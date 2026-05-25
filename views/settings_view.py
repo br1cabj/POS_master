@@ -210,6 +210,7 @@ class SettingsView(BaseView):
 		).grid(row=0, column=0, padx=PAD_MD, pady=(PAD_MD, PAD_XS), sticky='w')
 
 		import utils.settings_manager as _sm
+
 		_is_cashier = _sm.get('terminal_mode', 'primary') == 'cashier'
 		_hidden = {'respaldo'} if _is_cashier else set()
 
@@ -272,6 +273,7 @@ class SettingsView(BaseView):
 	def _show_section(self, key: str):
 		# En modo cajero la sección de respaldo no existe — redirigir a empresa.
 		import utils.settings_manager as _sm
+
 		if key == 'respaldo' and _sm.get('terminal_mode', 'primary') == 'cashier':
 			key = 'empresa'
 		self._persist_current_section()
@@ -2014,6 +2016,7 @@ class SettingsView(BaseView):
 
 	def _backup_db(self):
 		import sqlite3
+
 		_db_dir = (
 			os.path.dirname(sys.executable)
 			if getattr(sys, 'frozen', False)
@@ -2043,9 +2046,6 @@ class SettingsView(BaseView):
 	# SECCIÓN: RESPALDO
 	# =========================================================
 	def _build_sec_respaldo(self, parent):
-		import os
-		import threading
-		from tkinter import filedialog
 
 		from controllers.backup_controller import BackupController
 
@@ -2133,6 +2133,7 @@ class SettingsView(BaseView):
 
 		# ── Restaurar desde la nube ──
 		from utils.config import DATABASE_CLOUD_URL
+
 		if DATABASE_CLOUD_URL:
 			card_cloud = self._card(parent, 'Restaurar desde la nube', '☁️')
 
@@ -2166,7 +2167,9 @@ class SettingsView(BaseView):
 				anchor='w',
 				wraplength=440,
 			)
-			self._lbl_cloud_restore_status.pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
+			self._lbl_cloud_restore_status.pack(
+				anchor='w', padx=PAD_MD, pady=(0, PAD_SM)
+			)
 
 			self._btn_cloud_restore = ctk.CTkButton(
 				card_cloud,
@@ -2184,7 +2187,6 @@ class SettingsView(BaseView):
 			self._btn_cloud_restore.pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
 
 	def _do_backup(self, bk):
-		from controllers.backup_controller import BackupController
 		self._btn_backup_now.configure(state='disabled', text='⏳  Respaldando…')
 
 		def worker():
@@ -2192,6 +2194,7 @@ class SettingsView(BaseView):
 			self.after(0, lambda: self._on_backup_done(ok, result))
 
 		import threading
+
 		threading.Thread(target=worker, daemon=True).start()
 
 	def _on_backup_done(self, ok: bool, result: str):
@@ -2229,11 +2232,15 @@ class SettingsView(BaseView):
 			return
 
 		self._btn_cloud_restore.configure(state='disabled', text='⏳  Descargando…')
-		self._lbl_cloud_restore_status.configure(text='Iniciando restauración…', text_color=TEXT_MUTED)
+		self._lbl_cloud_restore_status.configure(
+			text='Iniciando restauración…', text_color=TEXT_MUTED
+		)
 
 		def _progress(msg: str):
 			if self.winfo_exists():
-				self.after(0, lambda m=msg: self._lbl_cloud_restore_status.configure(text=m))
+				self.after(
+					0, lambda m=msg: self._lbl_cloud_restore_status.configure(text=m)
+				)
 
 		def worker():
 			ok, result = bk.restore_from_cloud(progress_cb=_progress)
@@ -2241,6 +2248,7 @@ class SettingsView(BaseView):
 				self.after(0, lambda: self._on_cloud_restore_done(ok, result))
 
 		import threading
+
 		threading.Thread(target=worker, daemon=True, name='CloudRestore').start()
 
 	def _on_cloud_restore_done(self, ok: bool, result: str):
@@ -2252,6 +2260,7 @@ class SettingsView(BaseView):
 
 		if ok:
 			from CTkMessagebox import CTkMessagebox
+
 			CTkMessagebox(
 				title='Restauración completada',
 				message='Los datos fueron restaurados desde la nube.\nLa aplicación se reiniciará ahora.',
@@ -2279,6 +2288,7 @@ class SettingsView(BaseView):
 			return
 
 		import os
+
 		confirm = CTkMessagebox(
 			title='Confirmar restauración',
 			message=(
@@ -2307,6 +2317,7 @@ class SettingsView(BaseView):
 	def _restart_app(self):
 		import subprocess
 		import sys
+
 		subprocess.Popen([sys.executable] + sys.argv[1:])
 		self.winfo_toplevel().destroy()
 
@@ -2481,6 +2492,7 @@ class SettingsView(BaseView):
 
 	def _refresh_cloud_status(self):
 		"""Actualiza el estado cloud en un hilo daemon para no bloquear la UI."""
+
 		def _run():
 			try:
 				active, msg = self._cloud_ctrl.check_status()

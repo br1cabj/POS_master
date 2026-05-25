@@ -24,343 +24,362 @@ _MAX_BACKUPS = 15
 
 
 def _settings_set(key: str, value) -> None:
-    # BUG 20: usar settings_manager.set() para beneficiarse del lock thread-safe
-    from utils import settings_manager
-    settings_manager.set(key, value)
+	# BUG 20: usar settings_manager.set() para beneficiarse del lock thread-safe
+	from utils import settings_manager
+
+	settings_manager.set(key, value)
 
 
 class BackupController:
-    def __init__(self, db_engine=None):
-        self._engine = db_engine
+	def __init__(self, db_engine=None):
+		self._engine = db_engine
 
-    # ── rutas ─────────────────────────────────────────────────────────────────
+	# ── rutas ─────────────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _db_path() -> Path:
-        if getattr(sys, 'frozen', False):
-            return Path(sys.executable).parent / 'pos_system.db'
-        return Path(__file__).parent.parent / 'pos_system.db'
+	@staticmethod
+	def _db_path() -> Path:
+		if getattr(sys, 'frozen', False):
+			return Path(sys.executable).parent / 'pos_system.db'
+		return Path(__file__).parent.parent / 'pos_system.db'
 
-    @staticmethod
-    def backup_dir() -> Path:
-        from utils.settings_manager import _app_data_dir
-        d = _app_data_dir() / 'backups'
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+	@staticmethod
+	def backup_dir() -> Path:
+		from utils.settings_manager import _app_data_dir
 
-    # ── estado ────────────────────────────────────────────────────────────────
+		d = _app_data_dir() / 'backups'
+		d.mkdir(parents=True, exist_ok=True)
+		return d
 
-    @staticmethod
-    def get_last_backup_str() -> str | None:
-        from utils.settings_manager import get
-        return get(_LAST_BACKUP_KEY, None)
+	# ── estado ────────────────────────────────────────────────────────────────
 
-    def list_backups(self) -> list[Path]:
-        return sorted(self.backup_dir().glob('backup_*.db'), reverse=True)
+	@staticmethod
+	def get_last_backup_str() -> str | None:
+		from utils.settings_manager import get
 
-    # ── backup ────────────────────────────────────────────────────────────────
+		return get(_LAST_BACKUP_KEY, None)
 
-    def create_backup(self) -> tuple[bool, str]:
-        """
-        Crea un respaldo usando la API nativa de SQLite.
-        No requiere cerrar el engine — maneja WAL correctamente.
-        Retorna (ok, timestamp_legible | mensaje_error).
-        """
-        db = self._db_path()
-        if not db.exists():
-            return False, 'No se encontró la base de datos local.'
+	def list_backups(self) -> list[Path]:
+		return sorted(self.backup_dir().glob('backup_*.db'), reverse=True)
 
-        try:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            dest = self.backup_dir() / f'backup_{timestamp}.db'
+	# ── backup ────────────────────────────────────────────────────────────────
 
-            src = sqlite3.connect(str(db))
-            dst = sqlite3.connect(str(dest))
-            src.backup(dst)
-            dst.close()
-            src.close()
+	def create_backup(self) -> tuple[bool, str]:
+		"""
+		Crea un respaldo usando la API nativa de SQLite.
+		No requiere cerrar el engine — maneja WAL correctamente.
+		Retorna (ok, timestamp_legible | mensaje_error).
+		"""
+		db = self._db_path()
+		if not db.exists():
+			return False, 'No se encontró la base de datos local.'
 
-            # Conservar solo los últimos _MAX_BACKUPS
-            all_backups = sorted(self.backup_dir().glob('backup_*.db'))
-            for old in all_backups[:-_MAX_BACKUPS]:
-                try:
-                    old.unlink()
-                except Exception as e:
-                    logger.warning('No se pudo eliminar backup antiguo %s: %s', old, e)
+		try:
+			timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+			dest = self.backup_dir() / f'backup_{timestamp}.db'
 
-            now_str = datetime.now().strftime('%d/%m/%Y %H:%M')
-            _settings_set(_LAST_BACKUP_KEY, now_str)
-            logger.info('Backup creado: %s', dest)
-            return True, now_str
+			src = sqlite3.connect(str(db))
+			dst = sqlite3.connect(str(dest))
+			src.backup(dst)
+			dst.close()
+			src.close()
 
-        except Exception as e:
-            logger.error('Backup falló: %s', e)
-            return False, str(e)
+			# Conservar solo los últimos _MAX_BACKUPS
+			all_backups = sorted(self.backup_dir().glob('backup_*.db'))
+			for old in all_backups[:-_MAX_BACKUPS]:
+				try:
+					old.unlink()
+				except Exception as e:
+					logger.warning('No se pudo eliminar backup antiguo %s: %s', old, e)
 
-    def auto_backup_if_needed(self) -> None:
-        """Lanza un backup en hilo daemon si no hubo uno en las últimas 24 h."""
-        last = self.get_last_backup_str()
-        if last:
-            try:
-                last_dt = datetime.strptime(last, '%d/%m/%Y %H:%M')
-                if (datetime.now() - last_dt).total_seconds() < 86400:
-                    return
-            except ValueError:
-                pass
-        threading.Thread(
-            target=self.create_backup, daemon=True, name='AutoBackup'
-        ).start()
+			now_str = datetime.now().strftime('%d/%m/%Y %H:%M')
+			_settings_set(_LAST_BACKUP_KEY, now_str)
+			logger.info('Backup creado: %s', dest)
+			return True, now_str
 
-    # ── restore ───────────────────────────────────────────────────────────────
+		except Exception as e:
+			logger.error('Backup falló: %s', e)
+			return False, str(e)
 
-    def restore_from_cloud(self, progress_cb=None) -> tuple[bool, str]:
-        """
-        Pull all synced tables from Supabase and overwrite the local SQLite database.
+	def auto_backup_if_needed(self) -> None:
+		"""Lanza un backup en hilo daemon si no hubo uno en las últimas 24 h."""
+		last = self.get_last_backup_str()
+		if last:
+			try:
+				last_dt = datetime.strptime(last, '%d/%m/%Y %H:%M')
+				if (datetime.now() - last_dt).total_seconds() < 86400:
+					return
+			except ValueError:
+				pass
+		threading.Thread(
+			target=self.create_backup, daemon=True, name='AutoBackup'
+		).start()
 
-        Design goals:
-        - Filtered by tenant_id so shared Supabase data stays isolated.
-        - Cash tables limited to the last 7 days (mirrors sync policy).
-        - Server-side subqueries for child tables — no large IN lists over the wire.
-        - Native sqlite3 with bulk PRAGMAs for fast local write.
-        - Safety backup created before any write; auto-rollback on failure.
-        """
-        from datetime import timedelta
+	# ── restore ───────────────────────────────────────────────────────────────
 
-        from sqlalchemy import select
+	def restore_from_cloud(self, progress_cb=None) -> tuple[bool, str]:
+		"""
+		Pull all synced tables from Supabase and overwrite the local SQLite database.
 
-        from utils.config import get_cloud_engine, get_engine
+		Design goals:
+		- Filtered by tenant_id so shared Supabase data stays isolated.
+		- Cash tables limited to the last 7 days (mirrors sync policy).
+		- Server-side subqueries for child tables — no large IN lists over the wire.
+		- Native sqlite3 with bulk PRAGMAs for fast local write.
+		- Safety backup created before any write; auto-rollback on failure.
+		"""
+		from datetime import timedelta
 
-        def _report(m: str):
-            logger.info('CloudRestore: %s', m)
-            if progress_cb:
-                try:
-                    progress_cb(m)
-                except Exception:
-                    pass
+		from sqlalchemy import select
 
-        cloud_engine = get_cloud_engine()
-        if cloud_engine is None:
-            return False, 'La nube no está configurada.'
+		from utils.config import get_cloud_engine, get_engine
 
-        from controllers.cloud_license_controller import CloudLicenseController
-        ctrl = CloudLicenseController()
-        active, msg = ctrl.check_status()
-        if not active:
-            return False, f'Plan cloud inactivo: {msg}'
+		def _report(m: str):
+			logger.info('CloudRestore: %s', m)
+			if progress_cb:
+				try:
+					progress_cb(m)
+				except Exception:
+					pass
 
-        tenant_id = ctrl.get_tenant_id()
-        if not tenant_id:
-            return False, 'No se encontró el Tenant ID en la licencia cloud.'
+		cloud_engine = get_cloud_engine()
+		if cloud_engine is None:
+			return False, 'La nube no está configurada.'
 
-        from utils.sync_worker import _sync_models
-        models = _sync_models()
-        model_by_name = {m.__tablename__: m for m in models}
+		from controllers.cloud_license_controller import CloudLicenseController
 
-        cash_cutoff = datetime.now() - timedelta(days=7)
-        BATCH = 1000
+		ctrl = CloudLicenseController()
+		active, msg = ctrl.check_status()
+		if not active:
+			return False, f'Plan cloud inactivo: {msg}'
 
-        # ── Pull from Supabase ──────────────────────────────────────────────────
-        _report('Conectando a Supabase…')
-        collected: dict[str, list[dict]] = {}
+		tenant_id = ctrl.get_tenant_id()
+		if not tenant_id:
+			return False, 'No se encontró el Tenant ID en la licencia cloud.'
 
-        try:
-            with cloud_engine.connect() as cloud:
-                for model in models:
-                    tname = model.__tablename__
-                    table = model.__table__
+		from utils.sync_worker import _sync_models
 
-                    # Build tenant-scoped WHERE clause.
-                    # Child tables use a correlated subquery to avoid sending
-                    # thousands of IDs over the wire.
-                    if tname == 'tenants':
-                        base_where = table.c.id == tenant_id
-                    elif hasattr(table.c, 'tenant_id'):
-                        base_where = table.c.tenant_id == tenant_id
-                    elif tname == 'article_variants':
-                        arts = model_by_name['articles'].__table__
-                        sub = select(arts.c.id).where(arts.c.tenant_id == tenant_id).scalar_subquery()
-                        base_where = table.c.article_id.in_(sub)
-                    elif tname == 'sale_details':
-                        sales = model_by_name['sales'].__table__
-                        sub = select(sales.c.id).where(sales.c.tenant_id == tenant_id).scalar_subquery()
-                        base_where = table.c.sale_id.in_(sub)
-                    elif tname == 'stocks':
-                        whs = model_by_name['warehouses'].__table__
-                        sub = select(whs.c.id).where(whs.c.tenant_id == tenant_id).scalar_subquery()
-                        base_where = table.c.warehouse_id.in_(sub)
-                    elif tname == 'cash_movements':
-                        sess = model_by_name['cash_sessions'].__table__
-                        sub = (
-                            select(sess.c.id)
-                            .where(sess.c.tenant_id == tenant_id)
-                            .where(sess.c.updated_at >= cash_cutoff)
-                            .scalar_subquery()
-                        )
-                        base_where = table.c.session_id.in_(sub)
-                    else:
-                        base_where = None
+		models = _sync_models()
+		model_by_name = {m.__tablename__: m for m in models}
 
-                    stmt = select(table)
-                    if base_where is not None:
-                        stmt = stmt.where(base_where)
-                    # Cash 7-day window
-                    if tname in ('cash_sessions', 'cash_movements') and hasattr(table.c, 'updated_at'):
-                        stmt = stmt.where(table.c.updated_at >= cash_cutoff)
+		cash_cutoff = datetime.now() - timedelta(days=7)
+		BATCH = 1000
 
-                    # LIMIT/OFFSET pagination
-                    rows_all: list[dict] = []
-                    offset = 0
-                    while True:
-                        result = cloud.execute(stmt.limit(BATCH).offset(offset))
-                        page = [dict(r._mapping) for r in result]
-                        rows_all.extend(page)
-                        if len(page) < BATCH:
-                            break
-                        offset += BATCH
+		# ── Pull from Supabase ──────────────────────────────────────────────────
+		_report('Conectando a Supabase…')
+		collected: dict[str, list[dict]] = {}
 
-                    collected[tname] = rows_all
-                    _report(f'{tname}: {len(rows_all)} registros descargados')
+		try:
+			with cloud_engine.connect() as cloud:
+				for model in models:
+					tname = model.__tablename__
+					table = model.__table__
 
-        except Exception as e:
-            logger.error('Error descargando de Supabase: %s', e, exc_info=True)
-            return False, f'Error de conexión a la nube: {e}'
+					# Build tenant-scoped WHERE clause.
+					# Child tables use a correlated subquery to avoid sending
+					# thousands of IDs over the wire.
+					if tname == 'tenants':
+						base_where = table.c.id == tenant_id
+					elif hasattr(table.c, 'tenant_id'):
+						base_where = table.c.tenant_id == tenant_id
+					elif tname == 'article_variants':
+						arts = model_by_name['articles'].__table__
+						sub = (
+							select(arts.c.id)
+							.where(arts.c.tenant_id == tenant_id)
+							.scalar_subquery()
+						)
+						base_where = table.c.article_id.in_(sub)
+					elif tname == 'sale_details':
+						sales = model_by_name['sales'].__table__
+						sub = (
+							select(sales.c.id)
+							.where(sales.c.tenant_id == tenant_id)
+							.scalar_subquery()
+						)
+						base_where = table.c.sale_id.in_(sub)
+					elif tname == 'stocks':
+						whs = model_by_name['warehouses'].__table__
+						sub = (
+							select(whs.c.id)
+							.where(whs.c.tenant_id == tenant_id)
+							.scalar_subquery()
+						)
+						base_where = table.c.warehouse_id.in_(sub)
+					elif tname == 'cash_movements':
+						sess = model_by_name['cash_sessions'].__table__
+						sub = (
+							select(sess.c.id)
+							.where(sess.c.tenant_id == tenant_id)
+							.where(sess.c.updated_at >= cash_cutoff)
+							.scalar_subquery()
+						)
+						base_where = table.c.session_id.in_(sub)
+					else:
+						base_where = None
 
-        # ── Safety backup ───────────────────────────────────────────────────────
-        _report('Creando copia de seguridad local…')
-        db = self._db_path()
-        if not db.exists():
-            return False, 'No se encontró la base de datos local.'
+					stmt = select(table)
+					if base_where is not None:
+						stmt = stmt.where(base_where)
+					# Cash 7-day window
+					if tname in ('cash_sessions', 'cash_movements') and hasattr(
+						table.c, 'updated_at'
+					):
+						stmt = stmt.where(table.c.updated_at >= cash_cutoff)
 
-        safety = db.parent / '_pre_cloud_restore.db'
-        try:
-            src = sqlite3.connect(str(db))
-            saf = sqlite3.connect(str(safety))
-            src.backup(saf)
-            saf.close()
-            src.close()
-        except Exception as e:
-            return False, f'No se pudo crear respaldo de seguridad: {e}'
+					# LIMIT/OFFSET pagination
+					rows_all: list[dict] = []
+					offset = 0
+					while True:
+						result = cloud.execute(stmt.limit(BATCH).offset(offset))
+						page = [dict(r._mapping) for r in result]
+						rows_all.extend(page)
+						if len(page) < BATCH:
+							break
+						offset += BATCH
 
-        # Dispose SQLAlchemy pool so sqlite3 can write freely
-        if self._engine:
-            self._engine.dispose()
-        try:
-            get_engine().dispose()
-        except Exception:
-            pass
+					collected[tname] = rows_all
+					_report(f'{tname}: {len(rows_all)} registros descargados')
 
-        # BUG 9: abortar si no se descargó NINGÚN dato — indica problema de conexión
-        # o de tenant ID, no un tenant vacío (que tendría al menos su propio registro)
-        if not any(rows for rows in collected.values()):
-            return False, (
-                'No se descargaron datos de la nube. '
-                'Verificá la conexión y el Tenant ID antes de restaurar.'
-            )
+		except Exception as e:
+			logger.error('Error descargando de Supabase: %s', e, exc_info=True)
+			return False, f'Error de conexión a la nube: {e}'
 
-        # ── Write to local SQLite ───────────────────────────────────────────────
-        _report('Escribiendo datos en la base local…')
+		# ── Safety backup ───────────────────────────────────────────────────────
+		_report('Creando copia de seguridad local…')
+		db = self._db_path()
+		if not db.exists():
+			return False, 'No se encontró la base de datos local.'
 
-        def _coerce(v):
-            """Normalize PostgreSQL types to sqlite3-compatible primitives."""
-            if v is None:
-                return None
-            if isinstance(v, bool):
-                return int(v)
-            if isinstance(v, Decimal):
-                return str(v)
-            if isinstance(v, datetime):
-                return v.isoformat()
-            if isinstance(v, date):
-                return v.isoformat()
-            return v
+		safety = db.parent / '_pre_cloud_restore.db'
+		try:
+			src = sqlite3.connect(str(db))
+			saf = sqlite3.connect(str(safety))
+			src.backup(saf)
+			saf.close()
+			src.close()
+		except Exception as e:
+			return False, f'No se pudo crear respaldo de seguridad: {e}'
 
-        con = None
-        con = sqlite3.connect(str(db))
-        try:
-            con.execute('PRAGMA foreign_keys=OFF')
-            con.execute('PRAGMA synchronous=OFF')
-            con.execute('PRAGMA journal_mode=WAL')
-            con.execute('PRAGMA cache_size=-65536')   # 64 MB page cache
+		# Dispose SQLAlchemy pool so sqlite3 can write freely
+		if self._engine:
+			self._engine.dispose()
+		try:
+			get_engine().dispose()
+		except Exception:
+			pass
 
-            # Clear synced tables in reverse FK order
-            for model in reversed(models):
-                con.execute(f'DELETE FROM "{model.__tablename__}"')
+		# BUG 9: abortar si no se descargó NINGÚN dato — indica problema de conexión
+		# o de tenant ID, no un tenant vacío (que tendría al menos su propio registro)
+		if not any(rows for rows in collected.values()):
+			return False, (
+				'No se descargaron datos de la nube. '
+				'Verificá la conexión y el Tenant ID antes de restaurar.'
+			)
 
-            # Bulk-insert in FK order (parents first)
-            for model in models:
-                tname = model.__tablename__
-                rows = collected.get(tname, [])
-                if not rows:
-                    continue
-                columns = list(rows[0].keys())
-                col_clause = ', '.join(f'"{c}"' for c in columns)
-                placeholders = ', '.join('?' * len(columns))
-                sql = f'INSERT OR REPLACE INTO "{tname}" ({col_clause}) VALUES ({placeholders})'
-                data = [tuple(_coerce(row[c]) for c in columns) for row in rows]
-                con.executemany(sql, data)
-                _report(f'  ✓ {tname}: {len(rows)} filas')
+		# ── Write to local SQLite ───────────────────────────────────────────────
+		_report('Escribiendo datos en la base local…')
 
-            con.commit()
-            con.execute('PRAGMA synchronous=NORMAL')
-            logger.info('Restauración desde la nube completada.')
+		def _coerce(v):
+			"""Normalize PostgreSQL types to sqlite3-compatible primitives."""
+			if v is None:
+				return None
+			if isinstance(v, bool):
+				return int(v)
+			if isinstance(v, Decimal):
+				return str(v)
+			if isinstance(v, datetime):
+				return v.isoformat()
+			if isinstance(v, date):
+				return v.isoformat()
+			return v
 
-        except Exception as e:
-            logger.error('Error escribiendo en SQLite: %s', e, exc_info=True)
-            # Roll back via safety copy
-            try:
-                src = sqlite3.connect(str(safety))
-                dst = sqlite3.connect(str(db))
-                src.backup(dst)
-                dst.close()
-                src.close()
-                logger.info('Revertido al respaldo de seguridad tras fallo.')
-            except Exception as rb_err:
-                logger.error('Rollback de seguridad también falló: %s', rb_err)
-            return False, f'Error al escribir datos: {e}'
-        finally:
-            if con is not None:
-                try:
-                    con.execute('PRAGMA foreign_keys=ON')
-                    con.close()
-                except Exception:
-                    pass
+		con = None
+		con = sqlite3.connect(str(db))
+		try:
+			con.execute('PRAGMA foreign_keys=OFF')
+			con.execute('PRAGMA synchronous=OFF')
+			con.execute('PRAGMA journal_mode=WAL')
+			con.execute('PRAGMA cache_size=-65536')  # 64 MB page cache
 
-        return True, 'OK'
+			# Clear synced tables in reverse FK order
+			for model in reversed(models):
+				con.execute(f'DELETE FROM "{model.__tablename__}"')
 
-    def restore_backup(self, backup_path: str) -> tuple[bool, str]:
-        """
-        Restaura un respaldo sobre pos_system.db.
-        Guarda una copia de seguridad del estado actual antes de sobreescribir.
-        El caller debe reiniciar la app después de llamar a este método.
-        """
-        src = Path(backup_path)
-        if not src.exists():
-            return False, 'El archivo de respaldo no existe.'
+			# Bulk-insert in FK order (parents first)
+			for model in models:
+				tname = model.__tablename__
+				rows = collected.get(tname, [])
+				if not rows:
+					continue
+				columns = list(rows[0].keys())
+				col_clause = ', '.join(f'"{c}"' for c in columns)
+				placeholders = ', '.join('?' * len(columns))
+				sql = f'INSERT OR REPLACE INTO "{tname}" ({col_clause}) VALUES ({placeholders})'
+				data = [tuple(_coerce(row[c]) for c in columns) for row in rows]
+				con.executemany(sql, data)
+				_report(f'  ✓ {tname}: {len(rows)} filas')
 
-        db = self._db_path()
-        try:
-            # Copia de seguridad del estado actual antes de restaurar
-            safety = db.parent / '_pre_restore.db'
-            cur = sqlite3.connect(str(db))
-            saf = sqlite3.connect(str(safety))
-            cur.backup(saf)
-            saf.close()
-            cur.close()
+			con.commit()
+			con.execute('PRAGMA synchronous=NORMAL')
+			logger.info('Restauración desde la nube completada.')
 
-            # Descartar el pool de SQLAlchemy antes de reemplazar el archivo
-            if self._engine:
-                self._engine.dispose()
+		except Exception as e:
+			logger.error('Error escribiendo en SQLite: %s', e, exc_info=True)
+			# Roll back via safety copy
+			try:
+				src = sqlite3.connect(str(safety))
+				dst = sqlite3.connect(str(db))
+				src.backup(dst)
+				dst.close()
+				src.close()
+				logger.info('Revertido al respaldo de seguridad tras fallo.')
+			except Exception as rb_err:
+				logger.error('Rollback de seguridad también falló: %s', rb_err)
+			return False, f'Error al escribir datos: {e}'
+		finally:
+			if con is not None:
+				try:
+					con.execute('PRAGMA foreign_keys=ON')
+					con.close()
+				except Exception:
+					pass
 
-            # Restaurar
-            bk = sqlite3.connect(str(src))
-            dst = sqlite3.connect(str(db))
-            bk.backup(dst)
-            dst.close()
-            bk.close()
+		return True, 'OK'
 
-            logger.info('Base restaurada desde %s', src)
-            return True, 'OK'
+	def restore_backup(self, backup_path: str) -> tuple[bool, str]:
+		"""
+		Restaura un respaldo sobre pos_system.db.
+		Guarda una copia de seguridad del estado actual antes de sobreescribir.
+		El caller debe reiniciar la app después de llamar a este método.
+		"""
+		src = Path(backup_path)
+		if not src.exists():
+			return False, 'El archivo de respaldo no existe.'
 
-        except Exception as e:
-            logger.error('Restauración fallida: %s', e)
-            return False, str(e)
+		db = self._db_path()
+		try:
+			# Copia de seguridad del estado actual antes de restaurar
+			safety = db.parent / '_pre_restore.db'
+			cur = sqlite3.connect(str(db))
+			saf = sqlite3.connect(str(safety))
+			cur.backup(saf)
+			saf.close()
+			cur.close()
+
+			# Descartar el pool de SQLAlchemy antes de reemplazar el archivo
+			if self._engine:
+				self._engine.dispose()
+
+			# Restaurar
+			bk = sqlite3.connect(str(src))
+			dst = sqlite3.connect(str(db))
+			bk.backup(dst)
+			dst.close()
+			bk.close()
+
+			logger.info('Base restaurada desde %s', src)
+			return True, 'OK'
+
+		except Exception as e:
+			logger.error('Restauración fallida: %s', e)
+			return False, str(e)

@@ -621,7 +621,9 @@ class MainDashboard(ctk.CTkFrame):
 		if self.main_area.winfo_exists():
 			for widget in list(self.main_area.winfo_children()):
 				widget.pack_forget()
-				self.after(1500, lambda w=widget: w.destroy() if w.winfo_exists() else None)
+				self.after(
+					1500, lambda w=widget: w.destroy() if w.winfo_exists() else None
+				)
 
 		self._active_view_path = view_path
 		self._update_nav_highlight(view_path)

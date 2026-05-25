@@ -158,7 +158,10 @@ class ReturnsController(BaseController):
 					return False, 'Ticket no encontrado.'
 				if sale.status not in _OPERABLE:
 					estado = sale.status or 'desconocido'
-					return False, f'Este ticket ya fue marcado como "{estado}". No se puede anular.'
+					return (
+						False,
+						f'Este ticket ya fue marcado como "{estado}". No se puede anular.',
+					)
 
 				# Verificar caja ANTES de modificar stock para evitar estado inconsistente
 				pm1 = (sale.payment_method or '').lower()
@@ -179,15 +182,23 @@ class ReturnsController(BaseController):
 				# BUG 17: en ventas parcialmente devueltas, solo restaurar el stock
 				# restante (original - ya devuelto) para no sobre-reponer inventario
 				qty_override_cancel = {
-					d.id: Decimal(str(d.quantity)) - Decimal(str(d.returned_quantity or 0))
+					d.id: Decimal(str(d.quantity))
+					- Decimal(str(d.returned_quantity or 0))
 					for d in sale.items
 				}
 				details_to_restore = [
-					d for d in sale.items if qty_override_cancel.get(d.id, Decimal('0')) > 0
+					d
+					for d in sale.items
+					if qty_override_cancel.get(d.id, Decimal('0')) > 0
 				]
 				warnings = self._restore_stock_for_items(
-					session, details_to_restore, sale_id, user_id, label='Anulación',
-					qty_override=qty_override_cancel, tenant_id=tenant_id,
+					session,
+					details_to_restore,
+					sale_id,
+					user_id,
+					label='Anulación',
+					qty_override=qty_override_cancel,
+					tenant_id=tenant_id,
 				)
 
 				total = Decimal(str(sale.total_amount or 0))
@@ -206,7 +217,9 @@ class ReturnsController(BaseController):
 
 				sale.status = 'anulada'
 				sale.profit = Decimal('0')
-				_customer_name = sale.customer.name if sale.customer else 'Consumidor Final'
+				_customer_name = (
+					sale.customer.name if sale.customer else 'Consumidor Final'
+				)
 				session.commit()
 
 				try:
@@ -285,11 +298,15 @@ class ReturnsController(BaseController):
 						# BUG 14: discount_amount supera el bruto — datos inconsistentes
 						logger.warning(
 							'discount_amount (%s) supera sale_total_gross (%s) en ticket %s',
-							discount_amount, sale_total_gross, sale_id,
+							discount_amount,
+							sale_total_gross,
+							sale_id,
 						)
 						discount_factor = Decimal('1')
 					else:
-						discount_factor = max(Decimal('0.0001'), min(raw_factor, Decimal('1')))
+						discount_factor = max(
+							Decimal('0.0001'), min(raw_factor, Decimal('1'))
+						)
 				else:
 					discount_factor = Decimal('1')
 
@@ -350,25 +367,32 @@ class ReturnsController(BaseController):
 						Decimal(str(detail_map[did].returned_quantity or 0)) + qty
 					)
 
-				new_total_returned = Decimal(str(sale.total_returned or 0)) + refund_total
+				new_total_returned = (
+					Decimal(str(sale.total_returned or 0)) + refund_total
+				)
 				# BUG 4: capping evita violar el CHECK constraint total_returned <= total_amount
 				# ante errores de redondeo acumulados en devoluciones parciales sucesivas
 				total_sale = Decimal(str(sale.total_amount or 0))
 				sale.total_returned = min(new_total_returned, total_sale)
 				if total_sale > 0:
 					net_remaining = total_sale - new_total_returned
-					sale.status = 'devuelta' if net_remaining <= Decimal('0') else 'parcial'
+					sale.status = (
+						'devuelta' if net_remaining <= Decimal('0') else 'parcial'
+					)
 				else:
 					# Venta sin valor monetario: estado basado en cantidades devueltas
 					all_qty_returned = all(
-						Decimal(str(d.returned_quantity or 0)) >= Decimal(str(d.quantity))
+						Decimal(str(d.returned_quantity or 0))
+						>= Decimal(str(d.quantity))
 						for d in sale.items
 					)
 					sale.status = 'devuelta' if all_qty_returned else 'parcial'
 				new_profit = Decimal(str(sale.profit or 0)) - profit_reduction
 				sale.profit = new_profit
 				_new_status = sale.status
-				_customer_name = sale.customer.name if sale.customer else 'Consumidor Final'
+				_customer_name = (
+					sale.customer.name if sale.customer else 'Consumidor Final'
+				)
 				_nc_items = [
 					{
 						'desc': detail_map[did].description,
@@ -414,7 +438,14 @@ class ReturnsController(BaseController):
 				return False, f'Error interno al procesar la devolución: {e}'
 
 	def _restore_stock_for_items(
-		self, session, details, sale_id, user_id, label='Devolución', qty_override=None, tenant_id=None
+		self,
+		session,
+		details,
+		sale_id,
+		user_id,
+		label='Devolución',
+		qty_override=None,
+		tenant_id=None,
 	):
 		warnings = []
 		variant_ids = [d.variant_id for d in details if d.variant_id]
@@ -571,7 +602,9 @@ class ReturnsController(BaseController):
 			amt_m2 = Decimal(str(sale.amount_method_2))
 			# Usar amount_method_1 y amount_method_2 almacenados en la venta original.
 			# Esto es determinista y no depende de búsquedas de texto en descripciones.
-			amt_m1_stored = Decimal(str(sale.amount_method_1)) if sale.amount_method_1 else None
+			amt_m1_stored = (
+				Decimal(str(sale.amount_method_1)) if sale.amount_method_1 else None
+			)
 			if amt_m1_stored and amt_m1_stored > 0:
 				original_total = amt_m1_stored + amt_m2
 			else:

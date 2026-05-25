@@ -274,7 +274,13 @@ class UsersView(BaseView):
 		self.tree.tag_configure('odd', background='#161616')
 		self.tree.tag_configure('even', background='#1a1a1a')
 
-		col_widths = {'ID': 50, 'Usuario': 160, 'Nombre en tickets': 180, 'Rol': 110, 'PIN': 90}
+		col_widths = {
+			'ID': 50,
+			'Usuario': 160,
+			'Nombre en tickets': 180,
+			'Rol': 110,
+			'PIN': 90,
+		}
 		for col in columns:
 			self.tree.heading(col, text=col)
 			self.tree.column(col, anchor='center', width=col_widths.get(col, 100))
@@ -360,7 +366,12 @@ class UsersView(BaseView):
 	def _on_user_tree_select(self, event=None):
 		has_sel = bool(self.tree.selection())
 		state = 'normal' if has_sel else 'disabled'
-		for btn in (self.btn_edit, self.btn_reset_pass, self.btn_update_pin, self.btn_delete):
+		for btn in (
+			self.btn_edit,
+			self.btn_reset_pass,
+			self.btn_update_pin,
+			self.btn_delete,
+		):
 			try:
 				btn.configure(state=state)
 			except Exception:
@@ -384,7 +395,13 @@ class UsersView(BaseView):
 			self.insert_tree_row(
 				tree=self.tree,
 				index=idx,
-				values=(u.get('id'), u.get('username'), ticket_name, role_display, pin_display),
+				values=(
+					u.get('id'),
+					u.get('username'),
+					ticket_name,
+					role_display,
+					pin_display,
+				),
 			)
 
 	# =========================================================
@@ -463,7 +480,9 @@ class UsersView(BaseView):
 					None,
 				)
 				if edited_user and edited_user.get('role') == 'admin':
-					admin_count = sum(1 for u in self._all_users if u.get('role') == 'admin')
+					admin_count = sum(
+						1 for u in self._all_users if u.get('role') == 'admin'
+					)
 					if admin_count <= 1:
 						self.show_error(
 							'No podés quitarle el rol de administrador al único admin del sistema.',
@@ -493,7 +512,11 @@ class UsersView(BaseView):
 					)
 				else:
 					ok, result_msg = self.controller.add_user(
-						tenant_id, username, password, role, recovery_pin=pin,
+						tenant_id,
+						username,
+						password,
+						role,
+						recovery_pin=pin,
 						display_name=display_name,
 					)
 			except Exception as exc:

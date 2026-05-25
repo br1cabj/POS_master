@@ -67,8 +67,8 @@ class DollarPriceController(BaseController):
 					.join(Article)
 					.filter(
 						Article.tenant_id == tenant_id,
-						ArticleVariant.is_active == True,
-						ArticleVariant.is_combo == False,
+						ArticleVariant.is_active.is_(True),
+						ArticleVariant.is_combo.is_(False),
 					)
 					.order_by(Article.name)
 					.all()
@@ -180,8 +180,8 @@ class DollarPriceController(BaseController):
 				.join(Article)
 				.filter(
 					Article.tenant_id == tenant_id,
-					ArticleVariant.is_active == True,
-					ArticleVariant.is_combo == False,
+					ArticleVariant.is_active.is_(True),
+					ArticleVariant.is_combo.is_(False),
 					ArticleVariant.cost_price_usd.isnot(None),
 					ArticleVariant.cost_price_usd > 0,
 				)
@@ -245,8 +245,8 @@ class DollarPriceController(BaseController):
 					.join(Article)
 					.filter(
 						Article.tenant_id == tenant_id,
-						ArticleVariant.is_active == True,
-						ArticleVariant.is_combo == False,
+						ArticleVariant.is_active.is_(True),
+						ArticleVariant.is_combo.is_(False),
 						ArticleVariant.cost_price_usd.isnot(None),
 						ArticleVariant.cost_price_usd > 0,
 					)
@@ -286,7 +286,7 @@ class DollarPriceController(BaseController):
 						session.query(ArticleVariant)
 						.filter(
 							ArticleVariant.base_variant_id == v.id,
-							ArticleVariant.is_active == True,
+							ArticleVariant.is_active.is_(True),
 						)
 						.all()
 					)
@@ -300,13 +300,19 @@ class DollarPriceController(BaseController):
 						child.cost_price = new_cost * units
 						child.selling_price = child_new_price
 						if child.selling_price_b is not None:
-							if v.selling_price_b is not None and old_base_price_b and old_base_price_b > 0:
+							if (
+								v.selling_price_b is not None
+								and old_base_price_b
+								and old_base_price_b > 0
+							):
 								child_b_scale = v.selling_price_b / old_base_price_b
 								child.selling_price_b = (
 									child.selling_price_b * child_b_scale
 								).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 							elif child_old_price and child_old_price > 0:
-								child_scale = child_new_price / Decimal(str(child_old_price))
+								child_scale = child_new_price / Decimal(
+									str(child_old_price)
+								)
 								child.selling_price_b = (
 									child.selling_price_b * child_scale
 								).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)

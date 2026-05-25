@@ -26,16 +26,15 @@ from datetime import date, datetime, timedelta
 import customtkinter as ctk
 
 from controllers.report_controller import ReportController
-from utils.date_picker import CTkDatePicker
 from core.base_view import BaseView
 from core.context import AppContext
+from utils.date_picker import CTkDatePicker
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
 	ACCENT_HOVER,
 	ACCENT_TEXT,
 	BORDER,
-	BORDER_ACTIVE,
 	FONT_BODY_BOLD,
 	FONT_HEADING,
 	FONT_LABEL,
@@ -372,7 +371,8 @@ class ReportView(BaseView):
 			try:
 				data = self.controller.get_report_data(tenant_id, date_from, date_to)
 				self.after(
-					0, lambda: self._render_report(data) if self.winfo_exists() else None
+					0,
+					lambda: self._render_report(data) if self.winfo_exists() else None,
 				)
 			except Exception as exc:
 				err = str(exc)
@@ -410,6 +410,7 @@ class ReportView(BaseView):
 	def _on_report_error(self, error_msg: str):
 		self._clear_body()
 		from utils.styles import RED_TEXT
+
 		ctk.CTkLabel(
 			self._scroll,
 			text=f'⚠  Error al generar el reporte:\n{error_msg}',
@@ -942,4 +943,11 @@ class ReportView(BaseView):
 		self._lbl_status.configure(text=message, text_color=color)
 		self._btn_pdf.configure(state='normal')
 		self._btn_csv.configure(state='normal')
-		self.schedule(6000, lambda: self._lbl_status.configure(text='') if self._lbl_status.winfo_exists() else None)
+		self.schedule(
+			6000,
+			lambda: (
+				self._lbl_status.configure(text='')
+				if self._lbl_status.winfo_exists()
+				else None
+			),
+		)

@@ -14,7 +14,6 @@ class LabelPrinter:
 	def __init__(self):
 		self.temp_dir = tempfile.mkdtemp(prefix='cloudpos_labels_')
 
-
 	def generate_labels_pdf(self, products_list, filename='etiquetas_gondola.pdf'):
 		"""
 		products_list debe ser una lista de diccionarios:
@@ -85,6 +84,8 @@ class LabelPrinter:
 					try:
 						os.remove(os.path.join(self.temp_dir, file))
 					except OSError as e:
-						logger.warning(f'No se pudo eliminar archivo temporal: {file} — {e}')
+						logger.warning(
+							f'No se pudo eliminar archivo temporal: {file} — {e}'
+						)
 		except Exception as e:
 			logger.error(f'Error al limpiar archivos temporales: {e}', exc_info=True)

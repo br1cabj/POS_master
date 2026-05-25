@@ -63,14 +63,19 @@ class CloudLicenseController:
 		try:
 			parts = code.strip().upper().split('-')
 			if len(parts) != 4 or parts[0] != 'CLOUD':
-				return False, 'Formato inválido. Esperado: CLOUD-AAAAMMDD-TENANTID-FIRMA'
+				return (
+					False,
+					'Formato inválido. Esperado: CLOUD-AAAAMMDD-TENANTID-FIRMA',
+				)
 
 			_, exp_str, tenant_hex, sig = parts
 
 			if len(exp_str) != 8:
 				return False, 'Fecha de vencimiento inválida en el código.'
 
-			if len(tenant_hex) != 32 or not all(c in '0123456789ABCDEF' for c in tenant_hex):
+			if len(tenant_hex) != 32 or not all(
+				c in '0123456789ABCDEF' for c in tenant_hex
+			):
 				return False, 'Tenant ID inválido en el código.'
 
 			exp_date = f'{exp_str[:4]}-{exp_str[4:6]}-{exp_str[6:8]}'
@@ -86,11 +91,13 @@ class CloudLicenseController:
 			if sig.lower() != expected.lower():
 				return False, 'Código inválido o alterado.'
 
-			self._write({
-				'tenant_id': tenant_id,
-				'expiry': exp_date,
-				'signature': expected,
-			})
+			self._write(
+				{
+					'tenant_id': tenant_id,
+					'expiry': exp_date,
+					'signature': expected,
+				}
+			)
 			exp_fmt = f'{exp_str[6:8]}/{exp_str[4:6]}/{exp_str[:4]}'
 			return True, f'Plan cloud activado hasta el {exp_fmt}.'
 

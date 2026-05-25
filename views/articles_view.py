@@ -5,12 +5,12 @@ from tkinter import ttk
 import customtkinter as ctk
 
 import utils.settings_manager as cfg
-from utils.date_picker import CTkDatePicker
 from controllers.article_controller import ArticleController
 from controllers.inventory_controller import InventoryController
 from controllers.label_controller import LabelController
 from core.base_view import BaseView
 from core.context import AppContext
+from utils.date_picker import CTkDatePicker
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
@@ -85,10 +85,18 @@ class ArticlesView(BaseView):
 		self._var_discount_enabled = ctk.BooleanVar(value=False)
 		self._var_discount_pct = ctk.StringVar(value='')
 
-		self._trace_cost = self._var_cost_str.trace_add('write', self._on_cost_or_margin_changed)
-		self._trace_margin = self._var_margin.trace_add('write', self._on_cost_or_margin_changed)
-		self._trace_iva = self._var_iva_included.trace_add('write', self._on_cost_or_margin_changed)
-		self._trace_price = self._var_price_str.trace_add('write', self._on_price_changed)
+		self._trace_cost = self._var_cost_str.trace_add(
+			'write', self._on_cost_or_margin_changed
+		)
+		self._trace_margin = self._var_margin.trace_add(
+			'write', self._on_cost_or_margin_changed
+		)
+		self._trace_iva = self._var_iva_included.trace_add(
+			'write', self._on_cost_or_margin_changed
+		)
+		self._trace_price = self._var_price_str.trace_add(
+			'write', self._on_price_changed
+		)
 
 		self._build_left_panel()
 		self._build_right_panel()
@@ -136,7 +144,9 @@ class ArticlesView(BaseView):
 			fg_color=SURFACE1,
 			corner_radius=10,
 		)
-		self._form_scroll.grid(row=1, column=0, sticky='nsew', padx=PAD_MD, pady=(0, PAD_MD))
+		self._form_scroll.grid(
+			row=1, column=0, sticky='nsew', padx=PAD_MD, pady=(0, PAD_MD)
+		)
 		self._form_scroll.grid_columnconfigure(0, weight=1)
 
 		self._build_section_identificacion(self._form_scroll)
@@ -217,7 +227,9 @@ class ArticlesView(BaseView):
 		self.lbl_barcode_msg.pack(anchor='w', pady=(0, PAD_SM))
 		self.lbl_barcode_msg.pack_forget()
 
-		self._name_lbl_frame, _ = make_form_label(sec, 'NOMBRE DEL PRODUCTO', required=True)
+		self._name_lbl_frame, _ = make_form_label(
+			sec, 'NOMBRE DEL PRODUCTO', required=True
+		)
 		self._name_lbl_frame.pack(anchor='w', pady=(PAD_SM, PAD_XS))
 		self.entry_name = ctk.CTkEntry(
 			sec,
@@ -367,9 +379,9 @@ class ArticlesView(BaseView):
 			fill='x', pady=(PAD_MD, PAD_SM)
 		)
 		_list_b_name = cfg.get('price_list_b_name', 'Mayorista')
-		make_form_label(sec, f'PRECIO LISTA B — {_list_b_name.upper()} ($)', required=False)[0].pack(
-			anchor='w', pady=(0, PAD_XS)
-		)
+		make_form_label(
+			sec, f'PRECIO LISTA B — {_list_b_name.upper()} ($)', required=False
+		)[0].pack(anchor='w', pady=(0, PAD_XS))
 		self.entry_price_b = ctk.CTkEntry(
 			sec,
 			placeholder_text='Dejar vacío = mismo que Lista A',
@@ -545,7 +557,10 @@ class ArticlesView(BaseView):
 			fg_color='transparent',
 			hover_color=SURFACE3,
 			text_color=TEXT_MUTED,
-			command=lambda: [self.entry_search.delete(0, 'end'), self._debounced_search()],
+			command=lambda: [
+				self.entry_search.delete(0, 'end'),
+				self._debounced_search(),
+			],
 		).pack(side='left', padx=(4, 0))
 
 		self.lbl_count = ctk.CTkLabel(
@@ -665,14 +680,20 @@ class ArticlesView(BaseView):
 	def _open_adjust_popup(self):
 		selected = self.tree.selection()
 		if not selected:
-			self.show_warning('Seleccioná un producto de la tabla para ajustar su stock.')
+			self.show_warning(
+				'Seleccioná un producto de la tabla para ajustar su stock.'
+			)
 			return
 
 		values = self.tree.item(selected[0], 'values')
 		variant_id = values[0]
 
 		variant_data = next(
-			(v for v in self.current_variants if str(v.get('variant_id')) == str(variant_id)),
+			(
+				v
+				for v in self.current_variants
+				if str(v.get('variant_id')) == str(variant_id)
+			),
 			None,
 		)
 		if not variant_data:
@@ -708,12 +729,18 @@ class ArticlesView(BaseView):
 
 		# Stock actual
 		stock_frame = ctk.CTkFrame(
-			popup, fg_color=SURFACE3, corner_radius=8, border_width=1, border_color=BORDER_ACTIVE
+			popup,
+			fg_color=SURFACE3,
+			corner_radius=8,
+			border_width=1,
+			border_color=BORDER_ACTIVE,
 		)
 		stock_frame.pack(fill='x', padx=24, pady=(4, 12))
 		_sf = ctk.CTkFrame(stock_frame, fg_color='transparent')
 		_sf.pack(fill='x', padx=16, pady=8)
-		ctk.CTkLabel(_sf, text='Stock actual:', font=FONT_BODY, text_color=TEXT_MUTED).pack(side='left')
+		ctk.CTkLabel(
+			_sf, text='Stock actual:', font=FONT_BODY, text_color=TEXT_MUTED
+		).pack(side='left')
 		lbl_current = ctk.CTkLabel(
 			_sf,
 			text=f'{current_stock:.2f} unidades',
@@ -819,7 +846,9 @@ class ArticlesView(BaseView):
 		)
 		entry_notes.pack(fill='x', padx=24, pady=(4, 12))
 
-		lbl_err = ctk.CTkLabel(popup, text='', font=FONT_LABEL_BOLD, text_color=RED_TEXT)
+		lbl_err = ctk.CTkLabel(
+			popup, text='', font=FONT_LABEL_BOLD, text_color=RED_TEXT
+		)
 		lbl_err.pack()
 
 		def _confirm():
@@ -973,7 +1002,9 @@ class ArticlesView(BaseView):
 		entry_until = CTkDatePicker(dialog, width=260, height=36)
 		if current_until:
 			entry_until.set_date(
-				current_until.date() if hasattr(current_until, 'date') else current_until
+				current_until.date()
+				if hasattr(current_until, 'date')
+				else current_until
 			)
 		entry_until.pack(padx=PAD_LG, fill='x', pady=(0, PAD_SM))
 
@@ -1358,7 +1389,9 @@ class ArticlesView(BaseView):
 			)
 			if not found:
 				return new_code
-		raise RuntimeError('No se pudo generar un código de barras único después de 100 intentos.')
+		raise RuntimeError(
+			'No se pudo generar un código de barras único después de 100 intentos.'
+		)
 
 	def save_article(self, event=None):
 		if not self.winfo_exists():

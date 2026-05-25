@@ -44,10 +44,9 @@ class SupplierReturnsController(BaseController):
 		):
 			for ri in ret.items:
 				if ri.purchase_detail_id:
-					already_returned[ri.purchase_detail_id] = (
-						already_returned.get(ri.purchase_detail_id, Decimal('0'))
-						+ Decimal(str(ri.quantity_returned))
-					)
+					already_returned[ri.purchase_detail_id] = already_returned.get(
+						ri.purchase_detail_id, Decimal('0')
+					) + Decimal(str(ri.quantity_returned))
 		return already_returned
 
 	def get_purchases(self, tenant_id, limit=300):
@@ -239,7 +238,10 @@ class SupplierReturnsController(BaseController):
 						.first()
 					)
 					if not pre_check_cash:
-						return False, '⚠️ Debes ABRIR LA CAJA para registrar reembolsos en efectivo.'
+						return (
+							False,
+							'⚠️ Debes ABRIR LA CAJA para registrar reembolsos en efectivo.',
+						)
 
 				# Crear registro de devolución
 				purchase_return = PurchaseReturn(
@@ -268,7 +270,10 @@ class SupplierReturnsController(BaseController):
 						.all()
 					):
 						vid = stock_row.variant_id
-						if vid not in stocks_map or stock_row.quantity > stocks_map[vid].quantity:
+						if (
+							vid not in stocks_map
+							or stock_row.quantity > stocks_map[vid].quantity
+						):
 							stocks_map[vid] = stock_row
 				for v in validated:
 					session.add(
@@ -359,7 +364,9 @@ class SupplierReturnsController(BaseController):
 
 				# Capturar datos de relaciones antes del commit (se expiran tras commit)
 				_return_id = purchase_return.id
-				_supplier_name = purchase.supplier.name if purchase.supplier else 'Proveedor'
+				_supplier_name = (
+					purchase.supplier.name if purchase.supplier else 'Proveedor'
+				)
 				_pdf_items = [
 					{
 						'description': v['description'],

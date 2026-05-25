@@ -142,6 +142,7 @@ class SalesController(BaseController):
 		Usado por el dropdown de búsqueda en tiempo real.
 		"""
 		from sqlalchemy import or_
+
 		with self._Session() as session:
 			try:
 				q_like = f'%{query}%'
@@ -184,7 +185,9 @@ class SalesController(BaseController):
 							'units_per_pack': units,
 							'pack_label': getattr(v, 'pack_label', None),
 							'base_variant_id': base_vid,
-							'discount_pct': float(v.discount_pct) if v.discount_pct else 0.0,
+							'discount_pct': float(v.discount_pct)
+							if v.discount_pct
+							else 0.0,
 							'discount_until': v.discount_until,
 							'supplier_discount_pct': 0.0,
 							'supplier_discount_until': None,
@@ -492,7 +495,9 @@ class SalesController(BaseController):
 										f'Falta ingrediente para preparar: {variant.article.name}'
 									)
 								stock.quantity -= req_qty
-								cost_price += (ci.ingredient.cost_price or Decimal('0')) * ci.quantity_required
+								cost_price += (
+									ci.ingredient.cost_price or Decimal('0')
+								) * ci.quantity_required
 								session.add(
 									StockMovement(
 										movement_type='out',
@@ -600,8 +605,16 @@ class SalesController(BaseController):
 						new_sale.amount_method_2 = amount_m2
 						new_sale.amount_method_1 = amount_m1
 						# Solo el método en efectivo afecta el saldo físico de caja
-						mov_type_1 = 'venta' if payment_method.lower() in _CASH_METHODS else 'venta_digital'
-						mov_type_2 = 'venta' if payment_method_2_lower in _CASH_METHODS else 'venta_digital'
+						mov_type_1 = (
+							'venta'
+							if payment_method.lower() in _CASH_METHODS
+							else 'venta_digital'
+						)
+						mov_type_2 = (
+							'venta'
+							if payment_method_2_lower in _CASH_METHODS
+							else 'venta_digital'
+						)
 						session.add(
 							CashMovement(
 								session_id=active_cash.id,
@@ -619,7 +632,11 @@ class SalesController(BaseController):
 							)
 						)
 					else:
-						mov_type = 'venta' if payment_method.lower() in _CASH_METHODS else 'venta_digital'
+						mov_type = (
+							'venta'
+							if payment_method.lower() in _CASH_METHODS
+							else 'venta_digital'
+						)
 						session.add(
 							CashMovement(
 								session_id=active_cash.id,

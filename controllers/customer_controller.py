@@ -55,7 +55,9 @@ class CustomerController(BaseController):
 				rows = (
 					session.query(Customer, last_sale_sq.c.last_date)
 					.outerjoin(last_sale_sq, Customer.id == last_sale_sq.c.customer_id)
-					.filter(Customer.tenant_id == tenant_id, Customer.is_active.is_(True))
+					.filter(
+						Customer.tenant_id == tenant_id, Customer.is_active.is_(True)
+					)
 					.order_by(Customer.name)
 					.all()
 				)
@@ -171,7 +173,9 @@ class CustomerController(BaseController):
 				return True, f"Cliente '{name_clean}' actualizado con éxito."
 			except Exception as e:
 				session.rollback()
-				logger.error(f'Error al actualizar cliente {customer_id}: {e}', exc_info=True)
+				logger.error(
+					f'Error al actualizar cliente {customer_id}: {e}', exc_info=True
+				)
 				return False, 'Error interno al actualizar el cliente.'
 
 	def pay_debt(
@@ -223,7 +227,9 @@ class CustomerController(BaseController):
 					)
 				)
 
-				balance_after = customer.current_balance  # capturar antes del commit (post-commit los atributos expiran)
+				balance_after = (
+					customer.current_balance
+				)  # capturar antes del commit (post-commit los atributos expiran)
 				session.commit()
 
 				# Mensaje dinámico según si quedó con saldo a favor o deuda
@@ -276,7 +282,9 @@ class CustomerController(BaseController):
 				id_filter = f'%[cid:{customer_id}]%'
 				# BUG 13: SQLite ilike is only ASCII-case-insensitive; use lower() on both
 				# sides so names with accented chars (é, ñ) still match correctly.
-				name_filter_lower = f'%abono de cuenta corriente: {customer.name.lower()}%'
+				name_filter_lower = (
+					f'%abono de cuenta corriente: {customer.name.lower()}%'
+				)
 				payments = (
 					session.query(CashMovement)
 					.join(CashSession, CashMovement.session_id == CashSession.id)
@@ -285,7 +293,9 @@ class CustomerController(BaseController):
 						or_(
 							CashMovement.customer_id == customer_id,
 							CashMovement.description.ilike(id_filter),
-							func.lower(CashMovement.description).like(name_filter_lower),
+							func.lower(CashMovement.description).like(
+								name_filter_lower
+							),
 						),
 					)
 					.distinct()

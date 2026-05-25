@@ -88,7 +88,10 @@ class SupplierReturnsView(BaseView):
 			fg_color='transparent',
 			hover_color=SURFACE3,
 			text_color=TEXT_MUTED,
-			command=lambda: [self.search_entry.delete(0, 'end'), self._load_purchases()],
+			command=lambda: [
+				self.search_entry.delete(0, 'end'),
+				self._load_purchases(),
+			],
 		).grid(row=0, column=1)
 
 		tree_frame = ctk.CTkFrame(self.left, fg_color='transparent')
@@ -170,7 +173,8 @@ class SupplierReturnsView(BaseView):
 			self._populate_purchases_tree(self._purchases)
 			return
 		filtered = [
-			p for p in self._purchases
+			p
+			for p in self._purchases
 			if q in p['supplier_name'].lower()
 			or q in (p.get('invoice_number') or '').lower()
 		]
@@ -189,7 +193,9 @@ class SupplierReturnsView(BaseView):
 
 		def _run():
 			try:
-				purchase = self.controller.get_purchase_with_details(tenant_id, purchase_id)
+				purchase = self.controller.get_purchase_with_details(
+					tenant_id, purchase_id
+				)
 			except Exception:
 				purchase = None
 			if self.winfo_exists():
@@ -626,7 +632,9 @@ class SupplierReturnsView(BaseView):
 			return
 
 		cost = Decimal(str(item['unit_cost']))
-		existing = next((c for c in self._return_cart if c['detail_id'] == detail_id), None)
+		existing = next(
+			(c for c in self._return_cart if c['detail_id'] == detail_id), None
+		)
 		if existing:
 			new_qty = Decimal(str(existing['qty'])) + qty
 			existing['qty'] = float(new_qty)

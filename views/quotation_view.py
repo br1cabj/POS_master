@@ -284,6 +284,7 @@ class QuotationView(BaseView):
 		raw_date = str(q['date'])[:10]
 		try:
 			from datetime import datetime as _dt
+
 			display_date = _dt.strptime(raw_date, '%Y-%m-%d').strftime('%d/%m/%Y')
 		except Exception:
 			display_date = raw_date
@@ -634,7 +635,9 @@ class QuotationView(BaseView):
 			row=2, column=1, sticky='ew', padx=PAD_MD, pady=(PAD_XS, PAD_SM)
 		)
 
-		self._entry_valid.bind('<KeyRelease>', lambda e: setattr(self, '_form_is_dirty', True))
+		self._entry_valid.bind(
+			'<KeyRelease>', lambda e: setattr(self, '_form_is_dirty', True)
+		)
 		if prefill and prefill.get('valid_until'):
 			try:
 				vu_date = datetime.strptime(
@@ -666,7 +669,13 @@ class QuotationView(BaseView):
 		if disc_prefill.endswith('.0'):
 			disc_prefill = disc_prefill[:-2]
 		self._entry_disc.insert(0, disc_prefill)
-		self._entry_disc.bind('<KeyRelease>', lambda e: (setattr(self, '_form_is_dirty', True), self._update_totals_label()))
+		self._entry_disc.bind(
+			'<KeyRelease>',
+			lambda e: (
+				setattr(self, '_form_is_dirty', True),
+				self._update_totals_label(),
+			),
+		)
 
 		lbl_frame_4, _ = make_form_label(gen, 'Notas / Condiciones')
 		lbl_frame_4.grid(row=3, column=0, columnspan=3, sticky='w', padx=PAD_MD)

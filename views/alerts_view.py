@@ -164,9 +164,9 @@ class AlertsView(BaseView):
 
 		# ── Tarjetas de resumen ──
 		cards = [
-			('agotado', '🔴 Agotados',  RED_DIM,    RED_TEXT),
-			('critico', '🟠 Críticos',   ORANGE_DIM, ORANGE_TEXT),
-			('alerta',  '🟡 En alerta',  SURFACE2,   TEXT_SECONDARY),
+			('agotado', '🔴 Agotados', RED_DIM, RED_TEXT),
+			('critico', '🟠 Críticos', ORANGE_DIM, ORANGE_TEXT),
+			('alerta', '🟡 En alerta', SURFACE2, TEXT_SECONDARY),
 		]
 		for col, (key, label, bg, fg) in enumerate(cards):
 			card = ctk.CTkFrame(
@@ -189,7 +189,9 @@ class AlertsView(BaseView):
 			)
 			lbl_n.pack(pady=(12, 2))
 			lbl_n.bind('<Button-1>', lambda e, k=key: self._set_filter(k))
-			lbl_cat = ctk.CTkLabel(card, text=label, font=FONT_LABEL, text_color=fg, cursor='hand2')
+			lbl_cat = ctk.CTkLabel(
+				card, text=label, font=FONT_LABEL, text_color=fg, cursor='hand2'
+			)
 			lbl_cat.pack(pady=(0, 12))
 			lbl_cat.bind('<Button-1>', lambda e, k=key: self._set_filter(k))
 			self._card_labels[key] = lbl_n
@@ -202,7 +204,12 @@ class AlertsView(BaseView):
 			filter_frame, text='Filtrar:', font=FONT_LABEL, text_color=TEXT_MUTED
 		).pack(side='left', padx=(0, PAD_SM))
 
-		for key, label in (('all', 'Todos'), ('agotado', 'Agotados'), ('critico', 'Críticos'), ('alerta', 'En alerta')):
+		for key, label in (
+			('all', 'Todos'),
+			('agotado', 'Agotados'),
+			('critico', 'Críticos'),
+			('alerta', 'En alerta'),
+		):
 			btn = ctk.CTkButton(
 				filter_frame,
 				text=label,
@@ -249,12 +256,15 @@ class AlertsView(BaseView):
 		self.init_treeview(self.tree)
 
 		col_widths = {'Código': 110, 'Producto': 340, 'Stock': 90, 'Urgencia': 110}
-		col_anchors = {'Código': 'center', 'Producto': 'w', 'Stock': 'center', 'Urgencia': 'center'}
+		col_anchors = {
+			'Código': 'center',
+			'Producto': 'w',
+			'Stock': 'center',
+			'Urgencia': 'center',
+		}
 		for col in columns:
 			self.tree.column(col, anchor=col_anchors[col], width=col_widths[col])
-			self.tree.heading(
-				col, text=col, command=lambda c=col: self._sort_by(c)
-			)
+			self.tree.heading(col, text=col, command=lambda c=col: self._sort_by(c))
 
 		self.tree.tag_configure('agotado', foreground=RED_TEXT)
 		self.tree.tag_configure('critico', foreground=ORANGE_TEXT)
@@ -277,14 +287,20 @@ class AlertsView(BaseView):
 		try:
 			raw = int(self._threshold_var.get())
 			val = max(1, raw)
-			if hasattr(self, '_threshold_entry') and self._threshold_entry.winfo_exists():
+			if (
+				hasattr(self, '_threshold_entry')
+				and self._threshold_entry.winfo_exists()
+			):
 				if raw < 1:
 					self._threshold_entry.configure(border_color='#f97316')
 				else:
 					self._threshold_entry.configure(border_color=BORDER_ACTIVE)
 			return val
 		except ValueError:
-			if hasattr(self, '_threshold_entry') and self._threshold_entry.winfo_exists():
+			if (
+				hasattr(self, '_threshold_entry')
+				and self._threshold_entry.winfo_exists()
+			):
 				self._threshold_entry.configure(border_color='#ef4444')
 			return 5
 
@@ -304,9 +320,13 @@ class AlertsView(BaseView):
 	def _highlight_filter(self, active: str):
 		for key, btn in self._filter_buttons.items():
 			if key == active:
-				btn.configure(fg_color=ACCENT_DIM, border_color=ACCENT, text_color=ACCENT_TEXT)
+				btn.configure(
+					fg_color=ACCENT_DIM, border_color=ACCENT, text_color=ACCENT_TEXT
+				)
 			else:
-				btn.configure(fg_color=SURFACE2, border_color=BORDER, text_color=TEXT_SECONDARY)
+				btn.configure(
+					fg_color=SURFACE2, border_color=BORDER, text_color=TEXT_SECONDARY
+				)
 
 	def _sort_by(self, col: str):
 		if self._sort_col == col:
@@ -321,7 +341,9 @@ class AlertsView(BaseView):
 		arrow_map = {True: '▲', False: '▼'}
 		for col in ('Código', 'Producto', 'Stock', 'Urgencia'):
 			arrow = f'  {arrow_map[self._sort_asc]}' if col == self._sort_col else ''
-			self.tree.heading(col, text=f'{col}{arrow}', command=lambda c=col: self._sort_by(c))
+			self.tree.heading(
+				col, text=f'{col}{arrow}', command=lambda c=col: self._sort_by(c)
+			)
 
 	def _apply_display(self):
 		# Filtrar
@@ -339,9 +361,9 @@ class AlertsView(BaseView):
 			reverse = not self._sort_asc
 			sev_order = {'agotado': 0, 'critico': 1, 'alerta': 2}
 			key_fns = {
-				'Stock':    lambda x: float(x['stock']),
+				'Stock': lambda x: float(x['stock']),
 				'Producto': lambda x: x['_label'].lower(),
-				'Código':   lambda x: (x.get('barcode') or '').lower(),
+				'Código': lambda x: (x.get('barcode') or '').lower(),
 				'Urgencia': lambda x: sev_order.get(x['_sev_key'], 3),
 			}
 			if self._sort_col in key_fns:
@@ -389,8 +411,8 @@ class AlertsView(BaseView):
 
 	def _update_cards(self):
 		agotados = sum(1 for i in self._all_items if i['_sev_key'] == 'agotado')
-		criticos  = sum(1 for i in self._all_items if i['_sev_key'] == 'critico')
-		alertas   = sum(1 for i in self._all_items if i['_sev_key'] == 'alerta')
+		criticos = sum(1 for i in self._all_items if i['_sev_key'] == 'critico')
+		alertas = sum(1 for i in self._all_items if i['_sev_key'] == 'alerta')
 		self._card_labels['agotado'].configure(text=str(agotados))
 		self._card_labels['critico'].configure(text=str(criticos))
 		self._card_labels['alerta'].configure(text=str(alertas))
@@ -403,7 +425,9 @@ class AlertsView(BaseView):
 
 	def load_data(self):
 		threshold = self._get_threshold()
-		raw = self.controller.get_low_stock_variants(self.ctx.tenant_id, threshold=threshold)
+		raw = self.controller.get_low_stock_variants(
+			self.ctx.tenant_id, threshold=threshold
+		)
 
 		self._all_items = []
 		for item in raw:
@@ -414,12 +438,14 @@ class AlertsView(BaseView):
 				parts.append(item['attribute_2'])
 			label = ' — '.join(parts)
 			sev_key, sev_label = self._severity(float(item['stock']), threshold)
-			self._all_items.append({
-				**item,
-				'_label':    label,
-				'_sev_key':  sev_key,
-				'_sev_label': sev_label,
-			})
+			self._all_items.append(
+				{
+					**item,
+					'_label': label,
+					'_sev_key': sev_key,
+					'_sev_label': sev_label,
+				}
+			)
 
 		self._update_cards()
 		self._apply_display()
@@ -449,6 +475,7 @@ class AlertsView(BaseView):
 		navigate = getattr(self.ctx, 'navigate', None)
 		if navigate:
 			from views.purchases_view import PurchasesView
+
 			navigate(PurchasesView, requires_admin=True)
 		else:
 			self.show_warning(

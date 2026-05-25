@@ -102,7 +102,10 @@ class ArticleHistoryView(BaseView):
 			fg_color='transparent',
 			hover_color=SURFACE3,
 			text_color=TEXT_MUTED,
-			command=lambda: [self.entry_search.delete(0, 'end'), self._debounced_search()],
+			command=lambda: [
+				self.entry_search.delete(0, 'end'),
+				self._debounced_search(),
+			],
 		).pack(side='left', padx=(4, 0))
 
 		btn_box = ctk.CTkFrame(header_frame, fg_color='transparent')

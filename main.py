@@ -3,6 +3,19 @@ import os
 import sys
 
 import customtkinter as ctk
+from CTkMessagebox import CTkMessagebox
+
+from controllers.license_controller import LicenseController
+from core.context import AppContext
+from database.migrations import run_migrations
+from utils.config import get_engine
+from utils.settings_manager import SettingsManager
+from utils.settings_manager import get as settings_get
+from views.login_view import LoginView
+from views.main_dashboard import MainDashboard
+from views.onboarding_view import OnboardingView
+from views.setup_wizard_view import SetupWizard
+
 
 def _setup_logging():
 	if getattr(sys, 'frozen', False):
@@ -16,7 +29,9 @@ def _setup_logging():
 			os.makedirs(_base, exist_ok=True)
 			log_path = os.path.join(_base, 'cloudpos.log')
 	else:
-		log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cloudpos.log')
+		log_path = os.path.join(
+			os.path.dirname(os.path.abspath(__file__)), 'cloudpos.log'
+		)
 	logging.basicConfig(
 		filename=log_path,
 		level=logging.WARNING,
@@ -24,19 +39,8 @@ def _setup_logging():
 		encoding='utf-8',
 	)
 
-_setup_logging()
-from CTkMessagebox import CTkMessagebox
 
-from controllers.license_controller import LicenseController
-from core.context import AppContext
-from database.migrations import run_migrations
-from utils.config import get_engine
-from utils.settings_manager import SettingsManager
-from utils.settings_manager import get as settings_get
-from views.login_view import LoginView
-from views.main_dashboard import MainDashboard
-from views.onboarding_view import OnboardingView
-from views.setup_wizard_view import SetupWizard
+_setup_logging()
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +91,7 @@ class PosApp(ctk.CTk):
 			pending = self._count_unsynced_sales()
 			if pending > 0:
 				from CTkMessagebox import CTkMessagebox
+
 				msg = CTkMessagebox(
 					title='Ventas sin sincronizar',
 					message=(
@@ -111,14 +116,18 @@ class PosApp(ctk.CTk):
 			return 0
 		try:
 			from utils.sync_worker import _load_state
+
 			state = _load_state()
 			last_str = state.get('sales')
 			if not last_str:
 				return 0
 			from datetime import datetime as _dt
+
 			last_sync = _dt.fromisoformat(last_str)
 			from sqlalchemy.orm import sessionmaker
+
 			from database.models import Sale
+
 			Session = sessionmaker(bind=self.db_engine)
 			with Session() as s:
 				return s.query(Sale).filter(Sale.updated_at > last_sync).count()
@@ -138,6 +147,7 @@ class PosApp(ctk.CTk):
 				# Normalizar la ruta para SQLAlchemy: las rutas UNC de Windows
 				# (\\server\share\file.db) necesitan barras y 4 slashes en la URL.
 				from utils.config import make_engine
+
 				db_path = settings_get('db_remote_path', '')
 				_p = db_path.replace('\\', '/')
 				_url = f'sqlite://{_p}' if _p.startswith('//') else f'sqlite:///{_p}'
@@ -149,6 +159,7 @@ class PosApp(ctk.CTk):
 				self.db_engine = get_engine()
 				run_migrations(self.db_engine)
 				from utils.sync_worker import SyncWorker
+
 				self._sync_worker = SyncWorker(self.db_engine)
 				self._sync_worker.start()
 		return self.db_engine
@@ -196,9 +207,11 @@ class PosApp(ctk.CTk):
 	def _update_offline_backup(self, remote_db_path: str):
 		"""Copia el DB remoto al local de respaldo en segundo plano (no bloquea la UI)."""
 		import threading as _th
+
 		def _do():
 			try:
 				import sqlite3
+
 				offline = self._offline_db_path()
 				src = sqlite3.connect(remote_db_path)
 				dst = sqlite3.connect(offline)
@@ -208,6 +221,7 @@ class PosApp(ctk.CTk):
 				logger.info('Backup offline actualizado desde el DB remoto.')
 			except Exception as e:
 				logger.warning('No se pudo actualizar el backup offline: %s', e)
+
 		_th.Thread(target=_do, daemon=True, name='OfflineBackup').start()
 
 	def _show_cashier_offline(self, db_path: str):
@@ -216,8 +230,10 @@ class PosApp(ctk.CTk):
 		frame.pack(fill='both', expand=True, padx=60, pady=60)
 
 		ctk.CTkLabel(
-			frame, text='⚠️  Terminal Principal no disponible',
-			font=('Arial', 20, 'bold'), text_color='#E67E22',
+			frame,
+			text='⚠️  Terminal Principal no disponible',
+			font=('Arial', 20, 'bold'),
+			text_color='#E67E22',
 		).pack(pady=(40, 10))
 
 		ctk.CTkLabel(
@@ -227,11 +243,14 @@ class PosApp(ctk.CTk):
 				'Verificá que la Terminal Principal esté encendida\n'
 				'y que ambas PCs estén conectadas a la misma red.'
 			),
-			font=('Arial', 12), text_color='#AAAAAA', justify='center',
+			font=('Arial', 12),
+			text_color='#AAAAAA',
+			justify='center',
 		).pack(pady=10)
 
 		ctk.CTkButton(
-			frame, text='🔄  Reintentar',
+			frame,
+			text='🔄  Reintentar',
 			command=self._retry_cashier,
 		).pack(pady=(20, 8))
 
@@ -241,7 +260,8 @@ class PosApp(ctk.CTk):
 			ctk.CTkLabel(
 				frame,
 				text='Se detectó una base de datos local de respaldo.',
-				font=('Arial', 10), text_color='#888888',
+				font=('Arial', 10),
+				text_color='#888888',
 			).pack(pady=(0, 4))
 			ctk.CTkButton(
 				frame,
@@ -255,6 +275,7 @@ class PosApp(ctk.CTk):
 	def _offline_db_path(self) -> str:
 		"""Ruta del SQLite local de respaldo para modo offline del cajero."""
 		import os
+
 		appdata = os.environ.get('APPDATA', os.path.expanduser('~'))
 		offline_dir = os.path.join(appdata, 'CloudPOS')
 		os.makedirs(offline_dir, exist_ok=True)
@@ -264,11 +285,14 @@ class PosApp(ctk.CTk):
 		"""Abre el DB local de respaldo en modo offline."""
 		offline_path = self._offline_db_path()
 		from utils.config import make_engine
+
 		self.db_engine = make_engine(f'sqlite:///{offline_path}')
 		from database.migrations import run_migrations
+
 		run_migrations(self.db_engine)
 		# Guardamos en settings que estamos en modo offline para mostrar banner
 		from utils.settings_manager import set as settings_set
+
 		settings_set('cashier_offline_mode', True)
 		self.show_login()
 
@@ -276,6 +300,7 @@ class PosApp(ctk.CTk):
 		self._clear_window()
 		# Limpiar flag de modo offline al reconectar
 		from utils.settings_manager import set as settings_set
+
 		settings_set('cashier_offline_mode', False)
 		self.after(100, self.check_system_state)
 
@@ -307,6 +332,7 @@ class PosApp(ctk.CTk):
 		# Auto-backup diario: solo en Terminal Principal
 		if settings_get('terminal_mode', 'primary') == 'primary':
 			from controllers.backup_controller import BackupController
+
 			BackupController(engine).auto_backup_if_needed()
 
 		# Pasar flag de modo offline al contexto para que el dashboard muestre el banner

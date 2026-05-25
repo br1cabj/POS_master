@@ -20,13 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 def _to_decimal_or_none(val):
-    if not val:
-        return None
-    try:
-        d = Decimal(str(val))
-        return d if d > 0 else None
-    except Exception:
-        return None
+	if not val:
+		return None
+	try:
+		d = Decimal(str(val))
+		return d if d > 0 else None
+	except Exception:
+		return None
 
 
 class ArticleController(BaseController):
@@ -80,16 +80,26 @@ class ArticleController(BaseController):
 						'barcode': v.barcode,
 						'cost_price': v.cost_price,
 						'selling_price': v.selling_price,
-						'selling_price_b': float(v.selling_price_b) if v.selling_price_b else None,
-						'total_stock': sum(s.quantity for s in v.stocks) if v.stocks else 0,
+						'selling_price_b': float(v.selling_price_b)
+						if v.selling_price_b
+						else None,
+						'total_stock': sum(s.quantity for s in v.stocks)
+						if v.stocks
+						else 0,
 						'supplier_id': v.article.supplier_id,
-						'supplier_name': v.article.supplier.name if v.article.supplier else 'Sin Proveedor',
+						'supplier_name': v.article.supplier.name
+						if v.article.supplier
+						else 'Sin Proveedor',
 						'category_id': v.article.category_id,
-						'category_name': v.article.category.name if v.article.category else 'Sin Categoría',
+						'category_name': v.article.category.name
+						if v.article.category
+						else 'Sin Categoría',
 						'units_per_pack': v.units_per_pack or 1,
 						'pack_label': v.pack_label,
 						'base_variant_id': v.base_variant_id,
-						'discount_pct': float(v.discount_pct) if v.discount_pct else 0.0,
+						'discount_pct': float(v.discount_pct)
+						if v.discount_pct
+						else 0.0,
 						'discount_until': v.discount_until,
 						'is_combo': v.is_combo or False,
 						'btn_color': v.btn_color,
@@ -286,9 +296,7 @@ class ArticleController(BaseController):
 				variant.selling_price_b = spb
 
 				# Descuento por producto
-				variant.discount_pct = (
-					_to_decimal_or_none(discount_pct)
-				)
+				variant.discount_pct = _to_decimal_or_none(discount_pct)
 				variant.discount_until = discount_until
 
 				if old_cost != cost_price:
@@ -410,7 +418,7 @@ class ArticleController(BaseController):
 					.join(Article)
 					.filter(
 						ArticleVariant.id.in_(variant_ids),
-						Article.tenant_id == tenant_id
+						Article.tenant_id == tenant_id,
 					)
 					.all()
 				)
@@ -419,7 +427,7 @@ class ArticleController(BaseController):
 					return False, 'No se encontraron los artículos seleccionados.'
 
 				updated_articles = set()
-				
+
 				for v in variants:
 					# Campos de Variante
 					if 'is_active' in updates:
@@ -486,22 +494,30 @@ class ArticleController(BaseController):
 
 				for variant in variants:
 					item = changes_by_id[variant.id]
-					old_cost  = variant.cost_price
+					old_cost = variant.cost_price
 					old_price = variant.selling_price
-					new_cost  = Decimal(str(item['new_cost']))   if 'new_cost'    in item else old_cost
-					new_price = Decimal(str(item['new_selling'])) if 'new_selling' in item else old_price
+					new_cost = (
+						Decimal(str(item['new_cost']))
+						if 'new_cost' in item
+						else old_cost
+					)
+					new_price = (
+						Decimal(str(item['new_selling']))
+						if 'new_selling' in item
+						else old_price
+					)
 
 					if new_price == old_price and new_cost == old_cost:
 						not_found += 1
 						continue
 
-					variant.cost_price    = new_cost
+					variant.cost_price = new_cost
 					variant.selling_price = new_price
 
-					price_up   = new_price > old_price
+					price_up = new_price > old_price
 					price_down = new_price < old_price
-					cost_up    = new_cost  > old_cost
-					cost_down  = new_cost  < old_cost
+					cost_up = new_cost > old_cost
+					cost_down = new_cost < old_cost
 
 					if (price_up or cost_up) and not (price_down or cost_down):
 						action_type = 'AUMENTO MASIVO'
@@ -775,9 +791,7 @@ class ArticleController(BaseController):
 				)
 				if not variant:
 					return False, 'Artículo no encontrado.'
-				variant.discount_pct = (
-					_to_decimal_or_none(discount_pct)
-				)
+				variant.discount_pct = _to_decimal_or_none(discount_pct)
 				variant.discount_until = discount_until
 				session.commit()
 				return True, 'Descuento actualizado.'
@@ -786,7 +800,9 @@ class ArticleController(BaseController):
 				logger.error(f'Error al actualizar descuento: {e}', exc_info=True)
 				return False, 'Error interno al actualizar el descuento.'
 
-	def set_supplier_discount(self, tenant_id, supplier_id, discount_pct, discount_until):
+	def set_supplier_discount(
+		self, tenant_id, supplier_id, discount_pct, discount_until
+	):
 		"""Configura o elimina el descuento de un distribuidor/proveedor completo."""
 		with self._Session() as session:
 			try:
@@ -797,24 +813,29 @@ class ArticleController(BaseController):
 				)
 				if not supplier:
 					return False, 'Proveedor no encontrado.'
-				supplier.discount_pct = (
-					_to_decimal_or_none(discount_pct)
-				)
+				supplier.discount_pct = _to_decimal_or_none(discount_pct)
 				supplier.discount_until = discount_until
 				session.commit()
 				return True, f"Descuento de distribuidor '{supplier.name}' actualizado."
 			except Exception as e:
 				session.rollback()
-				logger.error(f'Error al actualizar descuento de proveedor: {e}', exc_info=True)
-				return False, 'Error interno al actualizar el descuento del distribuidor.'
+				logger.error(
+					f'Error al actualizar descuento de proveedor: {e}', exc_info=True
+				)
+				return (
+					False,
+					'Error interno al actualizar el descuento del distribuidor.',
+				)
 
 	def get_supplier_discount(self, tenant_id, supplier_id):
 		"""Retorna el descuento activo de un proveedor, o (0, None) si no tiene."""
 		with self._Session() as session:
 			try:
-				s = session.query(Supplier).filter_by(
-					id=supplier_id, tenant_id=tenant_id
-				).first()
+				s = (
+					session.query(Supplier)
+					.filter_by(id=supplier_id, tenant_id=tenant_id)
+					.first()
+				)
 				if not s:
 					return 0.0, None
 				return float(s.discount_pct or 0), s.discount_until

@@ -15,26 +15,6 @@ from decimal import Decimal, InvalidOperation
 from tkinter import ttk
 
 import customtkinter as ctk
-from CTkMessagebox import CTkMessagebox
-
-# Platform-safe audio feedback — winsound is Windows-only (BUG 1)
-# Semaphore prevents thread pile-up during rapid barcode scanning (BUG 8)
-_beep_sem = threading.Semaphore(1)
-if sys.platform == 'win32':
-    import winsound as _winsound
-
-    def _do_beep(freq: int, dur: int) -> None:
-        if _beep_sem.acquire(blocking=False):
-            try:
-                _winsound.Beep(freq, dur)
-            except Exception:
-                pass
-            finally:
-                _beep_sem.release()
-else:
-    def _do_beep(freq: int, dur: int) -> None:  # no-op on non-Windows
-        pass
-
 
 import utils.settings_manager as _cfg_mgr
 from controllers.cash_controller import CashController
@@ -84,6 +64,24 @@ from utils.styles import (
 	TEXT_SECONDARY,
 	apply_treeview_style,
 )
+
+_beep_sem = threading.Semaphore(1)
+if sys.platform == 'win32':
+	import winsound as _winsound
+
+	def _do_beep(freq: int, dur: int) -> None:
+		if _beep_sem.acquire(blocking=False):
+			try:
+				_winsound.Beep(freq, dur)
+			except Exception:
+				pass
+			finally:
+				_beep_sem.release()
+else:
+
+	def _do_beep(freq: int, dur: int) -> None:  # no-op on non-Windows
+		pass
+
 
 logger = logging.getLogger(__name__)
 
@@ -1338,10 +1336,14 @@ class SalesView(BaseView):
 		if self._search_mode == 'search':
 			# Búsqueda incremental en el backend — no filtra el catálogo completo en memoria
 			tenant_id = self.ctx.tenant_id
+
 			def _fetch(query=q):
 				matches = self.sales_ctrl.search_articles(tenant_id, query, limit=50)
 				if self.winfo_exists():
-					self.after(0, lambda m=matches, qq=query: self._show_search_results(qq, m))
+					self.after(
+						0, lambda m=matches, qq=query: self._show_search_results(qq, m)
+					)
+
 			threading.Thread(target=_fetch, daemon=True, name='ArtSearch').start()
 		else:
 			q_lower = q.lower()
@@ -1817,10 +1819,13 @@ class SalesView(BaseView):
 		if not self.cart:
 			return
 		from CTkMessagebox import CTkMessagebox as _CMB
+
 		r = _CMB(
 			title='Vaciar carrito',
 			message=f'¿Eliminar los {len(self.cart)} ítem(s) del carrito?',
-			icon='warning', option_1='Cancelar', option_2='Vaciar',
+			icon='warning',
+			option_1='Cancelar',
+			option_2='Vaciar',
 		)
 		if r.get() == 'Vaciar':
 			self.clear_entire_cart()
@@ -1832,14 +1837,6 @@ class SalesView(BaseView):
 	def clear_entire_cart(self):
 		if not self.cart:
 			return
-		n_items = len(self.cart)
-		cart_total = sum(
-			(item.get('subtotal', Decimal('0')) for item in self.cart), Decimal('0')
-		)
-		total_str = f'${float(cart_total):.2f}' if cart_total else ''
-		detail = (
-			f'{n_items} ítem(s)  ·  {total_str}' if total_str else f'{n_items} ítem(s)'
-		)
 		self.cart.clear()
 		for timer in self._flash_timers.values():
 			self.after_cancel(timer)
@@ -2676,11 +2673,15 @@ class SalesView(BaseView):
 		self._shortcut_ids = {}
 		# Forma estándar y segura de registrar eventos en Tkinter sin cruzar identificadores.
 		self._shortcut_ids['<F5>'] = top.bind(
-			'<F5>', lambda e: self.process_sale() if self.winfo_ismapped() else None, add='+'
+			'<F5>',
+			lambda e: self.process_sale() if self.winfo_ismapped() else None,
+			add='+',
 		)
 		# F10 como alias de F5 para cobrar (más accesible en teclados estándar)
 		self._shortcut_ids['<F10>'] = top.bind(
-			'<F10>', lambda e: self.process_sale() if self.winfo_ismapped() else None, add='+'
+			'<F10>',
+			lambda e: self.process_sale() if self.winfo_ismapped() else None,
+			add='+',
 		)
 		self._shortcut_ids['<F6>'] = top.bind(
 			'<F6>',
@@ -2707,7 +2708,9 @@ class SalesView(BaseView):
 			add='+',
 		)
 		# Auto-foco: devuelve el cursor al campo de barcode tras cualquier click
-		self._focus_restore_cbid = top.bind('<Button-1>', self._maybe_restore_focus, add='+')
+		self._focus_restore_cbid = top.bind(
+			'<Button-1>', self._maybe_restore_focus, add='+'
+		)
 		# También al mostrarse la tab de ventas (cambio de pestaña)
 		self.bind('<Map>', lambda e: self.after(150, self._restore_scan_focus))
 		# Recarga el catálogo cuando label_view guarda un artículo manual
