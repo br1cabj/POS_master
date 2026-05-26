@@ -88,7 +88,7 @@ class CloudLicenseController:
 			tenant_id = f'{t[:8]}-{t[8:12]}-{t[12:16]}-{t[16:20]}-{t[20:]}'
 
 			expected = self._sign(tenant_id, exp_date)
-			if sig.lower() != expected.lower():
+			if sig.lower() not in (expected.lower(), expected[:16].lower()):
 				return False, 'Código inválido o alterado.'
 
 			self._write(

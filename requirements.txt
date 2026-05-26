@@ -13,3 +13,5 @@ requests==2.32.3
 psycopg2-binary==2.9.12
 pyinstaller==6.20.0
 pyserial==3.5
+pytest==8.2.0
+pytest-mock==3.14.0

@@ -1670,7 +1670,7 @@ class SettingsView(BaseView):
 			)
 			return
 		try:
-			import win32print
+			import win32print  # type: ignore
 
 			sep = '─' * chars
 			lines = [
@@ -1722,7 +1722,7 @@ class SettingsView(BaseView):
 			)
 			return
 		try:
-			import win32print
+			import win32print  # type: ignore
 
 			zpl = '^XA^FO50,50^A0N,40,40^FDCloudPOS - Prueba^FS^FO50,110^A0N,30,30^FDEtiqueta OK^FS^XZ'
 			hprinter = win32print.OpenPrinter(name)
@@ -1823,7 +1823,7 @@ class SettingsView(BaseView):
 				)
 				return
 			try:
-				import win32print
+				import win32print  # type: ignore
 
 				hprinter = win32print.OpenPrinter(name)
 				try:

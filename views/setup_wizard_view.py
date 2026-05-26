@@ -663,17 +663,25 @@ class SetupWizard(ctk.CTkFrame):
 				self._entry_license.focus()
 				return False
 
+			if key.upper().startswith('CLOUD-'):
+				self._entry_license.configure(border_color=ORANGE)
+				self._lbl_lic_status.configure(
+					text='⚠ Este es un código Cloud. Aquí debes activar el sistema base (o usar la Demo).\nEl Plan Cloud se activa después, desde el menú Configuración.', text_color=ORANGE_TEXT
+				)
+				self._entry_license.focus()
+				return False
+
 			success, msg = self.license_ctrl.validate_license_format(key)
 			if not success:
 				self._entry_license.configure(border_color=RED)
-				self._lbl_lic_status.configure(text=f'⚠  {msg}', text_color=RED_TEXT)
+				self._lbl_lic_status.configure(
+					text=f'⚠  {msg}', text_color=RED_TEXT
+				)
 				self._entry_license.focus()
 				return False
 
 			self._entry_license.configure(border_color=BORDER_ACTIVE)
-			self._lbl_lic_status.configure(
-				text='✓  Licencia válida', text_color=GREEN_TEXT
-			)
+			self._lbl_lic_status.configure(text='✓  Licencia válida', text_color=GREEN_TEXT)	
 			self._license_key = key
 		return True
 

@@ -13,3 +13,9 @@ indent-style = "tab"
 # Opcional: Si quisieras usar espacios pero cambiar el ancho, usarías:
 # indent-style = "space"
 # indent-width = 2
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+pythonpath = ["."]
