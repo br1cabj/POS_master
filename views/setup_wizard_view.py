@@ -86,23 +86,23 @@ _DEMO_FEATURES = [
 ]
 
 _PRO_FEATURES = [
-	('☁️', 'Respaldo automático en la nube', 'Tus datos, siempre seguros y disponibles'),
-	('📱', 'Seguimiento en tiempo real', 'Monitoreá ventas y stock desde tu celular'),
 	(
-		'📊',
-		'Métricas avanzadas del negocio',
-		'Reportes inteligentes para crecer con datos',
+		'♾️',
+		'Uso sin límite de tiempo',
+		'Facturá y gestioná tu negocio sin restricciones',
+	),
+	('⚡', 'Activación inmediata', 'Tu código desbloquea todas las funciones locales'),
+	(
+		'📦',
+		'Control de stock ilimitado',
+		'Sin límite de artículos, variantes o categorías',
 	),
 	(
-		'💬',
-		'Soporte técnico gratuito incluido',
-		'Asistencia prioritaria en tu plan mensual',
+		'🛒',
+		'Módulo de ventas ágil',
+		'Alta velocidad para puntos de venta con alto volumen',
 	),
-	(
-		'🔄',
-		'Sincronización multi-dispositivo',
-		'Trabajá desde cualquier equipo sin interrupciones',
-	),
+	('💬', 'Soporte Técnico', 'Asistencia para clientes con licencias activas'),
 ]
 
 
@@ -485,14 +485,14 @@ class SetupWizard(ctk.CTkFrame):
 		badge_p.grid(row=0, column=0, padx=PAD_LG, pady=(PAD_LG, 0), sticky='w')
 		ctk.CTkLabel(
 			badge_p,
-			text='  PLAN MENSUAL  ',
+			text='  LICENCIA PRO  ',
 			font=FONT_LABEL_BOLD,
 			text_color=PURPLE_TEXT,
 		).pack(padx=4, pady=3)
 
 		ctk.CTkLabel(
 			self._card_pro,
-			text='⭐  Plan Pro',
+			text='⭐  Ya tengo un código',
 			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
@@ -500,7 +500,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			self._card_pro,
-			text='Para negocios en crecimiento que necesitan más',
+			text='Ingresá tu código Mensual, Anual o Vitalicio',
 			font=FONT_BODY,
 			text_color=TEXT_MUTED,
 			anchor='w',
@@ -545,7 +545,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			self._card_pro,
-			text='Código de activación',
+			text='Código de activación (FULL o VITA)',
 			font=FONT_LABEL_BOLD,
 			text_color=TEXT_SECONDARY,
 			anchor='w',
@@ -554,7 +554,7 @@ class SetupWizard(ctk.CTkFrame):
 		self._entry_license = ctk.CTkEntry(
 			self._card_pro,
 			height=40,
-			placeholder_text='TIPO-AAAAMMDD-FIRMA',
+			placeholder_text='FULL-AAAAMMDD-FIRMA',
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
@@ -582,6 +582,30 @@ class SetupWizard(ctk.CTkFrame):
 		self._btn_activate_pro.grid(
 			row=12, column=0, padx=PAD_LG, pady=(0, PAD_LG), sticky='ew'
 		)
+
+		# ── CLOUD INFO BANNER ────────────────────────────────────────────
+		cloud_banner = ctk.CTkFrame(
+			scroll,
+			fg_color=SURFACE3,
+			corner_radius=12,
+			border_width=1,
+			border_color=BORDER,
+		)
+		cloud_banner.pack(fill='x', padx=PAD_XL, pady=(0, PAD_MD))
+
+		ctk.CTkLabel(
+			cloud_banner,
+			text='☁️  ¿Tenés también un Plan Cloud?',
+			font=FONT_BODY_BOLD,
+			text_color=ACCENT_TEXT,
+		).pack(side='left', padx=(PAD_LG, PAD_XS), pady=PAD_MD)
+
+		ctk.CTkLabel(
+			cloud_banner,
+			text='El complemento Cloud para backups y reportes web se activa desde Configuración una vez dentro del sistema.',
+			font=FONT_BODY,
+			text_color=TEXT_SECONDARY,
+		).pack(side='left', padx=(0, PAD_LG), pady=PAD_MD)
 
 		self._lbl_lic_status = ctk.CTkLabel(
 			scroll,
@@ -638,6 +662,18 @@ class SetupWizard(ctk.CTkFrame):
 				)
 				self._entry_license.focus()
 				return False
+
+			success, msg = self.license_ctrl.validate_license_format(key)
+			if not success:
+				self._entry_license.configure(border_color=RED)
+				self._lbl_lic_status.configure(text=f'⚠  {msg}', text_color=RED_TEXT)
+				self._entry_license.focus()
+				return False
+
+			self._entry_license.configure(border_color=BORDER_ACTIVE)
+			self._lbl_lic_status.configure(
+				text='✓  Licencia válida', text_color=GREEN_TEXT
+			)
 			self._license_key = key
 		return True
 

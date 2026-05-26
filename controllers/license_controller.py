@@ -162,6 +162,38 @@ class LicenseController:
 
 	# ── Licencia pagada ───────────────────────────────────────────────────────
 
+	def validate_license_format(self, license_key):
+		"""
+		Valida una clave de licencia con formato TIPO-AAAAMMDD-FIRMA sin persistirla.
+		Retorna (True, 'mensaje_ok') si es válida, o (False, 'mensaje_error').
+		"""
+		try:
+			parts = license_key.strip().split('-')
+			if len(parts) != 3:
+				return False, 'Formato de licencia inválido.'
+
+			l_type, exp_str, provided_sig = parts
+
+			if len(exp_str) != 8:
+				return False, 'Formato de licencia inválido.'
+
+			exp_date = f'{exp_str[:4]}-{exp_str[4:6]}-{exp_str[6:8]}'
+
+			try:
+				datetime.strptime(exp_date, '%Y-%m-%d')
+			except ValueError:
+				return False, 'La licencia contiene una fecha de vencimiento inválida.'
+
+			# Generar firma para exp_date (como está en el código)
+			expected_sig_short = self._generate_signature(l_type, exp_date)[:16]
+			
+			if provided_sig != expected_sig_short:
+				return False, 'La licencia es falsa o ha sido alterada.'
+
+			return True, 'Licencia válida.'
+		except Exception:
+			return False, 'Error al procesar la licencia.'
+
 	def activate_license(self, license_key):
 		"""
 		Valida y activa una clave de licencia con formato TIPO-AAAAMMDD-FIRMA.

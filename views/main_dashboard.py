@@ -409,7 +409,7 @@ class MainDashboard(ctk.CTkFrame):
 			offline_banner.pack_propagate(False)
 			ctk.CTkLabel(
 				offline_banner,
-				text='📴  MODO SIN CONEXIÓN — Las ventas se guardan localmente. Reconectá la red y reiniciá para sincronizar.',
+				text='📴  MODO SIN CONEXIÓN — Solo lectura. Para procesar ventas, reconectá la red y reiniciá.',
 				font=('Arial', 9, 'bold'),
 				text_color='#F5CBA7',
 			).pack(side='left', padx=12, pady=4)

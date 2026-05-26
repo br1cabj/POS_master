@@ -217,8 +217,10 @@ class SyncWorker:
 		if not active:
 			logger.info('Cloud sync disabled — no active cloud plan (%s).', msg)
 			return
-		self._thread.start()
-		logger.info('Cloud sync worker started (interval=%ds).', CLOUD_SYNC_INTERVAL)
+		if not self._thread.is_alive():
+			self._stop.clear()
+			self._thread.start()
+			logger.info('Cloud sync worker started (interval=%ds).', CLOUD_SYNC_INTERVAL)
 
 	def stop(self) -> None:
 		self._stop.set()

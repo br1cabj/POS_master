@@ -176,11 +176,26 @@ class PosApp(ctk.CTk):
 		if terminal_mode == 'cashier':
 			db_path = settings_get('db_remote_path', '')
 			if db_path:
-				if os.path.exists(db_path):
-					self._get_or_create_engine()
-					self.show_login()
-				else:
-					self._show_cashier_offline(db_path)
+				# Show a loading screen while checking network drive
+				loading_frame = ctk.CTkFrame(self)
+				loading_frame.pack(fill='both', expand=True, padx=60, pady=60)
+				ctk.CTkLabel(
+					loading_frame,
+					text='Buscando Terminal Principal...',
+					font=('Arial', 20, 'bold'),
+					text_color='#3498DB',
+				).pack(pady=40)
+
+				import threading
+
+				def check_db_path():
+					exists = os.path.exists(db_path)
+					if self.winfo_exists():
+						self.after(
+							0, lambda: self._on_cashier_path_checked(exists, db_path)
+						)
+
+				threading.Thread(target=check_db_path, daemon=True).start()
 				return
 			# db_remote_path vacío → wizard no completado, continuar al wizard
 
@@ -203,6 +218,14 @@ class PosApp(ctk.CTk):
 			self.show_login()
 		else:
 			self.show_license_lock(status_msg)
+
+	def _on_cashier_path_checked(self, exists: bool, db_path: str):
+		self._clear_window()
+		if exists:
+			self._get_or_create_engine()
+			self.show_login()
+		else:
+			self._show_cashier_offline(db_path)
 
 	def _update_offline_backup(self, remote_db_path: str):
 		"""Copia el DB remoto al local de respaldo en segundo plano (no bloquea la UI)."""

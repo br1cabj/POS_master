@@ -721,7 +721,25 @@ class SalesView(BaseView):
 				self.ctx.tenant_id, self.ctx.user_id
 			)
 			self.banner_caja.pack_forget()
-			if not session:
+
+			if getattr(self.ctx, 'offline_mode', False):
+				self.banner_caja.configure(fg_color='#7D3C00', border_color='#A04000')
+				for w in self.banner_caja.winfo_children():
+					if isinstance(w, ctk.CTkLabel):
+						w.configure(
+							text='📴 Modo sin conexión · Solo lectura de catálogo',
+							text_color='#F5CBA7',
+						)
+				self.banner_caja.pack(
+					fill='x', padx=10, pady=(0, 4), before=self._table_wrap
+				)
+				self.btn_pay.configure(
+					state='disabled',
+					text='Caja deshabilitada',
+					fg_color=SURFACE3,
+					text_color=TEXT_MUTED,
+				)
+			elif not session:
 				self.banner_caja.pack(
 					fill='x', padx=10, pady=(0, 4), before=self._table_wrap
 				)
