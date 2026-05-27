@@ -1,49 +1,67 @@
-# Sensitive files
+# === Secrets / Environment ===
 .env
 *.env
-*.dat
 settings.json
+cloud_license.dat
+license.dat
 
-# Database
+# === Database ===
 *.db
 *.sqlite3
 *.db-shm
 *.db-wal
+*.db-journal
 
-# Virtual environments
+# === Virtual environments ===
 venv/
 .env/
 .venv/
 
-# Python cache
+# === Python cache ===
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.Python
 
-# Build / packaging
+# === PyInstaller build artifacts (keep .spec files) ===
 build/
 dist/
 *.egg-info/
-*.spec
+*.manifest
+*.pkg
+*.toc
+warn-*.txt
+xref-*.html
+PYZ-*.pyz
+base_library.zip
+localpycs/
 
-# Logs
+# === Installer outputs ===
+installer_output/
+
+# === Logs ===
 *.log
 
-# IDE / editor
+# === IDE / editors ===
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# OS
+# === OS files ===
 .DS_Store
 Thumbs.db
 
-# Assets (keep locally, not in repo)
-*.ico
-*.pdf
+# === Cache / misc ===
+.ruff_cache/
+.pytest_cache/
+*.bak
+*.tmp
 
-# Claude Code local config
+# === Claude Code local config ===
 .claude/
 
-# License file (generated at activation)
-license.dat
+# === Assets: ignore icons generally, but keep the app icon ===
+*.ico
+!icono.ico
