@@ -138,8 +138,8 @@ class BackupController:
 			if progress_cb:
 				try:
 					progress_cb(m)
-				except Exception:
-					pass
+				except Exception as e:
+					logger.debug('progress_cb falló: %s', e)
 
 		cloud_engine = get_cloud_engine()
 		if cloud_engine is None:
@@ -265,8 +265,8 @@ class BackupController:
 			self._engine.dispose()
 		try:
 			get_engine().dispose()
-		except Exception:
-			pass
+		except Exception as e:
+			logger.debug('dispose() de get_engine() falló: %s', e)
 
 		# BUG 9: abortar si no se descargó NINGÚN dato — indica problema de conexión
 		# o de tenant ID, no un tenant vacío (que tendría al menos su propio registro)
@@ -341,8 +341,8 @@ class BackupController:
 				try:
 					con.execute('PRAGMA foreign_keys=ON')
 					con.close()
-				except Exception:
-					pass
+				except Exception as e:
+					logger.debug('Error restaurando PRAGMA foreign_keys: %s', e)
 
 		return True, 'OK'
 

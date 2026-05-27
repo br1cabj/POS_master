@@ -41,9 +41,10 @@ class UserController(BaseController):
 						'role': u.role,
 						'has_recovery_pin': bool(u.recovery_pin_hash),
 					}
-					for u in session.query(User)
-					.filter_by(tenant_id=tenant_id, is_active=True)
-					.all()
+				for u in session.query(User)
+				.filter_by(tenant_id=tenant_id, is_active=True)
+				.filter(User.deleted_at.is_(None))
+				.all()
 				]
 			except Exception as e:
 				logger.error(f'Error al obtener usuarios: {e}', exc_info=True)

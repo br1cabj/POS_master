@@ -5,14 +5,16 @@ Vista para gestionar y previsualizar la impresión masiva de etiquetas.
 """
 
 import logging
+import os
 import threading
 from datetime import datetime
 
 import customtkinter as ctk
+from PIL import Image
 from sqlalchemy.orm import sessionmaker
 
 import utils.settings_manager as _cfg_mgr
-from controllers.label_controller import TEMPLATES, LabelController
+from controllers.label_controller import TEMPLATES, LabelController, _fmt_price, _sanitize
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.date_picker import CTkDatePicker
@@ -34,6 +36,12 @@ from utils.styles import (
 	LBL_HEADER_DEEP,
 	LBL_HEADER_ORANGE,
 	LBL_RED,
+	LBL_PREVIEW_TEXT,
+	LBL_PREVIEW_TEXT_LIGHT,
+	LBL_PREVIEW_SEPARATOR,
+	LBL_PREVIEW_BARCODE_BG,
+	LBL_PREVIEW_FOOTER_BG,
+	MUTED_BLUE,
 	ORANGE_TEXT,
 	PAD_LG,
 	PAD_MD,
@@ -82,6 +90,7 @@ class LabelView(BaseView):
 		self._price_options: list[tuple] = [
 			('retail', f'Lista A · {self._list_a_name}', 1.0),
 			('price_b', f'Lista B · {self._list_b_name}', None),
+			('both', 'Ambos precios (A+B)', None),
 		]
 
 	def _load_wholesale_cfg(self):
@@ -107,7 +116,7 @@ class LabelView(BaseView):
 			border_color=BORDER,
 		)
 		left.grid(row=0, column=0, sticky='nsew', padx=(PAD_MD, PAD_SM), pady=PAD_MD)
-		left.grid_rowconfigure(2, weight=1)
+		left.grid_rowconfigure(3, weight=1)
 		left.grid_columnconfigure(0, weight=1)
 
 		ctk.CTkLabel(
@@ -131,6 +140,41 @@ class LabelView(BaseView):
 		)
 		self._entry_search.grid(row=0, column=0, sticky='ew')
 		self._entry_search.bind('<KeyRelease>', self._debounced_search)
+		self._entry_search.bind('<Return>', lambda e: self._add_first_filtered())
+
+		filter_f = ctk.CTkFrame(left, fg_color='transparent')
+		filter_f.grid(row=2, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_SM))
+		filter_f.grid_columnconfigure(0, weight=1)
+		filter_f.grid_columnconfigure(1, weight=1)
+
+		self._filter_category = 'Todas'
+		self._filter_supplier = 'Todos'
+		self._categories = []
+		self._suppliers = []
+
+		self._cat_var = ctk.StringVar(value='Todas')
+		self._cat_menu = ctk.CTkOptionMenu(
+			filter_f,
+			variable=self._cat_var,
+			values=['Todas'],
+			command=self._set_category_filter,
+			width=120,
+			height=32,
+			font=FONT_LABEL_BOLD,
+		)
+		self._cat_menu.grid(row=0, column=0, sticky='ew', padx=(0, PAD_XS))
+
+		self._sup_var = ctk.StringVar(value='Todos')
+		self._sup_menu = ctk.CTkOptionMenu(
+			filter_f,
+			variable=self._sup_var,
+			values=['Todos'],
+			command=self._set_supplier_filter,
+			width=120,
+			height=32,
+			font=FONT_LABEL_BOLD,
+		)
+		self._sup_menu.grid(row=0, column=1, sticky='ew', padx=(PAD_XS, 0))
 
 		self._catalog_frame = ctk.CTkScrollableFrame(
 			left,
@@ -138,12 +182,12 @@ class LabelView(BaseView):
 			scrollbar_button_color=SURFACE3,
 		)
 		self._catalog_frame.grid(
-			row=2, column=0, sticky='nsew', padx=PAD_SM, pady=(0, PAD_SM)
+			row=3, column=0, sticky='nsew', padx=PAD_SM, pady=(0, PAD_SM)
 		)
 		self._catalog_frame.grid_columnconfigure(0, weight=1)
 
 		action_bar = ctk.CTkFrame(left, fg_color='transparent')
-		action_bar.grid(row=3, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_MD))
+		action_bar.grid(row=4, column=0, sticky='ew', padx=PAD_MD, pady=(0, PAD_MD))
 		action_bar.grid_columnconfigure(0, weight=1)
 		action_bar.grid_columnconfigure(1, weight=1)
 
@@ -160,6 +204,17 @@ class LabelView(BaseView):
 
 		ctk.CTkButton(
 			action_bar,
+			text='+  Agregar todos',
+			height=32,
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_SECONDARY,
+			font=FONT_LABEL_BOLD,
+			command=self._add_all_to_queue,
+		).grid(row=0, column=1, sticky='ew', padx=(PAD_XS, PAD_XS))
+
+		ctk.CTkButton(
+			action_bar,
 			text='✎  Artículo manual',
 			height=32,
 			fg_color=SURFACE3,
@@ -167,7 +222,7 @@ class LabelView(BaseView):
 			text_color=TEXT_SECONDARY,
 			font=FONT_LABEL_BOLD,
 			command=self._open_custom_article_dialog,
-		).grid(row=0, column=1, sticky='ew', padx=(PAD_XS, 0))
+		).grid(row=0, column=2, sticky='ew', padx=(PAD_XS, 0))
 
 	def _build_center(self):
 		# Panel de Cola de Impresión (Bento 2)
@@ -287,111 +342,74 @@ class LabelView(BaseView):
 			fill='both', expand=True, padx=PAD_MD, pady=(0, PAD_MD)
 		)
 
-		self._preview_label_card = ctk.CTkFrame(
-			self._preview_container,
-			fg_color='white',
-			corner_radius=4,
-			width=220,
-			height=150,
-		)
-		self._preview_label_card.place(relx=0.5, rely=0.4, anchor='center')
-		self._preview_label_card.pack_propagate(False)
-
+		self._preview_label_card = None
 		self._build_live_preview_widgets()
 
 	def _build_live_preview_widgets(self):
 		if not self.winfo_exists():
 			return
-		card = self._preview_label_card
-		for w in list(card.winfo_children()):
-			try:
-				w.destroy()
-			except Exception:
-				pass
+		# Destruir card anterior con tamaño fijo
+		if self._preview_label_card and getattr(self._preview_label_card, 'winfo_exists', lambda: False)():
+			self._preview_label_card.destroy()
 
-		# Reset widget references
-		self._pw_header = None
-		self._pw_brand = None
-		self._pw_name = None
-		self._pw_attr = None
-		self._pw_price_before = None
-		self._pw_price = None
-		self._pw_bc_zone = None
-		self._pw_footer_label = None
-		self._pw_footer = None
-		self._pw_body = None
+		tpl_meta = TEMPLATES.get(self._tpl_key, TEMPLATES['supermercado'])
+		scale = 3.5
+		w_px = min(int(tpl_meta['w_mm'] * scale), 260)
+		h_px = min(int(tpl_meta['h_mm'] * scale), 180)
 
-		tpl_styles = {
-			'supermercado': {
-				'hdr_color': LBL_HEADER_DARK,
-				'hdr_h': 20,
-				'name_font': 9,
-				'price_font': 18,
-				'bc_h': 24,
-				'price_color': LBL_HEADER_DEEP,
-			},
-			'producto': {
-				'hdr_color': LBL_HEADER_DEEP,
-				'hdr_h': 22,
-				'name_font': 11,
-				'price_font': 22,
-				'bc_h': 28,
-				'price_color': LBL_HEADER_DEEP,
-			},
-			'precio': {
-				'hdr_color': LBL_HEADER_DARK,
-				'hdr_h': 10,
-				'name_font': 8,
-				'price_font': 20,
-				'bc_h': 18,
-				'price_color': LBL_HEADER_DEEP,
-			},
-			'mini': {
-				'hdr_color': LBL_HEADER_ORANGE,
-				'hdr_h': 14,
-				'name_font': 7,
-				'price_font': 14,
-				'bc_h': 18,
-				'price_color': LBL_HEADER_ORANGE,
-			},
-		}
-		st = tpl_styles.get(self._tpl_key, tpl_styles['supermercado'])
+		card = ctk.CTkFrame(
+			self._preview_container,
+			fg_color='white',
+			corner_radius=4,
+			width=w_px,
+			height=h_px,
+		)
+		card.place(relx=0.5, rely=0.5, anchor='center')
+		card.grid_propagate(False)
+		self._preview_label_card = card
 
-		card.configure(fg_color='white', border_width=0)
+		hdr_ratio = 0.14 if self._tpl_key != 'precio' else 0.10
+		bc_ratio = 0.20 if self._tpl_key != 'mini' else 0.22
+		foot_ratio = 0.10 if self._tpl_key != 'mini' else 0.12
 
-		# Grid layout inside card so row weights work correctly.
-		# pack(expand=True) on the body would steal ALL remaining space,
-		# leaving separator / bc_zone / footer with zero height.
+		hdr_h = int(h_px * hdr_ratio)
+		bc_h = int(h_px * bc_ratio)
+		foot_h = int(h_px * foot_ratio)
+
 		card.grid_columnconfigure(0, weight=1)
-		card.grid_rowconfigure(1, weight=1)  # body row expands
-		card.grid_propagate(False)  # keep card at its declared 220×150
+		card.grid_rowconfigure(0, minsize=hdr_h)
+		card.grid_rowconfigure(1, weight=1)
+		card.grid_rowconfigure(2, minsize=1)
+		card.grid_rowconfigure(3, minsize=bc_h)
+		card.grid_rowconfigure(4, minsize=foot_h)
 
 		# Row 0 — Header
-		self._pw_header = ctk.CTkFrame(
-			card, fg_color=st['hdr_color'], corner_radius=0, height=st['hdr_h']
-		)
-		self._pw_header.grid(row=0, column=0, sticky='ew')
-		self._pw_header.pack_propagate(False)
+		self._pw_header = ctk.CTkFrame(card, fg_color=LBL_HEADER_DARK, corner_radius=0)
+		self._pw_header.grid(row=0, column=0, sticky='nsew')
 		self._pw_brand = ctk.CTkLabel(
 			self._pw_header,
 			text='MI NEGOCIO',
-			font=('Arial', 7, 'bold'),
+			font=('Arial', max(6, int(hdr_h * 0.35)), 'bold'),
 			text_color='white',
 			anchor='center',
 		)
-		self._pw_brand.pack(expand=True, fill='both', padx=4)
+		self._pw_brand.pack(expand=True, fill='both', padx=2)
+		self._pw_logo = ctk.CTkLabel(self._pw_header, text='')
 
-		# Row 1 — Body (expands)
+		# Row 1 — Body
 		self._pw_body = ctk.CTkFrame(card, fg_color='white', corner_radius=0)
-		self._pw_body.grid(row=1, column=0, sticky='nsew', padx=6, pady=(3, 2))
+		self._pw_body.grid(row=1, column=0, sticky='nsew', padx=4, pady=(2, 1))
+
+		name_font = max(7, int(h_px * 0.075)) if self._tpl_key != 'mini' else max(6, int(h_px * 0.065))
+		price_font = max(10, int(h_px * 0.16)) if self._tpl_key != 'mini' else max(9, int(h_px * 0.14))
 
 		self._pw_name = ctk.CTkLabel(
 			self._pw_body,
 			text='Nombre del Producto',
-			font=('Arial', st['name_font'], 'bold'),
+			font=('Arial', name_font, 'bold'),
 			text_color='black',
 			anchor='w',
-			wraplength=195,
+			wraplength=w_px - 10,
 			justify='left',
 		)
 		self._pw_name.pack(fill='x', anchor='w')
@@ -399,8 +417,8 @@ class LabelView(BaseView):
 		self._pw_attr = ctk.CTkLabel(
 			self._pw_body,
 			text='',
-			font=('Arial', 6),
-			text_color='#64748b',
+			font=('Arial', max(5, int(name_font * 0.65))),
+			text_color=LBL_PREVIEW_TEXT,
 			anchor='w',
 		)
 		self._pw_attr.pack(fill='x', anchor='w')
@@ -408,8 +426,8 @@ class LabelView(BaseView):
 		self._pw_price_before = ctk.CTkLabel(
 			self._pw_body,
 			text='',
-			font=('Arial', 6),
-			text_color='#94a3b8',
+			font=('Arial', max(5, int(name_font * 0.65))),
+			text_color=LBL_PREVIEW_TEXT_LIGHT,
 			anchor='w',
 		)
 		self._pw_price_before.pack(fill='x', anchor='w', pady=(2, 0))
@@ -417,47 +435,48 @@ class LabelView(BaseView):
 		self._pw_price = ctk.CTkLabel(
 			self._pw_body,
 			text='$0',
-			font=('Arial', st['price_font'], 'bold'),
-			text_color=st['price_color'],
+			font=('Arial', price_font, 'bold'),
+			text_color=LBL_HEADER_DEEP,
 			anchor='w',
 		)
 		self._pw_price.pack(fill='x', anchor='w', pady=(1, 0))
 
 		# Row 2 — Separator
-		ctk.CTkFrame(card, fg_color='#e2e8f0', corner_radius=0, height=1).grid(
+		ctk.CTkFrame(card, fg_color=LBL_PREVIEW_SEPARATOR, corner_radius=0, height=1).grid(
 			row=2, column=0, sticky='ew'
 		)
 
 		# Row 3 — Barcode zone
 		self._pw_bc_zone = ctk.CTkFrame(
-			card, fg_color='#f1f5f9', corner_radius=0, height=st['bc_h']
+			card, fg_color=LBL_PREVIEW_BARCODE_BG, corner_radius=0
 		)
-		self._pw_bc_zone.grid(row=3, column=0, sticky='ew')
-		self._pw_bc_zone.pack_propagate(False)
-		ctk.CTkFrame(
-			self._pw_bc_zone, fg_color='#334155', corner_radius=0, height=st['bc_h'] - 8
-		).pack(fill='x', padx=10, pady=(3, 0))
+		self._pw_bc_zone.grid(row=3, column=0, sticky='nsew')
+		self._pw_bc_image = ctk.CTkLabel(
+			self._pw_bc_zone, text='', image=None
+		)
+		self._pw_bc_image.pack(expand=True, fill='both', padx=4, pady=2)
 
 		# Row 4 — Footer
 		self._pw_footer = ctk.CTkFrame(
-			card, fg_color='#f8fafc', corner_radius=0, height=14
+			card, fg_color=LBL_PREVIEW_FOOTER_BG, corner_radius=0
 		)
-		self._pw_footer.grid(row=4, column=0, sticky='ew')
-		self._pw_footer.pack_propagate(False)
+		self._pw_footer.grid(row=4, column=0, sticky='nsew')
 		self._pw_footer_label = ctk.CTkLabel(
 			self._pw_footer,
 			text='0000000000   Imp: 20/05/26',
-			font=('Arial', 4),
-			text_color='#64748b',
+			font=('Arial', max(4, int(foot_h * 0.30))),
+			text_color=LBL_PREVIEW_TEXT,
 		)
 		self._pw_footer_label.pack(expand=True)
 
 		self._update_live_preview()
+		# Re-renderizar después de que los widgets se rendericen (winfo_width/height > 1)
+		self.after(150, self._update_live_preview)
 
 	def _update_live_preview(self):
 		if not self.winfo_exists():
 			return
-		if not getattr(self, '_pw_name', None) or not getattr(self, '_pw_price', None):
+		if not getattr(self, '_pw_name', None):
 			return
 		try:
 			if not self._pw_name.winfo_exists():
@@ -471,6 +490,7 @@ class LabelView(BaseView):
 			else {
 				'name': 'Producto de Ejemplo',
 				'price': 1250.0,
+				'selling_price_b': 980.0,
 				'barcode': '1234567890',
 				'price_mode': 'retail',
 				'discount_price': None,
@@ -481,10 +501,15 @@ class LabelView(BaseView):
 
 		cfg = _cfg_mgr.load()
 		company = cfg.get('company_name', 'MI NEGOCIO')
+		logo_path = cfg.get('company_logo_path', '')
 		price_mode = item.get('price_mode', 'retail')
 		list_b_name = cfg.get('price_list_b_name', 'Mayorista')
+		symbol = cfg.get('currency_symbol', '$')
+		try:
+			decimals = int(float(cfg.get('currency_decimals') or 0))
+		except (ValueError, TypeError):
+			decimals = 0
 
-		# Precios y modo
 		price = self._get_item_display_price(item)
 		raw_disc = item.get('discount_price')
 		try:
@@ -494,37 +519,33 @@ class LabelView(BaseView):
 		except (ValueError, TypeError):
 			discount_price = None
 
-		# Lógica de oferta: solo si el descuento es menor al precio actual
 		is_offer = bool(discount_price is not None and discount_price < price)
 		p_final = discount_price if is_offer else price
 
-		# Texto
-		name_txt = item.get('name', 'Producto')[:40]
-		attr_txt = item.get('attribute', '')
+		name_txt = _sanitize(item.get('name', 'Producto'))[:40]
+		attr_txt = _sanitize(item.get('attribute', ''))
 		barcode_txt = item.get('barcode', '') or '0000000000'
 		date_str = datetime.now().strftime('%d/%m/%y')
 
-		# Colores base según template
 		tpl_colors = {
 			'supermercado': LBL_HEADER_DARK,
 			'producto': LBL_HEADER_DEEP,
 			'precio': LBL_HEADER_DARK,
 			'mini': LBL_HEADER_ORANGE,
+			'dual': LBL_HEADER_DEEP,
 		}
 		hdr_normal = tpl_colors.get(self._tpl_key, LBL_HEADER_DARK)
 
-		# Ajuste de color por modo o estado
 		header_color = hdr_normal
 		brand_text = company[:24].upper()
 
 		if is_offer:
 			header_color = LBL_RED
 			brand_text = '* OFERTA *'
-		elif price_mode == 'price_b':
-			header_color = LBL_BLUE  # Azul mayorista (sync con controlador)
+		elif price_mode == 'price_b' and self._tpl_key not in ('precio', 'dual'):
+			header_color = LBL_BLUE
 			brand_text = list_b_name.upper()
 
-		# El precio en 'mini' es naranja si no es oferta
 		price_text_color = (
 			LBL_RED
 			if is_offer
@@ -541,26 +562,97 @@ class LabelView(BaseView):
 			except Exception:
 				pass
 
-		try:
-			_safe('_pw_header', fg_color=header_color)
+		# Logo
+		show_logo = logo_path and os.path.exists(logo_path) and not is_offer and price_mode != 'price_b'
+		if show_logo:
+			try:
+				img = Image.open(logo_path)
+				h = self._pw_header.winfo_height()
+				if h < 10:
+					h = 20
+				ratio = img.width / img.height
+				new_h = max(8, h - 4)
+				new_w = int(new_h * ratio)
+				img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+				ctk_img = ctk.CTkImage(img, size=(new_w, new_h))
+				_safe('_pw_logo', image=ctk_img, text='')
+				_safe('_pw_brand', text='')
+				if not self._pw_logo.winfo_viewable():
+					self._pw_logo.pack(expand=True, fill='both', padx=2)
+			except Exception:
+				_safe('_pw_logo', image=None, text='')
+				try:
+					self._pw_logo.pack_forget()
+				except Exception:
+					pass
+				_safe('_pw_brand', text=brand_text)
+		else:
+			_safe('_pw_logo', image=None, text='')
+			try:
+				self._pw_logo.pack_forget()
+			except Exception:
+				pass
 			_safe('_pw_brand', text=brand_text)
-			_safe('_pw_name', text=name_txt, text_color='black')
-			_safe('_pw_attr', text=attr_txt)
-			_safe(
-				'_pw_price_before',
-				text=f'Antes: {fmt_price(price)}' if is_offer else '',
-			)
+
+		_safe('_pw_header', fg_color=header_color)
+		_safe('_pw_name', text=name_txt, text_color='black')
+		_safe('_pw_attr', text=attr_txt)
+
+		before_text = ''
+		if is_offer and self._tpl_key != 'dual':
+			before_text = f'Antes: {_fmt_price(price, symbol, decimals)}'
+		_safe('_pw_price_before', text=before_text)
+
+		if self._tpl_key == 'dual':
+			price_b_val = item.get('selling_price_b')
+			try:
+				price_b_float = float(price_b_val) if price_b_val is not None else None
+			except (ValueError, TypeError):
+				price_b_float = None
+
+			if is_offer:
+				price_a_txt = _fmt_price(discount_price, symbol, decimals)
+				price_a_color = LBL_RED
+			else:
+				price_a_txt = _fmt_price(price, symbol, decimals)
+				price_a_color = LBL_HEADER_DEEP
+
+			if price_b_float is not None:
+				price_b_txt = _fmt_price(price_b_float, symbol, decimals)
+				combined_txt = f'{price_a_txt}  |  {price_b_txt}'
+			else:
+				combined_txt = f'{price_a_txt}  |  --'
+
 			_safe(
 				'_pw_price',
-				text=fmt_price(p_final),
+				text=combined_txt,
+				text_color=price_a_color,
+			)
+		else:
+			_safe(
+				'_pw_price',
+				text=_fmt_price(p_final, symbol, decimals),
 				text_color=price_text_color,
 			)
-			_safe(
-				'_pw_footer_label',
-				text=f'{barcode_txt[:18]}   Imp: {date_str}',
-			)
-		except Exception as e:
-			logger.debug('Preview update error: %s', e)
+		_safe('_pw_footer_label', text=f'{barcode_txt[:18]}   Imp: {date_str}')
+
+		# Barcode real
+		try:
+			bc_path = self._ctrl._generate_barcode_png(barcode_txt)
+			if bc_path and os.path.exists(bc_path):
+				img = Image.open(bc_path)
+				zone_w = self._pw_bc_zone.winfo_width()
+				zone_h = self._pw_bc_zone.winfo_height()
+				if zone_w > 10 and zone_h > 10:
+					img = img.resize((zone_w - 8, zone_h - 4), Image.Resampling.LANCZOS)
+					ctk_img = ctk.CTkImage(img, size=(zone_w - 8, zone_h - 4))
+					_safe('_pw_bc_image', image=ctk_img, text='')
+				else:
+					_safe('_pw_bc_image', image=None, text='──────')
+			else:
+				_safe('_pw_bc_image', image=None, text='──────')
+		except Exception:
+			_safe('_pw_bc_image', image=None, text='──────')
 
 	def _select_template(self, key: str):
 		self._tpl_key = key
@@ -643,13 +735,18 @@ class LabelView(BaseView):
 
 	def _add_first_filtered(self):
 		q = self._entry_search.get().lower().strip()
+		cat_filter = getattr(self, '_filter_category', 'Todas')
+		sup_filter = getattr(self, '_filter_supplier', 'Todos')
+		
 		filtered = [
 			v
 			for v in self._variants
-			if not q
-			or q in v['name'].lower()
-			or q in v['attribute'].lower()
-			or q in v['barcode'].lower()
+			if (not q
+				or q in (v.get('name') or '').lower()
+				or q in (v.get('attribute') or '').lower()
+				or q in (v.get('barcode') or '').lower())
+			and (cat_filter == 'Todas' or v.get('category') == cat_filter)
+			and (sup_filter == 'Todos' or v.get('supplier') == sup_filter)
 		]
 
 		if filtered:
@@ -666,7 +763,7 @@ class LabelView(BaseView):
 
 		def _fetch_data():
 			try:
-				from database.models import Article, ArticleVariant
+				from database.models import Article, ArticleVariant, Category, Supplier
 
 				Session = sessionmaker(bind=self.ctx.db_engine)
 				with Session() as s:
@@ -681,11 +778,16 @@ class LabelView(BaseView):
 							ArticleVariant.selling_price_b,
 							ArticleVariant.discount_pct,
 							ArticleVariant.discount_until,
+							Category.name,
+							Supplier.name,
 						)
 						.join(Article)
+						.outerjoin(Category, Article.category_id == Category.id)
+						.outerjoin(Supplier, Article.supplier_id == Supplier.id)
 						.filter(
 							Article.tenant_id == self.ctx.tenant_id,
 							Article.is_active == True,  # noqa: E712
+							Article.deleted_at.is_(None),
 							ArticleVariant.is_active == True,  # noqa: E712
 						)
 						.order_by(Article.name)
@@ -693,6 +795,8 @@ class LabelView(BaseView):
 					)
 
 					variants_data = []
+					categories_set = set()
+					suppliers_set = set()
 					for (
 						v_id,
 						a_name,
@@ -703,6 +807,8 @@ class LabelView(BaseView):
 						price_b,
 						disc_pct,
 						disc_until,
+						cat_name,
+						sup_name,
 					) in rows:
 						attr = ' '.join(filter(None, [a1, a2]))
 						variants_data.append(
@@ -716,35 +822,82 @@ class LabelView(BaseView):
 								'display': f'{a_name}{"  –  " + attr if attr else ""}',
 								'discount_pct': float(disc_pct) if disc_pct else None,
 								'discount_until': disc_until,
+								'category': cat_name or 'Sin categoría',
+								'supplier': sup_name or 'Sin proveedor',
 							}
 						)
+						if cat_name:
+							categories_set.add(cat_name)
+						if sup_name:
+							suppliers_set.add(sup_name)
 
 					if self.winfo_exists():
-						self.after(0, lambda: self._on_catalog_loaded(variants_data))
+						self.after(0, lambda: self._on_catalog_loaded(
+							variants_data,
+							sorted(categories_set),
+							sorted(suppliers_set)
+						))
 			except Exception as e:
 				logger.error(f'Error cargando catálogo: {e}', exc_info=True)
 				if self.winfo_exists():
-					self.after(0, lambda: self._on_catalog_loaded([]))
+					self.after(0, lambda: self._on_catalog_loaded([], [], []))
 
 		threading.Thread(target=_fetch_data, daemon=True).start()
 
-	def _on_catalog_loaded(self, data: list[dict]):
+	def _on_catalog_loaded(self, data: list[dict], categories: list[str], suppliers: list[str]):
 		self._variants = data
+		self._categories = categories
+		self._suppliers = suppliers
+		self._update_filter_dropdowns()
 		self._filter_catalog()
 
 	def _filter_catalog(self):
 		if not self.winfo_exists():
 			return
 		q = self._entry_search.get().lower().strip()
+		cat_filter = getattr(self, '_filter_category', 'Todas')
+		sup_filter = getattr(self, '_filter_supplier', 'Todos')
+		
 		filtered = [
 			v
 			for v in self._variants
-			if not q
-			or q in v['name'].lower()
-			or q in v['attribute'].lower()
-			or q in v['barcode'].lower()
+			if (not q
+				or q in (v.get('name') or '').lower()
+				or q in (v.get('attribute') or '').lower()
+				or q in (v.get('barcode') or '').lower())
+			and (cat_filter == 'Todas' or v.get('category') == cat_filter)
+			and (sup_filter == 'Todos' or v.get('supplier') == sup_filter)
 		]
 		self._render_catalog(filtered)
+	
+	def _update_filter_dropdowns(self):
+		if not self.winfo_exists():
+			return
+		
+		categories = ['Todas'] + getattr(self, '_categories', [])
+		suppliers = ['Todos'] + getattr(self, '_suppliers', [])
+		
+		if hasattr(self, '_cat_menu'):
+			self._cat_menu.configure(values=categories)
+			if self._filter_category not in categories:
+				self._filter_category = 'Todas'
+				self._cat_var.set('Todas')
+		
+		if hasattr(self, '_sup_menu'):
+			self._sup_menu.configure(values=suppliers)
+			if self._filter_supplier not in suppliers:
+				self._filter_supplier = 'Todos'
+				self._sup_var.set('Todos')
+	
+	def _set_category_filter(self, category: str):
+		self._filter_category = category
+		self._cat_var.set(category)
+		self._filter_catalog()
+	
+	def _set_supplier_filter(self, supplier: str):
+		self._filter_supplier = supplier
+		self._sup_var.set(supplier)
+		self._filter_catalog()
 
 	def _render_catalog(self, variants: list[dict]):
 		if not self.winfo_exists():
@@ -835,12 +988,16 @@ class LabelView(BaseView):
 
 			def _do_add(vv=v, btn=btn_add):
 				self._add_one_to_queue(vv)
+				if getattr(btn, '_is_animating', False):
+					return
+				btn._is_animating = True
 				orig_color = btn.cget('fg_color')
 				btn.configure(fg_color=GREEN)
-				self.after(
-					300,
-					lambda: btn.winfo_exists() and btn.configure(fg_color=orig_color),
-				)
+				def _reset():
+					if btn.winfo_exists():
+						btn.configure(fg_color=orig_color)
+						btn._is_animating = False
+				self.after(300, _reset)
 
 			btn_add.configure(command=_do_add)
 			btn_add.grid(row=0, column=2, padx=(PAD_XS, PAD_SM))
@@ -874,13 +1031,18 @@ class LabelView(BaseView):
 		self._render_queue()
 
 	def _add_all_to_queue(self):
-		filtered_txt = self._entry_search.get().lower().strip()
+		q = self._entry_search.get().lower().strip()
+		cat_filter = getattr(self, '_filter_category', 'Todas')
+		sup_filter = getattr(self, '_filter_supplier', 'Todos')
 		targets = [
 			v
 			for v in self._variants
-			if not filtered_txt
-			or filtered_txt in v['name'].lower()
-			or filtered_txt in v['barcode'].lower()
+			if (not q
+				or q in (v.get('name') or '').lower()
+				or q in (v.get('attribute') or '').lower()
+				or q in (v.get('barcode') or '').lower())
+			and (cat_filter == 'Todas' or v.get('category') == cat_filter)
+			and (sup_filter == 'Todos' or v.get('supplier') == sup_filter)
 		]
 		for v in targets:
 			self._add_one_to_queue(v, render=False)
@@ -1080,7 +1242,7 @@ class LabelView(BaseView):
 			if until_str:
 				try:
 					still_valid = (
-						datetime.strptime(until_str, '%d/%m/%Y') >= datetime.now()
+						datetime.strptime(until_str, '%d/%m/%Y').date() >= datetime.now().date()
 					)
 				except ValueError:
 					still_valid = False
@@ -1106,7 +1268,7 @@ class LabelView(BaseView):
 		mode = item.get('price_mode', 'retail')
 		if mode == 'price_b':
 			price_b = item.get('selling_price_b')
-			if price_b:
+			if price_b is not None:
 				return float(price_b)
 		return base
 
@@ -1254,65 +1416,70 @@ class LabelView(BaseView):
 				command=lambda i=idx: self._remove_from_queue(i),
 			).grid(row=0, column=3, padx=(PAD_XS, PAD_SM))
 
-			disc_bg = SURFACE0
-			disc_row = ctk.CTkFrame(
-				self._queue_frame, fg_color=disc_bg, corner_radius=0
+			# Fila de descuento: solo si hay datos de descuento previos
+			has_discount_data = bool(
+				item.get('discount_price') or item.get('discount_until') or item.get('discount_pct')
 			)
-			disc_row.pack(fill='x', pady=(0, 2))
+			if has_discount_data:
+				disc_bg = SURFACE0
+				disc_row = ctk.CTkFrame(
+					self._queue_frame, fg_color=disc_bg, corner_radius=0
+				)
+				disc_row.pack(fill='x', pady=(0, 2))
 
-			ctk.CTkLabel(
-				disc_row,
-				text='%  Descuento:',
-				font=FONT_LABEL,
-				text_color=TEXT_MUTED,
-				width=95,
-				anchor='w',
-			).pack(side='left', padx=(PAD_MD, PAD_XS), pady=3)
+				ctk.CTkLabel(
+					disc_row,
+					text='%  Descuento:',
+					font=FONT_LABEL,
+					text_color=TEXT_MUTED,
+					width=95,
+					anchor='w',
+				).pack(side='left', padx=(PAD_MD, PAD_XS), pady=3)
 
-			entry_disc = ctk.CTkEntry(
-				disc_row,
-				width=75,
-				height=22,
-				font=FONT_LABEL,
-				placeholder_text='precio desc.',
-				fg_color=SURFACE2,
-				border_color=BORDER,
-				text_color=RED_TEXT,
-			)
-			if item.get('discount_price'):
-				entry_disc.insert(0, str(item['discount_price']))
-			entry_disc.pack(side='left', padx=(0, PAD_SM))
+				entry_disc = ctk.CTkEntry(
+					disc_row,
+					width=75,
+					height=22,
+					font=FONT_LABEL,
+					placeholder_text='precio desc.',
+					fg_color=SURFACE2,
+					border_color=BORDER,
+					text_color=RED_TEXT,
+				)
+				if item.get('discount_price'):
+					entry_disc.insert(0, str(item['discount_price']))
+				entry_disc.pack(side='left', padx=(0, PAD_SM))
 
-			ctk.CTkLabel(
-				disc_row,
-				text='Válido hasta:',
-				font=FONT_LABEL,
-				text_color=TEXT_MUTED,
-				width=80,
-				anchor='w',
-			).pack(side='left', padx=(0, PAD_XS))
+				ctk.CTkLabel(
+					disc_row,
+					text='Válido hasta:',
+					font=FONT_LABEL,
+					text_color=TEXT_MUTED,
+					width=80,
+					anchor='w',
+				).pack(side='left', padx=(0, PAD_XS))
 
-			entry_until = CTkDatePicker(disc_row, width=155, height=26)
-			if item.get('discount_until'):
-				entry_until.set_text(str(item['discount_until']))
-			entry_until.pack(side='left', padx=(0, PAD_SM))
+				entry_until = CTkDatePicker(disc_row, width=155, height=26)
+				if item.get('discount_until'):
+					entry_until.set_text(str(item['discount_until']))
+				entry_until.pack(side='left', padx=(0, PAD_SM))
 
-			def _on_disc_change(e=None, i=idx, de=entry_disc, eu=entry_until):
-				try:
-					val = float(de.get())
-					self._queue[i]['discount_price'] = val if val > 0 else None
-				except (ValueError, TypeError):
-					self._queue[i]['discount_price'] = None
-				self._queue[i]['discount_until'] = eu.get().strip()
-				if i == 0:
-					self._update_live_preview()
+				def _on_disc_change(e=None, i=idx, de=entry_disc, eu=entry_until):
+					try:
+						val = float(de.get().replace(',', '.'))
+						self._queue[i]['discount_price'] = val if val > 0 else None
+					except (ValueError, TypeError):
+						self._queue[i]['discount_price'] = None
+					self._queue[i]['discount_until'] = eu.get().strip()
+					if i == 0:
+						self._update_live_preview()
 
-			entry_until._on_date_selected = lambda d, f=_on_disc_change: f()
-			entry_disc.bind('<KeyRelease>', _on_disc_change)
-			entry_until.bind('<KeyRelease>', _on_disc_change)
-			entry_disc.bind(
-				'<FocusIn>', lambda e, ent=entry_disc: ent.select_range(0, 'end')
-			)
+				entry_until._on_date_selected = lambda d, f=_on_disc_change: f()
+				entry_disc.bind('<KeyRelease>', _on_disc_change)
+				entry_until.bind('<KeyRelease>', _on_disc_change)
+				entry_disc.bind(
+					'<FocusIn>', lambda e, ent=entry_disc: ent.select_range(0, 'end')
+				)
 
 	def _inc_copies(self, idx: int, ent: ctk.CTkEntry):
 		if 0 <= idx < len(self._queue):
@@ -1379,7 +1546,13 @@ class LabelView(BaseView):
 		tpl = TEMPLATES[self._tpl_key]
 
 		if self._btn_print.winfo_exists():
-			self._btn_print.configure(text='⏳  Generando PDF...', state='disabled')
+			self._btn_print.configure(
+				text='⏳  Generando PDF...', 
+				state='disabled',
+				fg_color=MUTED_BLUE,
+				hover_color=MUTED_BLUE
+			)
+			self._btn_print.update()
 
 		items_snapshot = [dict(it) for it in self._queue]
 		tpl_key = self._tpl_key
@@ -1396,7 +1569,10 @@ class LabelView(BaseView):
 			return
 		if self._btn_print.winfo_exists():
 			self._btn_print.configure(
-				text='🖨  Generar PDF de etiquetas (Ctrl+P)', state='normal'
+				text='🖨  GENERAR PDF (Ctrl+P)', 
+				state='normal',
+				fg_color=GREEN,
+				hover_color=GREEN_HOVER
 			)
 		if ok:
 			self.show_success(

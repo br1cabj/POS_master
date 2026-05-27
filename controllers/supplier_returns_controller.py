@@ -263,18 +263,26 @@ class SupplierReturnsController(BaseController):
 				_sids = [v['variant_id'] for v in validated if v['variant_id']]
 				stocks_map: dict[str, Stock] = {}
 				if _sids:
-					for stock_row in (
+					_stock_rows = (
 						session.query(Stock)
 						.filter(Stock.variant_id.in_(_sids))
 						.with_for_update()
 						.all()
-					):
-						vid = stock_row.variant_id
-						if (
-							vid not in stocks_map
-							or stock_row.quantity > stocks_map[vid].quantity
-						):
-							stocks_map[vid] = stock_row
+					)
+					# Agrupar por variant_id para detectar múltiples almacenes
+					_by_variant: dict[str, list[Stock]] = {}
+					for sr in _stock_rows:
+						_by_variant.setdefault(sr.variant_id, []).append(sr)
+					for vid, rows in _by_variant.items():
+						if len(rows) > 1:
+							logger.warning(
+								'Múltiples almacenes para variant %s en devolución a proveedor. '
+								'Usando el de mayor cantidad. Almacenes: %s',
+								vid,
+								[(r.warehouse_id, float(r.quantity)) for r in rows],
+							)
+						# Elegir el de mayor cantidad (heurística; idealmente debería ser el almacén original de la compra)
+						stocks_map[vid] = max(rows, key=lambda r: r.quantity)
 				for v in validated:
 					session.add(
 						PurchaseReturnItem(

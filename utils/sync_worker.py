@@ -302,7 +302,7 @@ class SyncWorker:
 				try:
 					rows_q = (
 						local.query(model)
-						.filter(model.updated_at >= last_sync)
+						.filter(model.updated_at > last_sync)  # strict > to include same-timestamp rows in next batch
 						.order_by(model.updated_at)
 						.limit(_SYNC_BATCH_SIZE)
 						.all()
@@ -326,14 +326,12 @@ class SyncWorker:
 					# Advance watermark: if batch < limit, all rows for this cycle
 					# were sent, so advance to sync_time. If batch == limit, more rows
 					# may exist; advance to the last row's updated_at so the next cycle
-					# continues from there (prevents infinite retry on exact batch size).
+					# continues from there. Since we now use strict '>' in the query,
+					# rows with the exact same updated_at will be included in the next batch.
 					if len(rows_q) < _SYNC_BATCH_SIZE:
 						state[table_name] = sync_time.isoformat()
 					else:
-						# Advance past the last timestamp to avoid re-sending rows
-						# with the exact same updated_at on the next cycle.
-						next_ts = rows_q[-1].updated_at + timedelta(microseconds=1)
-						state[table_name] = next_ts.isoformat()
+						state[table_name] = rows_q[-1].updated_at.isoformat()
 					logger.debug('Synced %d rows → %s', pushed, table_name)
 				except Exception as e:
 					logger.error('Upsert failed for %s: %s', table_name, e)

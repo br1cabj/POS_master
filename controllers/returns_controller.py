@@ -302,7 +302,9 @@ class ReturnsController(BaseController):
 							sale_total_gross,
 							sale_id,
 						)
-						discount_factor = Decimal('1')
+						# Si el descuento supera el bruto, el cliente no pagó nada (o recibió dinero).
+						# El reembolso debe ser $0, no el precio completo.
+						discount_factor = Decimal('0')
 					else:
 						discount_factor = max(
 							Decimal('0.0001'), min(raw_factor, Decimal('1'))

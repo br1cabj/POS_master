@@ -25,7 +25,8 @@ def _to_decimal_or_none(val):
 	try:
 		d = Decimal(str(val))
 		return d if d > 0 else None
-	except Exception:
+	except Exception as e:
+		logger.warning('_to_decimal_or_none falló para %r: %s', val, e)
 		return None
 
 
@@ -66,11 +67,17 @@ class ArticleController(BaseController):
 						joinedload(ArticleVariant.stocks),
 					)
 					.join(Article)
-					.filter(Article.tenant_id == tenant_id)
+					.filter(
+						Article.tenant_id == tenant_id,
+						Article.deleted_at.is_(None),
+					)
 					.order_by(Article.name)
 				)
 				if not include_inactive:
-					q = q.filter(ArticleVariant.is_active == True)  # noqa: E712
+					q = q.filter(
+						ArticleVariant.is_active == True,  # noqa: E712
+						ArticleVariant.deleted_at.is_(None),
+					)
 
 				return [
 					{
@@ -173,7 +180,8 @@ class ArticleController(BaseController):
 						spb = Decimal(str(selling_price_b))
 						if spb <= 0:
 							spb = None
-					except Exception:
+					except Exception as e:
+						logger.warning('selling_price_b inválido %r en add_simple_article: %s', selling_price_b, e)
 						spb = None
 
 				variant = ArticleVariant(
@@ -291,7 +299,8 @@ class ArticleController(BaseController):
 						spb = Decimal(str(selling_price_b))
 						if spb <= 0:
 							spb = None
-					except Exception:
+					except Exception as e:
+						logger.warning('selling_price_b inválido %r en update_article: %s', selling_price_b, e)
 						spb = None
 				variant.selling_price_b = spb
 
@@ -392,12 +401,16 @@ class ArticleController(BaseController):
 	def get_categories_for_combo(self, tenant_id):
 		with self._Session() as session:
 			try:
-				# Devuelve todas las categorías: las usadas por este tenant
-				# más las no asignadas aún, para que el usuario pueda reclasificar.
-				# Category no tiene tenant_id propio — es una tabla global compartida.
+				# Devuelve categorías del tenant + categorías globales (tenant_id=None)
+				# para que el usuario pueda reclasificar.
 				return [
 					{'id': c.id, 'name': c.name}
-					for c in session.query(Category).order_by(Category.name).all()
+					for c in session.query(Category)
+					.filter(
+						(Category.tenant_id == tenant_id) | (Category.tenant_id.is_(None))
+					)
+					.order_by(Category.name)
+					.all()
 				]
 			except Exception as e:
 				logger.error(f'Error obteniendo categorías: {e}', exc_info=True)
@@ -839,5 +852,6 @@ class ArticleController(BaseController):
 				if not s:
 					return 0.0, None
 				return float(s.discount_pct or 0), s.discount_until
-			except Exception:
+			except Exception as e:
+				logger.warning('Error obteniendo descuento proveedor %s: %s', supplier_id, e)
 				return 0.0, None

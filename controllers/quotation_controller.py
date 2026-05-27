@@ -46,7 +46,8 @@ def _to_dec(value, default=Decimal('0')) -> Decimal:
 			return default
 		str_val = str(value).strip().replace(',', '.')
 		return Decimal(str_val)
-	except Exception:
+	except Exception as e:
+		logger.warning('_to_dec falló para %r: %s — usando default %s', value, e, default)
 		return default
 
 

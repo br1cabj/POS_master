@@ -48,7 +48,12 @@ class SalesController(BaseController):
 						.joinedload(ArticleVariant.stocks),
 					)
 					.join(Article)
-					.filter(Article.tenant_id == tenant_id, ArticleVariant.is_active)  # noqa: E712
+					.filter(
+						Article.tenant_id == tenant_id,
+						Article.deleted_at.is_(None),
+						ArticleVariant.is_active,
+						ArticleVariant.deleted_at.is_(None),
+					)
 					.all()
 				)
 
@@ -350,7 +355,8 @@ class SalesController(BaseController):
 				amount_m2 = self._parse_decimal(amount_method_2)
 				if amount_m2 < Decimal('0'):
 					amount_m2 = Decimal('0')
-			except Exception:
+			except Exception as e:
+				logger.warning('Error parseando monto método 2 (%r): %s — se usa 0', amount_method_2, e)
 				amount_m2 = Decimal('0')
 
 		with self._Session() as session:
@@ -358,6 +364,7 @@ class SalesController(BaseController):
 				active_cash = (
 					session.query(CashSession)
 					.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
+					.with_for_update()
 					.first()
 				)
 				if not active_cash:
@@ -479,6 +486,20 @@ class SalesController(BaseController):
 						if price < Decimal('0'):
 							raise ValueError(
 								f'El precio no puede ser negativo: {variant.article.name}'
+							)
+						# Validar contra DB: evitar manipulación desde frontend
+						db_price = Decimal(str(variant.selling_price or 0))
+						db_cost = Decimal(str(variant.cost_price or 0))
+						if price < db_cost:
+							raise ValueError(
+								f'Precio menor al costo para: {variant.article.name}. '
+								f'Precio mínimo: ${db_cost:.2f}'
+							)
+						# Permitir hasta 50% de descuento manual; más alló requiere autorización
+						if db_price > 0 and price < db_price * Decimal('0.5'):
+							raise ValueError(
+								f'Precio con descuento excesivo para: {variant.article.name}. '
+								f'Mínimo permitido: ${db_price * Decimal("0.5"):.2f}'
 							)
 
 						if variant.is_combo:
@@ -652,7 +673,8 @@ class SalesController(BaseController):
 				try:
 					_user_obj = session.query(User).filter_by(id=user_id).first()
 					cashier_label = get_display_name(_user_obj)
-				except Exception:
+				except Exception as e:
+					logger.warning('Error obteniendo nombre del cajero %s: %s', user_id, e)
 					cashier_label = 'Operador'
 
 				session.commit()
@@ -669,12 +691,12 @@ class SalesController(BaseController):
 						and not is_fiado
 						and not payment_method_2
 					):
-						try:
-							paid_dec = Decimal(str(paid_amount))
-							change_amt = max(paid_dec - final_total, Decimal('0'))
-						except (ValueError, TypeError, Exception) as _e:
-							logger.debug('No se pudo calcular el vuelto: %s', _e)
-							change_amt = Decimal('0')
+try:
+						paid_dec = Decimal(str(paid_amount))
+						change_amt = max(paid_dec - final_total, Decimal('0'))
+					except Exception as _e:
+						logger.warning('Error calculando vuelto (paid=%r total=%s): %s', paid_amount, final_total, _e)
+						change_amt = Decimal('0')
 
 					ReceiptController().generate_pdf(
 						tenant_id=tenant_id,

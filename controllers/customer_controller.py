@@ -56,7 +56,9 @@ class CustomerController(BaseController):
 					session.query(Customer, last_sale_sq.c.last_date)
 					.outerjoin(last_sale_sq, Customer.id == last_sale_sq.c.customer_id)
 					.filter(
-						Customer.tenant_id == tenant_id, Customer.is_active.is_(True)
+						Customer.tenant_id == tenant_id,
+						Customer.is_active.is_(True),
+						Customer.deleted_at.is_(None),
 					)
 					.order_by(Customer.name)
 					.all()

@@ -134,6 +134,8 @@ def run_migrations(engine) -> None:
 	_v26_add_customer_id_to_cash_movements(engine)
 	_v27_add_updated_at_article_history(engine)
 	_v28_add_tenant_updated_at_stock_movement_category(engine)
+	_v29_add_stock_unique_constraint(engine)
+	_v30_add_performance_indexes(engine)
 
 
 def setup_cloud_schema(engine) -> None:
@@ -601,7 +603,8 @@ def _v21_create_combo_items(engine) -> None:
                     id                VARCHAR(36) PRIMARY KEY,
                     combo_id          VARCHAR(36) NOT NULL REFERENCES article_variants(id),
                     ingredient_id     VARCHAR(36) NOT NULL REFERENCES article_variants(id),
-                    quantity_required  NUMERIC(12,4) NOT NULL
+                    quantity_required  NUMERIC(12,4) NOT NULL,
+                    CONSTRAINT chk_combo_qty_positive CHECK (quantity_required > 0)
                 )
             """)
 			)
@@ -874,3 +877,67 @@ def _v28_add_tenant_updated_at_stock_movement_category(engine) -> None:
 		conn.commit()
 
 	logger.info('v28: tenant_id + updated_at en stock_movements y categories listos.')
+
+
+def _v29_add_stock_unique_constraint(engine) -> None:
+	"""v29: Agrega índice único en stocks(variant_id, warehouse_id, batch_number)
+	para prevenir duplicados silenciosos que causaban desviación de inventario."""
+	with engine.connect() as conn:
+		try:
+			conn.execute(
+				text(
+					'CREATE UNIQUE INDEX IF NOT EXISTS uq_stock_variant_warehouse_batch '
+					'ON stocks(variant_id, warehouse_id, batch_number)'
+				)
+			)
+			conn.commit()
+			logger.info('v29: índice único uq_stock_variant_warehouse_batch creado.')
+		except Exception as e:
+			# Si ya hay duplicados, el índice fallará — loggear para que el admin lo sepa
+			logger.error(
+				'v29: no se pudo crear índice único en stocks '
+				'(probablemente existen duplicados): %s',
+				e,
+			)
+			raise
+
+
+def _v30_add_performance_indexes(engine) -> None:
+	"""v30: Agrega índices faltantes para mejorar performance en queries frecuentes."""
+	with engine.connect() as conn:
+		# Índice en sale_details.variant_id para reportes de productos más vendidos
+		try:
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_sale_details_variant_id ON sale_details(variant_id)'
+				)
+			)
+			logger.info('v30: índice ix_sale_details_variant_id creado.')
+		except Exception as e:
+			logger.warning('v30: no se pudo crear índice ix_sale_details_variant_id: %s', e)
+
+		# Índices en stock_movements para reportes de Kardex por almacén
+		for col in ('source_warehouse_id', 'dest_warehouse_id'):
+			try:
+				conn.execute(
+					text(
+						f'CREATE INDEX IF NOT EXISTS ix_stock_movements_{col} ON stock_movements({col})'
+					)
+				)
+				logger.info('v30: índice ix_stock_movements_%s creado.', col)
+			except Exception as e:
+				logger.warning('v30: no se pudo crear índice ix_stock_movements_%s: %s', col, e)
+
+		# Índice parcial único para evitar dos cajas abiertas por mismo usuario
+		try:
+			conn.execute(
+				text(
+					'CREATE UNIQUE INDEX IF NOT EXISTS uq_cash_open_session '
+					'ON cash_sessions(tenant_id, user_id) WHERE is_open = 1'
+				)
+			)
+			logger.info('v30: índice parcial único uq_cash_open_session creado.')
+		except Exception as e:
+			logger.warning('v30: no se pudo crear índice uq_cash_open_session: %s', e)
+
+		conn.commit()

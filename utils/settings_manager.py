@@ -127,9 +127,22 @@ def load(force_reload: bool = False) -> dict:
 				_cached_settings = merged
 				return _cached_settings.copy()
 		except PermissionError as e:
-			logger.error(f'Sin permisos para leer settings.json, usando defaults: {e}')
+			logger.error(f'Sin permisos para leer settings.json: {e}')
+			# Si ya hay caché, usarlo; si no, lanzar error para que el llamador decida
+			if _cached_settings is not None:
+				return _cached_settings.copy()
+			raise
+		except json.JSONDecodeError as e:
+			logger.error(f'settings.json está corrupto: {e}')
+			# Hacer backup del archivo corrupto antes de usar defaults
+			try:
+				backup = _SETTINGS_FILE.with_suffix('.json.bak')
+				_SETTINGS_FILE.rename(backup)
+				logger.info(f'Backup de settings corrupto guardado en: {backup}')
+			except Exception as bak_err:
+				logger.warning(f'No se pudo hacer backup de settings.json: {bak_err}')
 		except Exception as e:
-			logger.warning(f'No se pudo leer settings.json, usando defaults: {e}')
+			logger.error(f'Error inesperado leyendo settings.json: {e}')
 
 		_cached_settings = dict(DEFAULTS)
 		return _cached_settings.copy()

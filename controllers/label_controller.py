@@ -5,6 +5,7 @@ import platform
 import re
 import subprocess
 import tempfile
+import time
 import unicodedata
 import uuid
 from datetime import datetime
@@ -47,6 +48,13 @@ TEMPLATES = {
 		'h_mm': 25,
 		'icon': '🔖',
 	},
+	'dual': {
+		'label': 'Dual (A+B)',
+		'desc': '70 × 50 mm',
+		'w_mm': 70,
+		'h_mm': 50,
+		'icon': '🔄',
+	},
 }
 
 
@@ -54,9 +62,9 @@ def _sanitize(text: str) -> str:
 	if not text:
 		return ''
 	return (
-		unicodedata.normalize('NFKD', str(text))
-		.encode('latin-1', 'ignore')
-		.decode('latin-1')
+		unicodedata.normalize('NFC', str(text))
+		.encode('cp1252', 'replace')
+		.decode('cp1252')
 	)
 
 
@@ -89,6 +97,21 @@ class LabelController:
 		self._tmp_dir = os.path.join(tempfile.gettempdir(), 'CloudPOS_Etiquetas')
 		os.makedirs(self._tmp_dir, exist_ok=True)
 		self._bc_cache: dict = {}
+		self._clean_old_temp_files()
+
+	def _clean_old_temp_files(self, max_age_hours: int = 24):
+		"""Elimina archivos temporales de etiquetas y barcodes más antiguos que max_age_hours."""
+		try:
+			cutoff = time.time() - (max_age_hours * 3600)
+			for fname in os.listdir(self._tmp_dir):
+				fpath = os.path.join(self._tmp_dir, fname)
+				try:
+					if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
+						os.unlink(fpath)
+				except OSError:
+					pass
+		except OSError:
+			pass
 
 	@staticmethod
 	def generate_internal_barcode() -> str:
@@ -289,7 +312,7 @@ class LabelController:
 
 				if price_mode == 'price_b':
 					price_b = item.get('selling_price_b')
-					if price_b:
+					if price_b is not None:
 						try:
 							display_price = float(price_b)
 							mode_label = list_b_name.upper()
@@ -298,10 +321,14 @@ class LabelController:
 							)
 						except (TypeError, ValueError):
 							pass
+				elif price_mode == 'both':
+					# mode_label no debe sobreescribirse para no pintar el header azul
+					# pero queremos que en plantillas duales se use
+					pass
 
 				try:
 					raw_disc = item.get('discount_price')
-					discount_price = float(raw_disc) if raw_disc else None
+					discount_price = float(raw_disc) if raw_disc is not None else None
 					if discount_price is not None and discount_price <= 0:
 						discount_price = None
 				except (ValueError, TypeError):
@@ -388,6 +415,13 @@ class LabelController:
 		BODY_H = H - HEADER_H - BC_H - FOOT_H
 		MARGIN = 2.5
 
+		# ── Borde sutil ────────────────────────────────────────
+		pdf.set_draw_color(200, 200, 200)
+		pdf.set_line_width(0.3)
+		pdf.rect(0.2, 0.2, W - 0.4, H - 0.4)
+		pdf.set_draw_color(0, 0, 0)
+		pdf.set_line_width(0.2)
+
 		# ── Header ─────────────────────────────────────────────
 		if is_offer:
 			pdf.set_fill_color(220, 38, 38)
@@ -410,7 +444,8 @@ class LabelController:
 				try:
 					pdf.image(logo_path, x=MARGIN, y=0.8, h=HEADER_H - 1.6)
 					pdf.set_xy(HEADER_H + 1.5, 0)
-				except Exception:
+				except Exception as e:
+					logger.warning('No se pudo cargar el logo en etiqueta: %s', e)
 					pdf.set_xy(MARGIN, 0)
 			else:
 				pdf.set_xy(MARGIN, 0)
@@ -422,8 +457,15 @@ class LabelController:
 		# ── Nombre del producto ────────────────────────────────
 		y = HEADER_H + 2.5
 		display = f'{name} {attr}'.strip() if attr else name
-		pdf.set_font('Arial', 'B', 10.5)
-		for ln in _split_text(display, 28):
+		font_size = 10.5
+		while font_size >= 7:
+			pdf.set_font('Arial', 'B', font_size)
+			approx_chars = int((W - MARGIN * 2) / (font_size * 0.42))
+			lines = _split_text(display, approx_chars)
+			if len(lines) <= 2:
+				break
+			font_size -= 1
+		for ln in lines:
 			if y + 4.5 > HEADER_H + BODY_H:
 				break
 			pdf.set_xy(MARGIN, y)
@@ -433,12 +475,14 @@ class LabelController:
 		# ── Precio ─────────────────────────────────────────────
 		price_zone_top = HEADER_H + BODY_H - 13
 		if is_offer:
+			before_label = 'Antes: '
 			orig_str = _sanitize(_fmt_price(display_price, symbol, decimals))
 			pdf.set_xy(MARGIN, price_zone_top)
 			pdf.set_font('Arial', '', 7.5)
 			pdf.set_text_color(140, 140, 140)
-			pdf.cell(W - MARGIN * 2, 4, f'Antes: {orig_str}', align='L')
-			self._draw_strikethrough(pdf, MARGIN + 11, price_zone_top, orig_str, 2.2)
+			pdf.cell(W - MARGIN * 2, 4, before_label + orig_str, align='L')
+			strike_x = MARGIN + pdf.get_string_width(before_label)
+			self._draw_strikethrough(pdf, strike_x, price_zone_top, orig_str, 2.2)
 			pdf.set_text_color(0, 0, 0)
 
 			disc_str = _sanitize(_fmt_price(discount_price, symbol, decimals))
@@ -498,6 +542,13 @@ class LabelController:
 		BODY_H = H - HEADER_H - BC_H - FOOT_H
 		MARGIN = 3.0
 
+		# ── Borde sutil ────────────────────────────────────────
+		pdf.set_draw_color(200, 200, 200)
+		pdf.set_line_width(0.3)
+		pdf.rect(0.2, 0.2, W - 0.4, H - 0.4)
+		pdf.set_draw_color(0, 0, 0)
+		pdf.set_line_width(0.2)
+
 		# ── Header ─────────────────────────────────────────────
 		accent = (
 			(220, 38, 38) if is_offer else (37, 99, 235) if mode_label else (15, 23, 42)
@@ -518,7 +569,8 @@ class LabelController:
 				try:
 					pdf.image(logo_path, x=MARGIN, y=1, h=HEADER_H - 2)
 					pdf.set_xy(HEADER_H + 2, 0)
-				except Exception:
+				except Exception as e:
+					logger.warning('No se pudo cargar el logo en etiqueta producto: %s', e)
 					pdf.set_xy(MARGIN, 0)
 			else:
 				pdf.set_xy(MARGIN, 0)
@@ -529,8 +581,15 @@ class LabelController:
 
 		# ── Nombre del producto ────────────────────────────────
 		y = HEADER_H + 3.5
-		pdf.set_font('Arial', 'B', 13)
-		for ln in _split_text(name, 26):
+		font_size = 13
+		while font_size >= 8:
+			pdf.set_font('Arial', 'B', font_size)
+			approx_chars = int((W - MARGIN * 2) / (font_size * 0.42))
+			lines = _split_text(name, approx_chars)
+			if len(lines) <= 3:
+				break
+			font_size -= 1
+		for ln in lines:
 			if y + 6 > HEADER_H + BODY_H - 2:
 				break
 			pdf.set_xy(MARGIN, y)
@@ -547,12 +606,14 @@ class LabelController:
 		# ── Precio ─────────────────────────────────────────────
 		price_zone_top = HEADER_H + BODY_H - 16
 		if is_offer:
+			before_label = 'Antes: '
 			orig_str = _sanitize(_fmt_price(display_price, symbol, decimals))
 			pdf.set_xy(MARGIN, price_zone_top)
 			pdf.set_font('Arial', '', 8.5)
 			pdf.set_text_color(140, 140, 140)
-			pdf.cell(W - MARGIN * 2, 4.5, f'Antes: {orig_str}', align='L')
-			self._draw_strikethrough(pdf, MARGIN + 13, price_zone_top, orig_str, 2.5)
+			pdf.cell(W - MARGIN * 2, 4.5, before_label + orig_str, align='L')
+			strike_x = MARGIN + pdf.get_string_width(before_label)
+			self._draw_strikethrough(pdf, strike_x, price_zone_top, orig_str, 2.5)
 			pdf.set_text_color(0, 0, 0)
 
 			disc_str = _sanitize(_fmt_price(discount_price, symbol, decimals))
@@ -682,6 +743,13 @@ class LabelController:
 		FOOT_H = 2.8
 		MARGIN = 1.5
 
+		# ── Borde sutil ────────────────────────────────────────
+		pdf.set_draw_color(200, 200, 200)
+		pdf.set_line_width(0.3)
+		pdf.rect(0.2, 0.2, W - 0.4, H - 0.4)
+		pdf.set_draw_color(0, 0, 0)
+		pdf.set_line_width(0.2)
+
 		# ── Header ─────────────────────────────────────────────
 		if is_offer:
 			pdf.set_fill_color(220, 38, 38)
@@ -731,6 +799,151 @@ class LabelController:
 			pdf.set_text_color(247, 127, 0)
 			pdf.set_xy(MARGIN, y)
 			pdf.cell(W - MARGIN * 2, 6, price_str, align='L')
+			pdf.set_text_color(0, 0, 0)
+
+		# ── Barcode + footer ───────────────────────────────────
+		sep_y = H - BC_H - FOOT_H
+		self._draw_barcode_footer(
+			pdf, barcode_val, W, H, sep_y, BC_H, FOOT_H, MARGIN, font_size=3.5
+		)
+
+	def _draw_dual(self, pdf, item, W, H, company, logo_path, symbol, decimals):
+		"""70×50 mm — muestra ambos precios (minorista + mayorista)."""
+		name = _sanitize(item.get('name', ''))
+		attr = _sanitize(item.get('attribute', ''))
+		barcode_val = item.get('barcode', '')
+
+		try:
+			base_price = float(item.get('price') or 0)
+		except (ValueError, TypeError):
+			base_price = 0.0
+
+		price_b = item.get('selling_price_b')
+		try:
+			price_b_val = float(price_b) if price_b is not None else None
+		except (ValueError, TypeError):
+			price_b_val = None
+
+		discount_price = item.get('_discount_price')
+		discount_until = item.get('_discount_until', '')
+		is_offer = bool(discount_price and discount_price < base_price)
+
+		HEADER_H = 7.0
+		BC_H = 10.0
+		FOOT_H = 4.0
+		BODY_H = H - HEADER_H - BC_H - FOOT_H
+		MARGIN = 3.0
+
+		# ── Borde sutil ────────────────────────────────────────
+		pdf.set_draw_color(200, 200, 200)
+		pdf.set_line_width(0.3)
+		pdf.rect(0.2, 0.2, W - 0.4, H - 0.4)
+		pdf.set_draw_color(0, 0, 0)
+		pdf.set_line_width(0.2)
+
+		# ── Header ─────────────────────────────────────────────
+		accent = (220, 38, 38) if is_offer else (30, 41, 59)
+		pdf.set_fill_color(*accent)
+		pdf.rect(0, 0, W, HEADER_H, 'F')
+		pdf.set_text_color(255, 255, 255)
+
+		if is_offer:
+			pdf.set_font('Arial', 'B', 9)
+			pdf.set_xy(0, 0)
+			pdf.cell(W, HEADER_H, '* OFERTA IMPERDIBLE *', align='C')
+		else:
+			brand_txt = company[:30] if company else 'CloudPOS'
+			if logo_path and os.path.exists(logo_path):
+				try:
+					pdf.image(logo_path, x=MARGIN, y=1, h=HEADER_H - 2)
+					pdf.set_xy(HEADER_H + 2, 0)
+				except Exception as e:
+					logger.warning('No se pudo cargar el logo en etiqueta dual: %s', e)
+					pdf.set_xy(MARGIN, 0)
+			else:
+				pdf.set_xy(MARGIN, 0)
+			pdf.set_font('Arial', 'B', 7)
+			pdf.cell(W - MARGIN * 2, HEADER_H, _sanitize(brand_txt).upper(), align='L')
+
+		pdf.set_text_color(0, 0, 0)
+
+		# ── Nombre del producto ────────────────────────────────
+		y = HEADER_H + 3.0
+		font_size = 11
+		while font_size >= 7:
+			pdf.set_font('Arial', 'B', font_size)
+			approx_chars = int((W - MARGIN * 2) / (font_size * 0.42))
+			lines = _split_text(name, approx_chars)
+			if len(lines) <= 2:
+				break
+			font_size -= 1
+		for ln in lines:
+			if y + 5 > HEADER_H + BODY_H - 2:
+				break
+			pdf.set_xy(MARGIN, y)
+			pdf.cell(W - MARGIN * 2, 5, ln, align='L')
+			y += 5
+
+		if attr:
+			pdf.set_font('Arial', '', 7)
+			pdf.set_text_color(100, 116, 139)
+			pdf.set_xy(MARGIN, y)
+			pdf.cell(W - MARGIN * 2, 3.5, attr[:34], align='L')
+			y += 4
+			pdf.set_text_color(0, 0, 0)
+
+		# ── Precios duales ─────────────────────────────────────
+		price_zone_y = HEADER_H + BODY_H - 16
+
+		# Precio minorista (Lista A)
+		if is_offer:
+			orig_str = _sanitize(_fmt_price(base_price, symbol, decimals))
+			pdf.set_xy(MARGIN, price_zone_y)
+			pdf.set_font('Arial', '', 6.5)
+			pdf.set_text_color(140, 140, 140)
+			pdf.cell(W - MARGIN * 2, 3, f'Antes: {orig_str}', align='L')
+			strike_x = MARGIN + pdf.get_string_width('Antes: ')
+			self._draw_strikethrough(pdf, strike_x, price_zone_y, orig_str, 2.0)
+			pdf.set_text_color(0, 0, 0)
+
+			disc_str = _sanitize(_fmt_price(discount_price, symbol, decimals))
+			pdf.set_xy(MARGIN, price_zone_y + 2.5)
+			pdf.set_font('Arial', 'B', 12)
+			pdf.set_text_color(220, 38, 38)
+			pdf.cell((W - MARGIN * 2) / 2, 6, disc_str, align='L')
+			pdf.set_text_color(0, 0, 0)
+		else:
+			price_a_str = _sanitize(_fmt_price(base_price, symbol, decimals))
+			pdf.set_xy(MARGIN, price_zone_y)
+			pdf.set_font('Arial', 'B', 12)
+			pdf.set_text_color(15, 23, 42)
+			pdf.cell((W - MARGIN * 2) / 2, 6, price_a_str, align='L')
+			pdf.set_text_color(0, 0, 0)
+
+		# Precio mayorista (Lista B)
+		if price_b_val is not None:
+			price_b_str = _sanitize(_fmt_price(price_b_val, symbol, decimals))
+			pdf.set_xy(W / 2, price_zone_y)
+			pdf.set_font('Arial', 'B', 12)
+			pdf.set_text_color(37, 99, 235)
+			pdf.cell((W - MARGIN * 2) / 2, 6, price_b_str, align='R')
+			pdf.set_text_color(0, 0, 0)
+
+		# Etiquetas de lista
+		pdf.set_font('Arial', '', 5)
+		pdf.set_text_color(100, 116, 139)
+		pdf.set_xy(MARGIN, price_zone_y + 6)
+		pdf.cell((W - MARGIN * 2) / 2, 2.5, 'Minorista', align='L')
+		if price_b_val is not None:
+			pdf.set_xy(W / 2, price_zone_y + 6)
+			pdf.cell((W - MARGIN * 2) / 2, 2.5, 'Mayorista', align='R')
+		pdf.set_text_color(0, 0, 0)
+
+		if is_offer and discount_until:
+			pdf.set_xy(MARGIN, price_zone_y + 9)
+			pdf.set_font('Arial', 'I', 5)
+			pdf.set_text_color(160, 50, 50)
+			pdf.cell(W - MARGIN * 2, 2.5, f'Hasta: {discount_until}', align='L')
 			pdf.set_text_color(0, 0, 0)
 
 		# ── Barcode + footer ───────────────────────────────────

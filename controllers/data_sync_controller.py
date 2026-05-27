@@ -671,7 +671,8 @@ class DataSyncController(BaseController):
 					if raw_balance and raw_balance not in ('nan', ''):
 						try:
 							initial_balance = Decimal(str(raw_balance))
-						except Exception:
+						except Exception as e:
+							logger.warning('Balance inválido %r en importación clientes: %s', raw_balance, e)
 							initial_balance = Decimal('0')
 
 					existing = existing_map.get(name)

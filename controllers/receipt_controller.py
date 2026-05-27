@@ -52,6 +52,8 @@ class ReceiptController:
 		"""
 		Extrae la información de un ítem de forma segura soportando múltiples
 		posibles llaves en el diccionario (qty vs quantity vs qty_to_return).
+		Verifica consistencia matemática (qty * price ≈ subtotal) y loguea
+		discrepancias que pueden indicar manipulación desde el frontend.
 		"""
 		desc = str(item.get('desc', item.get('description', '')))
 
@@ -74,6 +76,16 @@ class ReceiptController:
 			sub = Decimal(str(sub_val))
 		except (ValueError, InvalidOperation, TypeError):
 			sub = Decimal('0')
+
+		# Validación de consistencia: el subtotal enviado debe coincidir con qty*price
+		calculated = (qty * price).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+		if sub > 0 and abs(calculated - sub) > Decimal('0.05'):
+			logger.warning(
+				'Receipt data inconsistency for %r: qty=%s price=%s calculated=%s received_subtotal=%s',
+				desc, qty, price, calculated, sub
+			)
+			# Preferir el cálculo matemático sobre el subtotal recibido
+			sub = calculated
 
 		return desc, qty, price, sub
 

@@ -7,6 +7,7 @@ Servicio encargado de la generación de PDFs para cotizaciones.
 import logging
 import os
 import platform
+import re
 import subprocess
 import unicodedata
 
@@ -262,9 +263,11 @@ class QuotationPDF:
 			)
 
 			# ── GUARDAR Y ABRIR ──────────────────────────────────────────────
+			safe_number = re.sub(r'[^\w\-]', '', str(self.data.get('number', 'sin_numero')))
+			safe_number = safe_number.replace('-', '_')[:50]
 			filepath = os.path.join(
 				self.output_dir,
-				f'cotizacion_{_sanitize(self.data["number"]).replace("-", "_")}.pdf',
+				f'cotizacion_{safe_number}.pdf',
 			)
 			pdf.output(filepath)
 			self._open_file(filepath)

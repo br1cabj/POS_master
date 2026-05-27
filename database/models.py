@@ -47,7 +47,9 @@ class User(Base):
 	role = Column(String(50), default='cajero')
 	is_active = Column(Boolean, default=True)
 	deleted_at = Column(DateTime, nullable=True)
-	deleted_by = Column(String(36), ForeignKey('users.id'), nullable=True)
+	deleted_by = Column(
+		String(36), ForeignKey('users.id', ondelete='SET NULL'), nullable=True
+	)
 	updated_at = Column(
 		DateTime, default=datetime.now, onupdate=datetime.now, index=True
 	)
@@ -122,7 +124,9 @@ class Supplier(Base):
 	address = Column(String(500), nullable=True)
 	is_active = Column(Boolean, default=True)
 	deleted_at = Column(DateTime, nullable=True)
-	deleted_by = Column(String(36), ForeignKey('users.id'), nullable=True)
+	deleted_by = Column(
+		String(36), ForeignKey('users.id', ondelete='SET NULL'), nullable=True
+	)
 	deleted_by_user = relationship('User', foreign_keys=[deleted_by])
 
 	discount_pct = Column(Numeric(5, 2), nullable=True)
@@ -149,7 +153,9 @@ class Article(Base):
 	has_variants = Column(Boolean, default=False)
 	is_active = Column(Boolean, default=True)
 	deleted_at = Column(DateTime, nullable=True)
-	deleted_by = Column(String(36), ForeignKey('users.id'), nullable=True)
+	deleted_by = Column(
+		String(36), ForeignKey('users.id', ondelete='SET NULL'), nullable=True
+	)
 	deleted_by_user = relationship('User', foreign_keys=[deleted_by])
 
 	updated_at = Column(
@@ -163,7 +169,7 @@ class Article(Base):
 	category = relationship('Category')
 
 	supplier_id = Column(
-		String(36), ForeignKey('suppliers.id'), nullable=True, index=True
+		String(36), ForeignKey('suppliers.id', ondelete='SET NULL'), nullable=True, index=True
 	)
 	supplier = relationship('Supplier')
 
@@ -186,6 +192,7 @@ class ArticleVariant(Base):
 	selling_price_b = Column(Numeric(10, 2), nullable=True, default=None)
 	cost_price_usd = Column(Numeric(10, 4), nullable=True, default=None)
 	is_active = Column(Boolean, default=True)
+	deleted_at = Column(DateTime, nullable=True)
 
 	is_combo = Column(Boolean, default=False)
 	show_on_touch = Column(Boolean, default=False)
@@ -277,6 +284,10 @@ class Stock(Base):
 
 	__table_args__ = (
 		CheckConstraint('quantity >= 0', name='chk_stock_quantity_positive'),
+		UniqueConstraint(
+			'variant_id', 'warehouse_id', 'batch_number',
+			name='uq_stock_variant_warehouse_batch'
+		),
 	)
 
 
@@ -291,8 +302,12 @@ class StockMovement(Base):
 	reference = Column(String(200), nullable=True)
 
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=True, index=True)
-	source_warehouse_id = Column(String(36), ForeignKey('warehouses.id'), nullable=True)
-	dest_warehouse_id = Column(String(36), ForeignKey('warehouses.id'), nullable=True)
+	source_warehouse_id = Column(
+		String(36), ForeignKey('warehouses.id'), nullable=True, index=True
+	)
+	dest_warehouse_id = Column(
+		String(36), ForeignKey('warehouses.id'), nullable=True, index=True
+	)
 
 	variant_id = Column(
 		String(36), ForeignKey('article_variants.id'), nullable=False, index=True
@@ -319,7 +334,9 @@ class Customer(Base):
 	price_list = Column(String(10), default='A')
 	is_active = Column(Boolean, default=True)
 	deleted_at = Column(DateTime, nullable=True)
-	deleted_by = Column(String(36), ForeignKey('users.id'), nullable=True)
+	deleted_by = Column(
+		String(36), ForeignKey('users.id', ondelete='SET NULL'), nullable=True
+	)
 	deleted_by_user = relationship('User', foreign_keys=[deleted_by])
 
 	updated_at = Column(
@@ -330,6 +347,10 @@ class Customer(Base):
 	tenant = relationship('Tenant', back_populates='customers')
 
 	sales = relationship('Sale', back_populates='customer')
+
+	__table_args__ = (
+		UniqueConstraint('tenant_id', 'name', name='uq_customer_tenant_name'),
+	)
 
 
 class Sale(Base):
@@ -395,7 +416,9 @@ class SaleDetail(Base):
 	sale_id = Column(String(36), ForeignKey('sales.id'), nullable=False, index=True)
 	sale = relationship('Sale', back_populates='items')
 
-	variant_id = Column(String(36), ForeignKey('article_variants.id'), nullable=True)
+	variant_id = Column(
+		String(36), ForeignKey('article_variants.id'), nullable=True, index=True
+	)
 	variant = relationship('ArticleVariant', back_populates='sale_details')
 
 
@@ -419,7 +442,9 @@ class CashSession(Base):
 	updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
 
 	user = relationship('User')
-	movements = relationship('CashMovement', back_populates='session')
+	movements = relationship(
+		'CashMovement', back_populates='session', cascade='all, delete-orphan'
+	)
 
 
 class CashMovement(Base):

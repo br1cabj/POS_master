@@ -89,7 +89,24 @@ class PosApp(ctk.CTk):
 		# Verificar ventas pendientes de sincronizar antes de cerrar
 		if hasattr(self, '_sync_worker') and self._sync_worker.is_running:
 			pending = self._count_unsynced_sales()
-			if pending > 0:
+			if pending == -1:
+				# No se pudo determinar; mostrar precaución genérica
+				from CTkMessagebox import CTkMessagebox
+
+				msg = CTkMessagebox(
+					title='Sincronización',
+					message=(
+						'No se pudo verificar el estado de sincronización. '
+						'Podría haber ventas sin sincronizar.\n\n'
+						'¿Querés cerrar de todas formas?'
+					),
+					icon='warning',
+					option_1='Cancelar',
+					option_2='Cerrar igual',
+				)
+				if msg.get() == 'Cancelar':
+					return
+			elif pending > 0:
 				from CTkMessagebox import CTkMessagebox
 
 				msg = CTkMessagebox(
@@ -111,7 +128,8 @@ class PosApp(ctk.CTk):
 		self.destroy()
 
 	def _count_unsynced_sales(self) -> int:
-		"""Cuenta ventas creadas desde la última sincronización exitosa."""
+		"""Cuenta ventas creadas desde la última sincronización exitosa.
+		Retorna -1 si no se pudo determinar (ej. estado corrupto)."""
 		if self.db_engine is None:
 			return 0
 		try:
@@ -131,8 +149,9 @@ class PosApp(ctk.CTk):
 			Session = sessionmaker(bind=self.db_engine)
 			with Session() as s:
 				return s.query(Sale).filter(Sale.updated_at > last_sync).count()
-		except Exception:
-			return 0
+		except Exception as e:
+			logger.error('No se pudo contar ventas sin sincronizar: %s', e)
+			return -1
 
 	def _clear_window(self):
 		for widget in self.winfo_children():
