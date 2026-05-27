@@ -99,7 +99,7 @@ def _menu_cloud():
 		tenant_id = str(uuid.uuid4())
 		print(f'\n  Nuevo Tenant ID generado: {tenant_id}')
 		print(
-			'  Pedile al cliente que lo configure en Configuración > Licencias y Plan\n'
+			'  Pedile al cliente que lo configure en Configuración > Licencia\n'
 			'  o usá el Tenant ID que el cliente ya tiene en esa pantalla.\n'
 			'  El primer sync lo crea en Supabase automáticamente.\n'
 		)

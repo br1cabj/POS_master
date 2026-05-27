@@ -554,7 +554,7 @@ class SetupWizard(ctk.CTkFrame):
 		self._entry_license = ctk.CTkEntry(
 			self._card_pro,
 			height=40,
-			placeholder_text='FULL-AAAAMMDD-FIRMA',
+			placeholder_text='TIPO-AAAAMMDD-FIRMA',
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
@@ -602,7 +602,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			cloud_banner,
-			text='El complemento Cloud para backups y reportes web se activa desde Configuración una vez dentro del sistema.',
+			text='El complemento Cloud para backups y reportes web se activa desde Configuración > Licencia una vez dentro del sistema.',
 			font=FONT_BODY,
 			text_color=TEXT_SECONDARY,
 		).pack(side='left', padx=(0, PAD_LG), pady=PAD_MD)
