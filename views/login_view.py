@@ -351,6 +351,7 @@ class LoginView(ctk.CTkFrame):
 				if success:
 					dialog.destroy()
 					CTkMessagebox(
+						master=self.winfo_toplevel(),
 						title='Contraseña restablecida',
 						message=f'{msg}\n\nYa podés iniciar sesión.',
 						icon='check',

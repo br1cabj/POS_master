@@ -136,7 +136,7 @@ class SuppliersView(BaseView):
 		search_row = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		search_row.pack(fill='x', padx=14, pady=(0, 6))
 
-		self._search_var = ctk.StringVar()
+		self._search_var = ctk.StringVar(master=self, )
 		self._trace_search = self._search_var.trace_add('write', self._on_search_change)
 
 		ctk.CTkEntry(

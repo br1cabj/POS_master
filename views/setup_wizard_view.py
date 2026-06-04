@@ -577,7 +577,7 @@ class SetupWizard(ctk.CTkFrame):
 			text_color=TEXT_SECONDARY,
 			border_width=2,
 			border_color=BORDER_ACTIVE,
-			command=self._select_pro,
+			command=self._handle_activate_pro,
 		)
 		self._btn_activate_pro.grid(
 			row=12, column=0, padx=PAD_LG, pady=(0, PAD_LG), sticky='ew'
@@ -646,6 +646,11 @@ class SetupWizard(ctk.CTkFrame):
 			text='Ingresá tu código y presioná Siguiente', text_color=PURPLE_TEXT
 		)
 		self._entry_license.focus()
+
+	def _handle_activate_pro(self):
+		self._select_pro()
+		if self._entry_license.get().strip():
+			self._go_next()
 
 	def _validate_step1(self) -> bool:
 		if self._license_mode is None:
@@ -1414,6 +1419,7 @@ class SetupWizard(ctk.CTkFrame):
 			font=FONT_BODY,
 		)
 		self._e_pin.pack(fill='x', padx=PAD_MD, pady=(0, PAD_XS))
+		self._e_pin.bind('<Return>', lambda e: self._go_next())
 		if self._d_pin:
 			self._e_pin.insert(0, self._d_pin)
 

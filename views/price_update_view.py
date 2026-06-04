@@ -205,7 +205,7 @@ class PriceUpdateView(BaseView):
 				command=lambda v=val: self._apply_preset(v),
 			).pack(side='left', padx=(0, 4))
 
-		self.check_round_var = ctk.BooleanVar(value=True)
+		self.check_round_var = ctk.BooleanVar(master=self, value=True)
 		ctk.CTkCheckBox(
 			self.left_panel,
 			text='Redondear a números enteros',

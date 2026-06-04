@@ -76,14 +76,14 @@ class ArticlesView(BaseView):
 		self.grid_columnconfigure(1, weight=2)
 		self.grid_rowconfigure(0, weight=1)
 
-		self._var_iva_included = ctk.BooleanVar(value=False)
-		self._var_margin = ctk.StringVar(value='')
-		self._var_cost_str = ctk.StringVar(value='')
-		self._var_price_str = ctk.StringVar(value='')
-		self._var_price_b_str = ctk.StringVar(value='')
+		self._var_iva_included = ctk.BooleanVar(master=self, value=False)
+		self._var_margin = ctk.StringVar(master=self, value='')
+		self._var_cost_str = ctk.StringVar(master=self, value='')
+		self._var_price_str = ctk.StringVar(master=self, value='')
+		self._var_price_b_str = ctk.StringVar(master=self, value='')
 
-		self._var_discount_enabled = ctk.BooleanVar(value=False)
-		self._var_discount_pct = ctk.StringVar(value='')
+		self._var_discount_enabled = ctk.BooleanVar(master=self, value=False)
+		self._var_discount_pct = ctk.StringVar(master=self, value='')
 
 		self._trace_cost = self._var_cost_str.trace_add(
 			'write', self._on_cost_or_margin_changed
@@ -984,7 +984,7 @@ class ArticlesView(BaseView):
 		make_form_label(dialog, 'DESCUENTO (%) — 0 para eliminar')[0].pack(
 			padx=PAD_LG, anchor='w'
 		)
-		var_pct = ctk.StringVar(value=f'{current_pct:.4g}' if current_pct else '')
+		var_pct = ctk.StringVar(master=self, value=f'{current_pct:.4g}' if current_pct else '')
 		entry_pct = ctk.CTkEntry(
 			dialog,
 			placeholder_text='Ej: 15',

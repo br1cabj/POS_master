@@ -329,7 +329,7 @@ class LabelController:
 				try:
 					raw_disc = item.get('discount_price')
 					discount_price = float(raw_disc) if raw_disc is not None else None
-					if discount_price is not None and discount_price <= 0:
+					if discount_price is not None and discount_price < 0:
 						discount_price = None
 				except (ValueError, TypeError):
 					discount_price = None
@@ -691,13 +691,16 @@ class LabelController:
 		# ── Precio ─────────────────────────────────────────────
 		if is_offer:
 			orig_str = _sanitize(_fmt_price(display_price, symbol, decimals))
+			full_text = f'Antes: {orig_str}'
 			pdf.set_xy(MARGIN, y)
 			pdf.set_font('Arial', '', 6)
 			pdf.set_text_color(150, 150, 150)
-			pdf.cell(W - MARGIN * 2, 3, f'Antes: {orig_str}', align='C')
-			self._draw_strikethrough(
-				pdf, (W - pdf.get_string_width(orig_str)) / 2 - 4, y, orig_str, 1.8
-			)
+			pdf.cell(W - MARGIN * 2, 3, full_text, align='C')
+			full_w = pdf.get_string_width(full_text)
+			prefix_w = pdf.get_string_width('Antes: ')
+			cell_center = MARGIN + (W - MARGIN * 2) / 2
+			strike_x = cell_center - full_w / 2 + prefix_w
+			self._draw_strikethrough(pdf, strike_x, y, orig_str, 1.8)
 			y += 3.5
 
 		price_to_show = discount_price if is_offer else display_price

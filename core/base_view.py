@@ -62,14 +62,14 @@ class BaseView(ctk.CTkFrame):
 	# ── Utilidades de Interfaz ───────────────────────────────────────────────
 
 	def show_error(self, message: str, title: str = 'Error') -> None:
-		CTkMessagebox(title=title, message=message, icon='cancel', fade_in_duration=150)
+		CTkMessagebox(master=self, title=title, message=message, icon='cancel', fade_in_duration=150)
 
 	def show_success(self, message: str, title: str = 'Éxito') -> None:
-		CTkMessagebox(title=title, message=message, icon='check', fade_in_duration=150)
+		CTkMessagebox(master=self, title=title, message=message, icon='check', fade_in_duration=150)
 
 	def show_warning(self, message: str, title: str = 'Atención') -> None:
 		CTkMessagebox(
-			title=title, message=message, icon='warning', fade_in_duration=150
+			master=self, title=title, message=message, icon='warning', fade_in_duration=150
 		)
 
 	def show_toast(
@@ -80,7 +80,7 @@ class BaseView(ctk.CTkFrame):
 		else:
 			icon = 'check' if type_ == 'success' else 'cancel'
 			CTkMessagebox(
-				title='Aviso', message=message, icon=icon, fade_in_duration=150
+				master=self, title='Aviso', message=message, icon=icon, fade_in_duration=150
 			)
 
 	def show_empty_state(

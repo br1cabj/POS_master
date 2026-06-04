@@ -81,7 +81,11 @@ class LabelView(BaseView):
 		self.after(120, self._load_catalog)
 		self.after(100, self._setup_bindings)
 		self.after(150, self._refresh_price_list_bar)
-		self.after(200, lambda: self._entry_search.focus())
+		self.after(84, self._after_init_focus)
+
+	def _after_init_focus(self):
+		if self.winfo_exists() and getattr(self, '_entry_search', None) and self._entry_search.winfo_exists():
+			self._entry_search.focus()
 
 	def _load_price_list_cfg(self):
 		cfg = _cfg_mgr.load()
@@ -152,7 +156,7 @@ class LabelView(BaseView):
 		self._categories = []
 		self._suppliers = []
 
-		self._cat_var = ctk.StringVar(value='Todas')
+		self._cat_var = ctk.StringVar(master=self, value='Todas')
 		self._cat_menu = ctk.CTkOptionMenu(
 			filter_f,
 			variable=self._cat_var,
@@ -164,7 +168,7 @@ class LabelView(BaseView):
 		)
 		self._cat_menu.grid(row=0, column=0, sticky='ew', padx=(0, PAD_XS))
 
-		self._sup_var = ctk.StringVar(value='Todos')
+		self._sup_var = ctk.StringVar(master=self, value='Todos')
 		self._sup_menu = ctk.CTkOptionMenu(
 			filter_f,
 			variable=self._sup_var,
@@ -514,7 +518,7 @@ class LabelView(BaseView):
 		raw_disc = item.get('discount_price')
 		try:
 			discount_price = float(raw_disc) if raw_disc else None
-			if discount_price is not None and discount_price <= 0:
+			if discount_price is not None and discount_price < 0:
 				discount_price = None
 		except (ValueError, TypeError):
 			discount_price = None
@@ -566,19 +570,24 @@ class LabelView(BaseView):
 		show_logo = logo_path and os.path.exists(logo_path) and not is_offer and price_mode != 'price_b'
 		if show_logo:
 			try:
-				img = Image.open(logo_path)
-				h = self._pw_header.winfo_height()
-				if h < 10:
-					h = 20
-				ratio = img.width / img.height
-				new_h = max(8, h - 4)
-				new_w = int(new_h * ratio)
-				img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-				ctk_img = ctk.CTkImage(img, size=(new_w, new_h))
-				_safe('_pw_logo', image=ctk_img, text='')
-				_safe('_pw_brand', text='')
-				if not self._pw_logo.winfo_viewable():
-					self._pw_logo.pack(expand=True, fill='both', padx=2)
+				if self._pw_header and self._pw_header.winfo_exists():
+					img = Image.open(logo_path)
+					h = self._pw_header.winfo_height()
+					if h < 10:
+						h = 20
+					ratio = img.width / img.height
+					new_h = max(8, h - 4)
+					new_w = int(new_h * ratio)
+					resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+					img.close()
+					ctk_img = ctk.CTkImage(resized, size=(new_w, new_h))
+					_safe('_pw_logo', image=ctk_img, text='')
+					_safe('_pw_brand', text='')
+					if not self._pw_logo.winfo_viewable():
+						self._pw_logo.pack(expand=True, fill='both', padx=2)
+				else:
+					_safe('_pw_logo', image=None, text='')
+					_safe('_pw_brand', text=brand_text)
 			except Exception:
 				_safe('_pw_logo', image=None, text='')
 				try:
@@ -640,13 +649,17 @@ class LabelView(BaseView):
 		try:
 			bc_path = self._ctrl._generate_barcode_png(barcode_txt)
 			if bc_path and os.path.exists(bc_path):
-				img = Image.open(bc_path)
-				zone_w = self._pw_bc_zone.winfo_width()
-				zone_h = self._pw_bc_zone.winfo_height()
-				if zone_w > 10 and zone_h > 10:
-					img = img.resize((zone_w - 8, zone_h - 4), Image.Resampling.LANCZOS)
-					ctk_img = ctk.CTkImage(img, size=(zone_w - 8, zone_h - 4))
-					_safe('_pw_bc_image', image=ctk_img, text='')
+				if self._pw_bc_zone and self._pw_bc_zone.winfo_exists():
+					img = Image.open(bc_path)
+					zone_w = self._pw_bc_zone.winfo_width()
+					zone_h = self._pw_bc_zone.winfo_height()
+					if zone_w > 10 and zone_h > 10:
+						resized = img.resize((zone_w - 8, zone_h - 4), Image.Resampling.LANCZOS)
+						img.close()
+						ctk_img = ctk.CTkImage(resized, size=(zone_w - 8, zone_h - 4))
+						_safe('_pw_bc_image', image=ctk_img, text='')
+					else:
+						_safe('_pw_bc_image', image=None, text='──────')
 				else:
 					_safe('_pw_bc_image', image=None, text='──────')
 			else:
@@ -755,7 +768,7 @@ class LabelView(BaseView):
 			self._filter_catalog()
 		else:
 			self._entry_search.configure(border_color=RED)
-			self.after(800, lambda: self._entry_search.configure(border_color=BORDER))
+			self.after(800, lambda: self._entry_search.configure(border_color=BORDER) if self.winfo_exists() else None)
 
 	def _load_catalog(self):
 		if not self.winfo_exists():
@@ -781,7 +794,8 @@ class LabelView(BaseView):
 							Category.name,
 							Supplier.name,
 						)
-						.join(Article)
+						.select_from(ArticleVariant)
+						.join(Article, Article.id == ArticleVariant.article_id)
 						.outerjoin(Category, Article.category_id == Category.id)
 						.outerjoin(Supplier, Article.supplier_id == Supplier.id)
 						.filter(
@@ -831,16 +845,14 @@ class LabelView(BaseView):
 						if sup_name:
 							suppliers_set.add(sup_name)
 
-					if self.winfo_exists():
-						self.after(0, lambda: self._on_catalog_loaded(
-							variants_data,
-							sorted(categories_set),
-							sorted(suppliers_set)
-						))
+				self.after(0, lambda: self._on_catalog_loaded(
+					variants_data,
+					sorted(categories_set),
+					sorted(suppliers_set)
+				) if self.winfo_exists() else None)
 			except Exception as e:
 				logger.error(f'Error cargando catálogo: {e}', exc_info=True)
-				if self.winfo_exists():
-					self.after(0, lambda: self._on_catalog_loaded([], [], []))
+				self.after(0, lambda: self._on_catalog_loaded([], [], []) if self.winfo_exists() else None)
 
 		threading.Thread(target=_fetch_data, daemon=True).start()
 
@@ -930,7 +942,7 @@ class LabelView(BaseView):
 			row.grid_columnconfigure(1, weight=1)
 
 			is_checked = v['variant_id'] in self._selected_variants
-			check_var = ctk.BooleanVar(value=is_checked)
+			check_var = ctk.BooleanVar(master=self, value=is_checked)
 
 			def _on_check_toggle(var=check_var, vid=v['variant_id']):
 				if var.get():
@@ -1215,8 +1227,12 @@ class LabelView(BaseView):
 		dlg.bind('<Return>', lambda e: _confirm())
 
 	def _add_one_to_queue(self, variant: dict, render: bool = True):
+		v_id = variant.get('variant_id')
+		if not v_id:
+			logger.warning('Intento de agregar variant sin variant_id a la cola: %s', variant.get('name', '?'))
+			return
 		for item in self._queue:
-			if item['variant_id'] == variant['variant_id']:
+			if item.get('variant_id') == v_id:
 				item['copies'] += 1
 				if render:
 					self._render_queue()
@@ -1264,12 +1280,18 @@ class LabelView(BaseView):
 			)
 
 	def _get_item_display_price(self, item: dict) -> float:
-		base = float(item.get('price', 0))
+		try:
+			base = float(item.get('price', 0))
+		except (ValueError, TypeError):
+			base = 0.0
 		mode = item.get('price_mode', 'retail')
 		if mode == 'price_b':
 			price_b = item.get('selling_price_b')
 			if price_b is not None:
-				return float(price_b)
+				try:
+					return float(price_b)
+				except (ValueError, TypeError):
+					return base
 		return base
 
 	def _render_queue(self):
@@ -1325,7 +1347,11 @@ class LabelView(BaseView):
 			).grid(row=0, column=0, padx=PAD_SM, pady=5, sticky='w')
 
 			display_price = self._get_item_display_price(item)
-			has_discount = bool(item.get('discount_price'))
+			raw_disc = item.get('discount_price')
+			has_discount = (
+				raw_disc is not None
+				and float(raw_disc) < float(item.get('price', 0))
+			)
 			price_color = (
 				RED_TEXT
 				if has_discount
@@ -1543,7 +1569,7 @@ class LabelView(BaseView):
 			return
 
 		total = sum(it['copies'] for it in self._queue)
-		tpl = TEMPLATES[self._tpl_key]
+		tpl = TEMPLATES.get(self._tpl_key, TEMPLATES['supermercado'])
 
 		if self._btn_print.winfo_exists():
 			self._btn_print.configure(
@@ -1558,9 +1584,12 @@ class LabelView(BaseView):
 		tpl_key = self._tpl_key
 
 		def _run():
-			ok, result = self._ctrl.generate_pdf(items_snapshot, tpl_key)
-			if self.winfo_exists():
-				self.after(0, lambda: self._on_pdf_done(ok, result, total, tpl))
+			try:
+				ok, result = self._ctrl.generate_pdf(items_snapshot, tpl_key)
+			except Exception as e:
+				logger.error('Error fatal en generación de PDF: %s', e, exc_info=True)
+				ok, result = False, str(e)
+			self.after(0, lambda: self._on_pdf_done(ok, result, total, tpl) if self.winfo_exists() else None)
 
 		threading.Thread(target=_run, daemon=True).start()
 

@@ -133,7 +133,7 @@ class AlertsView(BaseView):
 			text_color=TEXT_MUTED,
 		).pack(side='left', padx=(12, 4), pady=7)
 
-		self._threshold_var = ctk.StringVar(value='5')
+		self._threshold_var = ctk.StringVar(master=self, value='5')
 		self._last_threshold = '5'
 		entry = ctk.CTkEntry(
 			threshold_frame,

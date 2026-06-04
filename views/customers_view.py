@@ -126,7 +126,7 @@ class CustomersView(BaseView):
 			anchor='w',
 		).pack(padx=20, anchor='w', pady=(0, 4))
 
-		self._price_list_var = ctk.StringVar(value='A')
+		self._price_list_var = ctk.StringVar(master=self, value='A')
 		price_list_row = ctk.CTkFrame(self.left_panel, fg_color='transparent')
 		price_list_row.pack(padx=20, fill='x', pady=(0, 10))
 
@@ -334,7 +334,7 @@ class CustomersView(BaseView):
 		search_row = ctk.CTkFrame(self.right_panel, fg_color='transparent')
 		search_row.pack(fill='x', padx=14, pady=(0, 6))
 
-		self._search_var = ctk.StringVar()
+		self._search_var = ctk.StringVar(master=self, )
 		self._trace_search = self._search_var.trace_add('write', self._on_search_change)
 
 		ctk.CTkEntry(

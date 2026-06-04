@@ -691,12 +691,12 @@ class SalesController(BaseController):
 						and not is_fiado
 						and not payment_method_2
 					):
-try:
-						paid_dec = Decimal(str(paid_amount))
-						change_amt = max(paid_dec - final_total, Decimal('0'))
-					except Exception as _e:
-						logger.warning('Error calculando vuelto (paid=%r total=%s): %s', paid_amount, final_total, _e)
-						change_amt = Decimal('0')
+						try:
+							paid_dec = Decimal(str(paid_amount))
+							change_amt = max(paid_dec - final_total, Decimal('0'))
+						except Exception as _e:
+							logger.warning('Error calculando vuelto (paid=%r total=%s): %s', paid_amount, final_total, _e)
+							change_amt = Decimal('0')
 
 					ReceiptController().generate_pdf(
 						tenant_id=tenant_id,

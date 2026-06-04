@@ -126,7 +126,7 @@ class BatchEditView(BaseView):
 		self.combo_filter_category.pack(side='left', padx=(0, 10))
 
 		# Inactivos
-		self.show_inactive_var = ctk.BooleanVar(value=False)
+		self.show_inactive_var = ctk.BooleanVar(master=self, value=False)
 		ctk.CTkCheckBox(
 			inner,
 			text='Ver inactivos',

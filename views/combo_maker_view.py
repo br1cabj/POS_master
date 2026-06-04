@@ -783,7 +783,7 @@ class ComboMakerView(BaseView):
 		)
 		self.combo_color_suelto.pack(pady=(PAD_XS, PAD_MD), fill='x')
 
-		self.check_touch_var = ctk.BooleanVar(value=True)
+		self.check_touch_var = ctk.BooleanVar(master=self, value=True)
 		self.check_touch = ctk.CTkCheckBox(
 			inner,
 			text='Mostrar en la Pantalla de Ventas (Touch)',
@@ -1022,7 +1022,7 @@ class ComboMakerView(BaseView):
 		self.day_vars = []
 		day_names = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
 		for i, name in enumerate(day_names):
-			var = ctk.BooleanVar(value=True)
+			var = ctk.BooleanVar(master=self, value=True)
 			self.day_vars.append(var)
 			ctk.CTkCheckBox(
 				days_frame,
@@ -1035,7 +1035,7 @@ class ComboMakerView(BaseView):
 			).grid(row=0, column=i, padx=6, pady=PAD_SM)
 
 		# Horario (opcional)
-		self.check_horario_var = ctk.BooleanVar(value=False)
+		self.check_horario_var = ctk.BooleanVar(master=self, value=False)
 		ctk.CTkCheckBox(
 			left,
 			text='Restringir por horario  (opcional)',

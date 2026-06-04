@@ -47,6 +47,9 @@ logger = logging.getLogger(__name__)
 ctk.set_appearance_mode('Dark')
 ctk.set_default_color_theme('blue')
 
+from utils.styles import apply_treeview_style
+apply_treeview_style()
+
 _SECTION_VIEW_MAP = {}
 
 
@@ -94,6 +97,7 @@ class PosApp(ctk.CTk):
 				from CTkMessagebox import CTkMessagebox
 
 				msg = CTkMessagebox(
+					master=self,
 					title='Sincronización',
 					message=(
 						'No se pudo verificar el estado de sincronización. '

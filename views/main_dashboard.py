@@ -468,16 +468,49 @@ class MainDashboard(ctk.CTkFrame):
 			bar, text='', font=('Arial', 9), text_color=TEXT_MUTED, cursor='hand2'
 		)
 		self.lbl_sync.pack(side='right', padx=(0, 8))
-		self.lbl_sync.bind('<Button-1>', lambda e: self._go_to_sync())
+		self.lbl_sync.bind('<Button-1>', lambda e: self._handle_sync_click())
+		self.lbl_sync.bind('<Button-3>', lambda e: self._force_sync_now())
 		self._sync_job = None
 		self.after(5000, self._refresh_sync_indicator)
+
+	def _handle_sync_click(self):
+		"""Click izquierdo: si hay error muestra detalle, si no va a settings cloud."""
+		worker = getattr(self.ctx, 'sync_worker', None)
+		if worker and not worker.last_sync_ok and worker.last_sync_error:
+			CTkMessagebox(
+				master=self,
+				title='Sync Cloud',
+				message=f'Error de sincronización:\n{worker.last_sync_error}',
+				icon='cancel',
+			)
+		else:
+			self.safe_switch_view(_SETTINGS, requires_admin=True)
+
+	def _force_sync_now(self):
+		"""Click derecho: fuerza un sync manual inmediato."""
+		worker = getattr(self.ctx, 'sync_worker', None)
+		if worker and worker.is_running:
+			worker.force_sync()
+			CTkMessagebox(
+				master=self,
+				title='Sync Cloud',
+				message='Sincronización manual iniciada.',
+				icon='check',
+			)
+			self.after(2000, self._refresh_sync_indicator)
+		else:
+			CTkMessagebox(
+				master=self.winfo_toplevel(),
+				title='Sync no disponible',
+				message='El sync cloud no está activo.\nActivá tu plan cloud en Configuración > Licencias.',
+				icon='warning',
+			)
 
 	def _refresh_sync_indicator(self):
 		if not self.winfo_exists():
 			return
 		worker = getattr(self.ctx, 'sync_worker', None)
 		if worker is None or not worker.is_running:
-			# Sync no configurado o no corriendo — ocultar el indicador
 			if hasattr(self, 'lbl_sync'):
 				self.lbl_sync.configure(text='')
 		else:
@@ -489,14 +522,12 @@ class MainDashboard(ctk.CTkFrame):
 			elif ok:
 				dot, color = f'● Sync {time_str}', '#4CAF50'
 			else:
-				dot, color = '● Sync error', '#E74C3C'
+				err = getattr(worker, 'last_sync_error', '')
+				short_err = err[:40] + ('…' if len(err) > 40 else '') if err else 'error desconocido'
+				dot, color = f'● Sync error', '#E74C3C'
 			if hasattr(self, 'lbl_sync'):
 				self.lbl_sync.configure(text=dot, text_color=color)
-		# Reprogramar cada 30 s
 		self._sync_job = self.after(30000, self._refresh_sync_indicator)
-
-	def _go_to_sync(self):
-		self.safe_switch_view(_DATA_SYNC, requires_admin=True)
 
 	def _setup_global_binds(self):
 		self.master_app.bind('<F1>', lambda e: self.safe_switch_view(_SALES))
@@ -578,6 +609,7 @@ class MainDashboard(ctk.CTkFrame):
 
 		if requires_admin and not self.is_admin:
 			CTkMessagebox(
+				master=self.winfo_toplevel(),
 				title='Acceso Restringido',
 				message='Necesitás permisos de administrador para acceder a esta sección.',
 				icon='cancel',
@@ -590,6 +622,7 @@ class MainDashboard(ctk.CTkFrame):
 				and self.current_view.has_unsaved_changes()
 			):
 				msg = CTkMessagebox(
+					master=self.winfo_toplevel(),
 					title='Cambios sin guardar',
 					message='Tenés cambios sin guardar. ¿Querés salir igual?',
 					icon='warning',

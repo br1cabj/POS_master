@@ -124,7 +124,7 @@ class ReturnsView(BaseView):
 			command=self.load_sales,
 		).pack(side='right')
 
-		self._search_var = ctk.StringVar()
+		self._search_var = ctk.StringVar(master=self, )
 		self._search_var.trace_add(
 			'write', lambda *args: self.debounce(300, self._filter_tree, 'search_sales')
 		)
@@ -988,7 +988,7 @@ class ReturnsView(BaseView):
 			row.pack(fill='x', pady=(0, 6))
 			row.grid_columnconfigure(1, weight=1)
 
-			check_var = ctk.BooleanVar(value=False)
+			check_var = ctk.BooleanVar(master=self, value=False)
 
 			def _on_checkbox(cv=check_var, ent_ref=None, max_q=qty_orig_float):
 				if cv.get() and ent_ref is not None:

@@ -100,9 +100,16 @@ FONT_DISPLAY = (FONT_FAMILY, 44, 'bold')
 FONT_DISPLAY_LG = (FONT_FAMILY, 46, 'bold')
 
 
+_TTK_THEME_APPLIED = False
+
+
 def apply_treeview_style(style_name: str = 'Treeview') -> None:
+	global _TTK_THEME_APPLIED
 	style = ttk.Style()
-	style.theme_use('default')
+
+	if not _TTK_THEME_APPLIED:
+		style.theme_use('default')
+		_TTK_THEME_APPLIED = True
 
 	style.layout(style_name, [(f'{style_name}.treearea', {'sticky': 'nswe'})])
 

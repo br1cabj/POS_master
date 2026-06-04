@@ -299,6 +299,10 @@ class SyncWorker:
 					if last_sync < cutoff:
 						last_sync = cutoff
 
+				# Pre-sync parent tables to avoid FK violations.
+				# For example, article_variants needs its article to exist first.
+				self._ensure_parents_synced(local, cloud, model, state)
+
 				try:
 					rows_q = (
 						local.query(model)
@@ -351,6 +355,71 @@ class SyncWorker:
 				self.last_sync_error = ''
 			else:
 				self.last_sync_ok = False
+
+	def _ensure_parents_synced(self, local_session, cloud_session, model, state) -> None:
+		"""
+		Before syncing a child table, ensure its parent table(s) are also synced.
+		This prevents FK violations when the parent row hasn't been pushed yet.
+		"""
+		_TABLE_PARENTS = {
+			'article_variants': ['articles'],
+			'article_history': ['articles', 'users'],
+			'stocks': ['article_variants', 'warehouses'],
+			'stock_movements': ['article_variants', 'warehouses', 'users'],
+			'sale_details': ['sales', 'article_variants'],
+			'purchase_details': ['purchases', 'article_variants'],
+			'purchase_return_items': ['purchase_returns', 'article_variants'],
+			'quotation_items': ['quotations', 'article_variants'],
+			'combo_items': ['article_variants'],
+			'cash_movements': ['cash_sessions', 'users'],
+		}
+
+		table_name = model.__tablename__
+		parent_names = _TABLE_PARENTS.get(table_name, [])
+		if not parent_names:
+			return
+
+		parent_models = {m.__tablename__: m for m in _sync_models()}
+		synced_this_cycle = set()
+
+		for parent_name in parent_names:
+			if parent_name not in parent_models:
+				continue
+			if parent_name in synced_this_cycle:
+				continue
+
+			parent_model = parent_models[parent_name]
+			if not hasattr(parent_model, 'updated_at'):
+				continue
+
+			parent_table = parent_model.__tablename__
+			last_str = state.get(parent_table)
+			last_sync = datetime.fromisoformat(last_str) if last_str else datetime.min
+
+			parent_rows = (
+				local_session.query(parent_model)
+				.filter(parent_model.updated_at > last_sync)
+				.order_by(parent_model.updated_at)
+				.limit(_SYNC_BATCH_SIZE)
+				.all()
+			)
+
+			if not parent_rows:
+				continue
+
+			parent_data = [_row_to_dict(r) for r in parent_rows]
+			try:
+				_upsert_batch(cloud_session, parent_model, parent_data)
+				cloud_session.commit()
+				synced_this_cycle.add(parent_table)
+				if len(parent_rows) < _SYNC_BATCH_SIZE:
+					state[parent_table] = datetime.now().isoformat()
+				else:
+					state[parent_table] = parent_rows[-1].updated_at.isoformat()
+				logger.debug('Pre-synced %d parent rows → %s', len(parent_rows), parent_table)
+			except Exception as e:
+				logger.warning('Pre-sync failed for %s: %s', parent_table, e)
+				cloud_session.rollback()
 
 	# ── public helpers ────────────────────────────────────────────────────────
 

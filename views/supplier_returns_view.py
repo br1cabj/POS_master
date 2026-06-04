@@ -401,7 +401,7 @@ class SupplierReturnsView(BaseView):
 			font=('Arial', 10, 'bold'),
 			text_color=TEXT_SECONDARY,
 		).grid(row=0, column=2, padx=(12, 6))
-		self.refund_var = ctk.StringVar(value='efectivo')
+		self.refund_var = ctk.StringVar(master=self, value='efectivo')
 		refund_frame = ctk.CTkFrame(form_frame, fg_color='transparent')
 		refund_frame.grid(row=0, column=3, padx=(0, 12), sticky='w')
 		ctk.CTkRadioButton(

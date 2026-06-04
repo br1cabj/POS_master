@@ -135,7 +135,7 @@ class QuotationView(BaseView):
 			lambda e: self.debounce(250, self._apply_filter, 'quote_search'),
 		)
 
-		self._filter_var = ctk.StringVar(value='todas')
+		self._filter_var = ctk.StringVar(master=self, value='todas')
 		self._combo_filter = ctk.CTkOptionMenu(
 			flt,
 			values=['todas'] + STATUS_OPTIONS,
@@ -1370,7 +1370,7 @@ class QuotationView(BaseView):
 			text_color=TEXT_SECONDARY,
 		).pack(pady=(PAD_MD, PAD_XS))
 
-		pay_var = ctk.StringVar(value='efectivo')
+		pay_var = ctk.StringVar(master=self, value='efectivo')
 		combo = ctk.CTkOptionMenu(
 			popup,
 			values=['efectivo', 'transferencia', 'tarjeta', 'fiado'],

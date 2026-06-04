@@ -2095,7 +2095,7 @@ class SalesView(BaseView):
 		mx_top = ctk.CTkFrame(mx, fg_color='transparent')
 		mx_top.pack(fill='x')
 
-		self._mixto_var = ctk.BooleanVar(value=False)
+		self._mixto_var = ctk.BooleanVar(master=self, value=False)
 		ctk.CTkSwitch(
 			mx_top,
 			text='Pago Mixto',

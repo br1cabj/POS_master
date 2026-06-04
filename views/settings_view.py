@@ -710,7 +710,7 @@ class SettingsView(BaseView):
 		sym_row = ctk.CTkFrame(sym_card, fg_color='transparent')
 		sym_row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 
-		self._sym_var = ctk.StringVar(value=self._settings.get('currency_symbol', '$'))
+		self._sym_var = ctk.StringVar(master=self, value=self._settings.get('currency_symbol', '$'))
 		self._sym_btns = {}
 
 		for sym in CURRENCY_SYMBOLS:
@@ -777,7 +777,7 @@ class SettingsView(BaseView):
 		# ── Formato de precios ──
 		fmt_card = self._card(parent, 'Formato de precios', '🔢')
 
-		self._dec_var = ctk.IntVar(
+		self._dec_var = ctk.IntVar(master=self, 
 			value=int(self._settings.get('currency_decimals', 0))
 		)
 
@@ -952,7 +952,7 @@ class SettingsView(BaseView):
 		# ── Comportamiento ──
 		beh_card = self._card(parent, 'Comportamiento en ventas', '🛒')
 
-		self._req_customer_var = ctk.BooleanVar(
+		self._req_customer_var = ctk.BooleanVar(master=self, 
 			value=self._settings.get('require_customer', False)
 		)
 		self._toggle_row(
@@ -962,7 +962,7 @@ class SettingsView(BaseView):
 			self._req_customer_var,
 		)
 
-		self._show_bar_var = ctk.BooleanVar(
+		self._show_bar_var = ctk.BooleanVar(master=self, 
 			value=self._settings.get('show_shortcuts_bar', True)
 		)
 		self._toggle_row(
@@ -1171,7 +1171,7 @@ class SettingsView(BaseView):
 		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
 		saved_ticket = s.get('printer_ticket_name', '')
-		self._peri_ticket_printer_var = ctk.StringVar(
+		self._peri_ticket_printer_var = ctk.StringVar(master=self, 
 			value=saved_ticket or printer_opts[0]
 		)
 		_printer_om(tc, self._peri_ticket_printer_var, 'printer_ticket_name')
@@ -1186,7 +1186,7 @@ class SettingsView(BaseView):
 			anchor='w',
 			width=140,
 		).pack(side='left')
-		self._peri_ticket_type_var = ctk.StringVar(
+		self._peri_ticket_type_var = ctk.StringVar(master=self, 
 			value=s.get('printer_ticket_type', '80mm')
 		)
 		for val, lbl in [('58mm', '58 mm'), ('80mm', '80 mm'), ('laser', 'A4 / Laser')]:
@@ -1255,7 +1255,7 @@ class SettingsView(BaseView):
 		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
 		saved_label = s.get('printer_label_name', '')
-		self._peri_label_printer_var = ctk.StringVar(
+		self._peri_label_printer_var = ctk.StringVar(master=self, 
 			value=saved_label or printer_opts[0]
 		)
 		_printer_om(lc, self._peri_label_printer_var, 'printer_label_name')
@@ -1278,7 +1278,7 @@ class SettingsView(BaseView):
 		# ── Balanza ───────────────────────────────────────────
 		sc = self._card(parent, 'Balanza', '⚖️')
 
-		self._peri_scale_enabled_var = ctk.BooleanVar(
+		self._peri_scale_enabled_var = ctk.BooleanVar(master=self, 
 			value=s.get('scale_enabled', False)
 		)
 		self._toggle_row(
@@ -1289,17 +1289,17 @@ class SettingsView(BaseView):
 			section='perifericos',
 		)
 
-		self._peri_scale_port_var = ctk.StringVar(value=s.get('scale_port', 'COM1'))
+		self._peri_scale_port_var = ctk.StringVar(master=self, value=s.get('scale_port', 'COM1'))
 		_port_om(sc, self._peri_scale_port_var, 'scale_port')
 
-		self._peri_scale_baud_var = ctk.StringVar(
+		self._peri_scale_baud_var = ctk.StringVar(master=self, 
 			value=str(s.get('scale_baud', '9600'))
 		)
 		self._peri_option_row(
 			sc, 'Velocidad (baud):', self._peri_scale_baud_var, _BAUDS
 		)
 
-		self._peri_scale_proto_var = ctk.StringVar(
+		self._peri_scale_proto_var = ctk.StringVar(master=self, 
 			value=s.get('scale_protocol', 'toledo')
 		)
 		proto_row = ctk.CTkFrame(sc, fg_color='transparent')
@@ -1345,7 +1345,7 @@ class SettingsView(BaseView):
 		# ── Lector de código de barras ───────────────────────
 		bc = self._card(parent, 'Lector de Código de Barras', '📷')
 
-		self._peri_barcode_mode_var = ctk.StringVar(value=s.get('barcode_mode', 'hid'))
+		self._peri_barcode_mode_var = ctk.StringVar(master=self, value=s.get('barcode_mode', 'hid'))
 		mode_row = ctk.CTkFrame(bc, fg_color='transparent')
 		mode_row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 		ctk.CTkLabel(
@@ -1367,10 +1367,10 @@ class SettingsView(BaseView):
 				command=dirty,
 			).pack(side='left', padx=(0, PAD_MD))
 
-		self._peri_barcode_port_var = ctk.StringVar(value=s.get('barcode_port', 'COM2'))
+		self._peri_barcode_port_var = ctk.StringVar(master=self, value=s.get('barcode_port', 'COM2'))
 		_port_om(bc, self._peri_barcode_port_var, 'barcode_port')
 
-		self._peri_barcode_baud_var = ctk.StringVar(
+		self._peri_barcode_baud_var = ctk.StringVar(master=self, 
 			value=str(s.get('barcode_baud', '9600'))
 		)
 		self._peri_option_row(
@@ -1410,7 +1410,7 @@ class SettingsView(BaseView):
 			text_color=TEXT_SECONDARY,
 			anchor='w',
 		).grid(row=0, column=2, sticky='w', padx=(0, PAD_XS))
-		self._peri_barcode_suffix_var = ctk.StringVar(
+		self._peri_barcode_suffix_var = ctk.StringVar(master=self, 
 			value=s.get('barcode_suffix', 'CR')
 		)
 		ctk.CTkOptionMenu(
@@ -1450,7 +1450,7 @@ class SettingsView(BaseView):
 			anchor='w',
 		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
-		self._peri_cashdrawer_conn_var = ctk.StringVar(
+		self._peri_cashdrawer_conn_var = ctk.StringVar(master=self, 
 			value=s.get('cashdrawer_connection', 'printer')
 		)
 		conn_row = ctk.CTkFrame(cdc, fg_color='transparent')
@@ -1477,7 +1477,7 @@ class SettingsView(BaseView):
 				command=dirty,
 			).pack(side='left', padx=(0, PAD_MD))
 
-		self._peri_cashdrawer_port_var = ctk.StringVar(
+		self._peri_cashdrawer_port_var = ctk.StringVar(master=self, 
 			value=s.get('cashdrawer_port', 'COM3')
 		)
 		_port_om(cdc, self._peri_cashdrawer_port_var, 'cashdrawer_port')
@@ -1500,7 +1500,7 @@ class SettingsView(BaseView):
 		# ── Pantalla de cliente (Pole Display) ───────────────
 		pdc = self._card(parent, 'Pantalla de Cliente (Pole Display)', '🖥️')
 
-		self._peri_poledisplay_enabled_var = ctk.BooleanVar(
+		self._peri_poledisplay_enabled_var = ctk.BooleanVar(master=self, 
 			value=s.get('poledisplay_enabled', False)
 		)
 		self._toggle_row(
@@ -1511,12 +1511,12 @@ class SettingsView(BaseView):
 			section='perifericos',
 		)
 
-		self._peri_poledisplay_port_var = ctk.StringVar(
+		self._peri_poledisplay_port_var = ctk.StringVar(master=self, 
 			value=s.get('poledisplay_port', 'COM4')
 		)
 		_port_om(pdc, self._peri_poledisplay_port_var, 'poledisplay_port')
 
-		self._peri_poledisplay_baud_var = ctk.StringVar(
+		self._peri_poledisplay_baud_var = ctk.StringVar(master=self, 
 			value=str(s.get('poledisplay_baud', '9600'))
 		)
 		self._peri_option_row(
@@ -2469,7 +2469,51 @@ class SettingsView(BaseView):
 			corner_radius=8,
 			font=FONT_BODY_BOLD,
 			command=self._activate_cloud,
-		).pack(fill='x', padx=PAD_MD, pady=(0, PAD_MD))
+		).pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
+
+		# ── Estado de sincronización + botón Sync Now ─────────────────────────
+		self._lbl_sync_status = ctk.CTkLabel(
+			cloud_card,
+			text='',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+		)
+		self._lbl_sync_status.pack(anchor='w', padx=PAD_MD, pady=(PAD_SM, 0))
+
+		sync_btn_row = ctk.CTkFrame(cloud_card, fg_color='transparent')
+		sync_btn_row.pack(fill='x', padx=PAD_MD, pady=(PAD_SM, PAD_MD))
+		sync_btn_row.grid_columnconfigure(0, weight=1)
+
+		self._btn_sync_now = ctk.CTkButton(
+			sync_btn_row,
+			text='🔄  Sync Now',
+			height=36,
+			fg_color=ACCENT_DIM,
+			hover_color=ACCENT,
+			text_color=ACCENT_TEXT,
+			border_width=1,
+			border_color=ACCENT,
+			corner_radius=8,
+			font=FONT_BODY_BOLD,
+			command=self._do_sync_now,
+		)
+		self._btn_sync_now.grid(row=0, column=0, sticky='ew', padx=(0, PAD_XS))
+
+		ctk.CTkButton(
+			sync_btn_row,
+			text='🔄  Refresh Status',
+			height=36,
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_SECONDARY,
+			border_width=1,
+			border_color=BORDER,
+			corner_radius=8,
+			font=FONT_BODY_BOLD,
+			command=self._refresh_cloud_sync_status,
+		).grid(row=0, column=1, sticky='ew', padx=(PAD_XS, 0))
+
+		self._refresh_cloud_sync_status()
 
 		self._refresh_local_status()
 		self._refresh_cloud_status()
@@ -2559,6 +2603,67 @@ class SettingsView(BaseView):
 			self.show_success(msg)
 		else:
 			self.show_error(msg)
+
+	def _refresh_cloud_sync_status(self):
+		"""Actualiza el indicador de sync cloud en la sección de licencias."""
+		if not self.winfo_exists():
+			return
+		worker = getattr(self.ctx, 'sync_worker', None)
+		lbl = getattr(self, '_lbl_sync_status', None)
+		btn = getattr(self, '_btn_sync_now', None)
+		if not lbl or not lbl.winfo_exists():
+			return
+
+		if worker is None:
+			lbl.configure(text='⚠️ Sync cloud no configurado.', text_color=ORANGE_TEXT)
+			if btn and btn.winfo_exists():
+				btn.configure(state='disabled')
+			return
+
+		if not worker.is_running:
+			lbl.configure(text='⏳ Sync cloud no está corriendo.', text_color=TEXT_MUTED)
+			if btn and btn.winfo_exists():
+				btn.configure(state='disabled')
+			return
+
+		ok = worker.last_sync_ok
+		t = worker.last_sync_time
+		time_str = t.strftime('%d/%m/%Y %H:%M') if t else '—'
+		if ok is None:
+			lbl.configure(
+				text=f'⏳ Pendiente de primer sync…', text_color=TEXT_MUTED
+			)
+		elif ok:
+			lbl.configure(
+				text=f'✅ Último sync: {time_str}', text_color=GREEN_TEXT
+			)
+		else:
+			err = getattr(worker, 'last_sync_error', '')
+			short = err[:60] + ('…' if len(err) > 60 else '') if err else 'Error desconocido'
+			lbl.configure(
+				text=f'❌ Error: {short}', text_color=RED_TEXT
+			)
+		if btn and btn.winfo_exists():
+			btn.configure(state='normal')
+
+	def _do_sync_now(self):
+		"""Fuerza un sync cloud manual inmediato."""
+		worker = getattr(self.ctx, 'sync_worker', None)
+		if not worker or not worker.is_running:
+			self.show_warning(
+				'El sync cloud no está activo.\nActivá tu plan cloud primero.',
+				'Sync no disponible',
+			)
+			return
+
+		if getattr(self, '_btn_sync_now', None) and self._btn_sync_now.winfo_exists():
+			self._btn_sync_now.configure(
+				text='⏳  Sincronizando…', state='disabled'
+			)
+
+		worker.force_sync()
+		self.show_success('Sincronización manual iniciada.', 'Sync Cloud')
+		self.after(3000, self._refresh_cloud_sync_status)
 
 	# =========================================================
 	# GUARDAR TODO

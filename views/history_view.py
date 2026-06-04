@@ -84,7 +84,7 @@ class HistoryView(BaseView):
 		search_row = ctk.CTkFrame(self, fg_color='transparent')
 		search_row.grid(row=1, column=0, sticky='ew', padx=20, pady=(0, 8))
 
-		self._search_var = ctk.StringVar()
+		self._search_var = ctk.StringVar(master=self, )
 		self._trace_search = self._search_var.trace_add('write', self.debounce_filter)
 
 		ctk.CTkEntry(

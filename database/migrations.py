@@ -144,7 +144,8 @@ def setup_cloud_schema(engine) -> None:
 
 	Uses SQLAlchemy `create_all(checkfirst=True)` so it is safe to call every
 	time the app starts — existing tables and columns are left untouched.
-	Call this before the first sync cycle.
+	Then adds missing columns (updated_at, deleted_at, etc.) that were added
+	by local migrations but may not exist in the cloud schema yet.
 	"""
 	from database.models import Base
 
@@ -154,6 +155,75 @@ def setup_cloud_schema(engine) -> None:
 	except Exception as e:
 		logger.error('setup_cloud_schema failed: %s', e)
 		raise
+
+	_cloud_missing_columns(engine)
+
+
+# ─── cloud schema column sync ───────────────────────────────────────────────────
+
+
+def _cloud_missing_columns(engine) -> None:
+	"""
+	Agrega columnas faltantes a tablas existentes en la cloud (PostgreSQL).
+	Esto es necesario porque create_all() solo crea tablas nuevas, no modifica
+	tablas existentes para agregarles columnas.
+	Las columnas aqui listadas fueron agregadas por migraciones locales pero
+	pueden no existir aun en el schema cloud.
+	"""
+	if _is_sqlite(engine):
+		return
+
+	_COLUMNS_TO_SYNC = [
+		('users', 'deleted_at', 'TIMESTAMP DEFAULT NULL'),
+		('users', 'deleted_by', 'VARCHAR(36) DEFAULT NULL'),
+		('users', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('articles', 'deleted_at', 'TIMESTAMP DEFAULT NULL'),
+		('articles', 'deleted_by', 'VARCHAR(36) DEFAULT NULL'),
+		('articles', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('article_variants', 'deleted_at', 'TIMESTAMP DEFAULT NULL'),
+		('article_variants', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('suppliers', 'deleted_at', 'TIMESTAMP DEFAULT NULL'),
+		('suppliers', 'deleted_by', 'VARCHAR(36) DEFAULT NULL'),
+		('suppliers', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('customers', 'deleted_at', 'TIMESTAMP DEFAULT NULL'),
+		('customers', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('cash_sessions', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('cash_movements', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('cash_movements', 'customer_id', 'VARCHAR(36) DEFAULT NULL'),
+		('article_history', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('stock_movements', 'tenant_id', 'VARCHAR(36) DEFAULT NULL'),
+		('stock_movements', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('categories', 'tenant_id', 'VARCHAR(36) DEFAULT NULL'),
+		('categories', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('sales', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('sale_details', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('stocks', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('purchases', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('tenants', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('branches', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('warehouses', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+	]
+
+	insp = inspect(engine)
+	existing_cols_cache: dict[str, set] = {}
+
+	def _get_cols(table: str) -> set:
+		if table not in existing_cols_cache:
+			existing_cols_cache[table] = {c['name'] for c in insp.get_columns(table)}
+		return existing_cols_cache[table]
+
+	with engine.connect() as conn:
+		for table, column, definition in _COLUMNS_TO_SYNC:
+			if column in _get_cols(table):
+				continue
+			sql = f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}'
+			try:
+				conn.execute(text(sql))
+				logger.info('Cloud column added: %s.%s', table, column)
+			except Exception as e:
+				logger.warning('Cloud column sync failed for %s.%s: %s', table, column, e)
+		conn.commit()
+	logger.info('Cloud column sync complete.')
 
 
 # ─── migrations v1–v15 (unchanged) ────────────────────────────────────────────
@@ -765,14 +835,23 @@ def _v26_add_customer_id_to_cash_movements(engine) -> None:
 def _v27_add_updated_at_article_history(engine) -> None:
 	"""v27: Agrega updated_at a article_history (sync incremental) e índice en articles.category_id."""
 	with engine.connect() as conn:
-		try:
-			_add_column_if_missing(
-				conn, engine,
-				'article_history', 'updated_at',
-				'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+		added = _add_column_if_missing(
+			conn, engine,
+			'article_history', 'updated_at',
+			'DATETIME DEFAULT NULL',
+		)
+		if added:
+			conn.execute(
+				text(
+					'UPDATE article_history SET updated_at = date WHERE updated_at IS NULL AND date IS NOT NULL'
+				)
 			)
-		except Exception as e:
-			logger.warning('v27: no se pudo agregar updated_at a article_history: %s', e)
+			conn.execute(
+				text(
+					'UPDATE article_history SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL'
+				)
+			)
+			conn.commit()
 		try:
 			conn.execute(
 				text(

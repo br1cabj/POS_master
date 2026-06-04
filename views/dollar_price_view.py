@@ -202,7 +202,7 @@ class DollarPriceView(BaseView):
 
 		# ── 1. Tipo de cotización
 		self._section_label(scroll, 'TIPO DE COTIZACIÓN')
-		self._type_var = ctk.StringVar(
+		self._type_var = ctk.StringVar(master=self, 
 			value=self._cfg.get('dollar_type', 'blue').capitalize()
 		)
 		type_row = ctk.CTkFrame(scroll, fg_color='transparent')
@@ -412,7 +412,7 @@ class DollarPriceView(BaseView):
 		toolbar.grid(row=0, column=0, sticky='ew', padx=14, pady=(14, 0))
 		toolbar.grid_columnconfigure(0, weight=1)
 
-		self._search_var = ctk.StringVar()
+		self._search_var = ctk.StringVar(master=self, )
 		self._trace_search = self._search_var.trace_add('write', self._on_filter_change)
 		ctk.CTkEntry(
 			toolbar,
@@ -424,7 +424,7 @@ class DollarPriceView(BaseView):
 			height=36,
 		).grid(row=0, column=0, sticky='ew', padx=(0, 8))
 
-		self._filter_var = ctk.StringVar(value='Todos')
+		self._filter_var = ctk.StringVar(master=self, value='Todos')
 		ctk.CTkComboBox(
 			toolbar,
 			variable=self._filter_var,
