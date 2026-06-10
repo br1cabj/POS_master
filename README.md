@@ -1,122 +1,154 @@
 # CloudPOS
 
-A desktop Point of Sale system built with Python and CustomTkinter, accompanied by a modern Web Dashboard built with React. Designed for small and medium businesses, with multi-tenant support, license management, and optional cloud sync.
+![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)
+![Node Version](https://img.shields.io/badge/node-18%2B-green.svg)
+![License](https://img.shields.io/badge/license-Proprietary-red.svg)
+![UI](https://img.shields.io/badge/UI-CustomTkinter%20%7C%20React-blueviolet)
 
-## Features
+A professional desktop Point of Sale (POS) system built with Python and CustomTkinter, accompanied by a modern Web Dashboard built with React. Designed for small and medium businesses, featuring multi-tenant support, robust local-first architecture, license management, and optional real-time cloud synchronization.
 
-- **Sales** — fast checkout with barcode support, combos, and wholesale pricing
-- **Cash management** — opening/closing shifts, cash drawer tracking
-- **Inventory** — articles, stock movements, kardex, low-stock alerts
-- **Pricing** — bulk price updates, dollar-rate-based pricing, label printing
-- **Purchases** — supplier orders, stock entry, supplier returns
-- **Customers** — customer accounts, credit (fiado), quotations
-- **Reports** — closing reports, sales history, stock history, Excel export
-- **Users** — role-based access (admin / cashier), employee management
-- **Data sync** — import/export, optional cloud sync via REST API
-- **Web Dashboard** — modern React-based remote administration panel with analytics
-- **License system** — trial period, activation codes, license renewal
+## 📸 Screenshots
 
-## Tech Stack
+> **Note:** Add your screenshots here to showcase the UI.
+>
+> | Desktop POS (CustomTkinter) | Web Dashboard (React) |
+> | :---: | :---: |
+> | *(img/desktop-pos.png)* | *(img/web-dashboard.png)* |
+
+## ✨ Features
+
+- **Sales & Checkout** — Fast processing with barcode scanner support, custom combos, and dynamic wholesale pricing.
+- **Cash Management** — Shift opening/closing workflows and granular cash drawer tracking.
+- **Inventory Control** — Article management, stock movements, Kardex, and automated low-stock alerts.
+- **Dynamic Pricing** — Bulk price updates, automatic dollar-rate conversions, and physical label printing.
+- **Purchases & Suppliers** — Supplier orders, stock entry logging, and supplier return management.
+- **CRM** — Customer accounts, credit lines (fiado), and quotation generation.
+- **Analytics & Reports** — End-of-day closing reports, sales/stock history, and Excel exports.
+- **Access Control** — Role-based access (Admin / Cashier) with secure employee session management.
+- **Hybrid Data Sync** — Local-first SQLite operations with optional cloud sync to Supabase via REST API.
+- **Web Dashboard** — Modern React-based remote administration panel with rich ApexCharts analytics.
+- **License System** — Secure trial periods, encrypted activation codes, and license renewals.
+
+## 🛠 Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Desktop UI | [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) 5.x |
-| Web UI | React + Vite + Bootstrap Icons |
-| ORM | [SQLAlchemy](https://www.sqlalchemy.org/) 2.x |
-| Database | SQLite (local) / Supabase (Cloud) |
-| PDF | fpdf2 |
-| Charts | Matplotlib (Desktop) / ApexCharts (Web) |
-| Spreadsheets | Pandas + openpyxl |
-| Barcodes | python-barcode |
-| Auth | bcrypt |
-| Build | PyInstaller (Desktop) |
+| **Desktop UI** | [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) 5.x |
+| **Web UI** | React + Vite + Bootstrap Icons |
+| **ORM** | [SQLAlchemy](https://www.sqlalchemy.org/) 2.x |
+| **Database** | SQLite (Local) / Supabase (Cloud) |
+| **PDF Generation** | fpdf2 |
+| **Data Visualization** | Matplotlib (Desktop) / ApexCharts (Web) |
+| **Spreadsheets** | Pandas + openpyxl |
+| **Security** | bcrypt |
+| **Build & Bundle** | PyInstaller (Desktop) |
 
-## Requirements
+## 🚀 Setup & Installation
 
+### Prerequisites
 - Python 3.10+
 - Node.js 18+ (for Web Dashboard)
-- Windows (primary target; CustomTkinter works on macOS/Linux too)
+- Windows (primary target; easily adaptable to macOS/Linux)
 
-## Setup
-
-### Desktop App
+### 1. Desktop App (Local Environment)
 
 ```bash
-# 1. Clone the repo
+# Clone the repository
 git clone https://github.com/br1cabj/POS_master.git
 cd POS_master
 
-# 2. Create a virtual environment
+# Create and activate a virtual environment
 python -m venv venv
 venv\Scripts\activate        # Windows
 # source venv/bin/activate   # macOS / Linux
 
-# 3. Install dependencies
+# Install Python dependencies
 pip install -r requirements.txt
 
-# 4. Configure environment
+# Configure environment variables
 cp .env.example .env
-# Edit .env if needed (defaults work for local SQLite)
+# Open .env and adjust variables (default works for local-only testing)
 
-# 5. Run
+# Launch the POS App
 python main.py
 ```
+*On first launch, a Setup Wizard will guide you through creating the initial tenant, branch, and admin user.*
 
-On first launch a setup wizard will guide you through creating the initial tenant, branch, and admin user.
-
-### Web Dashboard
+### 2. Web Dashboard (Remote Admin)
 
 ```bash
-# 1. Navigate to the web directory
+# Navigate to the web application directory
 cd web-dashboard
 
-# 2. Install dependencies
+# Install Node.js dependencies
 npm install
 
-# 3. Run the development server
+# Start the development server
 npm run dev
 ```
 
-## Project Structure
+## 🧪 Testing & Quality Assurance
+
+This project maintains automated tests to ensure business logic integrity. 
+
+```bash
+# Run the test suite using pytest
+pytest tests/ -v
+```
+
+## 📂 Architecture & Project Structure
+
+The project follows a modular, domain-driven design, cleanly separating business logic from UI components.
 
 ```
 POS_master/
-├── controllers/        # Business logic (one file per domain)
-├── views/              # CustomTkinter UI screens
+├── controllers/        # Business logic & Database transactions (Domain-driven)
+├── views/              # CustomTkinter UI screens (Presentation Layer)
 ├── database/
-│   ├── models.py       # SQLAlchemy ORM models
-│   └── migrations.py   # Schema migration runner
+│   ├── models.py       # SQLAlchemy ORM schemas
+│   └── migrations.py   # Schema migration and initialization
 ├── core/
-│   ├── context.py      # Shared AppContext passed through the app
-│   └── base_view.py    # Base class for all views
-├── utils/              # Config, styles, label printing, shared helpers
-├── web-dashboard/      # React + Vite web administration panel
-│   ├── src/            # Dashboard source code
-│   └── package.json    # Node.js dependencies
-├── main.py             # Entry point and app lifecycle
-├── requirements.txt
+│   ├── context.py      # AppContext (Dependency Injection / State)
+│   └── base_view.py    # UI base classes and inheritance templates
+├── utils/              # Configuration, styling, and shared helpers
+├── tests/              # Pytest automated test suite
+├── web-dashboard/      # React + Vite web administration frontend
+│   ├── src/            # Dashboard components, contexts, and hooks
+│   └── package.json    # Node.js configuration
+├── main.py             # Application entry point and lifecycle manager
 └── .env.example        # Environment variable template
 ```
 
-## Building a standalone executable
+## 📦 Deployment (Building the Executable)
+
+To package the desktop application into a standalone Windows executable:
 
 ```bash
+# Install PyInstaller
 pip install pyinstaller
+
+# Build the executable using the provided spec file
 pyinstaller CloudPOS.spec --clean
-# Output: dist/CloudPOS/CloudPOS.exe
+
+# The generated executable will be located at: dist/CloudPOS/CloudPOS.exe
 ```
 
-## Environment Variables
+## ⚙️ Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_URL` | `sqlite:///pos_system.db` | SQLAlchemy database URL |
-| `CLOUD_ENDPOINT` | — | REST endpoint for cloud sync (optional) |
-| `CLOUD_API_KEY` | — | API key for cloud sync (optional) |
+| `DATABASE_URL` | `sqlite:///pos_system.db` | SQLAlchemy database connection string |
+| `CLOUD_ENDPOINT` | — | Supabase REST endpoint for cloud sync (optional) |
+| `CLOUD_API_KEY` | — | API key for cloud synchronization (optional) |
 | `service_role` | — | Supabase service role key (optional) |
 
-Copy `.env.example` to `.env` and fill in values. Never commit `.env`.
+> ⚠️ **Security Warning:** Never commit the `.env` file to version control.
 
-## License
+## 🗺 Roadmap
 
-Private / proprietary. All rights reserved.
+- AFIP Integration for electronic invoicing (See `ROADMAP_AFIP.md`).
+- Multi-branch synchronization enhancements.
+
+## 📄 License
+
+Private / Proprietary. All rights reserved.
