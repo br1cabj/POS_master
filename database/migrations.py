@@ -136,6 +136,7 @@ def run_migrations(engine) -> None:
 	_v28_add_tenant_updated_at_stock_movement_category(engine)
 	_v29_add_stock_unique_constraint(engine)
 	_v30_add_performance_indexes(engine)
+	_v31_add_updated_at_child_tables(engine)
 
 
 def setup_cloud_schema(engine) -> None:
@@ -199,6 +200,12 @@ def _cloud_missing_columns(engine) -> None:
 		('sale_details', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
 		('stocks', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
 		('purchases', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('purchase_details', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('purchase_returns', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('purchase_return_items', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('quotations', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('quotation_items', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
+		('combo_items', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
 		('tenants', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
 		('branches', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
 		('warehouses', 'updated_at', 'TIMESTAMP DEFAULT NULL'),
@@ -1020,3 +1027,50 @@ def _v30_add_performance_indexes(engine) -> None:
 			logger.warning('v30: no se pudo crear índice uq_cash_open_session: %s', e)
 
 		conn.commit()
+
+
+# ─── v31: updated_at en tablas hijas que faltaban ─────────────────────────────
+
+
+def _v31_add_updated_at_child_tables(engine) -> None:
+	"""
+	v31: Agrega updated_at a purchase_details, purchase_returns,
+	purchase_return_items, quotations, quotation_items y combo_items
+	para habilitar el sync incremental de estas tablas a la nube.
+	"""
+	_CHILD_TABLES = [
+		('purchase_details', 'purchase_id'),
+		('purchase_returns', 'purchase_id'),
+		('purchase_return_items', 'purchase_return_id'),
+		('quotations', 'date'),
+		('quotation_items', 'quotation_id'),
+		('combo_items', 'combo_id'),
+	]
+
+	with engine.connect() as conn:
+		for table, backfill_col in _CHILD_TABLES:
+			added = _add_column_if_missing(
+				conn, engine, table, 'updated_at', 'DATETIME DEFAULT NULL'
+			)
+			if added:
+				conn.execute(
+					text(
+						f'UPDATE {table} SET updated_at = {backfill_col} WHERE updated_at IS NULL'
+					)
+				)
+				conn.execute(
+					text(
+						f'UPDATE {table} SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL'
+					)
+				)
+				conn.commit()
+			try:
+				conn.execute(
+					text(
+						f'CREATE INDEX IF NOT EXISTS ix_{table}_updated_at ON {table}(updated_at)'
+					)
+				)
+			except Exception as e:
+				logger.warning('v31: no se pudo crear índice en %s.updated_at: %s', table, e)
+		conn.commit()
+		logger.info('v31: updated_at en tablas hijas listo para sync incremental.')

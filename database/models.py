@@ -510,6 +510,10 @@ class PurchaseDetail(Base):
 	subtotal = Column(Numeric(10, 2), nullable=False)
 	description = Column(String(500), nullable=False)
 
+	updated_at = Column(
+		DateTime, default=datetime.now, onupdate=datetime.now, index=True
+	)
+
 	purchase_id = Column(
 		String(36), ForeignKey('purchases.id'), nullable=False, index=True
 	)
@@ -530,6 +534,10 @@ class PurchaseReturn(Base):
 	total_refund = Column(Numeric(10, 2), nullable=False)
 	notes = Column(String(1000), nullable=True)
 	file_path = Column(String(500), nullable=True)
+
+	updated_at = Column(
+		DateTime, default=datetime.now, onupdate=datetime.now, index=True
+	)
 
 	purchase_id = Column(
 		String(36), ForeignKey('purchases.id'), nullable=False, index=True
@@ -554,6 +562,10 @@ class PurchaseReturnItem(Base):
 	subtotal = Column(Numeric(10, 2), nullable=False)
 	description = Column(String(500), nullable=False)
 
+	updated_at = Column(
+		DateTime, default=datetime.now, onupdate=datetime.now, index=True
+	)
+
 	purchase_return_id = Column(
 		String(36), ForeignKey('purchase_returns.id'), nullable=False, index=True
 	)
@@ -577,6 +589,10 @@ class ComboItem(Base):
 		String(36), ForeignKey('article_variants.id'), nullable=False, index=True
 	)
 	quantity_required = Column(Numeric(12, 4), nullable=False)
+
+	updated_at = Column(
+		DateTime, default=datetime.now, onupdate=datetime.now, index=True
+	)
 
 	combo = relationship(
 		'ArticleVariant', foreign_keys=[combo_id], backref='ingredients'
@@ -605,6 +621,10 @@ class Quotation(Base):
 	discount_amount = Column(Numeric(10, 2), default=0)
 	notes = Column(String(1000), nullable=True)
 
+	updated_at = Column(
+		DateTime, default=datetime.now, onupdate=datetime.now, index=True
+	)
+
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 	user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
 	customer_id = Column(
@@ -630,6 +650,10 @@ class QuotationItem(Base):
 	quantity = Column(Numeric(12, 4), nullable=False)
 	unit_price = Column(Numeric(10, 2), nullable=False)
 	subtotal = Column(Numeric(10, 2), nullable=False)
+
+	updated_at = Column(
+		DateTime, default=datetime.now, onupdate=datetime.now, index=True
+	)
 
 	quotation_id = Column(
 		String(36), ForeignKey('quotations.id'), nullable=False, index=True

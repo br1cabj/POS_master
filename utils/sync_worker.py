@@ -67,8 +67,6 @@ def _sync_models():
 	)
 
 	# Order matters: parents must be inserted before children to satisfy FKs.
-	# Models without updated_at are skipped by the sync loop but included
-	# by restore_from_cloud so that all tables are pulled on a full restore.
 	return [
 		Tenant,
 		Branch,
@@ -79,16 +77,16 @@ def _sync_models():
 		Article,
 		ArticleVariant,
 		ArticleHistory,  # child of User/Tenant/ArticleVariant
-		ComboItem,  # child of ArticleVariant (no updated_at)
+		ComboItem,  # child of ArticleVariant
 		Customer,
 		Purchase,
-		PurchaseDetail,  # child of Purchase (no updated_at)
-		PurchaseReturn,  # child of Purchase (no updated_at)
-		PurchaseReturnItem,  # child of PurchaseReturn (no updated_at)
+		PurchaseDetail,  # child of Purchase
+		PurchaseReturn,  # child of Purchase
+		PurchaseReturnItem,  # child of PurchaseReturn
 		Sale,
 		SaleDetail,
-		Quotation,  # child of Tenant/User/Customer (no updated_at)
-		QuotationItem,  # child of Quotation/ArticleVariant (no updated_at)
+		Quotation,  # child of Tenant/User/Customer
+		QuotationItem,  # child of Quotation/ArticleVariant
 		Stock,
 		StockMovement,  # child of Tenant/Warehouse/ArticleVariant/User
 		Promotion,
@@ -128,18 +126,23 @@ def _save_state(state: dict) -> None:
 # ─── row serialization ─────────────────────────────────────────────────────────
 
 
+# Fields that must never be uploaded to the cloud.
+_CLOUD_EXCLUDED_FIELDS = frozenset({
+	'password_hash',
+	'recovery_pin_hash',
+})
+
+
 def _row_to_dict(row) -> dict:
 	"""Convert an ORM instance to a plain dict (column values only, no rels)."""
 	mapper = sa_inspect(type(row))
 	result = {}
 	for attr in mapper.column_attrs:
+		if attr.key in _CLOUD_EXCLUDED_FIELDS:
+			continue
 		val = getattr(row, attr.key)
-		# Convert Decimal to str so psycopg2 binds NUMERIC columns without
-		# floating-point precision loss (float(Decimal('10.15')) ≠ 10.15 exactly).
-		from decimal import Decimal as _Decimal
-
-		if isinstance(val, _Decimal):
-			val = str(val)
+		# Decimal objects are passed through as-is; psycopg2/SQLAlchemy
+		# correctly map them to PostgreSQL NUMERIC without precision loss.
 		result[attr.key] = val
 	return result
 

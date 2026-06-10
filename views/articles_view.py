@@ -58,6 +58,7 @@ class ArticlesView(BaseView):
 
 	def __init__(self, master, ctx: AppContext):
 		super().__init__(master, ctx)
+		apply_treeview_style()
 		self.controller = ArticleController(ctx.db_engine)
 		self.inventory_ctrl = InventoryController(ctx.db_engine)
 

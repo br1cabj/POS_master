@@ -39,6 +39,7 @@ from utils.styles import (
 class HistoryView(BaseView):
 	def __init__(self, master, ctx: AppContext):
 		super().__init__(master, ctx)
+		apply_treeview_style()
 		self.controller = SalesController(ctx.db_engine)
 
 		self._all_sales = []
