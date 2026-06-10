@@ -1,6 +1,6 @@
 # CloudPOS
 
-A desktop Point of Sale system built with Python and CustomTkinter. Designed for small and medium businesses, with multi-tenant support, license management, and optional cloud sync.
+A desktop Point of Sale system built with Python and CustomTkinter, accompanied by a modern Web Dashboard built with React. Designed for small and medium businesses, with multi-tenant support, license management, and optional cloud sync.
 
 ## Features
 
@@ -13,28 +13,33 @@ A desktop Point of Sale system built with Python and CustomTkinter. Designed for
 - **Reports** — closing reports, sales history, stock history, Excel export
 - **Users** — role-based access (admin / cashier), employee management
 - **Data sync** — import/export, optional cloud sync via REST API
+- **Web Dashboard** — modern React-based remote administration panel with analytics
 - **License system** — trial period, activation codes, license renewal
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| UI | [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) 5.x |
+| Desktop UI | [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) 5.x |
+| Web UI | React + Vite + Bootstrap Icons |
 | ORM | [SQLAlchemy](https://www.sqlalchemy.org/) 2.x |
-| Database | SQLite (local) |
+| Database | SQLite (local) / Supabase (Cloud) |
 | PDF | fpdf2 |
-| Charts | Matplotlib |
+| Charts | Matplotlib (Desktop) / ApexCharts (Web) |
 | Spreadsheets | Pandas + openpyxl |
 | Barcodes | python-barcode |
 | Auth | bcrypt |
-| Build | PyInstaller |
+| Build | PyInstaller (Desktop) |
 
 ## Requirements
 
 - Python 3.10+
+- Node.js 18+ (for Web Dashboard)
 - Windows (primary target; CustomTkinter works on macOS/Linux too)
 
 ## Setup
+
+### Desktop App
 
 ```bash
 # 1. Clone the repo
@@ -59,6 +64,19 @@ python main.py
 
 On first launch a setup wizard will guide you through creating the initial tenant, branch, and admin user.
 
+### Web Dashboard
+
+```bash
+# 1. Navigate to the web directory
+cd web-dashboard
+
+# 2. Install dependencies
+npm install
+
+# 3. Run the development server
+npm run dev
+```
+
 ## Project Structure
 
 ```
@@ -72,6 +90,9 @@ POS_master/
 │   ├── context.py      # Shared AppContext passed through the app
 │   └── base_view.py    # Base class for all views
 ├── utils/              # Config, styles, label printing, shared helpers
+├── web-dashboard/      # React + Vite web administration panel
+│   ├── src/            # Dashboard source code
+│   └── package.json    # Node.js dependencies
 ├── main.py             # Entry point and app lifecycle
 ├── requirements.txt
 └── .env.example        # Environment variable template
