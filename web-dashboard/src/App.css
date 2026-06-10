@@ -1,0 +1,627 @@
+/* ============================================
+   CloudPOS Design System - CSS Variables
+   ============================================ */
+
+:root {
+  /* Dark mode (default) */
+  --base: #0a0a0a;
+  --surface-0: #111111;
+  --surface-1: #171717;
+  --surface-2: #1e1e1e;
+  --surface-3: #252525;
+  --surface-4: #2e2e2e;
+  --border: #2a2a2a;
+  --border-active: #3a3a3a;
+  --text-primary: #f0f0f0;
+  --text-secondary: #888888;
+  --text-muted: #737373;
+  --text-disabled: #525252;
+
+  /* Bootstrap overrides for dark mode */
+  --bs-body-bg: #0a0a0a;
+  --bs-body-color: #f0f0f0;
+  --bs-card-bg: #1e1e1e;
+  --bs-card-border-color: #2a2a2a;
+  --bs-input-bg: #171717;
+  --bs-input-border-color: #2a2a2a;
+  --bs-input-color: #f0f0f0;
+  --bs-table-bg: #1e1e1e;
+  --bs-table-color: #f0f0f0;
+  --bs-table-hover-bg: #252525;
+  --bs-tertiary-bg: #171717;
+  --bs-secondary-bg: #1e1e1e;
+  --bs-border-color: #2a2a2a;
+  --bs-pagination-bg: #1e1e1e;
+  --bs-pagination-color: #f0f0f0;
+  --bs-pagination-border-color: #2a2a2a;
+  --bs-pagination-hover-bg: #252525;
+  --bs-pagination-active-bg: #2563eb;
+  --bs-pagination-active-border-color: #2563eb;
+  --bs-modal-bg: #1e1e1e;
+  --bs-modal-border-color: #2a2a2a;
+  --bs-dropdown-bg: #1e1e1e;
+  --bs-dropdown-border-color: #2a2a2a;
+  --bs-dropdown-link-color: #f0f0f0;
+  --bs-dropdown-link-hover-bg: #252525;
+  --bs-popover-bg: #1e1e1e;
+  --bs-popover-border-color: #2a2a2a;
+  --bs-tooltip-bg: #252525;
+  --bs-tooltip-color: #f0f0f0;
+  --bs-form-control-bg: #171717;
+  --bs-form-control-border-color: #2a2a2a;
+  --bs-form-control-color: #f0f0f0;
+}
+
+[data-bs-theme="light"] {
+  --base: #f8f9fa;
+  --surface-0: #ffffff;
+  --surface-1: #f1f3f5;
+  --surface-2: #e9ecef;
+  --surface-3: #dee2e6;
+  --surface-4: #ced4da;
+  --border: #dee2e6;
+  --border-active: #adb5bd;
+  --text-primary: #212529;
+  --text-secondary: #6c757d;
+  --text-muted: #868e96;
+  --text-disabled: #adb5bd;
+
+  --bs-body-bg: #f8f9fa;
+  --bs-body-color: #212529;
+  --bs-card-bg: #e9ecef;
+  --bs-card-border-color: #dee2e6;
+  --bs-input-bg: #f1f3f5;
+  --bs-input-border-color: #dee2e6;
+  --bs-input-color: #212529;
+  --bs-table-bg: #e9ecef;
+  --bs-table-color: #212529;
+  --bs-table-hover-bg: #dee2e6;
+  --bs-tertiary-bg: #f1f3f5;
+  --bs-secondary-bg: #e9ecef;
+  --bs-border-color: #dee2e6;
+  --bs-pagination-bg: #e9ecef;
+  --bs-pagination-color: #212529;
+  --bs-pagination-border-color: #dee2e6;
+  --bs-pagination-hover-bg: #dee2e6;
+  --bs-pagination-active-bg: #2563eb;
+  --bs-pagination-active-border-color: #2563eb;
+  --bs-modal-bg: #e9ecef;
+  --bs-modal-border-color: #dee2e6;
+  --bs-dropdown-bg: #e9ecef;
+  --bs-dropdown-border-color: #dee2e6;
+  --bs-dropdown-link-color: #212529;
+  --bs-dropdown-link-hover-bg: #dee2e6;
+  --bs-popover-bg: #e9ecef;
+  --bs-popover-border-color: #dee2e6;
+  --bs-tooltip-bg: #dee2e6;
+  --bs-tooltip-color: #212529;
+  --bs-form-control-bg: #f1f3f5;
+  --bs-form-control-border-color: #dee2e6;
+  --bs-form-control-color: #212529;
+}
+
+/* Semánticos (iguales en ambos modos) */
+:root {
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-dim: #1a2744;
+  --accent-text: #60a5fa;
+  --green: #16a34a;
+  --green-text: #4ade80;
+  --green-dim: #052e16;
+  --green-hover: #15803d;
+  --orange: #d97706;
+  --orange-text: #fbbf24;
+  --orange-dim: #2d1b00;
+  --red: #dc2626;
+  --red-hover: #b91c1c;
+  --red-text: #f87171;
+  --red-dim: #2d0a0a;
+  --purple: #7e22ce;
+  --purple-text: #a78bfa;
+  --purple-dim: #2d1a4a;
+}
+
+/* ============================================
+   Base Overrides
+   ============================================ */
+
+body {
+  background-color: var(--base);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+}
+
+/* ============================================
+   Cards & Panels
+   ============================================ */
+
+.cloudpos-card {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.cloudpos-card-accent {
+  position: relative;
+  border-left: 4px solid var(--accent);
+}
+
+.cloudpos-card-green {
+  border-left: 4px solid var(--green);
+}
+
+.cloudpos-card-orange {
+  border-left: 4px solid var(--orange);
+}
+
+.cloudpos-card-red {
+  border-left: 4px solid var(--red);
+}
+
+/* ============================================
+   Buttons
+   ============================================ */
+
+.btn-cloudpos-primary {
+  background-color: var(--accent);
+  border: none;
+  color: var(--text-primary);
+  border-radius: 6px;
+  height: 42px;
+  font-weight: bold;
+}
+
+.btn-cloudpos-primary:hover {
+  background-color: var(--accent-hover);
+  color: var(--text-primary);
+}
+
+.btn-cloudpos-dim {
+  background-color: var(--accent-dim);
+  border: 1px solid var(--accent);
+  color: var(--accent-text);
+  border-radius: 6px;
+  height: 42px;
+  font-weight: bold;
+}
+
+.btn-cloudpos-dim:hover {
+  background-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.btn-cloudpos-ghost {
+  background-color: var(--surface-3);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  height: 36px;
+}
+
+.btn-cloudpos-ghost:hover {
+  background-color: var(--surface-4);
+  color: var(--text-primary);
+}
+
+.btn-cloudpos-danger-dim {
+  background-color: var(--red-dim);
+  border: 1px solid var(--red);
+  color: var(--red-text);
+  border-radius: 6px;
+  height: 36px;
+  font-weight: bold;
+}
+
+.btn-cloudpos-danger-dim:hover {
+  background-color: var(--red);
+  color: var(--text-primary);
+}
+
+.btn-cloudpos-success-dim {
+  background-color: var(--green-dim);
+  border: 1px solid var(--green);
+  color: var(--green-text);
+  border-radius: 6px;
+  height: 36px;
+  font-weight: bold;
+}
+
+.btn-cloudpos-success-dim:hover {
+  background-color: var(--green);
+  color: var(--text-primary);
+}
+
+/* ============================================
+   Inputs
+   ============================================ */
+
+.form-control-cloudpos {
+  background-color: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  height: 38px;
+  font-size: 12px;
+}
+
+.form-control-cloudpos:focus {
+  background-color: var(--surface-1);
+  border-color: var(--border-active);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+.form-control-cloudpos::placeholder {
+  color: var(--text-muted);
+}
+
+/* Override Bootstrap inputs */
+.form-control {
+  background-color: var(--bs-form-control-bg, var(--surface-1));
+  border-color: var(--bs-form-control-border-color, var(--border));
+  color: var(--bs-form-control-color, var(--text-primary));
+}
+
+.form-control:focus {
+  background-color: var(--bs-form-control-bg, var(--surface-1));
+  border-color: var(--border-active);
+  color: var(--bs-form-control-color, var(--text-primary));
+  box-shadow: none;
+}
+
+.form-control::placeholder {
+  color: var(--text-muted);
+}
+
+.input-group-text {
+  background-color: var(--surface-1);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+/* ============================================
+   Tables
+   ============================================ */
+
+.table-cloudpos {
+  background-color: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.table-cloudpos thead th {
+  background-color: var(--surface-3);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: bold;
+  text-transform: uppercase;
+  padding: 8px 12px;
+}
+
+.table-cloudpos tbody td {
+  background-color: var(--surface-2);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  padding: 8px 12px;
+}
+
+.table-cloudpos tbody tr:hover td {
+  background-color: var(--surface-3);
+}
+
+/* Override Bootstrap tables */
+.table {
+  --bs-table-bg: var(--surface-2);
+  --bs-table-color: var(--text-primary);
+  --bs-table-hover-bg: var(--surface-3);
+  color: var(--text-primary);
+}
+
+.table thead th {
+  background-color: var(--surface-3);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.table tbody td {
+  background-color: var(--surface-2);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+}
+
+.table tbody tr:hover td {
+  background-color: var(--surface-3);
+}
+
+/* ============================================
+   Typography
+   ============================================ */
+
+.font-label { font-size: 10px; font-weight: bold; text-transform: uppercase; }
+.font-label-muted { font-size: 10px; font-weight: bold; color: var(--text-muted); text-transform: uppercase; }
+.font-body { font-size: 12px; }
+.font-body-bold { font-size: 12px; font-weight: bold; }
+.font-heading { font-size: 14px; font-weight: bold; }
+.font-title { font-size: 18px; font-weight: bold; }
+.font-stat { font-size: 32px; font-weight: bold; }
+.font-stat-lg { font-size: 40px; font-weight: bold; }
+.font-small { font-size: 11px; }
+.font-mono { font-family: 'Consolas', 'Monaco', monospace; font-size: 11px; }
+
+/* ============================================
+   Spacing
+   ============================================ */
+
+.pad-xs { padding: 4px; }
+.pad-sm { padding: 8px; }
+.pad-md { padding: 16px; }
+.pad-lg { padding: 24px; }
+.pad-xl { padding: 32px; }
+
+.gap-xs { gap: 4px; }
+.gap-sm { gap: 8px; }
+.gap-md { gap: 16px; }
+.gap-lg { gap: 24px; }
+
+/* ============================================
+   Quick Action Tiles
+   ============================================ */
+
+.quick-action-tile {
+  background-color: var(--accent-dim);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  height: 82px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quick-action-tile:hover {
+  background-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.quick-action-tile.green {
+  background-color: var(--green-dim);
+  border-color: var(--green);
+}
+
+.quick-action-tile.green:hover {
+  background-color: var(--green);
+}
+
+.quick-action-tile.surface {
+  background-color: var(--surface-2);
+  border-color: var(--border);
+}
+
+.quick-action-tile.surface:hover {
+  background-color: var(--surface-3);
+}
+
+/* ============================================
+   Stat Cards
+   ============================================ */
+
+.stat-card {
+  background-color: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+
+.stat-card.accent::before { background-color: var(--accent); }
+.stat-card.green::before { background-color: var(--green); }
+.stat-card.orange::before { background-color: var(--orange); }
+.stat-card.red::before { background-color: var(--red); }
+
+/* ============================================
+   Badges
+   ============================================ */
+
+.badge-cloudpos {
+  font-size: 10px;
+  font-weight: bold;
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.badge-accent { background-color: var(--accent-dim); color: var(--accent-text); }
+.badge-green { background-color: var(--green-dim); color: var(--green-text); }
+.badge-orange { background-color: var(--orange-dim); color: var(--orange-text); }
+.badge-red { background-color: var(--red-dim); color: var(--red-text); }
+
+/* ============================================
+   Scrollbar
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--surface-2);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--surface-4);
+}
+
+/* ============================================
+   Navbar
+   ============================================ */
+
+.navbar-cloudpos {
+  background-color: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.nav-link-cloudpos {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: bold;
+  padding: 8px 16px;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.nav-link-cloudpos:hover {
+  color: var(--text-primary);
+  background-color: var(--surface-3);
+}
+
+.nav-link-cloudpos.active {
+  color: var(--accent-text);
+  background-color: var(--accent-dim);
+}
+
+/* ============================================
+   Section Headers
+   ============================================ */
+
+.section-header {
+  font-size: 10px;
+  font-weight: bold;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+/* ============================================
+   Divider
+   ============================================ */
+
+.divider-cloudpos {
+  height: 1px;
+  background-color: var(--border);
+  margin: 16px 0;
+}
+
+/* ============================================
+   Responsive
+   ============================================ */
+
+@media (max-width: 768px) {
+  .font-stat { font-size: 24px; }
+  .font-stat-lg { font-size: 32px; }
+  .quick-action-tile { height: 70px; }
+  .stat-card { padding: 12px; }
+  .cloudpos-card { padding: 12px; }
+  .font-heading { font-size: 13px; }
+  .font-title { font-size: 17px; }
+
+  .table-cloudpos thead th { font-size: 9px; padding: 6px 8px; }
+  .table-cloudpos tbody td { font-size: 11px; padding: 6px 8px; }
+
+  .badge-cloudpos { font-size: 9px; padding: 3px 6px; }
+
+  .pagination .page-link { padding: 4px 8px; font-size: 11px; }
+}
+
+@media (max-width: 576px) {
+  .font-stat { font-size: 20px; }
+  .font-title { font-size: 16px; }
+  .quick-action-tile { height: 60px; }
+  .font-heading { font-size: 12px; }
+  .font-body-bold { font-size: 11px; }
+  .font-body { font-size: 11px; }
+  .font-small { font-size: 10px; }
+
+  .cloudpos-card { padding: 10px; }
+  .stat-card { padding: 10px; }
+
+  .table-cloudpos thead th { font-size: 8px; padding: 4px 6px; }
+  .table-cloudpos tbody td { font-size: 10px; padding: 4px 6px; }
+
+  .badge-cloudpos { font-size: 8px; padding: 2px 5px; }
+
+  .pagination .page-link { padding: 3px 6px; font-size: 10px; }
+
+  .input-group { max-width: 100% !important; }
+  .input-group .form-control { font-size: 11px; }
+
+  .navbar-cloudpos .container-fluid { padding-left: 12px !important; padding-right: 12px !important; }
+
+  .col-md-10 { padding-left: 12px !important; padding-right: 12px !important; }
+
+  .apexcharts-canvas svg {
+    max-width: 100% !important;
+  }
+
+  .apexcharts-root {
+    max-height: 200px !important;
+  }
+}
+
+@media (max-width: 360px) {
+  .font-stat { font-size: 18px; }
+  .font-title { font-size: 15px; }
+  .font-heading { font-size: 11px; }
+  .font-body-bold { font-size: 10px; }
+  .font-body { font-size: 10px; }
+  .font-small { font-size: 9px; }
+
+  .cloudpos-card { padding: 8px; }
+  .stat-card { padding: 8px; }
+
+  .table-cloudpos thead th { font-size: 7px; padding: 3px 4px; }
+  .table-cloudpos tbody td { font-size: 9px; padding: 3px 4px; }
+
+  .badge-cloudpos { font-size: 7px; padding: 2px 4px; }
+
+  .pagination .page-link { padding: 2px 4px; font-size: 9px; }
+}
+
+/* ============================================
+   ApexCharts Overrides
+   ============================================ */
+
+.apexcharts-tooltip {
+  background: var(--surface-2) !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+}
+
+.apexcharts-tooltip-title {
+  background: var(--surface-3) !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+}
+
+.apexcharts-text {
+  fill: var(--text-muted) !important;
+}
+
+.apexcharts-legend-text {
+  color: var(--text-secondary) !important;
+}
+
+.apexcharts-gridline {
+  stroke: var(--border) !important;
+}
+
+.apexcharts-xaxis line,
+.apexcharts-yaxis line {
+  stroke: var(--border) !important;
+}
