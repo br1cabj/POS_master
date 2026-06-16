@@ -1,10 +1,9 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
+import { useState, useMemo, useCallback } from 'react';
+import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
 import { supabase } from '@/lib/supabase.jsx';
 import { useAuth } from '@/context/AuthContext.jsx';
-import { StatCard, Loading, ErrorState, Badge } from '@/components/shared/index.jsx';
+import { StatCard, Loading, ErrorState, Badge, Skeleton } from '@/components/shared/index.jsx';
 import { AreaChart, DonutChart, HorizontalBarChart, LineChart, SalesByHourChart } from '@/components/charts/index.jsx';
-import { useRefresh } from '@/context/RefreshContext.jsx';
 
 const REFRESH_INTERVAL = 120000;
 
@@ -15,41 +14,85 @@ const getDaysAgoStr = (days) => {
   return d.toISOString().split('T')[0];
 };
 
+const LowStockAlert = ({ items }) => {
+  if (!items || items.length === 0) return null;
+
+  return (
+    <div className="cloudpos-card mb-3" style={{ borderLeft: '4px solid var(--red)' }}>
+      <h5 className="font-heading mb-2" style={{ color: 'var(--red-text)' }}>
+        <i className="bi bi-exclamation-triangle me-1"></i> Stock Bajo ({items.length})
+      </h5>
+      <div className="d-flex flex-wrap gap-2">
+        {items.slice(0, 5).map((item) => (
+          <div key={item.name} className="d-flex align-items-center gap-2 p-2" style={{ backgroundColor: 'var(--red-dim)', borderRadius: '6px' }}>
+            <span className="font-body-bold" style={{ color: 'var(--red-text)' }}>{item.name}</span>
+            <Badge text={`${item.current}/${item.min}`} color="red" />
+          </div>
+        ))}
+        {items.length > 5 && (
+          <span className="font-small text-muted">+{items.length - 5} más</span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const PromoList = ({ promos, loading }) => {
+  if (loading) return <Skeleton lines={3} />;
+  if (!promos || promos.length === 0) {
+    return <p className="text-muted font-body">Sin promociones activas ahora.</p>;
+  }
+
+  return promos.map((promo) => {
+    const detail =
+      promo.promo_type === 'nxm'
+        ? `Lleva ${promo.buy_qty} Paga ${promo.pay_qty}`
+        : promo.promo_type === 'pct'
+        ? `${promo.discount_value}% off`
+        : `$${promo.discount_value} c/u`;
+    return (
+      <div key={promo.id} className="d-flex flex-wrap align-items-center gap-2 p-2 mb-2" style={{ backgroundColor: 'var(--surface-3)', borderRadius: '8px' }}>
+        <span className="badge-cloudpos badge-green flex-shrink-0">{(promo.promo_type || '—').toUpperCase()}</span>
+        <div className="flex-fill min-width-0">
+          <div className="font-body-bold">{promo.name}</div>
+          <div className="font-small text-muted">{detail}</div>
+        </div>
+        <div className="font-small text-muted flex-shrink-0">≤ {new Date(promo.date_to).toLocaleDateString('es-AR')}</div>
+      </div>
+    );
+  });
+};
+
 export const Dashboard = () => {
   const { user } = useAuth();
-  const { markRefreshed } = useRefresh();
   const [topProducts, setTopProducts] = useState([]);
-  const mountedRef = useRef(true);
 
   const todayStr = useMemo(() => getTodayStr(), []);
-  const weekAgoStr = useMemo(() => getDaysAgoStr(7), []);
   const monthAgoStr = useMemo(() => getDaysAgoStr(30), []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
 
   const { data: sales, loading: salesLoading, error: salesError } = useSupabaseQuery('sales', {
     select: 'id, total_amount, profit, date, status, payment_method',
     filter: ['date', 'gte', monthAgoStr],
-    enabled: true,
     refreshInterval: REFRESH_INTERVAL,
     silent: true,
-    onRefresh: markRefreshed,
   });
 
   const { data: activePromos, loading: promosLoading } = useSupabaseQuery('promotions', {
     select: 'id, name, promo_type, discount_value, buy_qty, pay_qty, date_to',
     filter: ['is_active', 'eq', true],
-    enabled: true,
     refreshInterval: REFRESH_INTERVAL,
     silent: true,
   });
 
-  const { data: lowStock, loading: stockLoading } = useSupabaseQuery('view_low_stock', {
+  const { data: lowStock } = useSupabaseQuery('view_low_stock', {
     select: 'product_name, current_stock, min_stock',
-    enabled: true,
+    refreshInterval: REFRESH_INTERVAL,
+    silent: true,
+  });
+
+  const { data: purchases } = useSupabaseQuery('purchases', {
+    select: 'id, total_amount, date, status',
+    filter: ['date', 'gte', monthAgoStr],
     refreshInterval: REFRESH_INTERVAL,
     silent: true,
   });
@@ -66,25 +109,15 @@ export const Dashboard = () => {
         console.error('Failed to fetch top products:', error);
         return;
       }
-      if (data && mountedRef.current) setTopProducts(data);
+      if (data) setTopProducts(data);
     } catch (err) {
       console.error('Failed to fetch top products:', err);
     }
   }, [user?.tenantId, monthAgoStr]);
 
-  useEffect(() => {
+  useMemo(() => {
     fetchTopProducts();
-    const interval = setInterval(fetchTopProducts, REFRESH_INTERVAL);
-    return () => clearInterval(interval);
   }, [fetchTopProducts]);
-
-  const { data: purchases, loading: purchasesLoading } = useSupabaseQuery('purchases', {
-    select: 'id, total_amount, date, status',
-    filter: ['date', 'gte', monthAgoStr],
-    enabled: true,
-    refreshInterval: REFRESH_INTERVAL,
-    silent: true,
-  });
 
   const dashboardStats = useMemo(() => {
     if (!sales) return { revenue: 0, profit: 0, tickets: 0, margin: 0, avgTicket: 0, weeklySales: [], paymentMethods: [], salesByHour: [], salesVsPurchases: [], salesVsPurchasesCategories: [], anulaciones: 0, devoluciones: 0 };
@@ -207,24 +240,7 @@ export const Dashboard = () => {
         </div>
       </div>
 
-      {lowStockItems.length > 0 && (
-        <div className="cloudpos-card mb-3" style={{ borderLeft: '4px solid var(--red)' }}>
-          <h5 className="font-heading mb-2" style={{ color: 'var(--red-text)' }}>
-            <i className="bi bi-exclamation-triangle me-1"></i> Stock Bajo ({lowStockItems.length})
-          </h5>
-          <div className="d-flex flex-wrap gap-2">
-            {lowStockItems.slice(0, 5).map((item) => (
-              <div key={item.name} className="d-flex align-items-center gap-2 p-2" style={{ backgroundColor: 'var(--red-dim)', borderRadius: '6px' }}>
-                <span className="font-body-bold" style={{ color: 'var(--red-text)' }}>{item.name}</span>
-                <Badge text={`${item.current}/${item.min}`} color="red" />
-              </div>
-            ))}
-            {lowStockItems.length > 5 && (
-              <span className="font-small text-muted">+{lowStockItems.length - 5} más</span>
-            )}
-          </div>
-        </div>
-      )}
+      <LowStockAlert items={lowStockItems} />
 
       <div className="row g-3 mb-3">
         <div className="col-12">
@@ -259,30 +275,7 @@ export const Dashboard = () => {
         <div className="col-lg-4">
           <div className="cloudpos-card">
             <h5 className="font-heading mb-3">Promociones Activas ({activePromos?.length || 0})</h5>
-            {promosLoading ? (
-              <Loading />
-            ) : !activePromos || activePromos.length === 0 ? (
-              <p className="text-muted font-body">Sin promociones activas ahora.</p>
-            ) : (
-              activePromos.map((promo) => {
-                const detail =
-                  promo.promo_type === 'nxm'
-                    ? `Lleva ${promo.buy_qty} Paga ${promo.pay_qty}`
-                    : promo.promo_type === 'pct'
-                    ? `${promo.discount_value}% off`
-                    : `$${promo.discount_value} c/u`;
-                return (
-                  <div key={promo.id} className="d-flex flex-wrap align-items-center gap-2 p-2 mb-2" style={{ backgroundColor: 'var(--surface-3)', borderRadius: '8px' }}>
-                    <span className="badge-cloudpos badge-green flex-shrink-0">{(promo.promo_type || '—').toUpperCase()}</span>
-                    <div className="flex-fill min-width-0">
-                      <div className="font-body-bold">{promo.name}</div>
-                      <div className="font-small text-muted">{detail}</div>
-                    </div>
-                    <div className="font-small text-muted flex-shrink-0">≤ {new Date(promo.date_to).toLocaleDateString('es-AR')}</div>
-                  </div>
-                );
-              })
-            )}
+            <PromoList promos={activePromos} loading={promosLoading} />
           </div>
         </div>
       </div>

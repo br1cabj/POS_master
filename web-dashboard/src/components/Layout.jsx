@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { sections } from '@/config/sections.js';
-import { useRefresh } from '@/context/RefreshContext.jsx';
 
 function useTimeAgo(timestamp) {
   const [now, setNow] = useState(Date.now());
@@ -24,10 +23,28 @@ function useCurrentDate() {
   return now;
 }
 
-export const Layout = ({ children, theme, onThemeToggle, user, onLogout }) => {
+const NavMenu = memo(({ sections, activeSection, onNavigate }) => (
+  <div className="d-flex flex-column gap-1">
+    {sections.map((section) => (
+      <button
+        key={section.id}
+        className={`btn text-start ${activeSection === section.id ? 'nav-link-cloudpos active' : 'nav-link-cloudpos'}`}
+        onClick={() => onNavigate(section.path)}
+        aria-current={activeSection === section.id ? 'page' : undefined}
+      >
+        <i className={`bi ${section.icon} me-2`}></i>
+        {section.label}
+      </button>
+    ))}
+  </div>
+));
+
+NavMenu.displayName = 'NavMenu';
+
+export const Layout = memo(({ children, theme, onThemeToggle, user, onLogout }) => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { lastRefresh } = useRefresh();
+  const [lastRefresh, setLastRefresh] = useState(Date.now());
   const timeAgo = useTimeAgo(lastRefresh);
   const currentDate = useCurrentDate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -35,12 +52,20 @@ export const Layout = ({ children, theme, onThemeToggle, user, onLogout }) => {
   const hamburgerBtnRef = useRef(null);
   const firstMenuBtnRef = useRef(null);
 
+  useEffect(() => {
+    const interval = setInterval(() => setLastRefresh(Date.now()), 120000);
+    return () => clearInterval(interval);
+  }, []);
+
   const activeSection = sections.find((s) => s.path === location.pathname)?.id || 'dashboard';
 
-  const visibleSections = sections.filter((s) => {
-    if (!s.roles || s.roles.length === 0) return true;
-    return s.roles.includes(user?.role);
-  });
+  const visibleSections = useMemo(() =>
+    sections.filter((s) => {
+      if (!s.roles || s.roles.length === 0) return true;
+      return s.roles.includes(user?.role);
+    }),
+    [user?.role]
+  );
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -187,19 +212,11 @@ export const Layout = ({ children, theme, onThemeToggle, user, onLogout }) => {
             role="navigation"
             aria-label="Menú lateral"
           >
-            <div className="d-flex flex-column gap-1">
-              {visibleSections.map((section) => (
-                <button
-                  key={section.id}
-                  className={`btn text-start ${activeSection === section.id ? 'nav-link-cloudpos active' : 'nav-link-cloudpos'}`}
-                  onClick={() => handleSectionClick(section.path)}
-                  aria-current={activeSection === section.id ? 'page' : undefined}
-                >
-                  <i className={`bi ${section.icon} me-2`}></i>
-                  {section.label}
-                </button>
-              ))}
-            </div>
+            <NavMenu
+              sections={visibleSections}
+              activeSection={activeSection}
+              onNavigate={handleSectionClick}
+            />
           </div>
 
           <main id="main-content" className="col-md-10 p-3 p-md-4" role="main" tabIndex={-1}>
@@ -209,4 +226,6 @@ export const Layout = ({ children, theme, onThemeToggle, user, onLogout }) => {
       </div>
     </div>
   );
-};
+});
+
+Layout.displayName = 'Layout';

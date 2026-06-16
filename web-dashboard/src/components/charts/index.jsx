@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, memo } from 'react';
 import ReactApexChart from 'react-apexcharts';
 
 function getThemeColors() {
@@ -61,7 +61,7 @@ const baseOptions = (colors, themeMode) => ({
   },
 });
 
-export const AreaChart = ({ data, height = 200, title }) => {
+export const AreaChart = memo(({ data, height = 200, title }) => {
   const { colors, themeMode } = useThemeColors();
   const options = useMemo(() => ({
     ...baseOptions(colors, themeMode),
@@ -92,14 +92,16 @@ export const AreaChart = ({ data, height = 200, title }) => {
     grid: { ...baseOptions(colors, themeMode).grid, yaxis: { lines: { show: true } } },
     dataLabels: { enabled: false },
     theme: { mode: themeMode },
-  }), [colors, themeMode, data, height, title]);
+  }), [colors, themeMode, data, height]);
 
   const series = useMemo(() => [{ name: title || 'Ventas', data: data.map((d) => d.value) }], [data, title]);
 
   return <ReactApexChart options={options} series={series} type="area" height={height} />;
-};
+});
 
-export const DonutChart = ({ data, height = 250, title }) => {
+AreaChart.displayName = 'AreaChart';
+
+export const DonutChart = memo(({ data, height = 250, title }) => {
   const { colors, themeMode } = useThemeColors();
   const chartColors = [colors.accent, colors.green, colors.orange, colors.red, '#7e22ce', '#06b6d4', '#f59e0b', '#ec4899'];
 
@@ -145,9 +147,11 @@ export const DonutChart = ({ data, height = 250, title }) => {
   const series = useMemo(() => data.map((d) => d.value), [data]);
 
   return <ReactApexChart options={options} series={series} type="donut" height={height} />;
-};
+});
 
-export const HorizontalBarChart = ({ data, height = 250, title }) => {
+DonutChart.displayName = 'DonutChart';
+
+export const HorizontalBarChart = memo(({ data, height = 250, title }) => {
   const { colors, themeMode } = useThemeColors();
   const chartColors = [colors.accent, colors.green, colors.orange, colors.red, '#7e22ce'];
 
@@ -179,14 +183,16 @@ export const HorizontalBarChart = ({ data, height = 250, title }) => {
       y: { formatter: (v) => v.toLocaleString() },
     },
     theme: { mode: themeMode },
-  }), [colors, themeMode, data, height, title]);
+  }), [colors, themeMode, data, height]);
 
   const series = useMemo(() => [{ name: title || 'Cantidad', data: data.map((d) => d.value) }], [data, title]);
 
   return <ReactApexChart options={options} series={series} type="bar" height={height} />;
-};
+});
 
-export const LineChart = ({ datasets, categories, height = 250, title }) => {
+HorizontalBarChart.displayName = 'HorizontalBarChart';
+
+export const LineChart = memo(({ datasets, categories, height = 250, title }) => {
   const { colors, themeMode } = useThemeColors();
 
   const options = useMemo(() => ({
@@ -209,12 +215,14 @@ export const LineChart = ({ datasets, categories, height = 250, title }) => {
     dataLabels: { enabled: false },
     markers: { size: 3, strokeWidth: 0 },
     theme: { mode: themeMode },
-  }), [colors, themeMode, categories, height, datasets]);
+  }), [colors, themeMode, categories, height]);
 
   return <ReactApexChart options={options} series={datasets} type="line" height={height} />;
-};
+});
 
-export const BarChart = ({ data, height = 250, title, colors: customColors }) => {
+LineChart.displayName = 'LineChart';
+
+export const BarChart = memo(({ data, height = 250, title, colors: customColors }) => {
   const { colors, themeMode } = useThemeColors();
   const chartColors = customColors || [colors.green, colors.accent, colors.orange, colors.red, '#7e22ce'];
 
@@ -254,14 +262,16 @@ export const BarChart = ({ data, height = 250, title, colors: customColors }) =>
       y: { formatter: (v) => v.toLocaleString() },
     },
     theme: { mode: themeMode },
-  }), [colors, themeMode, data, height, title, customColors]);
+  }), [colors, themeMode, data, height, customColors]);
 
   const series = useMemo(() => [{ name: title || 'Valor', data: data.map((d) => d.value) }], [data, title]);
 
   return <ReactApexChart options={options} series={series} type="bar" height={height} />;
-};
+});
 
-export const SalesByHourChart = ({ data, height = 200 }) => {
+BarChart.displayName = 'BarChart';
+
+export const SalesByHourChart = memo(({ data, height = 200 }) => {
   const { colors, themeMode } = useThemeColors();
 
   const options = useMemo(() => ({
@@ -299,4 +309,6 @@ export const SalesByHourChart = ({ data, height = 200 }) => {
   const series = useMemo(() => [{ name: 'Ventas', data: data.map((d) => d.value) }], [data]);
 
   return <ReactApexChart options={options} series={series} type="bar" height={height} />;
-};
+});
+
+SalesByHourChart.displayName = 'SalesByHourChart';

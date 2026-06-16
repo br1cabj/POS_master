@@ -625,3 +625,40 @@ body {
 .apexcharts-yaxis line {
   stroke: var(--border) !important;
 }
+
+/* ============================================
+   Skeleton Loaders
+   ============================================ */
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.skeleton-loader {
+  width: 100%;
+}
+
+.skeleton-line {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* ============================================
+   Performance: will-change for animations
+   ============================================ */
+
+.spinner-border {
+  will-change: transform;
+}
+
+/* ============================================
+   Smooth transitions for theme switching
+   ============================================ */
+
+* {
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+button, a {
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}

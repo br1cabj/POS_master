@@ -1,7 +1,87 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, memo } from 'react';
 import { Loading, EmptyState, ErrorState } from '@/components/shared/index.jsx';
 
-export const DataTable = ({
+const TableRow = memo(({ row, columns, onRowClick }) => (
+  <tr
+    onClick={() => onRowClick && onRowClick(row)}
+    style={{ cursor: onRowClick ? 'pointer' : 'default' }}
+  >
+    {columns.map((col) => (
+      <td key={col.key}>
+        {col.render ? col.render(row[col.key], row) : row[col.key] ?? '—'}
+      </td>
+    ))}
+  </tr>
+));
+
+TableRow.displayName = 'TableRow';
+
+const PaginationControls = memo(({ currentPage, totalPages, pageSize, filteredData }) => {
+  const safeCurrentPage = Math.min(currentPage, Math.max(1, totalPages));
+
+  return (
+    <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+      <span className="font-small text-muted">
+        Mostrando {(safeCurrentPage - 1) * pageSize + 1}–{Math.min(safeCurrentPage * pageSize, filteredData.length)} de {filteredData.length}
+      </span>
+      <nav aria-label="Navegación de paginación">
+        <ul className="pagination pagination-sm mb-0">
+          <li className={`page-item ${safeCurrentPage === 1 ? 'disabled' : ''}`}>
+            <button
+              className="page-link"
+              style={{ backgroundColor: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              onClick={() => setCurrentPageInternal((p) => Math.max(1, p - 1))}
+              aria-label="Página anterior"
+            >
+              <i className="bi bi-chevron-left"></i>
+            </button>
+          </li>
+          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+            let page;
+            if (totalPages <= 5) {
+              page = i + 1;
+            } else if (safeCurrentPage <= 3) {
+              page = i + 1;
+            } else if (safeCurrentPage >= totalPages - 2) {
+              page = totalPages - 4 + i;
+            } else {
+              page = safeCurrentPage - 2 + i;
+            }
+            return (
+              <li key={page} className={`page-item ${safeCurrentPage === page ? 'active' : ''}`}>
+                <button
+                  className="page-link"
+                  style={{ backgroundColor: safeCurrentPage === page ? 'var(--accent)' : 'var(--surface-2)', borderColor: 'var(--border)', color: safeCurrentPage === page ? '#fff' : 'var(--text-primary)' }}
+                  onClick={() => setCurrentPageInternal(page)}
+                  aria-label={`Ir a página ${page}`}
+                  aria-current={safeCurrentPage === page ? 'page' : undefined}
+                >
+                  {page}
+                </button>
+              </li>
+            );
+          })}
+          <li className={`page-item ${safeCurrentPage === totalPages ? 'disabled' : ''}`}>
+            <button
+              className="page-link"
+              style={{ backgroundColor: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              onClick={() => setCurrentPageInternal((p) => Math.min(totalPages, p + 1))}
+              aria-label="Página siguiente"
+            >
+              <i className="bi bi-chevron-right"></i>
+            </button>
+          </li>
+        </ul>
+      </nav>
+    </div>
+  );
+});
+
+PaginationControls.displayName = 'PaginationControls';
+
+function setCurrentPageInternal() {}
+
+export const DataTable = memo(({
   columns,
   data,
   loading,
@@ -81,6 +161,11 @@ export const DataTable = ({
     }
   }, [handleSort]);
 
+  const handleSearchChange = useCallback((e) => {
+    setSearchTerm(e.target.value);
+    setCurrentPage(1);
+  }, []);
+
   if (loading) return <Loading />;
   if (error) return <ErrorState message={error} />;
   if (!data || data.length === 0) return <EmptyState message={emptyMessage} />;
@@ -100,10 +185,7 @@ export const DataTable = ({
               placeholder="Buscar..."
               aria-label="Buscar en la tabla"
               value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
+              onChange={handleSearchChange}
             />
           </div>
         </div>
@@ -138,78 +220,87 @@ export const DataTable = ({
           </thead>
           <tbody>
             {paginatedData.map((row, idx) => (
-              <tr
+              <TableRow
                 key={row.id || idx}
-                onClick={() => onRowClick && onRowClick(row)}
-                style={{ cursor: onRowClick ? 'pointer' : 'default' }}
-              >
-                {columns.map((col) => (
-                  <td key={col.key}>
-                    {col.render ? col.render(row[col.key], row) : row[col.key] ?? '—'}
-                  </td>
-                ))}
-              </tr>
+                row={row}
+                columns={columns}
+                onRowClick={onRowClick}
+              />
             ))}
           </tbody>
         </table>
       </div>
 
       {totalPages > 1 && (
-        <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
-          <span className="font-small text-muted">
-            Mostrando {(safeCurrentPage - 1) * pageSize + 1}–{Math.min(safeCurrentPage * pageSize, filteredData.length)} de {filteredData.length}
-          </span>
-          <nav aria-label="Navegación de paginación">
-            <ul className="pagination pagination-sm mb-0">
-              <li className={`page-item ${safeCurrentPage === 1 ? 'disabled' : ''}`}>
-                <button
-                  className="page-link"
-                  style={{ backgroundColor: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  aria-label="Página anterior"
-                >
-                  <i className="bi bi-chevron-left"></i>
-                </button>
-              </li>
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                let page;
-                if (totalPages <= 5) {
-                  page = i + 1;
-                } else if (safeCurrentPage <= 3) {
-                  page = i + 1;
-                } else if (safeCurrentPage >= totalPages - 2) {
-                  page = totalPages - 4 + i;
-                } else {
-                  page = safeCurrentPage - 2 + i;
-                }
-                return (
-                  <li key={page} className={`page-item ${safeCurrentPage === page ? 'active' : ''}`}>
-                    <button
-                      className="page-link"
-                      style={{ backgroundColor: safeCurrentPage === page ? 'var(--accent)' : 'var(--surface-2)', borderColor: 'var(--border)', color: safeCurrentPage === page ? '#fff' : 'var(--text-primary)' }}
-                      onClick={() => setCurrentPage(page)}
-                      aria-label={`Ir a página ${page}`}
-                      aria-current={safeCurrentPage === page ? 'page' : undefined}
-                    >
-                      {page}
-                    </button>
-                  </li>
-                );
-              })}
-              <li className={`page-item ${safeCurrentPage === totalPages ? 'disabled' : ''}`}>
-                <button
-                  className="page-link"
-                  style={{ backgroundColor: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  aria-label="Página siguiente"
-                >
-                  <i className="bi bi-chevron-right"></i>
-                </button>
-              </li>
-            </ul>
-          </nav>
-        </div>
+        <PaginationControlsMemo
+          currentPage={safeCurrentPage}
+          totalPages={totalPages}
+          pageSize={pageSize}
+          filteredData={filteredData}
+          onPageChange={setCurrentPage}
+        />
       )}
     </div>
   );
-};
+});
+
+DataTable.displayName = 'DataTable';
+
+const PaginationControlsMemo = memo(({ currentPage, totalPages, pageSize, filteredData, onPageChange }) => (
+  <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+    <span className="font-small text-muted">
+      Mostrando {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filteredData.length)} de {filteredData.length}
+    </span>
+    <nav aria-label="Navegación de paginación">
+      <ul className="pagination pagination-sm mb-0">
+        <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+          <button
+            className="page-link"
+            style={{ backgroundColor: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            onClick={() => onPageChange((p) => Math.max(1, p - 1))}
+            aria-label="Página anterior"
+          >
+            <i className="bi bi-chevron-left"></i>
+          </button>
+        </li>
+        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+          let page;
+          if (totalPages <= 5) {
+            page = i + 1;
+          } else if (currentPage <= 3) {
+            page = i + 1;
+          } else if (currentPage >= totalPages - 2) {
+            page = totalPages - 4 + i;
+          } else {
+            page = currentPage - 2 + i;
+          }
+          return (
+            <li key={page} className={`page-item ${currentPage === page ? 'active' : ''}`}>
+              <button
+                className="page-link"
+                style={{ backgroundColor: currentPage === page ? 'var(--accent)' : 'var(--surface-2)', borderColor: 'var(--border)', color: currentPage === page ? '#fff' : 'var(--text-primary)' }}
+                onClick={() => onPageChange(page)}
+                aria-label={`Ir a página ${page}`}
+                aria-current={currentPage === page ? 'page' : undefined}
+              >
+                {page}
+              </button>
+            </li>
+          );
+        })}
+        <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
+          <button
+            className="page-link"
+            style={{ backgroundColor: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            onClick={() => onPageChange((p) => Math.min(totalPages, p + 1))}
+            aria-label="Página siguiente"
+          >
+            <i className="bi bi-chevron-right"></i>
+          </button>
+        </li>
+      </ul>
+    </nav>
+  </div>
+));
+
+PaginationControlsMemo.displayName = 'PaginationControlsMemo';

@@ -1,8 +1,11 @@
 import { lazy, Suspense, useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import './App.css';
 import { AuthProvider, useAuth } from '@/context/AuthContext.jsx';
-import { RefreshProvider } from '@/context/RefreshContext.jsx';
+import { queryClient } from '@/lib/queryClient.js';
+import { AppErrorBoundary } from '@/components/ErrorBoundary.jsx';
 import { Login } from '@/components/Login.jsx';
 import { Layout } from '@/components/Layout.jsx';
 import { Loading } from '@/components/shared/index.jsx';
@@ -87,20 +90,23 @@ const ProtectedRoute = () => {
 
 function App() {
   return (
-    <HashRouter>
-      <AuthProvider>
-        <RefreshProvider>
-          <Routes>
-            <Route element={<ProtectedRoute />}>
-              {routeSections.map(({ path, Component }) => (
-                <Route key={path} path={path} element={<Component />} />
-              ))}
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Route>
-          </Routes>
-        </RefreshProvider>
-      </AuthProvider>
-    </HashRouter>
+    <QueryClientProvider client={queryClient}>
+      <AppErrorBoundary>
+        <HashRouter>
+          <AuthProvider>
+            <Routes>
+              <Route element={<ProtectedRoute />}>
+                {routeSections.map(({ path, Component }) => (
+                  <Route key={path} path={path} element={<Component />} />
+                ))}
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Route>
+            </Routes>
+          </AuthProvider>
+        </HashRouter>
+      </AppErrorBoundary>
+      <ReactQueryDevtools initialIsOpen={false} />
+    </QueryClientProvider>
   );
 }
 
