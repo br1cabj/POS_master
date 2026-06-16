@@ -33,3 +33,5 @@ export const Customers = () => {
     </div>
   );
 };
+
+export default Customers;

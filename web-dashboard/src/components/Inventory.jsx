@@ -5,13 +5,13 @@ import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/inde
 
 export const Inventory = () => {
   const { data: stocks, loading, error } = useSupabaseQuery('stocks', {
-    select: '*, variant(name, barcode, article(min_stock)), warehouse(name)',
+    select: '*, variant:article_variants(barcode, article:articles(name, min_stock)), warehouse:warehouses(name)',
     order: { column: 'quantity', ascending: true },
     limit: 500,
   });
 
   const columns = useMemo(() => [
-    { key: 'variant_name', label: 'Producto', render: (_, row) => <span className="font-body-bold">{row.variant?.name || '—'}</span> },
+    { key: 'variant_name', label: 'Producto', render: (_, row) => <span className="font-body-bold">{row.variant?.article?.name || '—'}</span> },
     { key: 'variant_barcode', label: 'Código', render: (_, row) => <span className="font-mono">{row.variant?.barcode || '—'}</span> },
     { key: 'warehouse', label: 'Depósito', render: (_, row) => row.warehouse?.name || '—' },
     { key: 'quantity', label: 'Stock', render: (v) => parseFloat(v || 0).toLocaleString() },
@@ -36,3 +36,7 @@ export const Inventory = () => {
     </div>
   );
 };
+
+export default Inventory;
+
+

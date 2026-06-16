@@ -43,7 +43,7 @@ export const ReporteCierre = () => {
   }, [periodo, fechaFin, fechaHasta]);
 
   const { data: sales, loading: salesLoading, error: salesError } = useSupabaseQuery('sales', {
-    select: '*, customer(name), user(username), items(quantity, unit_price, subtotal, description, variant(name))',
+    select: '*, customer:customers(name), user:users(username), items:sale_details(quantity, unit_price, subtotal, description, variant:article_variants(article:articles(name)))',
     filter: [['date', 'gte', fechaInicio], ['date', 'lt', fechaFinCompleta]],
     enabled: true,
   });
@@ -88,7 +88,7 @@ export const ReporteCierre = () => {
     sales.forEach((s) => {
       if (s.status !== 'completada' || !s.items) return;
       s.items.forEach((item) => {
-        const name = item.variant?.name || item.description || '—';
+        const name = item.variant?.article?.name || item.description || '—';
         if (!topProducts[name]) topProducts[name] = { qty: 0, revenue: 0 };
         topProducts[name].qty += parseFloat(item.quantity || 0);
         topProducts[name].revenue += parseFloat(item.subtotal || 0);
@@ -303,3 +303,7 @@ export const ReporteCierre = () => {
     </div>
   );
 };
+
+export default ReporteCierre;
+
+

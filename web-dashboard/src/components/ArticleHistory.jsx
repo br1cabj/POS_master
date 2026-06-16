@@ -5,7 +5,7 @@ import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/inde
 
 export const ArticleHistory = () => {
   const { data: history, loading, error } = useSupabaseQuery('article_history', {
-    select: '*, user(username)',
+    select: '*, user:users(username)',
     order: { column: 'date', ascending: false },
     limit: 500,
   });
@@ -32,3 +32,6 @@ export const ArticleHistory = () => {
     </div>
   );
 };
+
+export default ArticleHistory;
+

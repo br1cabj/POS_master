@@ -9,7 +9,7 @@ const TABLES_WITH_SOFT_DELETE = new Set([
 
 const TABLES_WITHOUT_TENANT_ID = new Set([
   'sale_details', 'purchase_details', 'purchase_return_items',
-  'quotation_items', 'cash_movements', 'stocks',
+  'quotation_items', 'cash_movements', 'stocks', 'article_variants', 'combo_items'
 ]);
 
 function deepEqual(a, b) {

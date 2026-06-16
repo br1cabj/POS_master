@@ -22,13 +22,13 @@ export const Purchases = () => {
   const [expandedPurchase, setExpandedPurchase] = useState(null);
 
   const { data: purchases, loading, error } = useSupabaseQuery('purchases', {
-    select: '*, supplier(name)',
+    select: '*, supplier:suppliers(name)',
     order: { column: 'date', ascending: false },
     limit: 500,
   });
 
   const { data: purchaseDetails, loading: detailsLoading, error: detailsError } = useSupabaseQuery('purchase_details', {
-    select: '*, variant(name, barcode)',
+    select: '*, variant:article_variants(barcode, article:articles(name))',
     filter: expandedPurchase ? ['purchase_id', 'eq', expandedPurchase] : null,
     enabled: !!expandedPurchase,
   });
@@ -84,7 +84,7 @@ export const Purchases = () => {
                   {purchaseDetails.map((item) => (
                     <tr key={item.id}>
                       <td className="font-mono">{item.variant?.barcode || '—'}</td>
-                      <td className="font-body-bold">{item.variant?.name || item.description || '—'}</td>
+                      <td className="font-body-bold">{item.variant?.article?.name || item.description || '—'}</td>
                       <td>{isNaN(parseFloat(item.quantity)) ? '0' : parseFloat(item.quantity).toLocaleString()}</td>
                       <td>${isNaN(parseFloat(item.unit_cost)) ? '0' : parseFloat(item.unit_cost).toLocaleString()}</td>
                       <td className="font-body-bold">${isNaN(parseFloat(item.subtotal)) ? '0' : parseFloat(item.subtotal).toLocaleString()}</td>
@@ -99,3 +99,7 @@ export const Purchases = () => {
     </div>
   );
 };
+
+export default Purchases;
+
+

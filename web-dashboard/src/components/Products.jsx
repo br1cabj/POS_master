@@ -7,7 +7,7 @@ export const Products = () => {
   const [page, setPage] = useState(0);
   const pageSize = 50;
   const { data: variants, loading, error } = useSupabaseQuery('article_variants', {
-    select: '*, article(name, description, min_stock, category(name), supplier(name)), stocks(quantity, warehouse(name))',
+    select: '*, article:articles(name, description, min_stock, category:categories(name), supplier:suppliers(name)), stocks(quantity, warehouse:warehouses(name))',
     filter: ['is_active', 'eq', true],
     order: { column: 'updated_at', ascending: false },
     range: [page * pageSize, (page + 1) * pageSize - 1],
@@ -56,3 +56,6 @@ export const Products = () => {
     </div>
   );
 };
+
+export default Products;
+

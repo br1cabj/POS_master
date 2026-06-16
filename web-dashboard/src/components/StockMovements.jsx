@@ -12,14 +12,14 @@ const movementTypeColor = (type) => {
 
 export const StockMovements = () => {
   const { data: movements, loading, error } = useSupabaseQuery('stock_movements', {
-    select: '*, variant(name, barcode), user(username)',
+    select: '*, variant:article_variants(barcode, article:articles(name)), user:users(username)',
     order: { column: 'date', ascending: false },
     limit: 500,
   });
 
   const columns = useMemo(() => [
     { key: 'date', label: 'Fecha', render: (v) => v ? new Date(v).toLocaleString('es-AR') : '—' },
-    { key: 'variant_name', label: 'Producto', render: (_, row) => <span className="font-body-bold">{row.variant?.name || '—'}</span> },
+    { key: 'variant_name', label: 'Producto', render: (_, row) => <span className="font-body-bold">{row.variant?.article?.name || '—'}</span> },
     { key: 'variant_barcode', label: 'Código', render: (_, row) => <span className="font-mono">{row.variant?.barcode || '—'}</span> },
     { key: 'movement_type', label: 'Tipo', render: (v) => <Badge text={v} color={movementTypeColor(v)} /> },
     { key: 'quantity', label: 'Cantidad', render: (v) => parseFloat(v || 0).toLocaleString() },
@@ -38,3 +38,7 @@ export const StockMovements = () => {
     </div>
   );
 };
+
+export default StockMovements;
+
+

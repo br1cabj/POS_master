@@ -5,7 +5,7 @@ import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/inde
 
 export const Promos = () => {
   const { data: promos, loading, error } = useSupabaseQuery('promotions', {
-    select: '*, variant(name), category(name)',
+    select: '*, variant:article_variants(article:articles(name)), category:categories(name)',
     order: { column: 'date_to', ascending: true },
     limit: 500,
   });
@@ -23,7 +23,7 @@ export const Promos = () => {
       if (type === 'pct') return `${row.discount_value ?? 0}% off`;
       return `$${row.discount_value ?? 0} c/u`;
     }},
-    { key: 'variant', label: 'Producto', render: (_, row) => row.variant?.name || (row.category ? `Categoría: ${row.category.name}` : '—') },
+    { key: 'variant', label: 'Producto', render: (_, row) => row.variant?.article?.name || (row.category ? `Categoría: ${row.category.name}` : '—') },
     { key: 'is_active', label: 'Estado', render: (v) => <Badge text={v ? 'Activa' : 'Inactiva'} color={v ? 'green' : 'red'} /> },
     { key: 'date_to', label: 'Vence', render: (v) => v ? new Date(v).toLocaleDateString('es-AR') : '—' },
   ], []);
@@ -39,3 +39,7 @@ export const Promos = () => {
     </div>
   );
 };
+
+export default Promos;
+
+

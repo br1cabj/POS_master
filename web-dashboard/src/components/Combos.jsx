@@ -4,7 +4,7 @@ import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/inde
 
 export const Combos = () => {
   const { data: combos, loading, error } = useSupabaseQuery('article_variants', {
-    select: '*, article(name), combo_items(ingredient_id, quantity_required, ingredient:ingredient_id(name, barcode))',
+    select: '*, article:articles(name), combo_items!combo_id(ingredient_id, quantity_required, ingredient:article_variants!ingredient_id(barcode, article:articles(name)))',
     filter: ['is_combo', 'eq', true],
     order: { column: 'updated_at', ascending: false },
     limit: 500,
@@ -34,7 +34,7 @@ export const Combos = () => {
                 {items.map((ci, idx) => (
                   <tr key={ci.id || `${ci.ingredient_id}-${idx}`}>
                     <td className="font-mono">{ci.ingredient?.barcode || '—'}</td>
-                    <td className="font-body-bold">{ci.ingredient?.name || '—'}</td>
+                    <td className="font-body-bold">{ci.ingredient?.article?.name || '—'}</td>
                     <td>{isNaN(parseFloat(ci.quantity_required)) ? '0' : parseFloat(ci.quantity_required).toLocaleString()}</td>
                   </tr>
                 ))}
@@ -59,3 +59,7 @@ export const Combos = () => {
     </div>
   );
 };
+
+export default Combos;
+
+

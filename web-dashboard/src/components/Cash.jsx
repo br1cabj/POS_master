@@ -14,13 +14,13 @@ export const Cash = () => {
   const [expandedSession, setExpandedSession] = useState(null);
 
   const { data: sessions, loading, error } = useSupabaseQuery('cash_sessions', {
-    select: '*, user(username, display_name)',
+    select: '*, user:users(username, display_name)',
     order: { column: 'opened_at', ascending: false },
     limit: 500,
   });
 
   const { data: movements, loading: movementsLoading, error: movementsError } = useSupabaseQuery('cash_movements', {
-    select: '*, customer(name)',
+    select: '*, customer:customers(name)',
     filter: expandedSession ? ['session_id', 'eq', expandedSession] : null,
     enabled: !!expandedSession,
   });
@@ -100,3 +100,6 @@ export const Cash = () => {
     </div>
   );
 };
+
+export default Cash;
+

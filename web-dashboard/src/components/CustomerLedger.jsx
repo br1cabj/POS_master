@@ -18,7 +18,7 @@ export const CustomerLedger = () => {
   });
 
   const { data: sales, loading: salesLoading, error: salesError } = useSupabaseQuery('sales', {
-    select: '*, customer(name), items(quantity, unit_price, subtotal, description)',
+    select: '*, customer:customers(name), items:sale_details(quantity, unit_price, subtotal, description)',
     filter: selectedCustomer ? [['customer_id', 'eq', selectedCustomer]] : null,
     order: { column: 'date', ascending: true },
     enabled: !!selectedCustomer,
@@ -190,3 +190,6 @@ export const CustomerLedger = () => {
     </div>
   );
 };
+
+export default CustomerLedger;
+

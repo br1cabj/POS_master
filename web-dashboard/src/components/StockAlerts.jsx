@@ -5,7 +5,7 @@ import { DataTable } from '@/components/shared/DataTable.jsx';
 
 export const StockAlerts = () => {
   const { data: stocks, loading, error } = useSupabaseQuery('stocks', {
-    select: 'quantity, variant(id, name, barcode, article(min_stock)), warehouse(name)',
+    select: 'quantity, variant:article_variants(id, barcode, article:articles(name, min_stock)), warehouse:warehouses(name)',
     enabled: true,
   });
 
@@ -18,7 +18,7 @@ export const StockAlerts = () => {
       if (!variantId) return;
       if (!stockByVariant[variantId]) {
         stockByVariant[variantId] = {
-          name: s.variant?.name || '—',
+          name: s.variant?.article?.name || '—',
           barcode: s.variant?.barcode || '—',
           minStock: s.variant?.article?.min_stock || 0,
           warehouses: {},
@@ -126,3 +126,7 @@ export const StockAlerts = () => {
     </div>
   );
 };
+
+export default StockAlerts;
+
+

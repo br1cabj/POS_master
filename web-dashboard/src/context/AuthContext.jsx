@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase.jsx';
+import bcrypt from 'bcryptjs';
 const AuthContext = createContext(null);
 
 export const useAuth = () => {
@@ -117,10 +118,16 @@ export const AuthProvider = ({ children }) => {
 
     try {
       const { data: users, error: err } = await supabase
-        .rpc('get_user_for_login', { p_username: username, p_password: password });
+        .from('users')
+        .select('id, username, password_hash, recovery_pin_hash, display_name, role, tenant_id, is_active')
+        .eq('username', username)
+        .is('deleted_at', null)
+        .limit(1);
 
       if (err) throw err;
+
       if (!users || users.length === 0) {
+        bcrypt.compareSync(password, '$2b$10$dummydummydummydummydummydummydummydummydummydummydummyd');
         const newAttempts = getAttempts() + 1;
         setAttempts(newAttempts);
         if (isLockedOut()) {
@@ -134,6 +141,21 @@ export const AuthProvider = ({ children }) => {
       }
 
       const foundUser = users[0];
+
+      const passwordMatch = bcrypt.compareSync(password, foundUser.password_hash);
+
+      if (!passwordMatch) {
+        const newAttempts = getAttempts() + 1;
+        setAttempts(newAttempts);
+        if (isLockedOut()) {
+          const remaining = lockoutRemainingMinutes();
+          setError(`Credenciales incorrectas. Cuenta bloqueada por ${remaining} minuto${remaining !== 1 ? 's' : ''}.`);
+        } else {
+          setError(`Usuario o contraseña incorrectos. Intentos restantes: ${MAX_ATTEMPTS - newAttempts}`);
+        }
+        setLoading(false);
+        return false;
+      }
 
       if (!foundUser.is_active) {
         setError('Usuario desactivado');
