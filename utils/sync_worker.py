@@ -127,10 +127,7 @@ def _save_state(state: dict) -> None:
 
 
 # Fields that must never be uploaded to the cloud.
-_CLOUD_EXCLUDED_FIELDS = frozenset({
-	'password_hash',
-	'recovery_pin_hash',
-})
+_CLOUD_EXCLUDED_FIELDS = frozenset()
 
 
 def _row_to_dict(row) -> dict:

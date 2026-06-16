@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { supabase } from '@/lib/supabase.jsx';
 import { useAuth } from '@/context/AuthContext.jsx';
@@ -8,18 +8,27 @@ import { useRefresh } from '@/context/RefreshContext.jsx';
 
 const REFRESH_INTERVAL = 120000;
 
+const getTodayStr = () => new Date().toISOString().split('T')[0];
+const getDaysAgoStr = (days) => {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().split('T')[0];
+};
+
 export const Dashboard = () => {
   const { user } = useAuth();
   const { markRefreshed } = useRefresh();
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
-  const weekAgo = new Date(today);
-  weekAgo.setDate(weekAgo.getDate() - 7);
-  const weekAgoStr = weekAgo.toISOString().split('T')[0];
+  const [topProducts, setTopProducts] = useState([]);
+  const mountedRef = useRef(true);
 
-  const monthAgo = new Date(today);
-  monthAgo.setDate(monthAgo.getDate() - 30);
-  const monthAgoStr = monthAgo.toISOString().split('T')[0];
+  const todayStr = useMemo(() => getTodayStr(), []);
+  const weekAgoStr = useMemo(() => getDaysAgoStr(7), []);
+  const monthAgoStr = useMemo(() => getDaysAgoStr(30), []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const { data: sales, loading: salesLoading, error: salesError } = useSupabaseQuery('sales', {
     select: 'id, total_amount, profit, date, status, payment_method',
@@ -45,21 +54,29 @@ export const Dashboard = () => {
     silent: true,
   });
 
-  const [topProducts, setTopProducts] = useState([]);
-  useEffect(() => {
-    async function fetchTopProducts() {
-      if (!user?.tenantId) return;
-      const { data } = await supabase.rpc('get_top_products', {
+  const fetchTopProducts = useCallback(async () => {
+    if (!user?.tenantId) return;
+    try {
+      const { data, error } = await supabase.rpc('get_top_products', {
         p_tenant_id: user.tenantId,
         p_start_date: monthAgoStr,
         p_limit: 5
       });
-      if (data) setTopProducts(data);
+      if (error) {
+        console.error('Failed to fetch top products:', error);
+        return;
+      }
+      if (data && mountedRef.current) setTopProducts(data);
+    } catch (err) {
+      console.error('Failed to fetch top products:', err);
     }
+  }, [user?.tenantId, monthAgoStr]);
+
+  useEffect(() => {
     fetchTopProducts();
     const interval = setInterval(fetchTopProducts, REFRESH_INTERVAL);
     return () => clearInterval(interval);
-  }, [user?.tenantId, monthAgoStr]);
+  }, [fetchTopProducts]);
 
   const { data: purchases, loading: purchasesLoading } = useSupabaseQuery('purchases', {
     select: 'id, total_amount, date, status',
@@ -69,9 +86,8 @@ export const Dashboard = () => {
     silent: true,
   });
 
-
   const dashboardStats = useMemo(() => {
-    if (!sales) return { revenue: 0, profit: 0, tickets: 0, margin: 0, avgTicket: 0, weeklySales: [], paymentMethods: [], salesByHour: [], salesVsPurchases: [], topProducts: [], anulaciones: 0, devoluciones: 0 };
+    if (!sales) return { revenue: 0, profit: 0, tickets: 0, margin: 0, avgTicket: 0, weeklySales: [], paymentMethods: [], salesByHour: [], salesVsPurchases: [], salesVsPurchasesCategories: [], anulaciones: 0, devoluciones: 0 };
 
     const todaySales = sales.filter((s) => s.date?.startsWith(todayStr) && s.status === 'completada');
     const revenue = todaySales.reduce((sum, s) => sum + parseFloat(s.total_amount || 0), 0);
@@ -103,7 +119,7 @@ export const Dashboard = () => {
 
     const weeklySales = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(today);
+      const d = new Date();
       d.setDate(d.getDate() - i);
       const dateStr = d.toISOString().split('T')[0];
       const label = d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
@@ -119,7 +135,6 @@ export const Dashboard = () => {
     const paymentMethods = Object.entries(paymentCounts)
       .map(([label, value]) => ({ label: label.charAt(0).toUpperCase() + label.slice(1), value: Math.round(value) }))
       .sort((a, b) => b.value - a.value);
-
 
     const monthlySales = {};
     const monthlyPurchases = {};
@@ -198,8 +213,8 @@ export const Dashboard = () => {
             <i className="bi bi-exclamation-triangle me-1"></i> Stock Bajo ({lowStockItems.length})
           </h5>
           <div className="d-flex flex-wrap gap-2">
-            {lowStockItems.slice(0, 5).map((item, i) => (
-              <div key={i} className="d-flex align-items-center gap-2 p-2" style={{ backgroundColor: 'var(--red-dim)', borderRadius: '6px' }}>
+            {lowStockItems.slice(0, 5).map((item) => (
+              <div key={item.name} className="d-flex align-items-center gap-2 p-2" style={{ backgroundColor: 'var(--red-dim)', borderRadius: '6px' }}>
                 <span className="font-body-bold" style={{ color: 'var(--red-text)' }}>{item.name}</span>
                 <Badge text={`${item.current}/${item.min}`} color="red" />
               </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
@@ -13,7 +13,7 @@ export const Products = () => {
     range: [page * pageSize, (page + 1) * pageSize - 1],
   });
 
-  const columns = [
+  const columns = useMemo(() => [
     { key: 'barcode', label: 'Código', render: (v) => <span className="font-mono">{v || '—'}</span> },
     { key: 'article_name', label: 'Nombre', render: (_, row) => <span className="font-body-bold">{row.article?.name || '—'}</span> },
     { key: 'article_category', label: 'Categoría', render: (_, row) => row.article?.category?.name || '—' },
@@ -25,7 +25,7 @@ export const Products = () => {
       const total = v.reduce((sum, s) => sum + parseFloat(s.quantity || 0), 0);
       return <span className={total === 0 ? 'text-danger' : ''}>{total.toLocaleString()}</span>;
     }},
-  ];
+  ], []);
 
   if (loading && page === 0) return <Loading message="Cargando productos..." />;
   if (error) return <ErrorState message={error} />;
@@ -39,7 +39,7 @@ export const Products = () => {
       <div className="d-flex justify-content-between align-items-center mt-4">
         <button 
           className="btn btn-outline-secondary" 
-          onClick={() => setPage(p => Math.max(0, p - 1))}
+          onClick={() => setPage((p) => Math.max(0, p - 1))}
           disabled={page === 0 || loading}
         >
           Anterior
@@ -47,7 +47,7 @@ export const Products = () => {
         <span className="text-muted">Página {page + 1}</span>
         <button 
           className="btn btn-outline-secondary" 
-          onClick={() => setPage(p => p + 1)}
+          onClick={() => setPage((p) => p + 1)}
           disabled={!variants || variants.length < pageSize || loading}
         >
           Siguiente

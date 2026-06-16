@@ -1,7 +1,22 @@
-import React, { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
+
+const statusColor = (status) => {
+  switch (status?.toLowerCase()) {
+    case 'pagada':
+    case 'completada':
+      return 'green';
+    case 'pendiente':
+      return 'orange';
+    case 'anulada':
+    case 'cancelada':
+      return 'red';
+    default:
+      return 'orange';
+  }
+};
 
 export const Purchases = () => {
   const [expandedPurchase, setExpandedPurchase] = useState(null);
@@ -18,17 +33,17 @@ export const Purchases = () => {
     enabled: !!expandedPurchase,
   });
 
-  const columns = [
+  const columns = useMemo(() => [
     { key: 'date', label: 'Fecha', render: (v) => v ? new Date(v).toLocaleDateString('es-AR') : '—' },
     { key: 'supplier', label: 'Proveedor', render: (_, row) => <span className="font-body-bold">{row.supplier?.name || '—'}</span> },
     { key: 'invoice_number', label: 'Factura', render: (v) => v || '—' },
     { key: 'total_amount', label: 'Total', render: (v) => <span className="font-body-bold">${parseFloat(v || 0).toLocaleString()}</span> },
-    { key: 'status', label: 'Estado', render: (v) => <Badge text={v} color="green" /> },
-  ];
+    { key: 'status', label: 'Estado', render: (v) => <Badge text={v} color={statusColor(v)} /> },
+  ], []);
 
-  const handleRowClick = (row) => {
-    setExpandedPurchase(expandedPurchase === row.id ? null : row.id);
-  };
+  const handleRowClick = useCallback((row) => {
+    setExpandedPurchase((prev) => (prev === row.id ? null : row.id));
+  }, []);
 
   if (loading) return <Loading message="Cargando compras..." />;
   if (error) return <ErrorState message={error} />;

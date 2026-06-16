@@ -1,14 +1,9 @@
-import React, { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import ReactApexChart from 'react-apexcharts';
 
-let _cachedColors = null;
-let _cachedTheme = null;
-
-const getThemeColors = () => {
-  const theme = document.documentElement.getAttribute('data-bs-theme') || 'dark';
-  if (_cachedColors && _cachedTheme === theme) return _cachedColors;
+function getThemeColors() {
   const style = getComputedStyle(document.documentElement);
-  _cachedColors = {
+  return {
     accent: style.getPropertyValue('--accent').trim() || '#2563eb',
     accentText: style.getPropertyValue('--accent-text').trim() || '#60a5fa',
     green: style.getPropertyValue('--green-text').trim() || '#4ade80',
@@ -21,13 +16,29 @@ const getThemeColors = () => {
     surface3: style.getPropertyValue('--surface-3').trim() || '#252525',
     border: style.getPropertyValue('--border').trim() || '#2a2a2a',
   };
-  _cachedTheme = theme;
-  return _cachedColors;
+}
+
+function getCurrentTheme() {
+  return document.documentElement.getAttribute('data-bs-theme') || 'dark';
+}
+
+const useThemeColors = () => {
+  const [colors, setColors] = useState(getThemeColors);
+  const [themeMode, setThemeMode] = useState(getCurrentTheme);
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setColors(getThemeColors());
+      setThemeMode(getCurrentTheme());
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-bs-theme'] });
+    return () => observer.disconnect();
+  }, []);
+
+  return { colors, themeMode };
 };
 
-const useThemeColors = () => useMemo(() => getThemeColors(), []);
-
-const defaultOptions = {
+const baseOptions = (colors, themeMode) => ({
   chart: {
     toolbar: { show: false },
     zoom: { enabled: false },
@@ -38,24 +49,24 @@ const defaultOptions = {
     },
   },
   grid: {
-    borderColor: 'var(--border)',
+    borderColor: colors.border,
     strokeDashArray: 3,
   },
   legend: {
-    labels: { colors: 'var(--text-secondary)' },
+    labels: { colors: colors.textSecondary },
   },
   tooltip: {
-    theme: 'dark',
+    theme: themeMode,
     style: { fontSize: '12px' },
   },
-};
+});
 
 export const AreaChart = ({ data, height = 200, title }) => {
-  const colors = useThemeColors();
-  const options = {
-    ...defaultOptions,
+  const { colors, themeMode } = useThemeColors();
+  const options = useMemo(() => ({
+    ...baseOptions(colors, themeMode),
     colors: [colors.accent],
-    chart: { ...defaultOptions.chart, type: 'area', height },
+    chart: { ...baseOptions(colors, themeMode).chart, type: 'area', height },
     stroke: { curve: 'smooth', width: 2 },
     fill: {
       type: 'gradient',
@@ -78,24 +89,24 @@ export const AreaChart = ({ data, height = 200, title }) => {
         formatter: (v) => `$${(v / 1000).toFixed(0)}k`,
       },
     },
-    grid: { ...defaultOptions.grid, yaxis: { lines: { show: true } } },
+    grid: { ...baseOptions(colors, themeMode).grid, yaxis: { lines: { show: true } } },
     dataLabels: { enabled: false },
-    theme: { mode: 'dark' },
-  };
+    theme: { mode: themeMode },
+  }), [colors, themeMode, data, height, title]);
 
-  const series = [{ name: title || 'Ventas', data: data.map((d) => d.value) }];
+  const series = useMemo(() => [{ name: title || 'Ventas', data: data.map((d) => d.value) }], [data, title]);
 
   return <ReactApexChart options={options} series={series} type="area" height={height} />;
 };
 
 export const DonutChart = ({ data, height = 250, title }) => {
-  const colors = useThemeColors();
+  const { colors, themeMode } = useThemeColors();
   const chartColors = [colors.accent, colors.green, colors.orange, colors.red, '#7e22ce', '#06b6d4', '#f59e0b', '#ec4899'];
 
-  const options = {
-    ...defaultOptions,
+  const options = useMemo(() => ({
+    ...baseOptions(colors, themeMode),
     colors: chartColors,
-    chart: { ...defaultOptions.chart, type: 'donut', height },
+    chart: { ...baseOptions(colors, themeMode).chart, type: 'donut', height },
     labels: data.map((d) => d.label),
     legend: {
       position: 'bottom',
@@ -125,25 +136,25 @@ export const DonutChart = ({ data, height = 250, title }) => {
     dataLabels: { enabled: false },
     stroke: { show: false },
     tooltip: {
-      ...defaultOptions.tooltip,
+      ...baseOptions(colors, themeMode).tooltip,
       y: { formatter: (v) => v.toLocaleString() },
     },
-    theme: { mode: 'dark' },
-  };
+    theme: { mode: themeMode },
+  }), [colors, themeMode, data, height]);
 
-  const series = data.map((d) => d.value);
+  const series = useMemo(() => data.map((d) => d.value), [data]);
 
   return <ReactApexChart options={options} series={series} type="donut" height={height} />;
 };
 
 export const HorizontalBarChart = ({ data, height = 250, title }) => {
-  const colors = useThemeColors();
+  const { colors, themeMode } = useThemeColors();
   const chartColors = [colors.accent, colors.green, colors.orange, colors.red, '#7e22ce'];
 
-  const options = {
-    ...defaultOptions,
+  const options = useMemo(() => ({
+    ...baseOptions(colors, themeMode),
     colors: chartColors,
-    chart: { ...defaultOptions.chart, type: 'bar', height },
+    chart: { ...baseOptions(colors, themeMode).chart, type: 'bar', height },
     plotOptions: {
       bar: {
         horizontal: true,
@@ -164,23 +175,23 @@ export const HorizontalBarChart = ({ data, height = 250, title }) => {
     dataLabels: { enabled: false },
     legend: { show: false },
     tooltip: {
-      ...defaultOptions.tooltip,
+      ...baseOptions(colors, themeMode).tooltip,
       y: { formatter: (v) => v.toLocaleString() },
     },
-    theme: { mode: 'dark' },
-  };
+    theme: { mode: themeMode },
+  }), [colors, themeMode, data, height, title]);
 
-  const series = [{ name: title || 'Cantidad', data: data.map((d) => d.value) }];
+  const series = useMemo(() => [{ name: title || 'Cantidad', data: data.map((d) => d.value) }], [data, title]);
 
   return <ReactApexChart options={options} series={series} type="bar" height={height} />;
 };
 
 export const LineChart = ({ datasets, categories, height = 250, title }) => {
-  const colors = useThemeColors();
+  const { colors, themeMode } = useThemeColors();
 
-  const options = {
-    ...defaultOptions,
-    chart: { ...defaultOptions.chart, type: 'line', height },
+  const options = useMemo(() => ({
+    ...baseOptions(colors, themeMode),
+    chart: { ...baseOptions(colors, themeMode).chart, type: 'line', height },
     stroke: { curve: 'smooth', width: [2, 2] },
     xaxis: {
       categories,
@@ -194,23 +205,23 @@ export const LineChart = ({ datasets, categories, height = 250, title }) => {
         formatter: (v) => `$${(v / 1000).toFixed(0)}k`,
       },
     },
-    grid: { ...defaultOptions.grid, yaxis: { lines: { show: true } } },
+    grid: { ...baseOptions(colors, themeMode).grid, yaxis: { lines: { show: true } } },
     dataLabels: { enabled: false },
     markers: { size: 3, strokeWidth: 0 },
-    theme: { mode: 'dark' },
-  };
+    theme: { mode: themeMode },
+  }), [colors, themeMode, categories, height, datasets]);
 
   return <ReactApexChart options={options} series={datasets} type="line" height={height} />;
 };
 
 export const BarChart = ({ data, height = 250, title, colors: customColors }) => {
-  const themeColors = useThemeColors();
-  const chartColors = customColors || [themeColors.green, themeColors.accent, themeColors.orange, themeColors.red, '#7e22ce'];
+  const { colors, themeMode } = useThemeColors();
+  const chartColors = customColors || [colors.green, colors.accent, colors.orange, colors.red, '#7e22ce'];
 
-  const options = {
-    ...defaultOptions,
+  const options = useMemo(() => ({
+    ...baseOptions(colors, themeMode),
     colors: chartColors,
-    chart: { ...defaultOptions.chart, type: 'bar', height },
+    chart: { ...baseOptions(colors, themeMode).chart, type: 'bar', height },
     plotOptions: {
       bar: {
         horizontal: false,
@@ -222,7 +233,7 @@ export const BarChart = ({ data, height = 250, title, colors: customColors }) =>
     xaxis: {
       categories: data.map((d) => d.label),
       labels: {
-        style: { colors: themeColors.textMuted, fontSize: '11px' },
+        style: { colors: colors.textMuted, fontSize: '11px' },
         rotate: -45,
         rotateAlways: false,
       },
@@ -231,32 +242,32 @@ export const BarChart = ({ data, height = 250, title, colors: customColors }) =>
     },
     yaxis: {
       labels: {
-        style: { colors: themeColors.textMuted, fontSize: '11px' },
+        style: { colors: colors.textMuted, fontSize: '11px' },
         formatter: (v) => `$${(v / 1000).toFixed(0)}k`,
       },
     },
-    grid: { ...defaultOptions.grid, yaxis: { lines: { show: true } } },
+    grid: { ...baseOptions(colors, themeMode).grid, yaxis: { lines: { show: true } } },
     dataLabels: { enabled: false },
     legend: { show: false },
     tooltip: {
-      ...defaultOptions.tooltip,
+      ...baseOptions(colors, themeMode).tooltip,
       y: { formatter: (v) => v.toLocaleString() },
     },
-    theme: { mode: 'dark' },
-  };
+    theme: { mode: themeMode },
+  }), [colors, themeMode, data, height, title, customColors]);
 
-  const series = [{ name: title || 'Valor', data: data.map((d) => d.value) }];
+  const series = useMemo(() => [{ name: title || 'Valor', data: data.map((d) => d.value) }], [data, title]);
 
   return <ReactApexChart options={options} series={series} type="bar" height={height} />;
 };
 
 export const SalesByHourChart = ({ data, height = 200 }) => {
-  const colors = useThemeColors();
+  const { colors, themeMode } = useThemeColors();
 
-  const options = {
-    ...defaultOptions,
+  const options = useMemo(() => ({
+    ...baseOptions(colors, themeMode),
     colors: [colors.orange],
-    chart: { ...defaultOptions.chart, type: 'bar', height },
+    chart: { ...baseOptions(colors, themeMode).chart, type: 'bar', height },
     plotOptions: {
       bar: {
         borderRadius: 4,
@@ -275,17 +286,17 @@ export const SalesByHourChart = ({ data, height = 200 }) => {
         formatter: (v) => `$${(v / 1000).toFixed(0)}k`,
       },
     },
-    grid: { ...defaultOptions.grid, yaxis: { lines: { show: true } } },
+    grid: { ...baseOptions(colors, themeMode).grid, yaxis: { lines: { show: true } } },
     dataLabels: { enabled: false },
     legend: { show: false },
     tooltip: {
-      ...defaultOptions.tooltip,
+      ...baseOptions(colors, themeMode).tooltip,
       y: { formatter: (v) => v.toLocaleString() },
     },
-    theme: { mode: 'dark' },
-  };
+    theme: { mode: themeMode },
+  }), [colors, themeMode, data, height]);
 
-  const series = [{ name: 'Ventas', data: data.map((d) => d.value) }];
+  const series = useMemo(() => [{ name: 'Ventas', data: data.map((d) => d.value) }], [data]);
 
   return <ReactApexChart options={options} series={series} type="bar" height={height} />;
 };

@@ -1,53 +1,62 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { StatCard, Loading, ErrorState, EmptyState, Badge } from '@/components/shared/index.jsx';
-import { AreaChart, DonutChart, HorizontalBarChart, LineChart, BarChart, SalesByHourChart } from '@/components/charts/index.jsx';
+import { DonutChart, HorizontalBarChart } from '@/components/charts/index.jsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import { sanitizeText } from '@/utils/helpers.js';
+
+const getTodayStr = () => new Date().toISOString().split('T')[0];
+const getDaysAgoStr = (days) => {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().split('T')[0];
+};
 
 export const ReporteCierre = () => {
   const [periodo, setPeriodo] = useState('hoy');
   const [fechaDesde, setFechaDesde] = useState('');
   const [fechaHasta, setFechaHasta] = useState('');
+  const [pdfError, setPdfError] = useState(null);
 
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = useMemo(() => getTodayStr(), []);
+  const weekAgoStr = useMemo(() => getDaysAgoStr(7), []);
+  const monthAgoStr = useMemo(() => getDaysAgoStr(30), []);
 
   let fechaInicio = todayStr;
   let fechaFin = todayStr;
 
   if (periodo === 'semana') {
-    const semana = new Date(today);
-    semana.setDate(semana.getDate() - 7);
-    fechaInicio = semana.toISOString().split('T')[0];
+    fechaInicio = weekAgoStr;
   } else if (periodo === 'mes') {
-    const mes = new Date(today);
-    mes.setMonth(mes.getMonth() - 1);
-    fechaInicio = mes.toISOString().split('T')[0];
+    fechaInicio = monthAgoStr;
   } else if (periodo === 'personalizado' && fechaDesde && fechaHasta) {
     fechaInicio = fechaDesde;
     fechaFin = fechaHasta;
   }
 
-  const fechaFinCompleta = periodo === 'personalizado' && fechaHasta
-    ? `${fechaHasta}T23:59:59.999Z`
-    : `${fechaFin}T23:59:59.999Z`;
+  const fechaFinCompleta = useMemo(() => {
+    const endDay = periodo === 'personalizado' && fechaHasta ? fechaHasta : fechaFin;
+    const nextDay = new Date(endDay);
+    nextDay.setDate(nextDay.getDate() + 1);
+    return nextDay.toISOString().split('T')[0];
+  }, [periodo, fechaFin, fechaHasta]);
 
   const { data: sales, loading: salesLoading, error: salesError } = useSupabaseQuery('sales', {
     select: '*, customer(name), user(username), items(quantity, unit_price, subtotal, description, variant(name))',
-    filter: [['date', 'gte', fechaInicio], ['date', 'lte', fechaFinCompleta]],
+    filter: [['date', 'gte', fechaInicio], ['date', 'lt', fechaFinCompleta]],
     enabled: true,
   });
 
   const { data: purchases, loading: purchasesLoading, error: purchasesError } = useSupabaseQuery('purchases', {
     select: 'total_amount, date, status',
-    filter: [['date', 'gte', fechaInicio], ['date', 'lte', fechaFinCompleta]],
+    filter: [['date', 'gte', fechaInicio], ['date', 'lt', fechaFinCompleta]],
     enabled: true,
   });
 
   const { data: cashMovements, loading: cashLoading, error: cashError } = useSupabaseQuery('cash_movements', {
     select: 'movement_type, amount, description, time',
-    filter: [['time', 'gte', fechaInicio], ['time', 'lte', fechaFinCompleta]],
+    filter: [['time', 'gte', fechaInicio], ['time', 'lt', fechaFinCompleta]],
     enabled: true,
   });
 
@@ -119,8 +128,9 @@ export const ReporteCierre = () => {
     };
   }, [sales, purchases, cashMovements]);
 
-  const exportarPDF = () => {
+  const exportarPDF = useCallback(() => {
     try {
+      setPdfError(null);
       if (!reporte) return;
       const doc = new jsPDF();
       doc.setFontSize(16);
@@ -138,17 +148,23 @@ export const ReporteCierre = () => {
       doc.text(`Tickets: ${reporte.tickets}`, 14, 70);
       doc.text(`Ticket Promedio: $${reporte.avgTicket.toLocaleString()}`, 14, 76);
 
+      const sanitizedBody = reporte.topProducts.map((p) => [
+        sanitizeText(p.name),
+        p.qty.toLocaleString(),
+        `$${p.revenue.toLocaleString()}`,
+      ]);
+
       doc.autoTable({
         startY: 85,
         head: [['Producto', 'Cantidad', 'Revenue']],
-        body: reporte.topProducts.map((p) => [p.name, p.qty.toLocaleString(), `$${p.revenue.toLocaleString()}`]),
+        body: sanitizedBody,
       });
 
       doc.save(`reporte-cierre-${fechaInicio}-${fechaFin}.pdf`);
     } catch (err) {
-      console.error('Error al exportar PDF:', err);
+      setPdfError(`Error al exportar PDF: ${err.message}`);
     }
-  };
+  }, [reporte, fechaInicio, fechaFin]);
 
   if (salesLoading) return <Loading message="Cargando reporte..." />;
   if (salesError) return <ErrorState message={salesError} />;
@@ -166,6 +182,7 @@ export const ReporteCierre = () => {
             style={{ backgroundColor: 'var(--surface-1)', borderColor: 'var(--border)', color: 'var(--text-primary)', width: 'auto' }}
             value={periodo}
             onChange={(e) => setPeriodo(e.target.value)}
+            aria-label="Seleccionar período"
           >
             <option value="hoy">Hoy</option>
             <option value="semana">Última Semana</option>
@@ -180,6 +197,7 @@ export const ReporteCierre = () => {
                 style={{ backgroundColor: 'var(--surface-1)', borderColor: 'var(--border)', color: 'var(--text-primary)', width: 'auto' }}
                 value={fechaDesde}
                 onChange={(e) => setFechaDesde(e.target.value)}
+                aria-label="Fecha desde"
               />
               <input
                 type="date"
@@ -187,6 +205,7 @@ export const ReporteCierre = () => {
                 style={{ backgroundColor: 'var(--surface-1)', borderColor: 'var(--border)', color: 'var(--text-primary)', width: 'auto' }}
                 value={fechaHasta}
                 onChange={(e) => setFechaHasta(e.target.value)}
+                aria-label="Fecha hasta"
               />
             </>
           )}
@@ -195,6 +214,13 @@ export const ReporteCierre = () => {
           </button>
         </div>
       </div>
+
+      {pdfError && (
+        <div className="alert alert-danger alert-dismissible fade show" role="alert">
+          {pdfError}
+          <button type="button" className="btn-close" onClick={() => setPdfError(null)} aria-label="Cerrar"></button>
+        </div>
+      )}
 
       <div className="row g-3 mb-4">
         <div className="col-md-3 col-6">

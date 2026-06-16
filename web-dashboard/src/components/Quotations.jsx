@@ -1,7 +1,17 @@
-import React, { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
+
+const statusColor = (status) => {
+  switch (status) {
+    case 'aceptada': return 'green';
+    case 'enviada': return 'accent';
+    case 'borrador': return 'orange';
+    case 'rechazada': return 'red';
+    default: return 'accent';
+  }
+};
 
 export const Quotations = () => {
   const [expandedQuotation, setExpandedQuotation] = useState(null);
@@ -18,27 +28,17 @@ export const Quotations = () => {
     enabled: !!expandedQuotation,
   });
 
-  const statusColor = (status) => {
-    switch (status) {
-      case 'aceptada': return 'green';
-      case 'enviada': return 'accent';
-      case 'borrador': return 'orange';
-      case 'rechazada': return 'red';
-      default: return 'accent';
-    }
-  };
-
-  const columns = [
+  const columns = useMemo(() => [
     { key: 'number', label: 'Número', render: (v) => <span className="font-mono">{v}</span> },
     { key: 'date', label: 'Fecha', render: (v) => v ? new Date(v).toLocaleDateString('es-AR') : '—' },
     { key: 'customer', label: 'Cliente', render: (_, row) => row.customer?.name || '—' },
     { key: 'total_amount', label: 'Total', render: (v) => <span className="font-body-bold">${parseFloat(v || 0).toLocaleString()}</span> },
     { key: 'status', label: 'Estado', render: (v) => <Badge text={v} color={statusColor(v)} /> },
-  ];
+  ], []);
 
-  const handleRowClick = (row) => {
-    setExpandedQuotation(expandedQuotation === row.id ? null : row.id);
-  };
+  const handleRowClick = useCallback((row) => {
+    setExpandedQuotation((prev) => (prev === row.id ? null : row.id));
+  }, []);
 
   if (loading) return <Loading message="Cargando cotizaciones..." />;
   if (error) return <ErrorState message={error} />;

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Loading, EmptyState, ErrorState } from '@/components/shared/index.jsx';
 
 export const DataTable = ({
@@ -55,17 +55,31 @@ export const DataTable = ({
   }, [data, searchTerm, sortColumn, sortDirection, columns]);
 
   const totalPages = Math.ceil(filteredData.length / pageSize);
+
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [totalPages, currentPage]);
+
   const safeCurrentPage = Math.min(currentPage, Math.max(1, totalPages));
   const paginatedData = filteredData.slice((safeCurrentPage - 1) * pageSize, safeCurrentPage * pageSize);
 
-  const handleSort = (key) => {
+  const handleSort = useCallback((key) => {
     if (sortColumn === key) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
       setSortColumn(key);
       setSortDirection('asc');
     }
-  };
+  }, [sortColumn, sortDirection]);
+
+  const handleSortKeyDown = useCallback((e, key) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleSort(key);
+    }
+  }, [handleSort]);
 
   if (loading) return <Loading />;
   if (error) return <ErrorState message={error} />;
@@ -84,6 +98,7 @@ export const DataTable = ({
               className="form-control"
               style={{ backgroundColor: 'var(--surface-1)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
               placeholder="Buscar..."
+              aria-label="Buscar en la tabla"
               value={searchTerm}
               onChange={(e) => {
                 setSearchTerm(e.target.value);
@@ -98,18 +113,27 @@ export const DataTable = ({
         <table className="table table-cloudpos">
           <thead>
             <tr>
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  onClick={() => col.sortable !== false && handleSort(col.key)}
-                  style={{ cursor: col.sortable !== false ? 'pointer' : 'default' }}
-                >
-                  {col.label}
-                  {sortColumn === col.key && (
-                    <i className={`bi bi-sort-${sortDirection === 'asc' ? 'up' : 'down'} ms-1`}></i>
-                  )}
-                </th>
-              ))}
+              {columns.map((col) => {
+                const isSortable = col.sortable !== false;
+                const isSorted = sortColumn === col.key;
+                const sortState = isSorted ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none';
+                return (
+                  <th
+                    key={col.key}
+                    onClick={() => isSortable && handleSort(col.key)}
+                    onKeyDown={(e) => isSortable && handleSortKeyDown(e, col.key)}
+                    style={{ cursor: isSortable ? 'pointer' : 'default' }}
+                    role="columnheader"
+                    aria-sort={isSortable ? sortState : undefined}
+                    tabIndex={isSortable ? 0 : undefined}
+                  >
+                    {col.label}
+                    {isSorted && (
+                      <i className={`bi bi-sort-${sortDirection === 'asc' ? 'up' : 'down'} ms-1`}></i>
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -135,10 +159,15 @@ export const DataTable = ({
           <span className="font-small text-muted">
             Mostrando {(safeCurrentPage - 1) * pageSize + 1}–{Math.min(safeCurrentPage * pageSize, filteredData.length)} de {filteredData.length}
           </span>
-          <nav>
+          <nav aria-label="Navegación de paginación">
             <ul className="pagination pagination-sm mb-0">
               <li className={`page-item ${safeCurrentPage === 1 ? 'disabled' : ''}`}>
-                <button className="page-link" style={{ backgroundColor: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}>
+                <button
+                  className="page-link"
+                  style={{ backgroundColor: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  aria-label="Página anterior"
+                >
                   <i className="bi bi-chevron-left"></i>
                 </button>
               </li>
@@ -159,6 +188,8 @@ export const DataTable = ({
                       className="page-link"
                       style={{ backgroundColor: safeCurrentPage === page ? 'var(--accent)' : 'var(--surface-2)', borderColor: 'var(--border)', color: safeCurrentPage === page ? '#fff' : 'var(--text-primary)' }}
                       onClick={() => setCurrentPage(page)}
+                      aria-label={`Ir a página ${page}`}
+                      aria-current={safeCurrentPage === page ? 'page' : undefined}
                     >
                       {page}
                     </button>
@@ -166,7 +197,12 @@ export const DataTable = ({
                 );
               })}
               <li className={`page-item ${safeCurrentPage === totalPages ? 'disabled' : ''}`}>
-                <button className="page-link" style={{ backgroundColor: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}>
+                <button
+                  className="page-link"
+                  style={{ backgroundColor: 'var(--surface-2)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  aria-label="Página siguiente"
+                >
                   <i className="bi bi-chevron-right"></i>
                 </button>
               </li>

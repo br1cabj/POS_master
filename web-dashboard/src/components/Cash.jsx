@@ -1,7 +1,14 @@
-import React, { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
+
+const movementTypeColor = (type) => {
+  if (!type) return 'accent';
+  if (type.includes('venta') || type.includes('ingreso')) return 'green';
+  if (type.includes('gasto') || type.includes('egreso') || type.includes('retiro')) return 'red';
+  return 'accent';
+};
 
 export const Cash = () => {
   const [expandedSession, setExpandedSession] = useState(null);
@@ -18,7 +25,7 @@ export const Cash = () => {
     enabled: !!expandedSession,
   });
 
-  const columns = [
+  const columns = useMemo(() => [
     { key: 'id', label: 'ID', render: (v) => <span className="font-mono">{v?.slice(0, 8)}</span> },
     { key: 'user', label: 'Usuario', render: (_, row) => row.user?.display_name || row.user?.username || '—' },
     { key: 'opened_at', label: 'Apertura', render: (v) => v ? new Date(v).toLocaleString('es-AR') : '—' },
@@ -33,18 +40,11 @@ export const Cash = () => {
       const diff = parseFloat(v);
       return <span className={diff !== 0 ? 'text-danger' : ''}>${diff.toLocaleString()}</span>;
     }},
-  ];
+  ], []);
 
-  const movementTypeColor = (type) => {
-    if (!type) return 'accent';
-    if (type.includes('venta') || type.includes('ingreso')) return 'green';
-    if (type.includes('gasto') || type.includes('egreso') || type.includes('retiro')) return 'red';
-    return 'accent';
-  };
-
-  const handleRowClick = (row) => {
-    setExpandedSession(expandedSession === row.id ? null : row.id);
-  };
+  const handleRowClick = useCallback((row) => {
+    setExpandedSession((prev) => (prev === row.id ? null : row.id));
+  }, []);
 
   if (loading) return <Loading message="Cargando sesiones de caja..." />;
   if (error) return <ErrorState message={error} />;

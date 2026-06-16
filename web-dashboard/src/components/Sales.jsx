@@ -1,7 +1,17 @@
-import React, { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
+
+const statusColor = (status) => {
+  switch (status) {
+    case 'completada': return 'green';
+    case 'pendiente': return 'orange';
+    case 'anulada': return 'red';
+    case 'devolucion': return 'red';
+    default: return 'accent';
+  }
+};
 
 export const Sales = () => {
   const [expandedSale, setExpandedSale] = useState(null);
@@ -18,17 +28,7 @@ export const Sales = () => {
     enabled: !!expandedSale,
   });
 
-  const statusColor = (status) => {
-    switch (status) {
-      case 'completada': return 'green';
-      case 'pendiente': return 'orange';
-      case 'anulada': return 'red';
-      case 'devolucion': return 'red';
-      default: return 'accent';
-    }
-  };
-
-  const columns = [
+  const columns = useMemo(() => [
     { key: 'id', label: 'ID', render: (v) => <span className="font-mono">{v?.slice(0, 8)}</span> },
     { key: 'date', label: 'Fecha', render: (v) => v ? new Date(v).toLocaleString('es-AR') : '—' },
     { key: 'customer', label: 'Cliente', render: (_, row) => row.customer?.name || 'Consumidor Final' },
@@ -40,11 +40,11 @@ export const Sales = () => {
       return v || '—';
     }},
     { key: 'status', label: 'Estado', render: (v) => <Badge text={v} color={statusColor(v)} /> },
-  ];
+  ], []);
 
-  const handleRowClick = (row) => {
-    setExpandedSale(expandedSale === row.id ? null : row.id);
-  };
+  const handleRowClick = useCallback((row) => {
+    setExpandedSale((prev) => (prev === row.id ? null : row.id));
+  }, []);
 
   if (loading) return <Loading message="Cargando ventas..." />;
   if (error) return <ErrorState message={error} />;

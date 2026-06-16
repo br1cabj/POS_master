@@ -1,4 +1,4 @@
-import React from 'react';
+import { useMemo } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
@@ -10,7 +10,7 @@ export const ArticleHistory = () => {
     limit: 500,
   });
 
-  const columns = [
+  const columns = useMemo(() => [
     { key: 'date', label: 'Fecha', render: (v) => v ? new Date(v).toLocaleString('es-AR') : '—' },
     { key: 'article_name', label: 'Artículo', render: (v) => <span className="font-body-bold">{v}</span> },
     { key: 'action_type', label: 'Acción', render: (v) => <Badge text={v} color="accent" /> },
@@ -19,7 +19,7 @@ export const ArticleHistory = () => {
     { key: 'old_price', label: 'Precio Anterior', render: (v) => v ? `$${parseFloat(v).toLocaleString()}` : '—' },
     { key: 'new_price', label: 'Precio Nuevo', render: (v) => v ? `$${parseFloat(v).toLocaleString()}` : '—' },
     { key: 'user', label: 'Usuario', render: (_, row) => row.user?.username || '—' },
-  ];
+  ], []);
 
   if (loading) return <Loading message="Cargando historial de precios..." />;
   if (error) return <ErrorState message={error} />;

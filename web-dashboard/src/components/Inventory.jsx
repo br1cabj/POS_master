@@ -1,4 +1,4 @@
-import React from 'react';
+import { useMemo } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
@@ -10,7 +10,7 @@ export const Inventory = () => {
     limit: 500,
   });
 
-  const columns = [
+  const columns = useMemo(() => [
     { key: 'variant_name', label: 'Producto', render: (_, row) => <span className="font-body-bold">{row.variant?.name || '—'}</span> },
     { key: 'variant_barcode', label: 'Código', render: (_, row) => <span className="font-mono">{row.variant?.barcode || '—'}</span> },
     { key: 'warehouse', label: 'Depósito', render: (_, row) => row.warehouse?.name || '—' },
@@ -23,7 +23,7 @@ export const Inventory = () => {
     }},
     { key: 'batch_number', label: 'Lote', render: (v) => v || '—' },
     { key: 'expiration_date', label: 'Vencimiento', render: (v) => v ? new Date(v).toLocaleDateString('es-AR') : '—' },
-  ];
+  ], []);
 
   if (loading) return <Loading message="Cargando inventario..." />;
   if (error) return <ErrorState message={error} />;

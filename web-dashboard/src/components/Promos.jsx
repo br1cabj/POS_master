@@ -1,4 +1,4 @@
-import React from 'react';
+import { useMemo } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
@@ -10,7 +10,7 @@ export const Promos = () => {
     limit: 500,
   });
 
-  const columns = [
+  const columns = useMemo(() => [
     { key: 'name', label: 'Nombre', render: (v) => <span className="font-body-bold">{v}</span> },
     { key: 'promo_type', label: 'Tipo', render: (v) => {
       const type = v || '—';
@@ -26,7 +26,7 @@ export const Promos = () => {
     { key: 'variant', label: 'Producto', render: (_, row) => row.variant?.name || (row.category ? `Categoría: ${row.category.name}` : '—') },
     { key: 'is_active', label: 'Estado', render: (v) => <Badge text={v ? 'Activa' : 'Inactiva'} color={v ? 'green' : 'red'} /> },
     { key: 'date_to', label: 'Vence', render: (v) => v ? new Date(v).toLocaleDateString('es-AR') : '—' },
-  ];
+  ], []);
 
   if (loading) return <Loading message="Cargando promociones..." />;
   if (error) return <ErrorState message={error} />;

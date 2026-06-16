@@ -1,4 +1,4 @@
-import React from 'react';
+import { useMemo } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
@@ -11,7 +11,7 @@ export const Suppliers = () => {
     limit: 500,
   });
 
-  const columns = [
+  const columns = useMemo(() => [
     { key: 'name', label: 'Nombre', render: (v) => <span className="font-body-bold">{v}</span> },
     { key: 'phone', label: 'Teléfono', render: (v) => v || '—' },
     { key: 'email', label: 'Email', render: (v) => v || '—' },
@@ -21,7 +21,7 @@ export const Suppliers = () => {
       return <span className={balance > 0 ? 'text-danger' : ''}>${isNaN(balance) ? '0' : balance.toLocaleString()}</span>;
     }},
     { key: 'discount_pct', label: 'Descuento', render: (v) => v ? `${v}%` : '—' },
-  ];
+  ], []);
 
   if (loading) return <Loading message="Cargando proveedores..." />;
   if (error) return <ErrorState message={error} />;

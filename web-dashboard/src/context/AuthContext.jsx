@@ -1,7 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase.jsx';
-import bcrypt from 'bcryptjs';
-
 const AuthContext = createContext(null);
 
 export const useAuth = () => {
@@ -14,6 +12,18 @@ const MAX_ATTEMPTS = 5;
 const LOCKOUT_MINUTES = 5;
 const ATTEMPTS_KEY = 'cloudpos_login_attempts';
 const LAST_ATTEMPT_KEY = 'cloudpos_last_attempt_time';
+const USER_KEY = 'cloudpos_user';
+const USER_SIG_KEY = 'cloudpos_user_sig';
+
+function simpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return hash.toString(36);
+}
 
 function getAttempts() {
   const raw = localStorage.getItem(ATTEMPTS_KEY);
@@ -49,24 +59,47 @@ function lockoutRemainingMinutes() {
   return Math.ceil(LOCKOUT_MINUTES - elapsed);
 }
 
+function storeUser(userObj) {
+  const serialized = JSON.stringify(userObj);
+  const sig = simpleHash(serialized + navigator.userAgent);
+  localStorage.setItem(USER_KEY, serialized);
+  localStorage.setItem(USER_SIG_KEY, sig);
+}
+
+function loadUser() {
+  try {
+    const serialized = localStorage.getItem(USER_KEY);
+    const sig = localStorage.getItem(USER_SIG_KEY);
+    if (!serialized || !sig) return null;
+    const expectedSig = simpleHash(serialized + navigator.userAgent);
+    if (sig !== expectedSig) {
+      localStorage.removeItem(USER_KEY);
+      localStorage.removeItem(USER_SIG_KEY);
+      return null;
+    }
+    const parsed = JSON.parse(serialized);
+    if (parsed && parsed.id && parsed.username && parsed.role) {
+      return parsed;
+    }
+    localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(USER_SIG_KEY);
+    return null;
+  } catch {
+    localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(USER_SIG_KEY);
+    return null;
+  }
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem('cloudpos_user');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.id && parsed.username && parsed.role) {
-          setUser(parsed);
-        } else {
-          localStorage.removeItem('cloudpos_user');
-        }
-      } catch {
-        localStorage.removeItem('cloudpos_user');
-      }
+    const savedUser = loadUser();
+    if (savedUser) {
+      setUser(savedUser);
     }
     setLoading(false);
   }, []);
@@ -84,16 +117,18 @@ export const AuthProvider = ({ children }) => {
 
     try {
       const { data: users, error: err } = await supabase
-        .from('users')
-        .select('id, username, display_name, role, tenant_id, is_active, deleted_at, password_hash')
-        .eq('username', username)
-        .is('deleted_at', null)
-        .limit(1);
+        .rpc('get_user_for_login', { p_username: username, p_password: password });
 
       if (err) throw err;
       if (!users || users.length === 0) {
-        setAttempts(getAttempts() + 1);
-        setError('Usuario no encontrado');
+        const newAttempts = getAttempts() + 1;
+        setAttempts(newAttempts);
+        if (isLockedOut()) {
+          const remaining = lockoutRemainingMinutes();
+          setError(`Credenciales incorrectas. Cuenta bloqueada por ${remaining} minuto${remaining !== 1 ? 's' : ''}.`);
+        } else {
+          setError(`Usuario o contraseña incorrectos. Intentos restantes: ${MAX_ATTEMPTS - newAttempts}`);
+        }
         setLoading(false);
         return false;
       }
@@ -101,39 +136,7 @@ export const AuthProvider = ({ children }) => {
       const foundUser = users[0];
 
       if (!foundUser.is_active) {
-        setAttempts(getAttempts() + 1);
         setError('Usuario desactivado');
-        setLoading(false);
-        return false;
-      }
-
-      if (!foundUser.password_hash) {
-        setAttempts(getAttempts() + 1);
-        setError('Error de autenticación');
-        setLoading(false);
-        return false;
-      }
-
-      const passwordVerified = await new Promise((resolve) => {
-        try {
-          bcrypt.compare(password, foundUser.password_hash, (err, result) => {
-            if (err) resolve(false);
-            else resolve(result);
-          });
-        } catch {
-          resolve(false);
-        }
-      });
-
-      if (!passwordVerified) {
-        const newAttempts = getAttempts() + 1;
-        setAttempts(newAttempts);
-        if (isLockedOut()) {
-          const remaining = lockoutRemainingMinutes();
-          setError(`Contraseña incorrecta. Cuenta bloqueada por ${remaining} minuto${remaining !== 1 ? 's' : ''}.`);
-        } else {
-          setError(`Contraseña incorrecta. Intentos restantes: ${MAX_ATTEMPTS - newAttempts}`);
-        }
         setLoading(false);
         return false;
       }
@@ -147,7 +150,7 @@ export const AuthProvider = ({ children }) => {
       };
 
       setUser(foundUserObj);
-      localStorage.setItem('cloudpos_user', JSON.stringify(foundUserObj));
+      storeUser(foundUserObj);
       resetAttempts();
       setLoading(false);
       return true;
@@ -161,7 +164,8 @@ export const AuthProvider = ({ children }) => {
 
   const logout = useCallback(() => {
     setUser(null);
-    localStorage.removeItem('cloudpos_user');
+    localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(USER_SIG_KEY);
     resetAttempts();
   }, []);
 

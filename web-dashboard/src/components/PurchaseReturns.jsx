@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
@@ -18,7 +18,7 @@ export const PurchaseReturns = () => {
     enabled: !!expandedReturn,
   });
 
-  const columns = [
+  const columns = useMemo(() => [
     { key: 'date', label: 'Fecha', render: (v) => v ? new Date(v).toLocaleDateString('es-AR') : '—' },
     { key: 'purchase', label: 'Proveedor', render: (_, row) => <span className="font-body-bold">{row.purchase?.supplier?.name || '—'}</span> },
     { key: 'purchase', label: 'Factura', render: (_, row) => row.purchase?.invoice_number || '—' },
@@ -26,11 +26,11 @@ export const PurchaseReturns = () => {
     { key: 'refund_type', label: 'Tipo Reembolso', render: (v) => <Badge text={v} color="orange" /> },
     { key: 'total_refund', label: 'Monto', render: (v) => <span className="font-body-bold" style={{ color: 'var(--red-text)' }}>${parseFloat(v || 0).toLocaleString()}</span> },
     { key: 'notes', label: 'Notas', render: (v) => <span className="font-small text-muted">{v || '—'}</span> },
-  ];
+  ], []);
 
-  const handleRowClick = (row) => {
-    setExpandedReturn(expandedReturn === row.id ? null : row.id);
-  };
+  const handleRowClick = useCallback((row) => {
+    setExpandedReturn((prev) => (prev === row.id ? null : row.id));
+  }, []);
 
   if (loading) return <Loading message="Cargando devoluciones..." />;
   if (error) return <ErrorState message={error} />;

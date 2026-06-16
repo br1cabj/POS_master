@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase.jsx';
 import { useAuth } from '@/context/AuthContext.jsx';
+import { useRefresh } from '@/context/RefreshContext.jsx';
 
 const TABLES_WITH_SOFT_DELETE = new Set([
   'users', 'customers', 'suppliers', 'articles', 'article_variants',
@@ -11,8 +12,13 @@ const TABLES_WITHOUT_TENANT_ID = new Set([
   'quotation_items', 'cash_movements', 'stocks',
 ]);
 
+function deepEqual(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export function useSupabaseQuery(table, options = {}) {
   const { user } = useAuth();
+  const { lastRefresh } = useRefresh();
   const tenantId = user?.tenantId;
 
   const {
@@ -32,8 +38,29 @@ export function useSupabaseQuery(table, options = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const isInitialLoad = useRef(true);
-
+  const mountedRef = useRef(true);
   const abortControllerRef = useRef(null);
+  const filterRef = useRef(filter);
+  const rangeRef = useRef(range);
+
+  useEffect(() => {
+    if (!deepEqual(filterRef.current, filter)) {
+      filterRef.current = filter;
+    }
+  }, [filter]);
+
+  useEffect(() => {
+    if (!deepEqual(rangeRef.current, range)) {
+      rangeRef.current = range;
+    }
+  }, [range]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const fetchData = useCallback(async (isSilent = false) => {
     if (!enabled) {
@@ -44,7 +71,8 @@ export function useSupabaseQuery(table, options = {}) {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
-    abortControllerRef.current = new AbortController();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     if (!isSilent || isInitialLoad.current) {
       setLoading(true);
@@ -62,8 +90,9 @@ export function useSupabaseQuery(table, options = {}) {
         query = query.filter('deleted_at', 'is', null);
       }
 
-      if (filter && Array.isArray(filter) && filter.length > 0) {
-        const filters = Array.isArray(filter[0]) ? filter : [filter];
+      const currentFilter = filterRef.current;
+      if (currentFilter && Array.isArray(currentFilter) && currentFilter.length > 0) {
+        const filters = Array.isArray(currentFilter[0]) ? currentFilter : [currentFilter];
         filters.forEach(([column, operator, value]) => {
           if (column && operator !== undefined && value !== undefined) {
             query = query.filter(column, operator, value);
@@ -80,13 +109,16 @@ export function useSupabaseQuery(table, options = {}) {
         query = query.limit(limit);
       }
 
-      if (range && Array.isArray(range) && range.length === 2 && typeof range[0] === 'number' && typeof range[1] === 'number') {
-        query = query.range(range[0], range[1]);
+      const currentRange = rangeRef.current;
+      if (currentRange && Array.isArray(currentRange) && currentRange.length === 2 && typeof currentRange[0] === 'number' && typeof currentRange[1] === 'number') {
+        query = query.range(currentRange[0], currentRange[1]);
       }
 
       const { data: result, error: err } = await query;
 
       if (err) throw err;
+
+      if (!mountedRef.current) return;
 
       setData(result || []);
       setLoading(false);
@@ -95,12 +127,13 @@ export function useSupabaseQuery(table, options = {}) {
       if (onRefresh) onRefresh();
     } catch (err) {
       if (err.name === 'AbortError') return;
+      if (!mountedRef.current) return;
       const message = err && typeof err === 'object' && err.message ? err.message : String(err);
       setError(message);
       setLoading(false);
       isInitialLoad.current = false;
     }
-  }, [table, select, JSON.stringify(filter), order?.column, order?.ascending, limit, JSON.stringify(range), enabled, tenantId, skipTenantFilter, onRefresh]);
+  }, [table, select, order?.column, order?.ascending, limit, enabled, tenantId, skipTenantFilter, onRefresh]);
 
   useEffect(() => {
     fetchData();
@@ -118,6 +151,12 @@ export function useSupabaseQuery(table, options = {}) {
     }, refreshInterval);
     return () => clearInterval(interval);
   }, [refreshInterval, fetchData]);
+
+  useEffect(() => {
+    if (lastRefresh && !isInitialLoad.current) {
+      fetchData(true);
+    }
+  }, [lastRefresh]);
 
   return { data, loading, error, refetch: fetchData };
 }

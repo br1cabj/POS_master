@@ -1,12 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { Loading, ErrorState, EmptyState, Badge } from '@/components/shared/index.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import { sanitizeText } from '@/utils/helpers.js';
 
 export const CustomerLedger = () => {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [pdfError, setPdfError] = useState(null);
 
   const { data: customers, loading: customersLoading, error: customersError } = useSupabaseQuery('customers', {
     select: '*',
@@ -70,37 +72,40 @@ export const CustomerLedger = () => {
     return entries;
   }, [selectedCustomer, sales, cashMovements]);
 
-  const exportarPDF = () => {
+  const exportarPDF = useCallback(() => {
     try {
+      setPdfError(null);
       if (!selectedCustomerData || ledger.length === 0) return;
       const doc = new jsPDF();
       doc.setFontSize(16);
       doc.text('Estado de Cuenta', 14, 20);
       doc.setFontSize(12);
-      doc.text(`Cliente: ${selectedCustomerData.name}`, 14, 30);
-      doc.text(`Teléfono: ${selectedCustomerData.phone || '—'}`, 14, 36);
+      doc.text(`Cliente: ${sanitizeText(selectedCustomerData.name)}`, 14, 30);
+      doc.text(`Teléfono: ${sanitizeText(selectedCustomerData.phone || '—')}`, 14, 36);
       doc.text(`Saldo Actual: $${(selectedCustomerData.current_balance || 0).toLocaleString()}`, 14, 42);
+
+      const sanitizedBody = ledger.map((e) => [
+        e.date ? new Date(e.date).toLocaleDateString('es-AR') : '—',
+        e.type === 'cargo' ? 'Cargo' : 'Abono',
+        sanitizeText(e.description),
+        e.type === 'cargo' ? `$${e.amount.toLocaleString()}` : '—',
+        e.type === 'abono' ? `$${e.amount.toLocaleString()}` : '—',
+        `$${e.balance.toLocaleString()}`,
+      ]);
 
       doc.autoTable({
         startY: 50,
         head: [['Fecha', 'Tipo', 'Descripción', 'Cargo', 'Abono', 'Balance']],
-        body: ledger.map((e) => [
-          e.date ? new Date(e.date).toLocaleDateString('es-AR') : '—',
-          e.type === 'cargo' ? 'Cargo' : 'Abono',
-          e.description,
-          e.type === 'cargo' ? `$${e.amount.toLocaleString()}` : '—',
-          e.type === 'abono' ? `$${e.amount.toLocaleString()}` : '—',
-          `$${e.balance.toLocaleString()}`,
-        ]),
+        body: sanitizedBody,
       });
 
       doc.save(`estado-cuenta-${selectedCustomerData.name}-${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (err) {
-      console.error('Error al exportar PDF:', err);
+      setPdfError(`Error al exportar PDF: ${err.message}`);
     }
-  };
+  }, [selectedCustomerData, ledger]);
 
-  const columns = [
+  const columns = useMemo(() => [
     { key: 'date', label: 'Fecha', render: (v) => v ? new Date(v).toLocaleDateString('es-AR') : '—' },
     { key: 'type', label: 'Tipo', render: (v) => (
       <Badge text={v === 'cargo' ? 'Cargo' : 'Abono'} color={v === 'cargo' ? 'red' : 'green'} />
@@ -116,7 +121,7 @@ export const CustomerLedger = () => {
         ${v.toLocaleString()}
       </span>
     )},
-  ];
+  ], []);
 
   if (customersLoading) return <Loading message="Cargando clientes..." />;
   if (customersError) return <ErrorState message={customersError} />;
@@ -163,6 +168,13 @@ export const CustomerLedger = () => {
               </div>
             </div>
           </div>
+
+          {pdfError && (
+            <div className="alert alert-danger alert-dismissible fade show mb-3" role="alert">
+              {pdfError}
+              <button type="button" className="btn-close" onClick={() => setPdfError(null)} aria-label="Cerrar"></button>
+            </div>
+          )}
 
           {salesError || cashError ? (
             <ErrorState message={salesError || cashError} />

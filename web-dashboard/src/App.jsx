@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import './App.css';
 import { AuthProvider, useAuth } from '@/context/AuthContext.jsx';
@@ -50,10 +50,10 @@ const routeSections = [
   { path: '/customer-ledger', Component: CustomerLedger, id: 'customer-ledger' },
 ];
 
-const AppRoutes = () => {
-  const { user, loading } = useAuth();
+const ProtectedRoute = () => {
+  const { user, loading, logout } = useAuth();
   const location = useLocation();
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState(() => document.documentElement.getAttribute('data-bs-theme') || 'dark');
 
   useEffect(() => {
     document.documentElement.setAttribute('data-bs-theme', theme);
@@ -77,7 +77,7 @@ const AppRoutes = () => {
   }
 
   return (
-    <Layout theme={theme} onThemeToggle={toggleTheme}>
+    <Layout theme={theme} onThemeToggle={toggleTheme} onLogout={logout} user={user}>
       <Suspense fallback={<Loading message="Cargando sección..." />}>
         <Outlet />
       </Suspense>
@@ -91,7 +91,7 @@ function App() {
       <AuthProvider>
         <RefreshProvider>
           <Routes>
-            <Route element={<AppRoutes />}>
+            <Route element={<ProtectedRoute />}>
               {routeSections.map(({ path, Component }) => (
                 <Route key={path} path={path} element={<Component />} />
               ))}

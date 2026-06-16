@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { Loading, ErrorState, EmptyState, Badge } from '@/components/shared/index.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
@@ -54,7 +54,7 @@ export const StockAlerts = () => {
     return { agotados, criticos, alerta, total: alertas.length };
   }, [alertas]);
 
-  const exportarCSV = () => {
+  const exportarCSV = useCallback(() => {
     const headers = ['Producto', 'Código', 'Stock Actual', 'Stock Mínimo', 'Severidad'];
     const rows = alertas.map((a) => [
       `"${String(a.name).replace(/"/g, '""')}"`,
@@ -73,9 +73,9 @@ export const StockAlerts = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  };
+  }, [alertas]);
 
-  const columns = [
+  const columns = useMemo(() => [
     { key: 'name', label: 'Producto', render: (v) => <span className="font-body-bold">{v}</span> },
     { key: 'barcode', label: 'Código', render: (v) => <span className="font-mono">{v}</span> },
     { key: 'totalStock', label: 'Stock Actual', render: (v) => <span className="font-body-bold">{v}</span> },
@@ -83,7 +83,7 @@ export const StockAlerts = () => {
     { key: 'severidad', label: 'Severidad', render: (v) => (
       <Badge text={v} color={v === 'AGOTADO' ? 'red' : v === 'CRÍTICO' ? 'orange' : 'accent'} />
     )},
-  ];
+  ], []);
 
   if (loading) return <Loading message="Cargando alertas..." />;
   if (error) return <ErrorState message={error} />;

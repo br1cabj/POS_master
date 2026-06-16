@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { sections } from '@/config/sections.js';
 import { useRefresh } from '@/context/RefreshContext.jsx';
@@ -15,11 +15,21 @@ function useTimeAgo(timestamp) {
   return `hace ${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)} min`;
 }
 
+function useCurrentDate() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(interval);
+  }, []);
+  return now;
+}
+
 export const Layout = ({ children, theme, onThemeToggle, user, onLogout }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { lastRefresh } = useRefresh();
   const timeAgo = useTimeAgo(lastRefresh);
+  const currentDate = useCurrentDate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const mobileMenuRef = useRef(null);
   const hamburgerBtnRef = useRef(null);
@@ -42,21 +52,21 @@ export const Layout = ({ children, theme, onThemeToggle, user, onLogout }) => {
     }
   }, [mobileMenuOpen]);
 
-  const handleKeyDown = (e) => {
+  const handleKeyDown = useCallback((e) => {
     if (e.key === 'Escape' && mobileMenuOpen) {
       setMobileMenuOpen(false);
       if (hamburgerBtnRef.current) hamburgerBtnRef.current.focus();
     }
-  };
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [mobileMenuOpen]);
+  }, [handleKeyDown]);
 
-  const handleSectionClick = (path) => {
+  const handleSectionClick = useCallback((path) => {
     navigate(path);
-  };
+  }, [navigate]);
 
   return (
     <div className="min-vh-100" style={{ backgroundColor: 'var(--base)' }}>
@@ -100,7 +110,7 @@ export const Layout = ({ children, theme, onThemeToggle, user, onLogout }) => {
           </div>
           <div className="d-flex align-items-center gap-1 gap-sm-2">
             <span className="font-small text-muted d-none d-sm-inline">
-              {new Date().toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })}
+              {currentDate.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })}
             </span>
             <span className="font-small d-none d-lg-inline" style={{ color: 'var(--text-muted)' }} title="Última actualización de datos">
               <i className="bi bi-arrow-clockwise me-1"></i>
