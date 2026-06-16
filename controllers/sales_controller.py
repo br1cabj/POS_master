@@ -213,7 +213,7 @@ class SalesController(BaseController):
 						'current_balance': c.current_balance,
 						'price_list': c.price_list or 'A',
 					}
-					for c in session.query(Customer)
+					for c in session.query(Customer.id, Customer.name, Customer.current_balance, Customer.price_list)
 					.filter_by(tenant_id=tenant_id, is_active=True)
 					.order_by(Customer.name)
 					.all()
@@ -698,26 +698,31 @@ class SalesController(BaseController):
 							logger.warning('Error calculando vuelto (paid=%r total=%s): %s', paid_amount, final_total, _e)
 							change_amt = Decimal('0')
 
-					ReceiptController().generate_pdf(
-						tenant_id=tenant_id,
-						sale_id=_sale_id,
-						date_str=_sale_date.strftime('%d/%m/%Y  %H:%M'),
-						items_list=cart_items,
-						total=final_total,
-						customer_name=customer_str,
-						discount_amount=discount_amount,
-						payment_method=None if is_fiado else pm_lower,
-						payment_method_2=payment_method_2_lower
-						if payment_method_2_lower
-						else None,
-						amount_method_2=amount_m2 if amount_m2 > 0 else None,
-						paid_amount=paid_dec,
-						change_amount=change_amt,
-						cashier_name=cashier_label,
-					)
-				except Exception as pdf_err:
+					import threading
+					def _run_pdf():
+						try:
+							ReceiptController().generate_pdf(
+								tenant_id=tenant_id,
+								sale_id=_sale_id,
+								date_str=_sale_date.strftime('%d/%m/%Y  %H:%M'),
+								items_list=cart_items,
+								total=final_total,
+								customer_name=customer_str,
+								discount_amount=discount_amount,
+								payment_method=None if is_fiado else pm_lower,
+								payment_method_2=payment_method_2_lower if payment_method_2_lower else None,
+								amount_method_2=amount_m2 if amount_m2 > 0 else None,
+								paid_amount=paid_dec,
+								change_amount=change_amt,
+								cashier_name=cashier_label,
+							)
+						except Exception as pdf_err:
+							logger.warning(f'Fallo la generacion del ticket en hilo: {pdf_err}')
+					
+					threading.Thread(target=_run_pdf, daemon=True).start()
+				except Exception as thread_err:
 					logger.warning(
-						f'Venta guardada, pero falló la generación del ticket: {pdf_err}'
+						f'Venta guardada, pero falló el inicio del hilo de ticket: {thread_err}'
 					)
 
 				disc_msg = (

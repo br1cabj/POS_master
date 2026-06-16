@@ -46,6 +46,7 @@ from utils.styles import (
 	TEXT_MUTED,
 	TEXT_PRIMARY,
 	TEXT_SECONDARY,
+	apply_treeview_style,
 	make_form_label,
 )
 
@@ -985,7 +986,9 @@ class ArticlesView(BaseView):
 		make_form_label(dialog, 'DESCUENTO (%) — 0 para eliminar')[0].pack(
 			padx=PAD_LG, anchor='w'
 		)
-		var_pct = ctk.StringVar(master=self, value=f'{current_pct:.4g}' if current_pct else '')
+		var_pct = ctk.StringVar(
+			master=self, value=f'{current_pct:.4g}' if current_pct else ''
+		)
 		entry_pct = ctk.CTkEntry(
 			dialog,
 			placeholder_text='Ej: 15',
@@ -1168,10 +1171,12 @@ class ArticlesView(BaseView):
 		else:
 			matches = self.current_variants
 
+		shown_matches = matches[:100]
+
 		for item in self.tree.get_children():
 			self.tree.delete(item)
 
-		for i, variant in enumerate(matches):
+		for i, variant in enumerate(shown_matches):
 			stock_actual = variant.get('total_stock', 0)
 			stock_format = (
 				f'{int(stock_actual)}'
@@ -1216,11 +1221,12 @@ class ArticlesView(BaseView):
 				pass  # ya visible desde el __init__
 
 		total = len(self.current_variants)
-		shown = len(matches)
+		shown = len(shown_matches)
 		if hasattr(self, 'lbl_count') and self.lbl_count.winfo_exists():
-			self.lbl_count.configure(
-				text=f'{shown} de {total}' if q else f'{total} productos'
-			)
+			text_count = f'Mostrando {shown} de {len(matches)}' if q else f'Mostrando {shown} de {total}'
+			if len(matches) > 100:
+				text_count += ' (Usa el buscador para ver el resto)'
+			self.lbl_count.configure(text=text_count)
 
 	def on_barcode_scanned(self, event):
 		barcode = self.entry_barcode.get().strip()

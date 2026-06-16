@@ -1,4 +1,5 @@
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.getcwd())
 from utils.config import get_cloud_engine
 from sqlalchemy import text

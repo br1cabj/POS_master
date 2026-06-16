@@ -1,14 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
 
 export const Products = () => {
+  const [page, setPage] = useState(0);
+  const pageSize = 50;
   const { data: variants, loading, error } = useSupabaseQuery('article_variants', {
     select: '*, article(name, description, min_stock, category(name), supplier(name)), stocks(quantity, warehouse(name))',
     filter: ['is_active', 'eq', true],
     order: { column: 'updated_at', ascending: false },
-    limit: 500,
+    range: [page * pageSize, (page + 1) * pageSize - 1],
   });
 
   const columns = [
@@ -25,14 +27,32 @@ export const Products = () => {
     }},
   ];
 
-  if (loading) return <Loading message="Cargando productos..." />;
+  if (loading && page === 0) return <Loading message="Cargando productos..." />;
   if (error) return <ErrorState message={error} />;
-  if (!variants || variants.length === 0) return <EmptyState message="No hay productos registrados" />;
+  if (!variants || (variants.length === 0 && page === 0)) return <EmptyState message="No hay productos registrados" />;
 
   return (
     <div>
       <h2 className="font-title mb-4">Catálogo de Productos</h2>
       <DataTable columns={columns} data={variants} />
+      
+      <div className="d-flex justify-content-between align-items-center mt-4">
+        <button 
+          className="btn btn-outline-secondary" 
+          onClick={() => setPage(p => Math.max(0, p - 1))}
+          disabled={page === 0 || loading}
+        >
+          Anterior
+        </button>
+        <span className="text-muted">Página {page + 1}</span>
+        <button 
+          className="btn btn-outline-secondary" 
+          onClick={() => setPage(p => p + 1)}
+          disabled={!variants || variants.length < pageSize || loading}
+        >
+          Siguiente
+        </button>
+      </div>
     </div>
   );
 };

@@ -59,6 +59,10 @@ Thumbs.db
 *.bak
 *.tmp
 
+# === Node / JS ===
+node_modules/
+package-lock.json
+
 # === Claude Code local config ===
 .claude/
 

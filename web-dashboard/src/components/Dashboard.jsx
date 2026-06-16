@@ -1,5 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
+import { supabase } from '@/lib/supabase.jsx';
+import { useAuth } from '@/context/AuthContext.jsx';
 import { StatCard, Loading, ErrorState, Badge } from '@/components/shared/index.jsx';
 import { AreaChart, DonutChart, HorizontalBarChart, LineChart, SalesByHourChart } from '@/components/charts/index.jsx';
 import { useRefresh } from '@/context/RefreshContext.jsx';
@@ -7,6 +9,7 @@ import { useRefresh } from '@/context/RefreshContext.jsx';
 const REFRESH_INTERVAL = 120000;
 
 export const Dashboard = () => {
+  const { user } = useAuth();
   const { markRefreshed } = useRefresh();
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
@@ -35,12 +38,28 @@ export const Dashboard = () => {
     silent: true,
   });
 
-  const { data: lowStock, loading: stockLoading } = useSupabaseQuery('stocks', {
-    select: 'quantity, variant(name, article(min_stock))',
+  const { data: lowStock, loading: stockLoading } = useSupabaseQuery('view_low_stock', {
+    select: 'product_name, current_stock, min_stock',
     enabled: true,
     refreshInterval: REFRESH_INTERVAL,
     silent: true,
   });
+
+  const [topProducts, setTopProducts] = useState([]);
+  useEffect(() => {
+    async function fetchTopProducts() {
+      if (!user?.tenantId) return;
+      const { data } = await supabase.rpc('get_top_products', {
+        p_tenant_id: user.tenantId,
+        p_start_date: monthAgoStr,
+        p_limit: 5
+      });
+      if (data) setTopProducts(data);
+    }
+    fetchTopProducts();
+    const interval = setInterval(fetchTopProducts, REFRESH_INTERVAL);
+    return () => clearInterval(interval);
+  }, [user?.tenantId, monthAgoStr]);
 
   const { data: purchases, loading: purchasesLoading } = useSupabaseQuery('purchases', {
     select: 'id, total_amount, date, status',
@@ -50,13 +69,6 @@ export const Dashboard = () => {
     silent: true,
   });
 
-  const { data: saleDetails, loading: detailsLoading } = useSupabaseQuery('sale_details', {
-    select: 'quantity, subtotal, variant(name), sale(status, date)',
-    filter: ['sale.status', 'eq', 'completada'],
-    enabled: true,
-    refreshInterval: REFRESH_INTERVAL,
-    silent: true,
-  });
 
   const dashboardStats = useMemo(() => {
     if (!sales) return { revenue: 0, profit: 0, tickets: 0, margin: 0, avgTicket: 0, weeklySales: [], paymentMethods: [], salesByHour: [], salesVsPurchases: [], topProducts: [], anulaciones: 0, devoluciones: 0 };
@@ -108,18 +120,6 @@ export const Dashboard = () => {
       .map(([label, value]) => ({ label: label.charAt(0).toUpperCase() + label.slice(1), value: Math.round(value) }))
       .sort((a, b) => b.value - a.value);
 
-    const topProducts = {};
-    saleDetails?.forEach((sd) => {
-      if (sd.sale?.status !== 'completada') return;
-      const name = sd.variant?.name || '—';
-      if (!topProducts[name]) topProducts[name] = 0;
-      topProducts[name] += parseFloat(sd.quantity || 0);
-    });
-
-    const topProductsList = Object.entries(topProducts)
-      .map(([name, qty]) => ({ name, value: Math.round(qty) }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5);
 
     const monthlySales = {};
     const monthlyPurchases = {};
@@ -151,26 +151,22 @@ export const Dashboard = () => {
     const anulaciones = sales.filter((s) => s.status === 'anulada').length;
     const devoluciones = sales.filter((s) => s.status === 'devolucion').length;
 
-    return { revenue, profit, tickets, margin, avgTicket, weeklySales, paymentMethods, salesByHour, salesVsPurchases, salesVsPurchasesCategories, topProducts: topProductsList, anulaciones, devoluciones };
-  }, [sales, purchases, saleDetails, todayStr]);
+    return { revenue, profit, tickets, margin, avgTicket, weeklySales, paymentMethods, salesByHour, salesVsPurchases, salesVsPurchasesCategories, anulaciones, devoluciones };
+  }, [sales, purchases, todayStr]);
 
   const lowStockItems = useMemo(() => {
     if (!lowStock) return [];
-    return lowStock.filter((s) => {
-      const qty = parseFloat(s.quantity || 0);
-      const min = s.variant?.article?.min_stock || 0;
-      return qty < min && min > 0;
-    }).map((s) => ({
-      name: s.variant?.name || '—',
-      current: parseFloat(s.quantity || 0),
-      min: s.variant?.article?.min_stock || 0,
+    return lowStock.map((s) => ({
+      name: s.product_name || '—',
+      current: parseFloat(s.current_stock || 0),
+      min: s.min_stock || 0,
     }));
   }, [lowStock]);
 
   if (salesLoading) return <Loading message="Cargando dashboard..." />;
   if (salesError) return <ErrorState message={salesError} />;
 
-  const { revenue, profit, tickets, margin, avgTicket, weeklySales, paymentMethods, salesByHour, salesVsPurchases, salesVsPurchasesCategories, topProducts, anulaciones, devoluciones } = dashboardStats;
+  const { revenue, profit, tickets, margin, avgTicket, weeklySales, paymentMethods, salesByHour, salesVsPurchases, salesVsPurchasesCategories, anulaciones, devoluciones } = dashboardStats;
 
   return (
     <div>

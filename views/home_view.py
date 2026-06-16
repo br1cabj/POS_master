@@ -1,9 +1,6 @@
 import importlib
 
 import customtkinter as ctk
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from matplotlib.figure import Figure
 
 from controllers.dashboard_controller import DashboardController
 from controllers.promo_controller import PromoController
@@ -499,6 +496,10 @@ class HomeView(BaseView):
 	# GRÁFICO SEMANAL
 	# =========================================================
 	def draw_weekly_chart(self, tenant_id, data=None):
+		import matplotlib.pyplot as plt
+		from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+		from matplotlib.figure import Figure
+
 		if self.canvas_widget:
 			self.canvas_widget.destroy()
 			self.canvas_widget = None
@@ -686,6 +687,7 @@ class HomeView(BaseView):
 				pass
 			self.canvas_widget = None
 		if self._fig is not None:
+			import matplotlib.pyplot as plt
 			plt.close(self._fig)
 			self._fig = None
 		super().destroy()

@@ -32,6 +32,7 @@ from utils.styles import (
 	TEXT_MUTED,
 	TEXT_PRIMARY,
 	TEXT_SECONDARY,
+	apply_treeview_style,
 	make_toggle_button,
 )
 

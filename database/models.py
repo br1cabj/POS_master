@@ -110,7 +110,7 @@ class Warehouse(Base):
 class Category(Base):
 	__tablename__ = 'categories'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	name = Column(String(200), nullable=False)
+	name = Column(String(200), nullable=False, index=True)
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=True, index=True)
 	updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
 
@@ -118,7 +118,7 @@ class Category(Base):
 class Supplier(Base):
 	__tablename__ = 'suppliers'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	name = Column(String(200), nullable=False)
+	name = Column(String(200), nullable=False, index=True)
 	phone = Column(String(30), nullable=True)
 	email = Column(String(200), nullable=True)
 	address = Column(String(500), nullable=True)
@@ -144,7 +144,7 @@ class Supplier(Base):
 class Article(Base):
 	__tablename__ = 'articles'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-	name = Column(String(200), nullable=False)
+	name = Column(String(200), nullable=False, index=True)
 	description = Column(String(1000), nullable=True)
 
 	min_stock = Column(Integer, default=0)

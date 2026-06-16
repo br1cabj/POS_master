@@ -2631,7 +2631,7 @@ class SettingsView(BaseView):
 		time_str = t.strftime('%d/%m/%Y %H:%M') if t else '—'
 		if ok is None:
 			lbl.configure(
-				text=f'⏳ Pendiente de primer sync…', text_color=TEXT_MUTED
+				text='⏳ Pendiente de primer sync…', text_color=TEXT_MUTED
 			)
 		elif ok:
 			lbl.configure(

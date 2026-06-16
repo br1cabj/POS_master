@@ -522,9 +522,7 @@ class MainDashboard(ctk.CTkFrame):
 			elif ok:
 				dot, color = f'● Sync {time_str}', '#4CAF50'
 			else:
-				err = getattr(worker, 'last_sync_error', '')
-				short_err = err[:40] + ('…' if len(err) > 40 else '') if err else 'error desconocido'
-				dot, color = f'● Sync error', '#E74C3C'
+				dot, color = '● Sync error', '#E74C3C'
 			if hasattr(self, 'lbl_sync'):
 				self.lbl_sync.configure(text=dot, text_color=color)
 		self._sync_job = self.after(30000, self._refresh_sync_indicator)
