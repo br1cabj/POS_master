@@ -28,9 +28,9 @@ from views.dollar_price_view import DollarPriceView
 from views.price_update_view import PriceUpdateView
 
 _TABS = [
-	('💵', 'Precios al Dólar', DollarPriceView),
-	('📈', 'Ajuste de Precios', PriceUpdateView),
 	('🛠️', 'Atributos y Precios', BatchEditView),
+	('📈', 'Ajuste de Precios', PriceUpdateView),
+	('💵', 'Precios al Dólar', DollarPriceView),
 ]
 
 
