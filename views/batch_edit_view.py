@@ -657,14 +657,22 @@ class BatchEditView(BaseView):
 
 		def key(tup):
 			val = tup[0]
-			if val in ('—', '☐', '☑', ''):
-				return 999999 if not reverse else -999999
-			if val.startswith('$'):
+			if col in ('P.Venta', 'P.Costo'):
 				try:
 					return float(val.replace('$', '').replace(',', ''))
 				except ValueError:
 					return 0.0
-			return val.lower()
+			elif col == 'Stock':
+				try:
+					return float(val)
+				except ValueError:
+					return 0.0
+			elif col == 'Sel':
+				return 1 if val == '☑' else 0
+			else:
+				if val in ('—', ''):
+					return 'zzzzzzzz' if not reverse else ''
+				return val.lower()
 
 		rows.sort(key=key, reverse=reverse)
 		for idx, (_, k) in enumerate(rows):

@@ -1,6 +1,6 @@
 from decimal import Decimal
 from utils.shared import parse_decimal, get_or_create_default_warehouse
-from database.models import Branch, Warehouse
+from database.models import Branch, Warehouse, Tenant
 
 class TestParseDecimal:
     def test_parse_valid_string_with_dot(self):
@@ -32,6 +32,10 @@ class TestParseDecimal:
 class TestGetOrCreateDefaultWarehouse:
     def test_creates_branch_and_warehouse_when_not_exist(self, test_db_session):
         tenant_id = "test-tenant-123"
+        # Seed tenant to satisfy foreign key constraint
+        tenant = Tenant(id=tenant_id, name="Test Tenant")
+        test_db_session.add(tenant)
+        test_db_session.commit()
         
         # Ejecutar función
         warehouse_id = get_or_create_default_warehouse(test_db_session, tenant_id)
@@ -52,6 +56,10 @@ class TestGetOrCreateDefaultWarehouse:
 
     def test_returns_existing_warehouse(self, test_db_session):
         tenant_id = "test-tenant-456"
+        # Seed tenant to satisfy foreign key constraint
+        tenant = Tenant(id=tenant_id, name="Test Tenant")
+        test_db_session.add(tenant)
+        test_db_session.commit()
         
         # Ejecutar por primera vez para crear
         warehouse_id_1 = get_or_create_default_warehouse(test_db_session, tenant_id)
