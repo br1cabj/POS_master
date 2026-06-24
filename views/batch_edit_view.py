@@ -70,37 +70,31 @@ class BatchEditView(BaseView):
 	# BARRA DE FILTROS
 	# =========================================================
 	def _build_filter_bar(self):
-		bar = ctk.CTkFrame(
+		# Contenedor principal de filtros transparente y compacto
+		self.filter_bar = ctk.CTkFrame(
 			self,
-			fg_color=SURFACE2,
-			corner_radius=12,
-			border_width=1,
-			border_color=BORDER,
+			fg_color='transparent',
 		)
-		bar.grid(row=0, column=0, sticky='ew', padx=(16, 8), pady=(14, 6))
-		bar.grid_columnconfigure(0, weight=1)
-
-		inner = ctk.CTkFrame(bar, fg_color='transparent')
-		inner.pack(fill='x', padx=14, pady=10)
+		self.filter_bar.grid(row=0, column=0, sticky='ew', padx=(16, 8), pady=(12, 4))
 
 		# Búsqueda
 		self.entry_search = ctk.CTkEntry(
-			inner,
-			placeholder_text='🔍  Buscar por nombre o código...',
-			height=36,
+			self.filter_bar,
+			placeholder_text='🔍  Buscar...',
+			height=32,
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 		)
-		self.entry_search.pack(side='left', fill='x', expand=True, padx=(0, 10))
+		self.entry_search.pack(side='left', fill='x', expand=True, padx=(0, 8))
 		self.entry_search.bind('<KeyRelease>', self._on_search_key)
 
 		# Proveedor
 		self.combo_filter_supplier = ctk.CTkComboBox(
-			inner,
+			self.filter_bar,
 			values=['Todos los proveedores'],
-			width=170,
-			height=36,
+			width=160,
+			height=32,
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			button_color=SURFACE4,
@@ -112,10 +106,10 @@ class BatchEditView(BaseView):
 
 		# Categoría
 		self.combo_filter_category = ctk.CTkComboBox(
-			inner,
+			self.filter_bar,
 			values=['Todas las categorías'],
-			width=160,
-			height=36,
+			width=150,
+			height=32,
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			button_color=SURFACE4,
@@ -128,7 +122,7 @@ class BatchEditView(BaseView):
 		# Inactivos
 		self.show_inactive_var = ctk.BooleanVar(master=self, value=False)
 		ctk.CTkCheckBox(
-			inner,
+			self.filter_bar,
 			text='Ver inactivos',
 			variable=self.show_inactive_var,
 			fg_color=ACCENT,
@@ -138,15 +132,15 @@ class BatchEditView(BaseView):
 		).pack(side='left', padx=(0, 10))
 
 		# Botones selección
-		ctk.CTkFrame(inner, width=1, fg_color=BORDER).pack(
+		ctk.CTkFrame(self.filter_bar, width=1, fg_color=BORDER).pack(
 			side='left', fill='y', padx=(0, 10)
 		)
 
 		ctk.CTkButton(
-			inner,
+			self.filter_bar,
 			text='☑ Todos',
-			width=80,
-			height=30,
+			width=75,
+			height=28,
 			font=FONT_LABEL_BOLD,
 			fg_color=SURFACE3,
 			hover_color=SURFACE4,
@@ -155,10 +149,10 @@ class BatchEditView(BaseView):
 		).pack(side='left', padx=(0, 6))
 
 		ctk.CTkButton(
-			inner,
+			self.filter_bar,
 			text='☐ Ninguno',
-			width=90,
-			height=30,
+			width=85,
+			height=28,
 			font=FONT_LABEL_BOLD,
 			fg_color=SURFACE3,
 			hover_color=SURFACE4,
@@ -167,7 +161,7 @@ class BatchEditView(BaseView):
 		).pack(side='left')
 
 		self.lbl_count = ctk.CTkLabel(
-			inner,
+			self.filter_bar,
 			text='',
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
