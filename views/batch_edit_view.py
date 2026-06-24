@@ -54,10 +54,10 @@ class BatchEditView(BaseView):
 		self.suppliers_map: dict = {}
 		self.categories_map: dict = {}
 
-		self.grid_columnconfigure(0, weight=1)
+		self.grid_columnconfigure(0, weight=1)  # panel izquierdo (filtros + tabla)
+		self.grid_columnconfigure(1, weight=0, minsize=320)  # panel derecho (edición masiva)
 		self.grid_rowconfigure(0, weight=0)  # filtros
 		self.grid_rowconfigure(1, weight=1)  # tabla
-		self.grid_rowconfigure(2, weight=0)  # barra de acción
 
 		apply_treeview_style()
 		self._build_filter_bar()
@@ -77,7 +77,7 @@ class BatchEditView(BaseView):
 			border_width=1,
 			border_color=BORDER,
 		)
-		bar.grid(row=0, column=0, sticky='ew', padx=16, pady=(14, 6))
+		bar.grid(row=0, column=0, sticky='ew', padx=(16, 8), pady=(14, 6))
 		bar.grid_columnconfigure(0, weight=1)
 
 		inner = ctk.CTkFrame(bar, fg_color='transparent')
@@ -185,7 +185,7 @@ class BatchEditView(BaseView):
 			border_width=1,
 			border_color=BORDER,
 		)
-		wrap.grid(row=1, column=0, sticky='nsew', padx=16, pady=4)
+		wrap.grid(row=1, column=0, sticky='nsew', padx=(16, 8), pady=(4, 14))
 		wrap.grid_rowconfigure(0, weight=1)
 		wrap.grid_columnconfigure(0, weight=1)
 
@@ -254,18 +254,23 @@ class BatchEditView(BaseView):
 			border_width=1,
 			border_color=BORDER,
 		)
-		self.action_bar.grid(row=2, column=0, sticky='ew', padx=16, pady=(4, 14))
+		self.action_bar.grid(row=0, column=1, rowspan=2, sticky='nsew', padx=(8, 16), pady=(14, 14))
 
 		inner = ctk.CTkFrame(self.action_bar, fg_color='transparent')
-		inner.pack(fill='x', padx=16, pady=12)
+		inner.pack(fill='both', expand=True, padx=16, pady=16)
 
-		# ── Fila 1: badge + precios + proveedor + categoría ──────────
-		row1 = ctk.CTkFrame(inner, fg_color='transparent')
-		row1.pack(fill='x', pady=(0, 8))
+		# Título del panel
+		ctk.CTkLabel(
+			inner,
+			text='EDICIÓN MASIVA',
+			font=FONT_BODY_BOLD,
+			text_color=TEXT_PRIMARY,
+			anchor='w',
+		).pack(fill='x', pady=(0, 12))
 
 		# Badge de selección
 		self.lbl_sel_badge = ctk.CTkLabel(
-			row1,
+			inner,
 			text='Seleccioná productos para editar',
 			font=FONT_LABEL_BOLD,
 			fg_color=SURFACE3,
@@ -273,60 +278,51 @@ class BatchEditView(BaseView):
 			corner_radius=8,
 			padx=12,
 			pady=6,
-			width=220,
+			height=36,
 		)
-		self.lbl_sel_badge.pack(side='left', padx=(0, 16))
+		self.lbl_sel_badge.pack(fill='x', pady=(0, 16))
 
-		ctk.CTkFrame(row1, width=1, fg_color=BORDER).pack(
-			side='left', fill='y', padx=(0, 14)
-		)
+		# Separador
+		ctk.CTkFrame(inner, height=1, fg_color=BORDER).pack(fill='x', pady=(0, 14))
 
-		# Precio de venta
+		# ── Sección: Precios ───────────────────────────────────────
 		ctk.CTkLabel(
-			row1, text='Venta $', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
-		).pack(side='left', padx=(0, 4))
+			inner, text='Precio Venta ($)', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED, anchor='w'
+		).pack(fill='x', pady=(0, 4))
 		self.entry_selling_price = ctk.CTkEntry(
-			row1,
+			inner,
 			placeholder_text='Sin cambio',
-			width=100,
 			height=32,
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 		)
-		self.entry_selling_price.pack(side='left', padx=(0, 14))
+		self.entry_selling_price.pack(fill='x', pady=(0, 12))
 		self.entry_selling_price.bind(
 			'<KeyRelease>', lambda e: self._update_action_bar()
 		)
 
-		# Precio de costo
 		ctk.CTkLabel(
-			row1, text='Costo $', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
-		).pack(side='left', padx=(0, 4))
+			inner, text='Precio Costo ($)', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED, anchor='w'
+		).pack(fill='x', pady=(0, 4))
 		self.entry_cost_price = ctk.CTkEntry(
-			row1,
+			inner,
 			placeholder_text='Sin cambio',
-			width=100,
 			height=32,
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 		)
-		self.entry_cost_price.pack(side='left', padx=(0, 14))
+		self.entry_cost_price.pack(fill='x', pady=(0, 16))
 		self.entry_cost_price.bind('<KeyRelease>', lambda e: self._update_action_bar())
 
-		ctk.CTkFrame(row1, width=1, fg_color=BORDER).pack(
-			side='left', fill='y', padx=(0, 14)
-		)
-
-		# Proveedor
+		# ── Sección: Clasificación ─────────────────────────────────
 		ctk.CTkLabel(
-			row1, text='Proveedor', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
-		).pack(side='left', padx=(0, 4))
+			inner, text='Proveedor', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED, anchor='w'
+		).pack(fill='x', pady=(0, 4))
 		self.combo_new_supplier = ctk.CTkComboBox(
-			row1,
+			inner,
 			values=['(Sin cambio)'],
-			width=155,
 			height=32,
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
@@ -335,16 +331,14 @@ class BatchEditView(BaseView):
 			text_color=TEXT_PRIMARY,
 			command=lambda v: self._update_action_bar(),
 		)
-		self.combo_new_supplier.pack(side='left', padx=(0, 14))
+		self.combo_new_supplier.pack(fill='x', pady=(0, 12))
 
-		# Categoría
 		ctk.CTkLabel(
-			row1, text='Categoría', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
-		).pack(side='left', padx=(0, 4))
+			inner, text='Categoría', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED, anchor='w'
+		).pack(fill='x', pady=(0, 4))
 		self.combo_new_category = ctk.CTkComboBox(
-			row1,
+			inner,
 			values=['(Sin cambio)'],
-			width=145,
 			height=32,
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
@@ -353,17 +347,14 @@ class BatchEditView(BaseView):
 			text_color=TEXT_PRIMARY,
 			command=lambda v: self._update_action_bar(),
 		)
-		self.combo_new_category.pack(side='left')
+		self.combo_new_category.pack(fill='x', pady=(0, 16))
 
-		# ── Fila 2: estado + táctil + limpiar + aplicar ──────────────
-		row2 = ctk.CTkFrame(inner, fg_color='transparent')
-		row2.pack(fill='x')
-
+		# ── Sección: Propiedades ───────────────────────────────────
 		ctk.CTkLabel(
-			row2, text='Estado', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
-		).pack(side='left', padx=(0, 6))
+			inner, text='Estado', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED, anchor='w'
+		).pack(fill='x', pady=(0, 4))
 		self.seg_estado = ctk.CTkSegmentedButton(
-			row2,
+			inner,
 			values=['—', 'Activo', 'Inactivo'],
 			fg_color=SURFACE3,
 			selected_color=ACCENT_DIM,
@@ -373,17 +364,16 @@ class BatchEditView(BaseView):
 			text_color=TEXT_SECONDARY,
 			font=FONT_LABEL_BOLD,
 			height=30,
-			width=190,
 			command=lambda v: self._update_action_bar(),
 		)
 		self.seg_estado.set('—')
-		self.seg_estado.pack(side='left', padx=(0, 20))
+		self.seg_estado.pack(fill='x', pady=(0, 12))
 
 		ctk.CTkLabel(
-			row2, text='Táctil', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
-		).pack(side='left', padx=(0, 6))
+			inner, text='Táctil', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED, anchor='w'
+		).pack(fill='x', pady=(0, 4))
 		self.seg_tactil = ctk.CTkSegmentedButton(
-			row2,
+			inner,
 			values=['—', 'Sí', 'No'],
 			fg_color=SURFACE3,
 			selected_color=ACCENT_DIM,
@@ -393,40 +383,41 @@ class BatchEditView(BaseView):
 			text_color=TEXT_SECONDARY,
 			font=FONT_LABEL_BOLD,
 			height=30,
-			width=150,
 			command=lambda v: self._update_action_bar(),
 		)
 		self.seg_tactil.set('—')
-		self.seg_tactil.pack(side='left', padx=(0, 20))
+		self.seg_tactil.pack(fill='x', pady=(0, 16))
 
-		# Botones (derecha)
+		# Espacio flexible para empujar los botones de acción al fondo
+		spacer = ctk.CTkFrame(inner, fg_color='transparent', height=0)
+		spacer.pack(fill='both', expand=True)
+
+		# Botones de Acción al fondo
 		self.btn_apply = ctk.CTkButton(
-			row2,
+			inner,
 			text='🚀  APLICAR CAMBIOS',
 			fg_color=ACCENT_DIM,
 			hover_color=ACCENT_HOVER,
 			text_color=TEXT_MUTED,
-			height=36,
-			width=180,
+			height=38,
 			font=FONT_BODY_BOLD,
 			corner_radius=8,
 			state='disabled',
 			command=self.confirm_bulk_update,
 		)
-		self.btn_apply.pack(side='right')
+		self.btn_apply.pack(side='bottom', fill='x', pady=(8, 0))
 
 		ctk.CTkButton(
-			row2,
+			inner,
 			text='✕  Limpiar',
 			fg_color=SURFACE3,
 			hover_color=SURFACE4,
 			text_color=TEXT_SECONDARY,
-			height=36,
-			width=100,
+			height=34,
 			font=FONT_LABEL_BOLD,
 			corner_radius=8,
 			command=self._clear_fields,
-		).pack(side='right', padx=(0, 8))
+		).pack(side='bottom', fill='x')
 
 	# =========================================================
 	# ESTADO DE LA BARRA DE ACCIÓN
