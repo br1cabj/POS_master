@@ -1,6 +1,9 @@
+import logging
 from tkinter import ttk
 
 import customtkinter as ctk
+
+logger = logging.getLogger(__name__)
 
 from controllers.customer_controller import CustomerController
 from core.base_view import BaseView
@@ -245,6 +248,9 @@ class CustomersView(BaseView):
 		self.entry_payment.bind(
 			'<FocusIn>', lambda e: self.entry_payment.select_range(0, 'end')
 		)
+		self.entry_payment.bind(
+			'<KeyRelease>', lambda e: self._on_payment_key_release(e)
+		)
 
 		self.btn_pay = ctk.CTkButton(
 			self.left_panel,
@@ -337,7 +343,7 @@ class CustomersView(BaseView):
 		self._search_var = ctk.StringVar(master=self, )
 		self._trace_search = self._search_var.trace_add('write', self._on_search_change)
 
-		ctk.CTkEntry(
+		self.entry_search = ctk.CTkEntry(
 			search_row,
 			textvariable=self._search_var,
 			placeholder_text='🔍 Buscar por nombre o teléfono...',
@@ -345,7 +351,20 @@ class CustomersView(BaseView):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=34,
-		).pack(side='left', fill='x', expand=True)
+		)
+		self.entry_search.pack(side='left', fill='x', expand=True)
+
+		self.btn_clear_search = ctk.CTkButton(
+			search_row,
+			text='✕',
+			width=30,
+			height=34,
+			fg_color='transparent',
+			hover_color=SURFACE3,
+			text_color=TEXT_MUTED,
+			command=self._clear_search,
+		)
+		self.btn_clear_search.pack(side='left', padx=(4, 0))
 
 		self.lbl_count = ctk.CTkLabel(
 			search_row,
@@ -379,8 +398,16 @@ class CustomersView(BaseView):
 			'Deuda Acumulada': ('e', 110),
 			'Último Fiado': ('center', 90),
 		}
+
+		self._sort_col = None
+		self._sort_reverse = False
+
 		for col in columns:
-			self.tree.heading(col, text=col)
+			self.tree.heading(
+				col,
+				text=col,
+				command=lambda c=col: self._sort(c, False)
+			)
 			anchor, width = col_config[col]
 			self.tree.column(col, anchor=anchor, width=width)
 
@@ -855,13 +882,17 @@ class CustomersView(BaseView):
 		base = _sm.get('export_path', '') or os.path.expanduser('~\\Desktop')
 		timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 		filename = os.path.join(base, f'Clientes_{timestamp}.xlsx')
-		wb.save(filename)
 
-		self.show_success(f'Exportado: {os.path.basename(filename)}')
 		try:
-			os.startfile(filename)
-		except Exception:
-			pass
+			wb.save(filename)
+			self.show_success(f'Exportado: {os.path.basename(filename)}')
+			try:
+				os.startfile(filename)
+			except Exception:
+				pass
+		except Exception as e:
+			logger.error(f'Error al guardar Excel de clientes: {e}', exc_info=True)
+			self.show_error(f'No se pudo guardar el archivo Excel:\n{str(e)}', 'Error al guardar')
 
 	def _on_search_change(self, *args):
 		"""Aplica un retraso (debounce) a la búsqueda para no saturar la UI."""
@@ -977,6 +1008,10 @@ class CustomersView(BaseView):
 			self.lbl_total_debt.configure(text=debt_text)
 		if hasattr(self, 'lbl_total_debt_header'):
 			self.lbl_total_debt_header.configure(text=debt_text)
+
+		# Re-aplicar ordenamiento si hay alguno activo
+		if getattr(self, '_sort_col', None):
+			self._sort(self._sort_col, self._sort_reverse)
 
 	def load_data(self):
 		tenant_id = self.ctx.tenant_id
@@ -1129,3 +1164,66 @@ class CustomersView(BaseView):
 			self.load_data()
 		else:
 			self.show_error(msg)
+
+	def _clear_search(self):
+		self._search_var.set('')
+		self._filter_tree()
+
+	def _on_payment_key_release(self, event):
+		val = self.entry_payment.get()
+		if ',' in val:
+			pos = self.entry_payment.index('insert')
+			new_val = val.replace(',', '.')
+			self.entry_payment.delete(0, 'end')
+			self.entry_payment.insert(0, new_val)
+			self.entry_payment.icursor(pos)
+
+	# =========================================================
+	# ORDENAMIENTO DE TABLA
+	# =========================================================
+	def _sort(self, col: str, reverse: bool):
+		rows = [(self.tree.set(k, col), k) for k in self.tree.get_children('')]
+
+		def key(tup):
+			val = tup[0]
+			if col == 'ID':
+				try:
+					return int(val)
+				except ValueError:
+					return 0
+			elif col == 'Deuda Acumulada':
+				is_favor = 'favor' in val.lower()
+				clean_val = val.replace('A favor:', '').replace('$', '').replace(',', '').strip()
+				try:
+					num = float(clean_val)
+					return -num if is_favor else num
+				except ValueError:
+					return 0.0
+			elif col == 'Último Fiado':
+				if val in ('—', '-', ''):
+					return '00000000' if not reverse else '99999999'
+				parts = val.split('/')
+				if len(parts) == 3:
+					return f'{parts[2]}{parts[1]}{parts[0]}'
+				return val
+			else:
+				if val in ('—', '-', ''):
+					return 'zzzzzzzz' if not reverse else ''
+				return val.lower()
+
+		rows.sort(key=key, reverse=reverse)
+		for idx, (_, k) in enumerate(rows):
+			self.tree.move(k, '', idx)
+
+		self._sort_col = col
+		self._sort_reverse = reverse
+		self._refresh_sort_indicators()
+
+	def _refresh_sort_indicators(self):
+		columns = ('ID', 'Nombre', 'Teléfono', 'Deuda Acumulada', 'Último Fiado')
+		for c in columns:
+			if c == self._sort_col:
+				arrow = ' ▲' if not self._sort_reverse else ' ▼'
+				self.tree.heading(c, text=c + arrow, command=lambda col=c: self._sort(col, not self._sort_reverse))
+			else:
+				self.tree.heading(c, text=c, command=lambda col=c: self._sort(col, False))
