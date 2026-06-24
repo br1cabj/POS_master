@@ -163,7 +163,8 @@ class InventoryController(BaseController):
 						reference=ref,
 						variant_id=variant_id,
 						user_id=user_id,
-						source_warehouse_id=primary.warehouse_id,
+						source_warehouse_id=primary.warehouse_id if delta < 0 else None,
+						dest_warehouse_id=primary.warehouse_id if delta > 0 else None,
 						tenant_id=tenant_id,
 					)
 				)

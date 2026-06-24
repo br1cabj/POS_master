@@ -1389,7 +1389,7 @@ class QuotationView(BaseView):
 				quotation_id=qid,
 				user_id=self.ctx.user_id,
 				payment_method=pay_var.get(),
-				warehouse_id=self.ctx.warehouse_id,
+				tenant_id=self.ctx.tenant_id,
 			)
 			popup.destroy()
 			if ok:

@@ -325,6 +325,13 @@ class BackupController:
 
 		except Exception as e:
 			logger.error('Error escribiendo en SQLite: %s', e, exc_info=True)
+			# Cerrar la conexión para liberar bloqueos antes de restaurar el respaldo de seguridad
+			if con is not None:
+				try:
+					con.close()
+				except Exception:
+					pass
+				con = None
 			# Roll back via safety copy
 			try:
 				src = sqlite3.connect(str(safety))

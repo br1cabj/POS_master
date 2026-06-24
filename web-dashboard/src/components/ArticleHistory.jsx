@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
+import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
 

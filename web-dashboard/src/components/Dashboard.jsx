@@ -1,71 +1,25 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
 import { supabase } from '@/lib/supabase.jsx';
 import { useAuth } from '@/context/AuthContext.jsx';
 import { StatCard, Loading, ErrorState, Badge, Skeleton } from '@/components/shared/index.jsx';
 import { AreaChart, DonutChart, HorizontalBarChart, LineChart, SalesByHourChart } from '@/components/charts/index.jsx';
+import { getTodayStr, getDaysAgoStr } from '@/utils/dateUtils.js';
 
 const REFRESH_INTERVAL = 120000;
 
-const getTodayStr = () => new Date().toISOString().split('T')[0];
-const getDaysAgoStr = (days) => {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().split('T')[0];
-};
-
-const LowStockAlert = ({ items }) => {
-  if (!items || items.length === 0) return null;
-
-  return (
-    <div className="cloudpos-card mb-3" style={{ borderLeft: '4px solid var(--red)' }}>
-      <h5 className="font-heading mb-2" style={{ color: 'var(--red-text)' }}>
-        <i className="bi bi-exclamation-triangle me-1"></i> Stock Bajo ({items.length})
-      </h5>
-      <div className="d-flex flex-wrap gap-2">
-        {items.slice(0, 5).map((item) => (
-          <div key={item.name} className="d-flex align-items-center gap-2 p-2" style={{ backgroundColor: 'var(--red-dim)', borderRadius: '6px' }}>
-            <span className="font-body-bold" style={{ color: 'var(--red-text)' }}>{item.name}</span>
-            <Badge text={`${item.current}/${item.min}`} color="red" />
-          </div>
-        ))}
-        {items.length > 5 && (
-          <span className="font-small text-muted">+{items.length - 5} más</span>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const PromoList = ({ promos, loading }) => {
-  if (loading) return <Skeleton lines={3} />;
-  if (!promos || promos.length === 0) {
-    return <p className="text-muted font-body">Sin promociones activas ahora.</p>;
-  }
-
-  return promos.map((promo) => {
-    const detail =
-      promo.promo_type === 'nxm'
-        ? `Lleva ${promo.buy_qty} Paga ${promo.pay_qty}`
-        : promo.promo_type === 'pct'
-        ? `${promo.discount_value}% off`
-        : `$${promo.discount_value} c/u`;
-    return (
-      <div key={promo.id} className="d-flex flex-wrap align-items-center gap-2 p-2 mb-2" style={{ backgroundColor: 'var(--surface-3)', borderRadius: '8px' }}>
-        <span className="badge-cloudpos badge-green flex-shrink-0">{(promo.promo_type || '—').toUpperCase()}</span>
-        <div className="flex-fill min-width-0">
-          <div className="font-body-bold">{promo.name}</div>
-          <div className="font-small text-muted">{detail}</div>
-        </div>
-        <div className="font-small text-muted flex-shrink-0">≤ {new Date(promo.date_to).toLocaleDateString('es-AR')}</div>
-      </div>
-    );
-  });
-};
+import { LowStockAlert } from '@/components/dashboard/LowStockAlert.jsx';
+import { PromoList } from '@/components/dashboard/PromoList.jsx';
 
 export const Dashboard = () => {
   const { user } = useAuth();
   const [topProducts, setTopProducts] = useState([]);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const todayStr = useMemo(() => getTodayStr(), []);
   const monthAgoStr = useMemo(() => getDaysAgoStr(30), []);
@@ -109,46 +63,59 @@ export const Dashboard = () => {
         console.error('Failed to fetch top products:', error);
         return;
       }
-      if (data) setTopProducts(data);
+      if (data && mountedRef.current) setTopProducts(data);
     } catch (err) {
       console.error('Failed to fetch top products:', err);
     }
   }, [user?.tenantId, monthAgoStr]);
 
-  useMemo(() => {
+  useEffect(() => {
     fetchTopProducts();
   }, [fetchTopProducts]);
 
   const dashboardStats = useMemo(() => {
     if (!sales) return { revenue: 0, profit: 0, tickets: 0, margin: 0, avgTicket: 0, weeklySales: [], paymentMethods: [], salesByHour: [], salesVsPurchases: [], salesVsPurchasesCategories: [], anulaciones: 0, devoluciones: 0 };
 
-    const todaySales = sales.filter((s) => s.date?.startsWith(todayStr) && s.status === 'completada');
-    const revenue = todaySales.reduce((sum, s) => sum + parseFloat(s.total_amount || 0), 0);
-    const profit = todaySales.reduce((sum, s) => sum + parseFloat(s.profit || 0), 0);
-    const tickets = todaySales.length;
-    const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : 0;
-    const avgTicket = tickets > 0 ? Math.round(revenue / tickets) : 0;
-
+    let revenue = 0, profit = 0, tickets = 0, anulaciones = 0, devoluciones = 0;
     const dailyTotals = {};
     const hourlyTotals = {};
     const paymentCounts = {};
+    const monthlySales = {};
+
     sales.forEach((s) => {
-      if (s.status !== 'completada') return;
-      const date = s.date?.split('T')[0] || s.date?.substring(0, 10);
-      if (!date) return;
-      if (!dailyTotals[date]) dailyTotals[date] = 0;
-      dailyTotals[date] += parseFloat(s.total_amount || 0);
+      const isToday = s.date?.startsWith(todayStr);
+      const amount = parseFloat(s.total_amount || 0);
 
-      const hour = s.date?.split('T')[1]?.substring(0, 2);
-      if (hour) {
-        if (!hourlyTotals[hour]) hourlyTotals[hour] = 0;
-        hourlyTotals[hour] += parseFloat(s.total_amount || 0);
+      if (s.status === 'completada') {
+        if (isToday) {
+          revenue += amount;
+          profit += parseFloat(s.profit || 0);
+          tickets++;
+        }
+
+        const date = s.date?.split('T')[0] || s.date?.substring(0, 10);
+        if (date) {
+          dailyTotals[date] = (dailyTotals[date] || 0) + amount;
+          monthlySales[date] = (monthlySales[date] || 0) + amount;
+        }
+
+        const hour = s.date?.split('T')[1]?.substring(0, 2);
+        if (hour) {
+          hourlyTotals[hour] = (hourlyTotals[hour] || 0) + amount;
+        }
+
+        const method = s.payment_method || 'efectivo';
+        paymentCounts[method] = (paymentCounts[method] || 0) + amount;
+
+      } else if (s.status === 'anulada') {
+        anulaciones++;
+      } else if (s.status === 'devolucion') {
+        devoluciones++;
       }
-
-      const method = s.payment_method || 'efectivo';
-      if (!paymentCounts[method]) paymentCounts[method] = 0;
-      paymentCounts[method] += parseFloat(s.total_amount || 0);
     });
+
+    const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : 0;
+    const avgTicket = tickets > 0 ? Math.round(revenue / tickets) : 0;
 
     const weeklySales = [];
     for (let i = 6; i >= 0; i--) {
@@ -169,21 +136,12 @@ export const Dashboard = () => {
       .map(([label, value]) => ({ label: label.charAt(0).toUpperCase() + label.slice(1), value: Math.round(value) }))
       .sort((a, b) => b.value - a.value);
 
-    const monthlySales = {};
     const monthlyPurchases = {};
-    sales.forEach((s) => {
-      if (s.status !== 'completada') return;
-      const date = s.date?.split('T')[0];
-      if (!date) return;
-      if (!monthlySales[date]) monthlySales[date] = 0;
-      monthlySales[date] += parseFloat(s.total_amount || 0);
-    });
     purchases?.forEach((p) => {
       if (p.status !== 'pagada') return;
       const date = p.date?.split('T')[0];
       if (!date) return;
-      if (!monthlyPurchases[date]) monthlyPurchases[date] = 0;
-      monthlyPurchases[date] += parseFloat(p.total_amount || 0);
+      monthlyPurchases[date] = (monthlyPurchases[date] || 0) + parseFloat(p.total_amount || 0);
     });
 
     const allDates = [...new Set([...Object.keys(monthlySales), ...Object.keys(monthlyPurchases)])].sort();
@@ -195,9 +153,6 @@ export const Dashboard = () => {
       const date = new Date(d);
       return date.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
     });
-
-    const anulaciones = sales.filter((s) => s.status === 'anulada').length;
-    const devoluciones = sales.filter((s) => s.status === 'devolucion').length;
 
     return { revenue, profit, tickets, margin, avgTicket, weeklySales, paymentMethods, salesByHour, salesVsPurchases, salesVsPurchasesCategories, anulaciones, devoluciones };
   }, [sales, purchases, todayStr]);

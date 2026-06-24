@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState, useMemo } from 'react';
+import { useRef, useCallback, useEffect, useState } from 'react';
 
 export function useDebounce(value, delay = 300) {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -55,6 +55,11 @@ export function usePrevious(value) {
 export function useIntersectionObserver(options = {}) {
   const [isIntersecting, setIsIntersecting] = useState(false);
   const observer = useRef(null);
+  const optionsRef = useRef(options);
+
+  useEffect(() => {
+    optionsRef.current = options;
+  }, [options]);
 
   const observe = useCallback(
     (element) => {
@@ -66,11 +71,11 @@ export function useIntersectionObserver(options = {}) {
 
       observer.current = new IntersectionObserver(([entry]) => {
         setIsIntersecting(entry.isIntersecting);
-      }, options);
+      }, optionsRef.current);
 
       observer.current.observe(element);
     },
-    [options]
+    []
   );
 
   useEffect(() => {

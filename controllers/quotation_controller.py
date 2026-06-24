@@ -27,7 +27,9 @@ from database.models import (
 	Sale,
 	SaleDetail,
 	Stock,
+	StockMovement,
 )
+from utils.shared import get_or_create_default_warehouse
 from utils.quotation_pdf import QuotationPDF
 from utils.styles import (
 	ACCENT,
@@ -484,9 +486,7 @@ class QuotationController(BaseController):
 
 					if it.variant_id:
 						if not warehouse_id:
-							raise ValueError(
-								f'Se requiere un depósito para descontar el stock de "{it.description}".'
-							)
+							warehouse_id = get_or_create_default_warehouse(s, q.tenant_id)
 						stock_row = (
 							s.query(Stock)
 							.filter_by(
@@ -506,6 +506,17 @@ class QuotationController(BaseController):
 								f'disponible {float(stock_row.quantity):.2f}, requerido {float(it.quantity):.2f}.'
 							)
 						stock_row.quantity -= it.quantity
+						s.add(
+							StockMovement(
+								movement_type='out',
+								quantity=it.quantity,
+								reference=f'Venta Ticket #{sale.id} (desde COT-{q.number.split("-")[-1]})',
+								source_warehouse_id=warehouse_id,
+								variant_id=it.variant_id,
+								user_id=user_id,
+								tenant_id=q.tenant_id,
+							)
+						)
 
 				# Registro del ingreso en caja o actualización de deuda de cliente
 				is_fiado = payment_method.lower() == 'fiado'

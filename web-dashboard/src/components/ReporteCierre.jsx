@@ -1,17 +1,11 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
+import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
 import { StatCard, Loading, ErrorState, EmptyState, Badge } from '@/components/shared/index.jsx';
 import { DonutChart, HorizontalBarChart } from '@/components/charts/index.jsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import { sanitizeText } from '@/utils/helpers.js';
-
-const getTodayStr = () => new Date().toISOString().split('T')[0];
-const getDaysAgoStr = (days) => {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().split('T')[0];
-};
+import { getTodayStr, getDaysAgoStr } from '@/utils/dateUtils.js';
 
 export const ReporteCierre = () => {
   const [periodo, setPeriodo] = useState('hoy');
@@ -63,63 +57,73 @@ export const ReporteCierre = () => {
   const reporte = useMemo(() => {
     if (!sales) return null;
 
-    const completadas = sales.filter((s) => s.status === 'completada');
-    const anuladas = sales.filter((s) => s.status === 'anulada');
-    const devoluciones = sales.filter((s) => s.status === 'devolucion');
+    let revenue = 0, profit = 0, tickets = 0;
+    let anulacionesCount = 0, anulacionesTotal = 0;
+    let devolucionesCount = 0, devolucionesTotal = 0;
+    const paymentMethods = {};
+    const topProducts = {};
 
-    const revenue = completadas.reduce((sum, s) => sum + parseFloat(s.total_amount || 0), 0);
-    const profit = completadas.reduce((sum, s) => sum + parseFloat(s.profit || 0), 0);
-    const tickets = completadas.length;
+    sales.forEach((s) => {
+      const amount = parseFloat(s.total_amount || 0);
+      if (s.status === 'completada') {
+        revenue += amount;
+        profit += parseFloat(s.profit || 0);
+        tickets++;
+
+        const method = s.payment_method || 'efectivo';
+        if (!paymentMethods[method]) paymentMethods[method] = { count: 0, total: 0 };
+        paymentMethods[method].count++;
+        paymentMethods[method].total += amount;
+
+        if (s.items) {
+          s.items.forEach((item) => {
+            const name = item.variant?.article?.name || item.description || '—';
+            if (!topProducts[name]) topProducts[name] = { qty: 0, revenue: 0 };
+            topProducts[name].qty += parseFloat(item.quantity || 0);
+            topProducts[name].revenue += parseFloat(item.subtotal || 0);
+          });
+        }
+      } else if (s.status === 'anulada') {
+        anulacionesCount++;
+        anulacionesTotal += amount;
+      } else if (s.status === 'devolucion') {
+        devolucionesCount++;
+        devolucionesTotal += amount;
+      }
+    });
+
     const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(1) : 0;
     const avgTicket = tickets > 0 ? Math.round(revenue / tickets) : 0;
-
-    const anulacionesTotal = anuladas.reduce((sum, s) => sum + parseFloat(s.total_amount || 0), 0);
-    const devolucionesTotal = devoluciones.reduce((sum, s) => sum + parseFloat(s.total_amount || 0), 0);
-
-    const paymentMethods = {};
-    completadas.forEach((s) => {
-      const method = s.payment_method || 'efectivo';
-      if (!paymentMethods[method]) paymentMethods[method] = { count: 0, total: 0 };
-      paymentMethods[method].count++;
-      paymentMethods[method].total += parseFloat(s.total_amount || 0);
-    });
-
-    const topProducts = {};
-    sales.forEach((s) => {
-      if (s.status !== 'completada' || !s.items) return;
-      s.items.forEach((item) => {
-        const name = item.variant?.article?.name || item.description || '—';
-        if (!topProducts[name]) topProducts[name] = { qty: 0, revenue: 0 };
-        topProducts[name].qty += parseFloat(item.quantity || 0);
-        topProducts[name].revenue += parseFloat(item.subtotal || 0);
-      });
-    });
 
     const topProductsList = Object.entries(topProducts)
       .map(([name, data]) => ({ name, ...data }))
       .sort((a, b) => b.qty - a.qty)
       .slice(0, 8);
 
-    const manualMovements = cashMovements?.filter((m) => {
-      if (!m.movement_type) return false;
-      return m.movement_type.includes('manual') || m.movement_type.includes('ingreso') || m.movement_type.includes('gasto');
-    }) || [];
+    let ingresosManuales = 0;
+    let gastosManuales = 0;
+    
+    cashMovements?.forEach((m) => {
+      if (!m.movement_type) return;
+      const amt = parseFloat(m.amount || 0);
+      if (m.movement_type.includes('ingreso')) {
+        ingresosManuales += amt;
+      } else if (m.movement_type.includes('gasto') || m.movement_type.includes('retiro')) {
+        gastosManuales += amt;
+      }
+    });
 
-    const ingresosManuales = manualMovements
-      .filter((m) => m.movement_type?.includes('ingreso'))
-      .reduce((sum, m) => sum + parseFloat(m.amount || 0), 0);
-
-    const gastosManuales = manualMovements
-      .filter((m) => m.movement_type?.includes('gasto') || m.movement_type?.includes('retiro'))
-      .reduce((sum, m) => sum + parseFloat(m.amount || 0), 0);
-
-    const totalCompras = purchases?.filter((p) => p.status === 'pagada')
-      .reduce((sum, p) => sum + parseFloat(p.total_amount || 0), 0) || 0;
+    let totalCompras = 0;
+    purchases?.forEach((p) => {
+      if (p.status === 'pagada') {
+        totalCompras += parseFloat(p.total_amount || 0);
+      }
+    });
 
     return {
       revenue, profit, tickets, margin, avgTicket,
-      anulaciones: { count: anuladas.length, total: anulacionesTotal },
-      devoluciones: { count: devoluciones.length, total: devolucionesTotal },
+      anulaciones: { count: anulacionesCount, total: anulacionesTotal },
+      devoluciones: { count: devolucionesCount, total: devolucionesTotal },
       paymentMethods,
       topProducts: topProductsList,
       ingresosManuales,

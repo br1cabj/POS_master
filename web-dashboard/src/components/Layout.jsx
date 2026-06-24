@@ -2,6 +2,13 @@ import { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { sections } from '@/config/sections.js';
 
+const BOTTOM_NAV_ITEMS = [
+  { id: 'dashboard', path: '/', icon: 'bi-house-door', label: 'Inicio' },
+  { id: 'sales', path: '/sales', icon: 'bi-receipt', label: 'Ventas' },
+  { id: 'products', path: '/products', icon: 'bi-box', label: 'Productos' },
+  { id: 'customers', path: '/customers', icon: 'bi-people', label: 'Clientes' },
+];
+
 function useTimeAgo(timestamp) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -23,23 +30,23 @@ function useCurrentDate() {
   return now;
 }
 
-const NavMenu = memo(({ sections, activeSection, onNavigate }) => (
-  <div className="d-flex flex-column gap-1">
+const DesktopNavMenu = memo(({ sections, activeSection, onNavigate }) => (
+  <div className="desktop-nav-menu">
     {sections.map((section) => (
       <button
         key={section.id}
-        className={`btn text-start ${activeSection === section.id ? 'nav-link-cloudpos active' : 'nav-link-cloudpos'}`}
+        className={`nav-link-cloudpos desktop-nav-item ${activeSection === section.id ? 'active' : ''}`}
         onClick={() => onNavigate(section.path)}
         aria-current={activeSection === section.id ? 'page' : undefined}
       >
-        <i className={`bi ${section.icon} me-2`}></i>
-        {section.label}
+        <i className={`bi ${section.icon} nav-icon`}></i>
+        <span className="nav-label">{section.label}</span>
       </button>
     ))}
   </div>
 ));
 
-NavMenu.displayName = 'NavMenu';
+DesktopNavMenu.displayName = 'DesktopNavMenu';
 
 export const Layout = memo(({ children, theme, onThemeToggle, user, onLogout }) => {
   const location = useLocation();
@@ -47,17 +54,20 @@ export const Layout = memo(({ children, theme, onThemeToggle, user, onLogout }) 
   const [lastRefresh, setLastRefresh] = useState(Date.now());
   const timeAgo = useTimeAgo(lastRefresh);
   const currentDate = useCurrentDate();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const mobileMenuRef = useRef(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const overlayRef = useRef(null);
+  const drawerRef = useRef(null);
   const hamburgerBtnRef = useRef(null);
-  const firstMenuBtnRef = useRef(null);
 
   useEffect(() => {
     const interval = setInterval(() => setLastRefresh(Date.now()), 120000);
     return () => clearInterval(interval);
   }, []);
 
-  const activeSection = sections.find((s) => s.path === location.pathname)?.id || 'dashboard';
+  const activeSection = useMemo(
+    () => sections.find((s) => s.path === location.pathname)?.id || 'dashboard',
+    [location.pathname]
+  );
 
   const visibleSections = useMemo(() =>
     sections.filter((s) => {
@@ -67,89 +77,100 @@ export const Layout = memo(({ children, theme, onThemeToggle, user, onLogout }) 
     [user?.role]
   );
 
+  const bottomNavItems = useMemo(() =>
+    BOTTOM_NAV_ITEMS.filter((item) => {
+      const section = sections.find((s) => s.id === item.id);
+      if (!section) return false;
+      if (!section.roles || section.roles.length === 0) return true;
+      return section.roles.includes(user?.role);
+    }),
+    [user?.role]
+  );
+
   useEffect(() => {
-    setMobileMenuOpen(false);
+    setDrawerOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
-    if (mobileMenuOpen && firstMenuBtnRef.current) {
-      firstMenuBtnRef.current.focus();
+    if (drawerOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
     }
-  }, [mobileMenuOpen]);
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [drawerOpen]);
 
   const handleKeyDown = useCallback((e) => {
-    if (e.key === 'Escape' && mobileMenuOpen) {
-      setMobileMenuOpen(false);
+    if (e.key === 'Escape' && drawerOpen) {
+      setDrawerOpen(false);
       if (hamburgerBtnRef.current) hamburgerBtnRef.current.focus();
     }
-  }, [mobileMenuOpen]);
+  }, [drawerOpen]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  const handleSectionClick = useCallback((path) => {
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false);
+  }, []);
+
+  const toggleDrawer = useCallback(() => {
+    setDrawerOpen((prev) => !prev);
+  }, []);
+
+  const handleNavigate = useCallback((path) => {
     navigate(path);
+    setDrawerOpen(false);
   }, [navigate]);
 
   return (
-    <div className="min-vh-100" style={{ backgroundColor: 'var(--base)' }}>
+    <div className="app-layout">
       <a
         href="#main-content"
-        className="visually-hidden-focusable"
-        style={{
-          position: 'absolute',
-          zIndex: 9999,
-          top: '8px',
-          left: '8px',
-          backgroundColor: 'var(--accent)',
-          color: '#fff',
-          padding: '8px 12px',
-          borderRadius: '6px',
-          fontWeight: 'bold',
-          fontSize: '12px',
-          textDecoration: 'none',
-        }}
+        className="skip-link"
       >
         Saltar al contenido
       </a>
 
       <nav className="navbar-cloudpos sticky-top" role="navigation" aria-label="Navegación principal">
-        <div className="container-fluid px-3 py-2">
-          <div className="d-flex align-items-center gap-2 gap-sm-3">
+        <div className="navbar-content">
+          <div className="navbar-start">
             <button
               ref={hamburgerBtnRef}
-              className="btn btn-cloudpos-ghost d-md-none p-1"
-              onClick={() => setMobileMenuOpen((open) => !open)}
-              aria-label={mobileMenuOpen ? 'Cerrar menú' : 'Abrir menú'}
-              aria-expanded={mobileMenuOpen}
-              aria-controls="mobile-menu"
+              className="hamburger-btn d-md-none"
+              onClick={toggleDrawer}
+              aria-label={drawerOpen ? 'Cerrar menú' : 'Abrir menú'}
+              aria-expanded={drawerOpen}
+              aria-controls="mobile-drawer"
             >
-              <i className="bi bi-list fs-5"></i>
+              <i className="bi bi-list"></i>
             </button>
-            <span className="font-title" style={{ color: 'var(--accent-text)' }}>
-              CloudPOS
+            <span className="navbar-brand">
+              {sections.find((s) => s.id === activeSection)?.label || 'CloudPOS'}
             </span>
             <span className="badge-cloudpos badge-accent d-none d-md-inline">SOLO LECTURA</span>
           </div>
-          <div className="d-flex align-items-center gap-1 gap-sm-2">
-            <span className="font-small text-muted d-none d-sm-inline">
+          <div className="navbar-end">
+            <span className="navbar-date d-none d-sm-inline">
               {currentDate.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })}
             </span>
-            <span className="font-small d-none d-lg-inline" style={{ color: 'var(--text-muted)' }} title="Última actualización de datos">
-              <i className="bi bi-arrow-clockwise me-1"></i>
+            <span className="navbar-refresh d-none d-lg-inline">
+              <i className="bi bi-arrow-clockwise"></i>
               {timeAgo}
             </span>
             {user && (
-              <span className="font-small d-none d-md-inline" style={{ color: 'var(--accent-text)' }}>
-                <i className="bi bi-person-circle me-1"></i>
+              <span className="navbar-user d-none d-md-inline">
+                <i className="bi bi-person-circle"></i>
                 {user.displayName}
-                <span className="text-muted ms-1">({user.role})</span>
+                <span className="user-role">({user.role})</span>
               </span>
             )}
             <button
-              className="btn btn-cloudpos-ghost"
+              className="icon-btn"
               onClick={onThemeToggle}
               aria-label={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
               title={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
@@ -158,7 +179,7 @@ export const Layout = memo(({ children, theme, onThemeToggle, user, onLogout }) 
             </button>
             {user && (
               <button
-                className="btn btn-cloudpos-ghost"
+                className="icon-btn"
                 onClick={onLogout}
                 aria-label="Cerrar sesión"
                 title="Cerrar sesión"
@@ -170,60 +191,91 @@ export const Layout = memo(({ children, theme, onThemeToggle, user, onLogout }) 
         </div>
       </nav>
 
-      {mobileMenuOpen && (
+      {drawerOpen && (
         <div
-          id="mobile-menu"
-          ref={mobileMenuRef}
-          className="d-md-none"
-          role="menu"
-          style={{ backgroundColor: 'var(--surface-2)', borderBottom: '1px solid var(--border)', maxHeight: '70vh', overflowY: 'auto' }}
-        >
-          {user && (
-            <div className="px-3 py-2" style={{ borderBottom: '1px solid var(--border)' }}>
-              <span className="font-small" style={{ color: 'var(--accent-text)' }}>
-                <i className="bi bi-person-circle me-1"></i>
-                {user.displayName} ({user.role})
-              </span>
-            </div>
-          )}
-          <div className="d-flex flex-column gap-1 p-2">
-            {visibleSections.map((section, idx) => (
-              <button
-                key={section.id}
-                ref={idx === 0 ? firstMenuBtnRef : null}
-                role="menuitem"
-                className={`btn text-start ${activeSection === section.id ? 'nav-link-cloudpos active' : 'nav-link-cloudpos'}`}
-                onClick={() => handleSectionClick(section.path)}
-                aria-current={activeSection === section.id ? 'page' : undefined}
-              >
-                <i className={`bi ${section.icon} me-2`}></i>
-                {section.label}
-              </button>
-            ))}
-          </div>
-        </div>
+          ref={overlayRef}
+          className="drawer-overlay"
+          onClick={closeDrawer}
+          aria-hidden="true"
+        />
       )}
 
-      <div className="container-fluid">
-        <div className="row">
-          <div
-            className="col-md-2 d-none d-md-block p-3"
-            style={{ borderRight: '1px solid var(--border)', minHeight: 'calc(100vh - 56px)' }}
-            role="navigation"
-            aria-label="Menú lateral"
-          >
-            <NavMenu
-              sections={visibleSections}
-              activeSection={activeSection}
-              onNavigate={handleSectionClick}
-            />
-          </div>
-
-          <main id="main-content" className="col-md-10 p-3 p-md-4" role="main" tabIndex={-1}>
-            {children}
-          </main>
+      <aside
+        id="mobile-drawer"
+        ref={drawerRef}
+        className={`mobile-drawer d-md-none ${drawerOpen ? 'drawer-open' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menú de navegación"
+      >
+        <div className="drawer-header">
+          <span className="drawer-brand">CloudPOS</span>
+          <button className="drawer-close" onClick={closeDrawer} aria-label="Cerrar menú">
+            <i className="bi bi-x-lg"></i>
+          </button>
         </div>
+        {user && (
+          <div className="drawer-user-info">
+            <i className="bi bi-person-circle"></i>
+            <div>
+              <div className="user-name">{user.displayName}</div>
+              <div className="user-role-text">{user.role}</div>
+            </div>
+          </div>
+        )}
+        <nav className="drawer-nav" role="menu">
+          {visibleSections.map((section) => (
+            <button
+              key={section.id}
+              role="menuitem"
+              className={`drawer-nav-item ${activeSection === section.id ? 'active' : ''}`}
+              onClick={() => handleNavigate(section.path)}
+              aria-current={activeSection === section.id ? 'page' : undefined}
+            >
+              <i className={`bi ${section.icon}`}></i>
+              <span>{section.label}</span>
+            </button>
+          ))}
+        </nav>
+      </aside>
+
+      <div className="app-body">
+        <aside className="sidebar-desktop d-none d-md-block" role="navigation" aria-label="Menú lateral">
+          <DesktopNavMenu
+            sections={visibleSections}
+            activeSection={activeSection}
+            onNavigate={handleNavigate}
+          />
+        </aside>
+
+        <main id="main-content" className="main-content" role="main" tabIndex={-1}>
+          {children}
+        </main>
       </div>
+
+      {bottomNavItems.length > 0 && (
+        <nav className="bottom-nav d-md-none" role="navigation" aria-label="Navegación inferior">
+          {bottomNavItems.map((item) => (
+            <button
+              key={item.id}
+              className={`bottom-nav-item ${activeSection === item.id ? 'active' : ''}`}
+              onClick={() => handleNavigate(item.path)}
+              aria-current={activeSection === item.id ? 'page' : undefined}
+            >
+              <i className={`bi ${item.icon}`}></i>
+              <span>{item.label}</span>
+            </button>
+          ))}
+          <button
+            className="bottom-nav-item more-btn"
+            onClick={toggleDrawer}
+            aria-label="Más opciones"
+          >
+            <i className="bi bi-grid"></i>
+            <span>Más</span>
+          </button>
+        </nav>
+      )}
     </div>
   );
 });

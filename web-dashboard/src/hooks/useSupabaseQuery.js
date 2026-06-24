@@ -11,8 +11,28 @@ const TABLES_WITHOUT_TENANT_ID = new Set([
   'quotation_items', 'cash_movements', 'stocks', 'article_variants', 'combo_items'
 ]);
 
-function buildQueryKey(table, options) {
-  return ['supabase', table, JSON.stringify(options)];
+function buildQueryKey(table, options, tenantId) {
+  const {
+    select = '*',
+    filter = null,
+    order = null,
+    limit = null,
+    range = null,
+    skipTenantFilter = false,
+  } = options;
+
+  return [
+    'supabase',
+    table,
+    tenantId,
+    select,
+    JSON.stringify(filter),
+    order?.column ?? null,
+    order?.ascending ?? false,
+    limit,
+    range ? JSON.stringify(range) : null,
+    skipTenantFilter,
+  ];
 }
 
 async function fetchFromSupabase(table, options, tenantId) {
@@ -69,13 +89,19 @@ export function useSupabaseQuery(table, options = {}) {
   const tenantId = user?.tenantId;
 
   const {
+    select: _select,
+    filter: _filter,
+    order: _order,
+    limit: _limit,
+    range: _range,
+    skipTenantFilter: _skipTenantFilter,
     enabled = true,
     refreshInterval = 0,
     silent = false,
     ...queryOptions
   } = options;
 
-  const queryKey = buildQueryKey(table, options);
+  const queryKey = buildQueryKey(table, options, tenantId);
 
   const result = useQuery({
     queryKey,

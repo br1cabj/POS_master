@@ -1,11 +1,9 @@
 import { useMemo } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabase.jsx';
+import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
-import { useAuth } from '@/context/AuthContext.jsx';
 
 export const Categories = () => {
-  const { user } = useAuth();
   const { data: categories, loading, error } = useSupabaseQuery('categories', {
     select: '*',
     order: { column: 'name', ascending: true },
@@ -15,10 +13,8 @@ export const Categories = () => {
 
   const filtered = useMemo(() => {
     if (!categories) return [];
-    return user?.tenantId
-      ? categories.filter((c) => c.tenant_id === user.tenantId || c.tenant_id === null)
-      : categories;
-  }, [categories, user?.tenantId]);
+    return categories.filter((c) => c.tenant_id === null);
+  }, [categories]);
 
   const columns = useMemo(() => [
     { key: 'name', label: 'Nombre', render: (v) => <span className="font-body-bold">{v}</span> },

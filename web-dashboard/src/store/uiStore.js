@@ -1,12 +1,9 @@
 import { create } from 'zustand';
 
 export const useUIStore = create((set) => ({
-  lastRefresh: Date.now(),
   sidebarCollapsed: false,
   expandedRows: {},
   globalFilters: {},
-
-  markRefreshed: () => set({ lastRefresh: Date.now() }),
 
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 

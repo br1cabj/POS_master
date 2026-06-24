@@ -6,9 +6,6 @@ export default defineConfig({
   plugins: [
     react({
       fastRefresh: true,
-      babel: {
-        plugins: [],
-      },
     }),
   ],
   resolve: {
@@ -27,20 +24,13 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true,
-        drop_debugger: true,
-      },
-    },
+    minify: 'esbuild',
     rollupOptions: {
       output: {
         manualChunks: {
           apexcharts: ['apexcharts', 'react-apexcharts'],
           jspdf: ['jspdf', 'jspdf-autotable'],
           supabase: ['@supabase/supabase-js'],
-          vendor: ['react', 'react-dom'],
           router: ['react-router-dom'],
           query: ['@tanstack/react-query'],
         },
