@@ -581,14 +581,17 @@ class LabelView(BaseView):
 					resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 					img.close()
 					ctk_img = ctk.CTkImage(resized, size=(new_w, new_h))
+					self._cached_logo_image = ctk_img
 					_safe('_pw_logo', image=ctk_img, text='')
 					_safe('_pw_brand', text='')
 					if not self._pw_logo.winfo_viewable():
 						self._pw_logo.pack(expand=True, fill='both', padx=2)
 				else:
+					self._cached_logo_image = None
 					_safe('_pw_logo', image=None, text='')
 					_safe('_pw_brand', text=brand_text)
 			except Exception:
+				self._cached_logo_image = None
 				_safe('_pw_logo', image=None, text='')
 				try:
 					self._pw_logo.pack_forget()
@@ -596,6 +599,7 @@ class LabelView(BaseView):
 					pass
 				_safe('_pw_brand', text=brand_text)
 		else:
+			self._cached_logo_image = None
 			_safe('_pw_logo', image=None, text='')
 			try:
 				self._pw_logo.pack_forget()
@@ -645,7 +649,6 @@ class LabelView(BaseView):
 			)
 		_safe('_pw_footer_label', text=f'{barcode_txt[:18]}   Imp: {date_str}')
 
-		# Barcode real
 		try:
 			bc_path = self._ctrl._generate_barcode_png(barcode_txt)
 			if bc_path and os.path.exists(bc_path):
@@ -657,14 +660,19 @@ class LabelView(BaseView):
 						resized = img.resize((zone_w - 8, zone_h - 4), Image.Resampling.LANCZOS)
 						img.close()
 						ctk_img = ctk.CTkImage(resized, size=(zone_w - 8, zone_h - 4))
+						self._cached_bc_image = ctk_img
 						_safe('_pw_bc_image', image=ctk_img, text='')
 					else:
+						self._cached_bc_image = None
 						_safe('_pw_bc_image', image=None, text='──────')
 				else:
+					self._cached_bc_image = None
 					_safe('_pw_bc_image', image=None, text='──────')
 			else:
+				self._cached_bc_image = None
 				_safe('_pw_bc_image', image=None, text='──────')
 		except Exception:
+			self._cached_bc_image = None
 			_safe('_pw_bc_image', image=None, text='──────')
 
 	def _select_template(self, key: str):
@@ -845,14 +853,22 @@ class LabelView(BaseView):
 						if sup_name:
 							suppliers_set.add(sup_name)
 
-				self.after(0, lambda: self._on_catalog_loaded(
-					variants_data,
-					sorted(categories_set),
-					sorted(suppliers_set)
-				) if self.winfo_exists() else None)
+				try:
+					if self.winfo_exists():
+						self.after(0, lambda: self._on_catalog_loaded(
+							variants_data,
+							sorted(categories_set),
+							sorted(suppliers_set)
+						) if self.winfo_exists() else None)
+				except Exception:
+					pass
 			except Exception as e:
 				logger.error(f'Error cargando catálogo: {e}', exc_info=True)
-				self.after(0, lambda: self._on_catalog_loaded([], [], []) if self.winfo_exists() else None)
+				try:
+					if self.winfo_exists():
+						self.after(0, lambda: self._on_catalog_loaded([], [], []) if self.winfo_exists() else None)
+				except Exception:
+					pass
 
 		threading.Thread(target=_fetch_data, daemon=True).start()
 
@@ -1589,7 +1605,11 @@ class LabelView(BaseView):
 			except Exception as e:
 				logger.error('Error fatal en generación de PDF: %s', e, exc_info=True)
 				ok, result = False, str(e)
-			self.after(0, lambda: self._on_pdf_done(ok, result, total, tpl) if self.winfo_exists() else None)
+			try:
+				if self.winfo_exists():
+					self.after(0, lambda: self._on_pdf_done(ok, result, total, tpl) if self.winfo_exists() else None)
+			except Exception:
+				pass
 
 		threading.Thread(target=_run, daemon=True).start()
 
