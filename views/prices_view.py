@@ -100,8 +100,10 @@ class PricesView(BaseView):
 	def _switch_tab(self, idx: int):
 		self._active_idx = idx
 
+		already_loaded = bool(self._loaded_views.get(idx))
+
 		# Lazy Loading: Si la vista no se ha instanciado, lo hacemos ahora
-		if not self._loaded_views[idx]:
+		if not already_loaded:
 			_, _, view_cls = _TABS[idx]
 			try:
 				instance = view_cls(self._frames[idx], self.ctx)
@@ -130,6 +132,14 @@ class PricesView(BaseView):
 				frame.pack(fill='both', expand=True)
 			else:
 				frame.pack_forget()
+
+		# Refrescar datos al volver a una pestaña ya cargada
+		if already_loaded:
+			view_instance = self._loaded_views[idx]
+			if hasattr(view_instance, 'load_data'):
+				view_instance.load_data()
+			elif hasattr(view_instance, '_load_data'):
+				view_instance._load_data()
 
 		# Resaltar botón activo
 		for i, btn in enumerate(self._tab_btns):
