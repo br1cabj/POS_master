@@ -440,7 +440,7 @@ class ReceiptController:
 				self.receipts_dir, f'tenant_{safe_tenant_id}_ticket_{safe_sale_id}.pdf'
 			)
 			pdf.output(filepath)
-			self.print_receipt(filepath)
+			self.print_receipt(filepath, is_ticket=True)
 			return True, filepath
 
 		except Exception as e:
@@ -449,8 +449,8 @@ class ReceiptController:
 			)
 			return False, 'Error interno al generar el recibo.'
 
-	def print_receipt(self, filepath: str) -> bool:
-		"""Abre el visor de sistema para impresión genérica."""
+	def print_receipt(self, filepath: str, is_ticket: bool = False) -> bool:
+		"""Abre el visor de sistema para impresión genérica u otorga impresión automática en Windows."""
 		try:
 			if not os.path.exists(filepath):
 				logger.error('Archivo no encontrado para imprimir: %s', filepath)
@@ -468,6 +468,26 @@ class ReceiptController:
 				return False
 
 			os_name = platform.system()
+			if os_name == 'Windows' and is_ticket:
+				printer_name = settings_manager.get('printer_ticket_name', '')
+				if printer_name and not printer_name.startswith('('):
+					try:
+						import win32api
+						import win32print
+
+						try:
+							hprinter = win32print.OpenPrinter(printer_name)
+							win32print.ClosePrinter(hprinter)
+							win32api.ShellExecute(0, "printto", abs_path, f'"{printer_name}"', ".", 0)
+							logger.info('Documento %s enviado directamente a la impresora: %s', filepath, printer_name)
+							return True
+						except Exception as pe:
+							logger.warning('La impresora configurada %s no está disponible: %s. Usando visor alternativo.', printer_name, pe)
+					except ImportError:
+						logger.info('pywin32 no instalado. No se puede realizar impresión automática. Usando visor alternativo.')
+					except Exception as ex:
+						logger.warning('Error en impresión automática a %s: %s. Usando visor alternativo.', printer_name, ex)
+
 			if os_name == 'Windows':
 				os.startfile(abs_path, 'open')
 			elif os_name == 'Darwin':
@@ -526,7 +546,7 @@ class ReceiptController:
 						'No se encontró el ticket.\nQuizás fue generado en otra sesión o equipo.',
 					)
 
-		ok = self.print_receipt(filepath)
+		ok = self.print_receipt(filepath, is_ticket=True)
 		return (
 			(True, filepath) if ok else (False, 'No se pudo abrir el PDF del ticket.')
 		)
@@ -762,7 +782,7 @@ class ReceiptController:
 				f'tenant_{safe_tenant_id}_NC_{safe_sale_id}_{note_suffix}.pdf',
 			)
 			pdf.output(filepath)
-			self.print_receipt(filepath)
+			self.print_receipt(filepath, is_ticket=True)
 			return True, filepath
 
 		except Exception as e:
