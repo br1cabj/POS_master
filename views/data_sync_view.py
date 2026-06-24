@@ -115,6 +115,7 @@ class DataSyncView(BaseView):
 		self._tabview.grid(row=0, column=0, sticky='nsew', padx=16, pady=16)
 		self._tabview.add(_TAB_EXPORT)
 		self._tabview.add(_TAB_IMPORT)
+		self._tabview.configure(command=self._on_tab_switched)
 
 		self._build_export_tab(self._tabview.tab(_TAB_EXPORT))
 		self._build_import_tab(self._tabview.tab(_TAB_IMPORT))
@@ -792,6 +793,20 @@ class DataSyncView(BaseView):
 		if confirm.get() != 'Sí, Importar':
 			return
 
+		# Doble confirmación de seguridad para advertir acción destructiva/masiva
+		double_confirm = CTkMessagebox(
+			title='⚠️ ADVERTENCIA CRÍTICA',
+			message=(
+				'¿Estás totalmente seguro/a de realizar la importación masiva?\n'
+				'Esta operación modificará los registros de la base de datos permanentemente.'
+			),
+			icon='warning',
+			option_1='No, Cancelar',
+			option_2='Sí, Estoy seguro/a',
+		)
+		if double_confirm.get() != 'Sí, Estoy seguro/a':
+			return
+
 		self.btn_import.configure(
 			state='disabled', text='⏳  Procesando… Por favor, esperá.'
 		)
@@ -832,3 +847,13 @@ class DataSyncView(BaseView):
 			self.btn_import.configure(
 				state='normal', text='🚀  REINTENTAR IMPORTACIÓN (Ctrl+I)'
 			)
+
+	def _on_tab_switched(self):
+		# Limpiar archivo seleccionado y previsualización al cambiar entre pestañas
+		self.selected_file = None
+		if hasattr(self, 'lbl_file_path') and self.lbl_file_path.winfo_exists():
+			self.lbl_file_path.configure(text='Ningún archivo seleccionado', text_color=TEXT_MUTED)
+		if hasattr(self, 'btn_import') and self.btn_import.winfo_exists():
+			self.btn_import.configure(state='disabled', text='INICIAR IMPORTACIÓN (Ctrl+I)')
+		if hasattr(self, 'frame_preview') and self.frame_preview.winfo_exists():
+			self._show_preview_placeholder('Seleccioná un archivo para ver la vista previa.')

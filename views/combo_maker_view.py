@@ -87,6 +87,7 @@ class ComboMakerView(BaseView):
 			text_color=TEXT_SECONDARY,
 			text_color_disabled=TEXT_MUTED,
 		)
+		self.tabs.configure(command=self._on_tab_switched)
 		self.tabs.pack(fill='both', expand=True)
 
 		self.tab_combos = self.tabs.add('🍔  Crear Combos y Promos')
@@ -964,16 +965,32 @@ class ComboMakerView(BaseView):
 
 		# Producto
 		make_form_label(left, 'APLICA AL PRODUCTO')[0].pack(padx=PAD_LG, anchor='w')
+		
+		promo_prod_row = ctk.CTkFrame(left, fg_color='transparent')
+		promo_prod_row.pack(pady=(PAD_XS, PAD_MD), padx=PAD_LG, fill='x')
+		
 		self.combo_promo_product = ctk.CTkComboBox(
-			left,
+			promo_prod_row,
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			height=40,
 		)
-		self.combo_promo_product.pack(pady=(PAD_XS, PAD_MD), padx=PAD_LG, fill='x')
+		self.combo_promo_product.pack(side='left', expand=True, fill='x')
 		self.combo_promo_product.bind('<KeyRelease>', self._filter_promo_products)
 		self.combo_promo_product.set('Seleccionar Producto...')
+		
+		self.btn_clear_promo_prod = ctk.CTkButton(
+			promo_prod_row,
+			text='✕',
+			width=30,
+			height=40,
+			fg_color='transparent',
+			hover_color=SURFACE3,
+			text_color=TEXT_MUTED,
+			command=self._clear_promo_product_filter,
+		)
+		self.btn_clear_promo_prod.pack(side='left', padx=(4, 0))
 
 		# ── SECCIÓN VIGENCIA ──
 		ctk.CTkFrame(left, height=1, fg_color=BORDER).pack(
@@ -1340,6 +1357,23 @@ class ComboMakerView(BaseView):
 		self.combo_promo_product.configure(
 			values=filtered if filtered else ['Sin coincidencias']
 		)
+
+	def _clear_promo_product_filter(self):
+		vals = list(self.variant_map.keys()) if self.variant_map else []
+		self.combo_promo_product.configure(values=vals if vals else ['Sin productos'])
+		self.combo_promo_product.set('Seleccionar Producto...')
+
+	def _on_tab_switched(self):
+		active_tab = self.tabs.get()
+		if active_tab == '🍔  Crear Combos y Promos':
+			if hasattr(self, 'entry_combo_name'):
+				self.entry_combo_name.focus()
+		elif active_tab == '👆  Botones Rápidos':
+			if hasattr(self, 'combo_sueltos'):
+				self.combo_sueltos.focus()
+		elif active_tab == '🎯  Promociones con Vigencia':
+			if hasattr(self, 'entry_promo_name'):
+				self.entry_promo_name.focus()
 
 	def _on_promo_filter_change(self, value):
 		self._promo_filter_mode = 'activas' if value == 'Activas ahora' else 'todas'
