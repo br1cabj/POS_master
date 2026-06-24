@@ -106,9 +106,12 @@ NAV_ITEMS_PUBLIC = [
 	(_HOME, '⊞', 'Inicio', 'principal'),
 	(_SALES, '🛒', 'Ventas', 'principal'),
 	(_CASH, '💵', 'Caja', 'principal'),
+	(_CUSTOMERS, '👥', 'Clientes / Fiado', 'principal'),
 ]
 
 NAV_ITEMS_ADMIN = [
+	# ── Principal (Admin) ───────────────────────────────────────────────────
+	(_QUOTATION, '📝', 'Cotizaciones', 'principal'),
 	# ── Catálogo: todo lo que se vende ──────────────────────────────────────
 	(_ARTICLES, '📦', 'Artículos', 'catálogo'),
 	(_PRICES, '💰', 'Gestión de Precios', 'catálogo'),
@@ -118,8 +121,6 @@ NAV_ITEMS_ADMIN = [
 	(_PURCHASES, '📥', 'Compras', 'compras'),
 	(_SUP_RETS, '↩', 'Dev. a Proveedor', 'compras'),
 	(_SUPPLIERS, '🚚', 'Proveedores', 'compras'),
-	(_CUSTOMERS, '👥', 'Clientes / Fiado', 'compras'),
-	(_QUOTATION, '📝', 'Cotizaciones', 'compras'),
 	# ── Reportes ────────────────────────────────────────────────────────────
 	(_SALES_HIS, '📜', 'Ventas e Historial', 'reportes'),
 	(_REPORT, '📋', 'Reporte de Cierre', 'reportes'),
@@ -534,7 +535,7 @@ class MainDashboard(ctk.CTkFrame):
 			'<F3>', lambda e: self.safe_switch_view(_ARTICLES, requires_admin=True)
 		)
 		self.master_app.bind(
-			'<F4>', lambda e: self.safe_switch_view(_CUSTOMERS, requires_admin=True)
+			'<F4>', lambda e: self.safe_switch_view(_CUSTOMERS)
 		)
 		self.master_app.bind('<Escape>', self._handle_escape)
 		self.after(
