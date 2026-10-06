@@ -1,5 +1,6 @@
 import logging
-from datetime import datetime
+from collections import defaultdict
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy.orm import joinedload
@@ -30,6 +31,41 @@ class SalesController(BaseController):
 
 	def _parse_decimal(self, value):
 		return parse_decimal(value, default=Decimal('0.0'))
+
+	@staticmethod
+	def _take_from_stock_rows(stock_rows, requested_qty):
+		"""Deduct stock using FEFO, returning ``(row, deducted_qty)`` pairs.
+
+		A variant may legitimately have one row per warehouse and batch.  Selecting
+		a single row by ``variant_id`` silently loses the rest of its inventory.
+		"""
+		requested_qty = Decimal(str(requested_qty))
+		available = sum((Decimal(str(s.quantity)) for s in stock_rows), Decimal('0'))
+		if available < requested_qty:
+			raise ValueError(
+				f'Stock insuficiente: disponible {available:.4f}, requerido {requested_qty:.4f}.'
+			)
+
+		remaining = requested_qty
+		allocations = []
+		for stock in sorted(
+			stock_rows,
+			key=lambda s: (
+				s.expiration_date is None,
+				s.expiration_date or date.max,
+				s.warehouse_id,
+				s.id,
+			),
+		):
+			if remaining <= 0:
+				break
+			on_row = min(Decimal(str(stock.quantity)), remaining)
+			if on_row <= 0:
+				continue
+			stock.quantity -= on_row
+			remaining -= on_row
+			allocations.append((stock, on_row))
+		return allocations
 
 	def get_articles_for_sale(self, tenant_id):
 		"""
@@ -156,6 +192,9 @@ class SalesController(BaseController):
 					.options(
 						joinedload(ArticleVariant.article),
 						joinedload(ArticleVariant.stocks),
+						joinedload(ArticleVariant.base_variant).joinedload(
+							ArticleVariant.stocks
+						),
 					)
 					.join(Article)
 					.filter(
@@ -174,6 +213,14 @@ class SalesController(BaseController):
 					total_stock = sum(s.quantity for s in v.stocks) if v.stocks else 0
 					units = getattr(v, 'units_per_pack', 1) or 1
 					base_vid = getattr(v, 'base_variant_id', None)
+					if base_vid and units > 1:
+						base = v.base_variant
+						base_stock = (
+							sum(s.quantity for s in base.stocks)
+							if base and base.stocks
+							else 0
+						)
+						total_stock = int(Decimal(str(base_stock)) // Decimal(str(units)))
 					result.append(
 						{
 							'variant_id': v.id,
@@ -449,13 +496,14 @@ class SalesController(BaseController):
 
 				stocks_db = {}
 				if variants_to_deduct:
-					stocks_db = {
-						s.variant_id: s
-						for s in session.query(Stock)
+					stocks_db = defaultdict(list)
+					for stock_row in (
+						session.query(Stock)
 						.filter(Stock.variant_id.in_(variants_to_deduct))
 						.with_for_update()
 						.all()
-					}
+					):
+						stocks_db[stock_row.variant_id].append(stock_row)
 
 				total_sale = Decimal('0.0')
 				total_cost = Decimal('0.0')
@@ -510,26 +558,27 @@ class SalesController(BaseController):
 										'que fue eliminado del sistema. Actualiza el combo antes de vender.'
 									)
 								req_qty = ci.quantity_required * qty
-								stock = stocks_db.get(ci.ingredient_id)
-								if not stock or stock.quantity < req_qty:
+								stock_rows = stocks_db.get(ci.ingredient_id, [])
+								if not stock_rows:
 									raise ValueError(
 										f'Falta ingrediente para preparar: {variant.article.name}'
 									)
-								stock.quantity -= req_qty
+								allocations = self._take_from_stock_rows(stock_rows, req_qty)
 								cost_price += (
 									ci.ingredient.cost_price or Decimal('0')
 								) * ci.quantity_required
-								session.add(
-									StockMovement(
-										movement_type='out',
-										quantity=req_qty,
-										reference=f'Venta Promo #{new_sale.id}',
-										source_warehouse_id=stock.warehouse_id,
-										variant_id=ci.ingredient_id,
-										user_id=user_id,
-										tenant_id=tenant_id,
+								for stock, allocated_qty in allocations:
+									session.add(
+										StockMovement(
+											movement_type='out',
+											quantity=allocated_qty,
+											reference=f'Venta Promo #{new_sale.id}',
+											source_warehouse_id=stock.warehouse_id,
+											variant_id=ci.ingredient_id,
+											user_id=user_id,
+											tenant_id=tenant_id,
+										)
 									)
-								)
 						else:
 							# Determinar de donde descontar stock
 							base_vid = getattr(variant, 'base_variant_id', None)
@@ -542,24 +591,25 @@ class SalesController(BaseController):
 								deduct_vid = v_id
 								deduct_qty = qty
 
-							stock = stocks_db.get(deduct_vid)
-							if not stock or stock.quantity < deduct_qty:
+							stock_rows = stocks_db.get(deduct_vid, [])
+							if not stock_rows:
 								raise ValueError(
 									f'Stock insuficiente para {variant.article.name}'
 								)
-							stock.quantity -= deduct_qty
+							allocations = self._take_from_stock_rows(stock_rows, deduct_qty)
 							cost_price = variant.cost_price or Decimal('0.0')
-							session.add(
-								StockMovement(
-									movement_type='out',
-									quantity=deduct_qty,
-									reference=f'Venta Ticket #{new_sale.id}',
-									source_warehouse_id=stock.warehouse_id,
-									variant_id=deduct_vid,
-									user_id=user_id,
-									tenant_id=tenant_id,
+							for stock, allocated_qty in allocations:
+								session.add(
+									StockMovement(
+										movement_type='out',
+										quantity=allocated_qty,
+										reference=f'Venta Ticket #{new_sale.id}',
+										source_warehouse_id=stock.warehouse_id,
+										variant_id=deduct_vid,
+										user_id=user_id,
+										tenant_id=tenant_id,
+									)
 								)
-							)
 					else:
 						if price < 0:
 							raise ValueError(

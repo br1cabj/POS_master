@@ -5,11 +5,12 @@ export const Login = () => {
   const { login, error, loading } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [tenantId, setTenantId] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!username.trim()) return;
-    await login(username.trim(), password);
+    if (!username.trim() || !tenantId.trim()) return;
+    await login(username.trim(), password, tenantId.trim());
   };
 
   return (
@@ -37,6 +38,20 @@ export const Login = () => {
             />
           </div>
 
+          <div className="mb-3">
+            <label className="font-label-muted d-block mb-1">ID de empresa</label>
+            <input
+              type="text"
+              className="form-control"
+              style={{ backgroundColor: 'var(--surface-1)', borderColor: 'var(--border)', color: 'var(--text-primary)', height: '42px' }}
+              placeholder="UUID de tu empresa"
+              value={tenantId}
+              onChange={(e) => setTenantId(e.target.value)}
+              autoComplete="organization"
+              required
+            />
+          </div>
+
           <div className="mb-4">
             <label className="font-label-muted d-block mb-1">Contraseña</label>
             <input
@@ -60,7 +75,7 @@ export const Login = () => {
             type="submit"
             className="btn w-100"
             style={{ backgroundColor: 'var(--accent)', color: 'var(--text-primary)', height: '42px', fontWeight: 'bold', borderRadius: '6px' }}
-            disabled={loading || !username.trim()}
+            disabled={loading || !username.trim() || !tenantId.trim()}
           >
             {loading ? (
               <span className="spinner-border spinner-border-sm me-1" role="status"></span>

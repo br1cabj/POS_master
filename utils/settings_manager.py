@@ -69,6 +69,9 @@ DEFAULTS: dict = {
 	'printer_ticket_chars': 48,
 	# Periféricos — Impresora de etiquetas
 	'printer_label_name': '',
+	# "preview" conserva el PDF para revisión; "printer" lo envía al driver de
+	# Windows seleccionado. Nunca se mandan comandos ZPL a impresoras genéricas.
+	'label_output_mode': 'preview',  # 'preview' | 'printer'
 	# Periféricos — Balanza
 	'scale_enabled': False,
 	'scale_port': 'COM1',

@@ -1,6 +1,5 @@
-import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react';
+import { useMemo } from 'react';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
-import { supabase } from '@/lib/supabase.jsx';
 import { useAuth } from '@/context/AuthContext.jsx';
 import { StatCard, Loading, ErrorState, Badge, Skeleton } from '@/components/shared/index.jsx';
 import { AreaChart, DonutChart, HorizontalBarChart, LineChart, SalesByHourChart } from '@/components/charts/index.jsx';
@@ -12,20 +11,13 @@ import { LowStockAlert } from '@/components/dashboard/LowStockAlert.jsx';
 import { PromoList } from '@/components/dashboard/PromoList.jsx';
 
 export const Dashboard = () => {
-  const { user } = useAuth();
-  const [topProducts, setTopProducts] = useState([]);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
-
-  const todayStr = useMemo(() => getTodayStr(), []);
+	const { user } = useAuth();
+	const isManager = ['admin', 'supervisor'].includes(user?.role);
+	const todayStr = useMemo(() => getTodayStr(), []);
   const monthAgoStr = useMemo(() => getDaysAgoStr(30), []);
 
   const { data: sales, loading: salesLoading, error: salesError } = useSupabaseQuery('sales', {
-    select: 'id, total_amount, profit, date, status, payment_method',
+    select: 'id, total_amount, profit, date, status, payment_method, items:sale_details(description, quantity)',
     filter: ['date', 'gte', monthAgoStr],
     refreshInterval: REFRESH_INTERVAL,
     silent: true,
@@ -36,10 +28,11 @@ export const Dashboard = () => {
     filter: ['is_active', 'eq', true],
     refreshInterval: REFRESH_INTERVAL,
     silent: true,
+		enabled: isManager,
   });
 
-  const { data: lowStock } = useSupabaseQuery('view_low_stock', {
-    select: 'product_name, current_stock, min_stock',
+  const { data: stockRows } = useSupabaseQuery('stocks', {
+    select: 'quantity, variant:article_variants(id, article:articles(name, min_stock))',
     refreshInterval: REFRESH_INTERVAL,
     silent: true,
   });
@@ -49,29 +42,22 @@ export const Dashboard = () => {
     filter: ['date', 'gte', monthAgoStr],
     refreshInterval: REFRESH_INTERVAL,
     silent: true,
+		enabled: isManager,
   });
 
-  const fetchTopProducts = useCallback(async () => {
-    if (!user?.tenantId) return;
-    try {
-      const { data, error } = await supabase.rpc('get_top_products', {
-        p_tenant_id: user.tenantId,
-        p_start_date: monthAgoStr,
-        p_limit: 5
+  const topProducts = useMemo(() => {
+    const quantities = new Map();
+    sales?.filter((sale) => sale.status === 'completada').forEach((sale) => {
+      sale.items?.forEach((item) => {
+        const name = item.description || 'Artículo';
+        quantities.set(name, (quantities.get(name) || 0) + parseFloat(item.quantity || 0));
       });
-      if (error) {
-        console.error('Failed to fetch top products:', error);
-        return;
-      }
-      if (data && mountedRef.current) setTopProducts(data);
-    } catch (err) {
-      console.error('Failed to fetch top products:', err);
-    }
-  }, [user?.tenantId, monthAgoStr]);
-
-  useEffect(() => {
-    fetchTopProducts();
-  }, [fetchTopProducts]);
+    });
+    return [...quantities.entries()]
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+  }, [sales]);
 
   const dashboardStats = useMemo(() => {
     if (!sales) return { revenue: 0, profit: 0, tickets: 0, margin: 0, avgTicket: 0, weeklySales: [], paymentMethods: [], salesByHour: [], salesVsPurchases: [], salesVsPurchasesCategories: [], anulaciones: 0, devoluciones: 0 };
@@ -158,13 +144,17 @@ export const Dashboard = () => {
   }, [sales, purchases, todayStr]);
 
   const lowStockItems = useMemo(() => {
-    if (!lowStock) return [];
-    return lowStock.map((s) => ({
-      name: s.product_name || '—',
-      current: parseFloat(s.current_stock || 0),
-      min: s.min_stock || 0,
-    }));
-  }, [lowStock]);
+    const totals = new Map();
+    stockRows?.forEach((row) => {
+      const article = row.variant?.article;
+      const key = row.variant?.id;
+      if (!key || !article) return;
+      const previous = totals.get(key) || { name: article.name || '—', current: 0, min: Number(article.min_stock || 0) };
+      previous.current += parseFloat(row.quantity || 0);
+      totals.set(key, previous);
+    });
+    return [...totals.values()].filter((item) => item.current < item.min);
+  }, [stockRows]);
 
   if (salesLoading) return <Loading message="Cargando dashboard..." />;
   if (salesError) return <ErrorState message={salesError} />;

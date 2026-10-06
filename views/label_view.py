@@ -5,16 +5,14 @@ Vista para gestionar y previsualizar la impresión masiva de etiquetas.
 """
 
 import logging
-import os
 import threading
 from datetime import datetime
 
 import customtkinter as ctk
-from PIL import Image
 from sqlalchemy.orm import sessionmaker
 
 import utils.settings_manager as _cfg_mgr
-from controllers.label_controller import TEMPLATES, LabelController, _fmt_price, _sanitize
+from controllers.label_controller import TEMPLATES, LabelController, _sanitize
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.date_picker import CTkDatePicker
@@ -29,18 +27,9 @@ from utils.styles import (
 	FONT_BODY_BOLD,
 	FONT_LABEL,
 	FONT_LABEL_BOLD,
+	FONT_SMALL,
 	GREEN,
 	GREEN_HOVER,
-	LBL_BLUE,
-	LBL_HEADER_DARK,
-	LBL_HEADER_DEEP,
-	LBL_HEADER_ORANGE,
-	LBL_RED,
-	LBL_PREVIEW_TEXT,
-	LBL_PREVIEW_TEXT_LIGHT,
-	LBL_PREVIEW_SEPARATOR,
-	LBL_PREVIEW_BARCODE_BG,
-	LBL_PREVIEW_FOOTER_BG,
 	MUTED_BLUE,
 	ORANGE_TEXT,
 	PAD_LG,
@@ -352,9 +341,15 @@ class LabelView(BaseView):
 	def _build_live_preview_widgets(self):
 		if not self.winfo_exists():
 			return
-		# Destruir card anterior con tamaño fijo
+		# El preview es el PDF real rasterizado: no replica el diseño con widgets.
 		if self._preview_label_card and getattr(self._preview_label_card, 'winfo_exists', lambda: False)():
 			self._preview_label_card.destroy()
+		if getattr(self, '_preview_caption', None):
+			try:
+				if self._preview_caption.winfo_exists():
+					self._preview_caption.destroy()
+			except Exception:
+				pass
 
 		tpl_meta = TEMPLATES.get(self._tpl_key, TEMPLATES['supermercado'])
 		scale = 3.5
@@ -369,121 +364,33 @@ class LabelView(BaseView):
 			height=h_px,
 		)
 		card.place(relx=0.5, rely=0.5, anchor='center')
-		card.grid_propagate(False)
+		card.pack_propagate(False)
 		self._preview_label_card = card
-
-		hdr_ratio = 0.14 if self._tpl_key != 'precio' else 0.10
-		bc_ratio = 0.20 if self._tpl_key != 'mini' else 0.22
-		foot_ratio = 0.10 if self._tpl_key != 'mini' else 0.12
-
-		hdr_h = int(h_px * hdr_ratio)
-		bc_h = int(h_px * bc_ratio)
-		foot_h = int(h_px * foot_ratio)
-
-		card.grid_columnconfigure(0, weight=1)
-		card.grid_rowconfigure(0, minsize=hdr_h)
-		card.grid_rowconfigure(1, weight=1)
-		card.grid_rowconfigure(2, minsize=1)
-		card.grid_rowconfigure(3, minsize=bc_h)
-		card.grid_rowconfigure(4, minsize=foot_h)
-
-		# Row 0 — Header
-		self._pw_header = ctk.CTkFrame(card, fg_color=LBL_HEADER_DARK, corner_radius=0)
-		self._pw_header.grid(row=0, column=0, sticky='nsew')
-		self._pw_brand = ctk.CTkLabel(
-			self._pw_header,
-			text='MI NEGOCIO',
-			font=('Arial', max(6, int(hdr_h * 0.35)), 'bold'),
-			text_color='white',
-			anchor='center',
+		self._preview_image = ctk.CTkLabel(
+			card,
+			text='Generando vista previa…',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
 		)
-		self._pw_brand.pack(expand=True, fill='both', padx=2)
-		self._pw_logo = ctk.CTkLabel(self._pw_header, text='')
-
-		# Row 1 — Body
-		self._pw_body = ctk.CTkFrame(card, fg_color='white', corner_radius=0)
-		self._pw_body.grid(row=1, column=0, sticky='nsew', padx=4, pady=(2, 1))
-
-		name_font = max(7, int(h_px * 0.075)) if self._tpl_key != 'mini' else max(6, int(h_px * 0.065))
-		price_font = max(10, int(h_px * 0.16)) if self._tpl_key != 'mini' else max(9, int(h_px * 0.14))
-
-		self._pw_name = ctk.CTkLabel(
-			self._pw_body,
-			text='Nombre del Producto',
-			font=('Arial', name_font, 'bold'),
-			text_color='black',
-			anchor='w',
-			wraplength=w_px - 10,
-			justify='left',
+		self._preview_image.pack(expand=True, fill='both')
+		self._preview_caption = ctk.CTkLabel(
+			self._preview_container,
+			text='Vista fiel al PDF que se imprimirá',
+			font=FONT_SMALL,
+			text_color=TEXT_MUTED,
 		)
-		self._pw_name.pack(fill='x', anchor='w')
+		self._preview_caption.place(relx=0.5, rely=0.97, anchor='s')
 
-		self._pw_attr = ctk.CTkLabel(
-			self._pw_body,
-			text='',
-			font=('Arial', max(5, int(name_font * 0.65))),
-			text_color=LBL_PREVIEW_TEXT,
-			anchor='w',
-		)
-		self._pw_attr.pack(fill='x', anchor='w')
-
-		self._pw_price_before = ctk.CTkLabel(
-			self._pw_body,
-			text='',
-			font=('Arial', max(5, int(name_font * 0.65))),
-			text_color=LBL_PREVIEW_TEXT_LIGHT,
-			anchor='w',
-		)
-		self._pw_price_before.pack(fill='x', anchor='w', pady=(2, 0))
-
-		self._pw_price = ctk.CTkLabel(
-			self._pw_body,
-			text='$0',
-			font=('Arial', price_font, 'bold'),
-			text_color=LBL_HEADER_DEEP,
-			anchor='w',
-		)
-		self._pw_price.pack(fill='x', anchor='w', pady=(1, 0))
-
-		# Row 2 — Separator
-		ctk.CTkFrame(card, fg_color=LBL_PREVIEW_SEPARATOR, corner_radius=0, height=1).grid(
-			row=2, column=0, sticky='ew'
-		)
-
-		# Row 3 — Barcode zone
-		self._pw_bc_zone = ctk.CTkFrame(
-			card, fg_color=LBL_PREVIEW_BARCODE_BG, corner_radius=0
-		)
-		self._pw_bc_zone.grid(row=3, column=0, sticky='nsew')
-		self._pw_bc_image = ctk.CTkLabel(
-			self._pw_bc_zone, text='', image=None
-		)
-		self._pw_bc_image.pack(expand=True, fill='both', padx=4, pady=2)
-
-		# Row 4 — Footer
-		self._pw_footer = ctk.CTkFrame(
-			card, fg_color=LBL_PREVIEW_FOOTER_BG, corner_radius=0
-		)
-		self._pw_footer.grid(row=4, column=0, sticky='nsew')
-		self._pw_footer_label = ctk.CTkLabel(
-			self._pw_footer,
-			text='0000000000   Imp: 20/05/26',
-			font=('Arial', max(4, int(foot_h * 0.30))),
-			text_color=LBL_PREVIEW_TEXT,
-		)
-		self._pw_footer_label.pack(expand=True)
-
-		self._update_live_preview()
-		# Re-renderizar después de que los widgets se rendericen (winfo_width/height > 1)
-		self.after(150, self._update_live_preview)
+		self.after(30, self._update_live_preview)
 
 	def _update_live_preview(self):
 		if not self.winfo_exists():
 			return
-		if not getattr(self, '_pw_name', None):
+		preview_widget = getattr(self, '_preview_image', None)
+		if not preview_widget:
 			return
 		try:
-			if not self._pw_name.winfo_exists():
+			if not preview_widget.winfo_exists():
 				return
 		except Exception:
 			return
@@ -503,177 +410,31 @@ class LabelView(BaseView):
 			}
 		)
 
-		cfg = _cfg_mgr.load()
-		company = cfg.get('company_name', 'MI NEGOCIO')
-		logo_path = cfg.get('company_logo_path', '')
-		price_mode = item.get('price_mode', 'retail')
-		list_b_name = cfg.get('price_list_b_name', 'Mayorista')
-		symbol = cfg.get('currency_symbol', '$')
 		try:
-			decimals = int(float(cfg.get('currency_decimals') or 0))
-		except (ValueError, TypeError):
-			decimals = 0
-
-		price = self._get_item_display_price(item)
-		raw_disc = item.get('discount_price')
-		try:
-			discount_price = float(raw_disc) if raw_disc else None
-			if discount_price is not None and discount_price < 0:
-				discount_price = None
-		except (ValueError, TypeError):
-			discount_price = None
-
-		is_offer = bool(discount_price is not None and discount_price < price)
-		p_final = discount_price if is_offer else price
-
-		name_txt = _sanitize(item.get('name', 'Producto'))[:40]
-		attr_txt = _sanitize(item.get('attribute', ''))
-		barcode_txt = item.get('barcode', '') or '0000000000'
-		date_str = datetime.now().strftime('%d/%m/%y')
-
-		tpl_colors = {
-			'supermercado': LBL_HEADER_DARK,
-			'producto': LBL_HEADER_DEEP,
-			'precio': LBL_HEADER_DARK,
-			'mini': LBL_HEADER_ORANGE,
-			'dual': LBL_HEADER_DEEP,
-		}
-		hdr_normal = tpl_colors.get(self._tpl_key, LBL_HEADER_DARK)
-
-		header_color = hdr_normal
-		brand_text = company[:24].upper()
-
-		if is_offer:
-			header_color = LBL_RED
-			brand_text = '* OFERTA *'
-		elif price_mode == 'price_b' and self._tpl_key not in ('precio', 'dual'):
-			header_color = LBL_BLUE
-			brand_text = list_b_name.upper()
-
-		price_text_color = (
-			LBL_RED
-			if is_offer
-			else (LBL_HEADER_ORANGE if self._tpl_key == 'mini' else LBL_HEADER_DEEP)
-		)
-
-		def _safe(widget_attr, **kwargs):
-			w = getattr(self, widget_attr, None)
-			if not w:
-				return
-			try:
-				if w.winfo_exists():
-					w.configure(**kwargs)
-			except Exception:
-				pass
-
-		# Logo
-		show_logo = logo_path and os.path.exists(logo_path) and not is_offer and price_mode != 'price_b'
-		if show_logo:
-			try:
-				if self._pw_header and self._pw_header.winfo_exists():
-					img = Image.open(logo_path)
-					h = self._pw_header.winfo_height()
-					if h < 10:
-						h = 20
-					ratio = img.width / img.height
-					new_h = max(8, h - 4)
-					new_w = int(new_h * ratio)
-					resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-					img.close()
-					ctk_img = ctk.CTkImage(resized, size=(new_w, new_h))
-					self._cached_logo_image = ctk_img
-					_safe('_pw_logo', image=ctk_img, text='')
-					_safe('_pw_brand', text='')
-					if not self._pw_logo.winfo_viewable():
-						self._pw_logo.pack(expand=True, fill='both', padx=2)
-				else:
-					self._cached_logo_image = None
-					_safe('_pw_logo', image=None, text='')
-					_safe('_pw_brand', text=brand_text)
-			except Exception:
-				self._cached_logo_image = None
-				_safe('_pw_logo', image=None, text='')
-				try:
-					self._pw_logo.pack_forget()
-				except Exception:
-					pass
-				_safe('_pw_brand', text=brand_text)
-		else:
-			self._cached_logo_image = None
-			_safe('_pw_logo', image=None, text='')
-			try:
-				self._pw_logo.pack_forget()
-			except Exception:
-				pass
-			_safe('_pw_brand', text=brand_text)
-
-		_safe('_pw_header', fg_color=header_color)
-		_safe('_pw_name', text=name_txt, text_color='black')
-		_safe('_pw_attr', text=attr_txt)
-
-		before_text = ''
-		if is_offer and self._tpl_key != 'dual':
-			before_text = f'Antes: {_fmt_price(price, symbol, decimals)}'
-		_safe('_pw_price_before', text=before_text)
-
-		if self._tpl_key == 'dual':
-			price_b_val = item.get('selling_price_b')
-			try:
-				price_b_float = float(price_b_val) if price_b_val is not None else None
-			except (ValueError, TypeError):
-				price_b_float = None
-
-			if is_offer:
-				price_a_txt = _fmt_price(discount_price, symbol, decimals)
-				price_a_color = LBL_RED
-			else:
-				price_a_txt = _fmt_price(price, symbol, decimals)
-				price_a_color = LBL_HEADER_DEEP
-
-			if price_b_float is not None:
-				price_b_txt = _fmt_price(price_b_float, symbol, decimals)
-				combined_txt = f'{price_a_txt}  |  {price_b_txt}'
-			else:
-				combined_txt = f'{price_a_txt}  |  --'
-
-			_safe(
-				'_pw_price',
-				text=combined_txt,
-				text_color=price_a_color,
+			preview_item = dict(item)
+			if not preview_item.get('barcode'):
+				preview_item['barcode'] = 'INTPREVIEW0001'
+			preview_item.setdefault('copies', 1)
+			page_image = self._ctrl.render_preview_image(preview_item, self._tpl_key)
+			tpl = TEMPLATES.get(self._tpl_key, TEMPLATES['supermercado'])
+			max_width = min(int(tpl['w_mm'] * 3.5), 260)
+			max_height = min(int(tpl['h_mm'] * 3.5), 180)
+			ratio = min(max_width / page_image.width, max_height / page_image.height)
+			size = (max(1, int(page_image.width * ratio)), max(1, int(page_image.height * ratio)))
+			preview_image = ctk.CTkImage(page_image, size=size)
+			self._cached_preview_image = preview_image
+			preview_widget.configure(image=preview_image, text='')
+			if getattr(self, '_preview_caption', None):
+				item_name = _sanitize(item.get('name', 'Producto de ejemplo'))
+				self._preview_caption.configure(
+					text=f'Vista fiel al PDF · {item_name[:32]}'
+				)
+		except Exception as error:
+			logger.warning('No se pudo renderizar la vista previa de etiquetas: %s', error)
+			preview_widget.configure(
+				image=None,
+				text='No se pudo generar la vista previa.\nRevisá los datos del artículo.',
 			)
-		else:
-			_safe(
-				'_pw_price',
-				text=_fmt_price(p_final, symbol, decimals),
-				text_color=price_text_color,
-			)
-		_safe('_pw_footer_label', text=f'{barcode_txt[:18]}   Imp: {date_str}')
-
-		try:
-			bc_path = self._ctrl._generate_barcode_png(barcode_txt)
-			if bc_path and os.path.exists(bc_path):
-				if self._pw_bc_zone and self._pw_bc_zone.winfo_exists():
-					img = Image.open(bc_path)
-					zone_w = self._pw_bc_zone.winfo_width()
-					zone_h = self._pw_bc_zone.winfo_height()
-					if zone_w > 10 and zone_h > 10:
-						resized = img.resize((zone_w - 8, zone_h - 4), Image.Resampling.LANCZOS)
-						img.close()
-						ctk_img = ctk.CTkImage(resized, size=(zone_w - 8, zone_h - 4))
-						self._cached_bc_image = ctk_img
-						_safe('_pw_bc_image', image=ctk_img, text='')
-					else:
-						self._cached_bc_image = None
-						_safe('_pw_bc_image', image=None, text='──────')
-				else:
-					self._cached_bc_image = None
-					_safe('_pw_bc_image', image=None, text='──────')
-			else:
-				self._cached_bc_image = None
-				_safe('_pw_bc_image', image=None, text='──────')
-		except Exception:
-			self._cached_bc_image = None
-			_safe('_pw_bc_image', image=None, text='──────')
 
 	def _select_template(self, key: str):
 		self._tpl_key = key
@@ -1191,7 +952,11 @@ class LabelView(BaseView):
 				)
 			except Exception as e:
 				logger.error('save_manual_article: %s', e, exc_info=True)
-				real_id = f'manual_{bc}'
+				self.show_error(
+					f'No se pudo guardar el artículo. No se generó una etiqueta sin respaldo: {e}',
+					'Artículo no guardado',
+				)
+				return
 
 			new_item = {
 				'variant_id': real_id,
@@ -1257,7 +1022,18 @@ class LabelView(BaseView):
 		entry = {**variant, 'copies': 1, 'price_mode': mode, 'discount_price': None}
 
 		if not entry.get('barcode'):
-			entry['barcode'] = self._ctrl.generate_internal_barcode()
+			try:
+				entry['barcode'] = self._ctrl.ensure_variant_barcode(
+					self.ctx.db_engine, self.ctx.tenant_id, str(v_id)
+				)
+				variant['barcode'] = entry['barcode']
+			except Exception as error:
+				logger.error('No se pudo persistir barcode interno: %s', error, exc_info=True)
+				self.show_error(
+					f'No se agregó «{variant.get("name", "artículo")}» porque no se pudo asignar un código escaneable: {error}',
+					'Código de barras requerido',
+				)
+				return
 
 		# Normalizar discount_until (datetime → string dd/mm/AAAA para el date picker)
 		raw_until = entry.get('discount_until')
@@ -1625,7 +1401,7 @@ class LabelView(BaseView):
 			)
 		if ok:
 			self.show_success(
-				f'{total} etiqueta{"s" if total != 1 else ""} en formato "{tpl["label"]}" abierta{"s" if total != 1 else ""} automáticamente.',
+				f'{total} etiqueta{"s" if total != 1 else ""} en formato "{tpl["label"]}". {self._ctrl.last_delivery_message}',
 				'PDF generado',
 			)
 		else:

@@ -142,7 +142,9 @@ class InventoryController(BaseController):
 					if remaining == 0:
 						break
 					if delta < 0:
-						take = max(remaining, -int(st.quantity))
+						# ``quantity`` supports four decimal places.  Casting it to int
+						# left fractional stock behind while recording the full adjustment.
+						take = max(remaining, -Decimal(str(st.quantity)))
 						st.quantity += take
 						remaining -= take
 					else:

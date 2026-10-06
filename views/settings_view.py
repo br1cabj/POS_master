@@ -379,6 +379,10 @@ class SettingsView(BaseView):
 				val = v.get()
 				if val != _DETECTING:
 					s['printer_label_name'] = val
+			if v := getattr(self, '_peri_label_output_var', None):
+				s['label_output_mode'] = (
+					'printer' if v.get() == 'Enviar a impresora seleccionada' else 'preview'
+				)
 			# Balanza
 			if v := getattr(self, '_peri_scale_enabled_var', None):
 				s['scale_enabled'] = v.get()
@@ -1259,6 +1263,26 @@ class SettingsView(BaseView):
 			value=saved_label or printer_opts[0]
 		)
 		_printer_om(lc, self._peri_label_printer_var, 'printer_label_name')
+		label_output = (
+			'Enviar a impresora seleccionada'
+			if s.get('label_output_mode') == 'printer'
+			else 'Vista previa (PDF)'
+		)
+		self._peri_label_output_var = ctk.StringVar(master=self, value=label_output)
+		self._peri_option_row(
+			lc,
+			'Salida:',
+			self._peri_label_output_var,
+			['Vista previa (PDF)', 'Enviar a impresora seleccionada'],
+		)
+		ctk.CTkLabel(
+			lc,
+			text='Vista previa abre el PDF. Impresora usa el driver de Windows seleccionado; configurá allí el tamaño exacto de la etiqueta.',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			wraplength=500,
+			justify='left',
+		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
 		self._peri_label_status = self._peri_status_label(lc)
 		ctk.CTkButton(
@@ -1722,27 +1746,17 @@ class SettingsView(BaseView):
 			)
 			return
 		try:
-			import win32print  # type: ignore
+			from controllers.label_controller import LabelController
 
-			zpl = '^XA^FO50,50^A0N,40,40^FDCloudPOS - Prueba^FS^FO50,110^A0N,30,30^FDEtiqueta OK^FS^XZ'
-			hprinter = win32print.OpenPrinter(name)
-			try:
-				win32print.StartDocPrinter(
-					hprinter, 1, ('Etiqueta prueba', None, 'RAW')
-				)
-				win32print.StartPagePrinter(hprinter)
-				win32print.WritePrinter(hprinter, zpl.encode('ascii'))
-				win32print.EndPagePrinter(hprinter)
-				win32print.EndDocPrinter(hprinter)
-			finally:
-				win32print.ClosePrinter(hprinter)
-			self._set_peri_status(self._peri_label_status, '✔  Etiqueta enviada.', True)
-		except ImportError:
-			self._set_peri_status(
-				self._peri_label_status,
-				'⚠  Instala pywin32 para imprimir directamente.',
-				False,
+			controller = LabelController()
+			ok, result = controller.generate_pdf(
+				[{'name': 'CloudPOS — etiqueta de prueba', 'barcode': 'INTTEST00001', 'price': 1234, 'copies': 1}],
+				'precio',
 			)
+			if ok:
+				self._set_peri_status(self._peri_label_status, f'✔  {controller.last_delivery_message}', True)
+			else:
+				self._set_peri_status(self._peri_label_status, f'✕  {result}', False)
 		except Exception as e:
 			self._set_peri_status(self._peri_label_status, f'✕  Error: {e}', False)
 

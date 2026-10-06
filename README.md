@@ -7,6 +7,17 @@
 
 A professional desktop Point of Sale (POS) system built with Python and CustomTkinter, accompanied by a modern Web Dashboard built with React. Designed for small and medium businesses, featuring multi-tenant support, robust local-first architecture, license management, and optional real-time cloud synchronization.
 
+## Latest delivery
+
+This release focuses on transaction integrity, cloud-dashboard hardening, and reliable product labels.
+
+- **Safer operations:** strengthened validation around sales, returns, supplier returns, quotations, inventory movements, and open cash sessions.
+- **Secure cloud dashboard:** database-enforced tenant isolation, expiring web sessions, login rate limiting, and no embedded cloud database URL in the desktop client.
+- **Professional labels:** validated EAN/UPC and Code128 barcodes, persisted internal codes, driver-based printing, five redesigned templates, and a live preview rendered from the exact PDF page sent to the printer.
+- **Web administration:** refreshed session handling, authorization behavior, and dashboard/customer-ledger views.
+
+See [CHANGELOG.md](CHANGELOG.md) for implementation notes and upgrade considerations.
+
 ## 📸 Screenshots
 
 > **Note:** Add your screenshots here to showcase the UI.
@@ -96,6 +107,16 @@ This project maintains automated tests to ensure business logic integrity.
 pytest tests/ -v
 ```
 
+The label flow is covered by controller tests. The in-app preview is intentionally generated from the same PDF page used for printing, so offers, pricing, logos, barcodes, and the Dual layout cannot drift apart.
+
+For the web dashboard:
+
+```bash
+cd web-dashboard
+npm run build
+npm audit
+```
+
 ## 📂 Architecture & Project Structure
 
 The project follows a modular, domain-driven design, cleanly separating business logic from UI components.
@@ -143,6 +164,8 @@ pyinstaller CloudPOS.spec --clean
 | `service_role` | — | Supabase service role key (optional) |
 
 > ⚠️ **Security Warning:** Never commit the `.env` file to version control.
+
+For cloud synchronization, configure `DATABASE_CLOUD_URL` only in the deployment environment. The application deliberately does not include a fallback cloud URL or service key. Run migrations against the cloud database before exposing the web dashboard; they install the tenant-scoped access policies and the secure web-session functions.
 
 ## 🗺 Roadmap
 

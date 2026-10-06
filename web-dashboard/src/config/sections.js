@@ -17,7 +17,7 @@ export const sections = [
   { id: 'combos', label: 'Combos', icon: 'bi-grid-3x3', path: '/combos', roles: ['admin', 'supervisor'] },
   { id: 'reporte-cierre', label: 'Reporte Cierre', icon: 'bi-file-earmark-bar-graph', path: '/reporte-cierre', roles: ['admin', 'supervisor'] },
   { id: 'stock-alerts', label: 'Alertas Stock', icon: 'bi-exclamation-triangle', path: '/stock-alerts', roles: [] },
-  { id: 'customer-ledger', label: 'Estado Cuenta', icon: 'bi-person-lines-fill', path: '/customer-ledger', roles: [] },
+  { id: 'customer-ledger', label: 'Estado Cuenta', icon: 'bi-person-lines-fill', path: '/customer-ledger', roles: ['admin', 'supervisor'] },
 ];
 
 export function isSectionAllowed(path, role) {

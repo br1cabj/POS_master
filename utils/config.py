@@ -28,11 +28,9 @@ _default_db = f'sqlite:///{_app_dir() / "pos_system.db"}'
 DB_URL = os.getenv('DATABASE_URL', _default_db)
 
 # ── Cloud / Supabase ──────────────────────────────────────────────────────────
-_C = b'\x11\x0e\x1d\x00\x02\x01\x07\x12\x1b\x03YNM\x15\x0c\x1c\x1a\x04\x1d\x0b\x07H$\x08(+])\x01\x10-($\x1a \x16\x13*!\x07\x0bO\x0b\x08\x11\x1b\x15\x02\x08\n\t\x12\x1c\x01\x19\x16\x1e\x16\x0b\x1d\x02\x04]\x1c\x17\x02\x04\x16\x13\x12\x16C\x06\x0bSTZGWK\x05\x1d\x12\x1a\x13\x17\x04\x12'
-def _r(d, k):
-	return ''.join(chr(b ^ ord(k[i % len(k)])) for i, b in enumerate(d))
-
-DATABASE_CLOUD_URL = os.getenv('DATABASE_CLOUD_URL', _r(_C, SECRET_SALT))
+# Never embed a database URI (even obfuscated) in a distributable client.  A
+# missing value deliberately keeps sync disabled, as documented in .env.example.
+DATABASE_CLOUD_URL = os.getenv('DATABASE_CLOUD_URL', '').strip()
 
 # Supabase REST API (used by the UI for status checks and future realtime).
 SUPABASE_URL = os.getenv('SUPABASE_URL', '')
@@ -42,7 +40,10 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
 CLOUD_SYNC_ENABLED = bool(DATABASE_CLOUD_URL)
 
 # How often the background worker syncs (seconds). Default: 5 minutes.
-CLOUD_SYNC_INTERVAL = int(os.getenv('CLOUD_SYNC_INTERVAL', '300'))
+try:
+	CLOUD_SYNC_INTERVAL = max(30, int(os.getenv('CLOUD_SYNC_INTERVAL', '300')))
+except ValueError:
+	CLOUD_SYNC_INTERVAL = 300
 
 
 @event.listens_for(Engine, 'connect')

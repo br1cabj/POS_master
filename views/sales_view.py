@@ -1456,7 +1456,10 @@ class SalesView(BaseView):
 
 		is_scale_barcode = False
 		scale_price = Decimal('0.0')
-		search_code = raw_code.lstrip('0') or '0'
+		# Buscar siempre primero el valor exacto: EAN/UPC pueden empezar con cero.
+		# Se conserva un fallback normalizado únicamente para códigos antiguos que se
+		# hubieran guardado sin esos ceros.
+		search_code = raw_code
 
 		if len(raw_code) == 13 and raw_code.startswith('20'):
 			plu_code = str(int(raw_code[2:7]))
@@ -1467,6 +1470,12 @@ class SalesView(BaseView):
 		found_variant = next(
 			(v for v in self.db_variants if str(v.get('barcode')) == search_code), None
 		)
+		if not found_variant and not is_scale_barcode:
+			legacy_code = raw_code.lstrip('0') or '0'
+			if legacy_code != raw_code:
+				found_variant = next(
+					(v for v in self.db_variants if str(v.get('barcode')) == legacy_code), None
+				)
 
 		if not found_variant and not is_scale_barcode and self._search_mode != 'scan':
 			q = raw_code.lower()

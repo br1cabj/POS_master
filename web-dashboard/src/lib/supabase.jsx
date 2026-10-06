@@ -13,4 +13,22 @@ try {
   throw new Error(`Invalid Supabase URL: ${supabaseUrl}. Must be a valid URL.`);
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+function makeClient(sessionToken = null) {
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    global: {
+      headers: sessionToken ? { 'x-cloudpos-session': sessionToken } : {},
+    },
+  });
+}
+
+// Export a live binding.  Recreating the client is necessary because the
+// session token is sent as a request header used by the database RLS policy.
+export let supabase = makeClient();
+
+export function setCloudSession(sessionToken) {
+  supabase = makeClient(sessionToken);
+}
+
+export function clearCloudSession() {
+  supabase = makeClient();
+}

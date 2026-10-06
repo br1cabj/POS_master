@@ -138,15 +138,13 @@ class PosApp(ctk.CTk):
 		if self.db_engine is None:
 			return 0
 		try:
-			from utils.sync_worker import _load_state
+			from utils.sync_worker import _load_state, _read_cursor
 
 			state = _load_state()
-			last_str = state.get('sales')
-			if not last_str:
+			cursor = state.get('sales')
+			if not cursor:
 				return 0
-			from datetime import datetime as _dt
-
-			last_sync = _dt.fromisoformat(last_str)
+			last_sync, _ = _read_cursor(cursor)
 			from sqlalchemy.orm import sessionmaker
 
 			from database.models import Sale
@@ -329,14 +327,20 @@ class PosApp(ctk.CTk):
 		return os.path.join(offline_dir, 'cashier_offline.db')
 
 	def _start_offline_cashier(self):
-		"""Abre el DB local de respaldo en modo offline."""
+		"""Opens the backup in read-only mode.
+
+		There is no conflict-safe reconciliation protocol for a disconnected
+		cashier yet.  Writing to a copy therefore creates sales that cannot be
+		merged safely into the primary database.  Read-only access preserves the
+		useful catalogue/history fallback without pretending those writes are safe.
+		"""
 		offline_path = self._offline_db_path()
 		from utils.config import make_engine
+		from urllib.parse import quote
 
-		self.db_engine = make_engine(f'sqlite:///{offline_path}')
-		from database.migrations import run_migrations
-
-		run_migrations(self.db_engine)
+		offline_uri = 'sqlite+pysqlite:///file:' + quote(
+			offline_path.replace('\\', '/'), safe='/:') + '?mode=ro&uri=true'
+		self.db_engine = make_engine(offline_uri)
 		# Guardamos en settings que estamos en modo offline para mostrar banner
 		from utils.settings_manager import set as settings_set
 
@@ -345,6 +349,11 @@ class PosApp(ctk.CTk):
 
 	def _retry_cashier(self):
 		self._clear_window()
+		# A previous offline engine must never be reused after the share becomes
+		# reachable; otherwise the user appears online while still editing the copy.
+		if self.db_engine is not None:
+			self.db_engine.dispose()
+			self.db_engine = None
 		# Limpiar flag de modo offline al reconectar
 		from utils.settings_manager import set as settings_set
 

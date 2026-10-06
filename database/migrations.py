@@ -158,6 +158,190 @@ def setup_cloud_schema(engine) -> None:
 		raise
 
 	_cloud_missing_columns(engine)
+	with engine.begin() as conn:
+		# El índice parcial es la garantía final ante dos aperturas concurrentes
+		# de caja. SQLite lo recibe mediante v30; la nube se crea por separado.
+		conn.execute(
+			text(
+				'CREATE UNIQUE INDEX IF NOT EXISTS uq_cash_open_session '
+				'ON public.cash_sessions(tenant_id, user_id) WHERE is_open'
+			)
+		)
+	_configure_cloud_dashboard_security(engine)
+
+
+def _configure_cloud_dashboard_security(engine) -> None:
+	"""Install database-enforced, tenant-scoped read access for the web UI.
+
+	The browser never receives password hashes.  It obtains an opaque, expiring
+	session token through a SECURITY DEFINER login function; RLS derives the
+	tenant from that token on every REST query.
+	"""
+	if _is_sqlite(engine):
+		return
+	with engine.begin() as conn:
+		conn.execute(text('CREATE EXTENSION IF NOT EXISTS pgcrypto'))
+		conn.execute(text('''
+			CREATE TABLE IF NOT EXISTS public.cloudpos_web_sessions (
+				token_hash TEXT PRIMARY KEY,
+				tenant_id VARCHAR(36) NOT NULL,
+				user_id VARCHAR(36) NOT NULL,
+				role VARCHAR(50) NOT NULL,
+				expires_at TIMESTAMP NOT NULL
+			)
+		'''))
+		conn.execute(text('''
+			CREATE TABLE IF NOT EXISTS public.cloudpos_web_login_attempts (
+				tenant_id VARCHAR(36) NOT NULL,
+				username TEXT NOT NULL,
+				attempts INTEGER NOT NULL DEFAULT 0,
+				locked_until TIMESTAMP NULL,
+				last_attempt TIMESTAMP NOT NULL DEFAULT now(),
+				PRIMARY KEY (tenant_id, username)
+			)
+		'''))
+		conn.execute(text('''
+			CREATE OR REPLACE FUNCTION public.cloudpos_web_session()
+			RETURNS TABLE(id VARCHAR, username VARCHAR, display_name VARCHAR, role VARCHAR, tenant_id VARCHAR)
+			LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, extensions AS $$
+				-- El rol se lee de users en cada petición: revocar permisos a un
+				-- usuario tiene efecto inmediato, sin esperar que venza su sesión.
+				SELECT u.id, u.username, u.display_name, u.role, s.tenant_id
+				FROM public.cloudpos_web_sessions s
+				JOIN public.users u ON u.id = s.user_id
+				WHERE s.token_hash = encode(digest(COALESCE((NULLIF(current_setting('request.headers', true), '')::jsonb ->> 'x-cloudpos-session'), ''), 'sha256'), 'hex')
+				  AND s.expires_at > now() AND u.is_active = true AND u.deleted_at IS NULL
+			$$
+		'''))
+		conn.execute(text('''
+			CREATE OR REPLACE FUNCTION public.cloudpos_web_login(p_username TEXT, p_password TEXT, p_tenant_id VARCHAR)
+			RETURNS TABLE(session_token TEXT, id VARCHAR, username VARCHAR, display_name VARCHAR, role VARCHAR, tenant_id VARCHAR)
+			LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
+			DECLARE usr public.users%ROWTYPE; token TEXT;
+			BEGIN
+				IF COALESCE(trim(p_username), '') = ''
+					OR COALESCE(p_password, '') = '' OR p_tenant_id IS NULL THEN
+					RETURN;
+				END IF;
+				DELETE FROM public.cloudpos_web_login_attempts
+				WHERE last_attempt < now() - interval '1 day';
+				IF EXISTS (
+					SELECT 1 FROM public.cloudpos_web_login_attempts
+					WHERE tenant_id = p_tenant_id AND username = p_username
+					  AND locked_until > now()
+				) THEN RETURN; END IF;
+				SELECT * INTO usr FROM public.users
+				WHERE users.username = p_username AND users.tenant_id = p_tenant_id
+				  AND users.is_active = true AND users.deleted_at IS NULL LIMIT 1;
+				IF NOT FOUND OR usr.password_hash IS NULL OR crypt(p_password, usr.password_hash) <> usr.password_hash THEN
+					INSERT INTO public.cloudpos_web_login_attempts(tenant_id, username, attempts, locked_until, last_attempt)
+					VALUES (p_tenant_id, p_username, 1, NULL, now())
+					ON CONFLICT (tenant_id, username) DO UPDATE SET
+						attempts = CASE WHEN cloudpos_web_login_attempts.last_attempt <= now() - interval '5 minutes'
+							THEN 1 ELSE cloudpos_web_login_attempts.attempts + 1 END,
+						locked_until = CASE WHEN cloudpos_web_login_attempts.last_attempt <= now() - interval '5 minutes'
+							THEN NULL WHEN cloudpos_web_login_attempts.attempts + 1 >= 5
+							THEN now() + interval '5 minutes' ELSE NULL END,
+						last_attempt = now();
+					RETURN;
+				END IF;
+				DELETE FROM public.cloudpos_web_login_attempts
+				WHERE tenant_id = p_tenant_id AND username = p_username;
+				DELETE FROM public.cloudpos_web_sessions WHERE expires_at <= now();
+				token := encode(gen_random_bytes(32), 'hex');
+				INSERT INTO public.cloudpos_web_sessions(token_hash, tenant_id, user_id, role, expires_at)
+				VALUES (encode(digest(token, 'sha256'), 'hex'), usr.tenant_id, usr.id, usr.role, now() + interval '8 hours');
+				RETURN QUERY SELECT token, usr.id, usr.username, usr.display_name, usr.role, usr.tenant_id;
+			END $$
+		'''))
+		conn.execute(text('''
+			CREATE OR REPLACE FUNCTION public.cloudpos_current_tenant()
+			RETURNS VARCHAR LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, extensions AS $$
+				SELECT tenant_id FROM public.cloudpos_web_session() LIMIT 1
+			$$
+		'''))
+		conn.execute(text('''
+			CREATE OR REPLACE FUNCTION public.cloudpos_current_user()
+			RETURNS VARCHAR LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, extensions AS $$
+				SELECT id FROM public.cloudpos_web_session() LIMIT 1
+			$$
+		'''))
+		conn.execute(text('''
+			CREATE OR REPLACE FUNCTION public.cloudpos_web_is_manager()
+			RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, extensions AS $$
+				SELECT COALESCE((SELECT role IN ('admin', 'supervisor') FROM public.cloudpos_web_session() LIMIT 1), false)
+			$$
+		'''))
+		conn.execute(text('REVOKE ALL ON FUNCTION public.cloudpos_web_login(TEXT, TEXT, VARCHAR) FROM PUBLIC'))
+		conn.execute(text('REVOKE ALL ON FUNCTION public.cloudpos_web_session() FROM PUBLIC'))
+		conn.execute(text('REVOKE ALL ON FUNCTION public.cloudpos_current_tenant() FROM PUBLIC'))
+		conn.execute(text('REVOKE ALL ON FUNCTION public.cloudpos_current_user() FROM PUBLIC'))
+		conn.execute(text('REVOKE ALL ON FUNCTION public.cloudpos_web_is_manager() FROM PUBLIC'))
+		conn.execute(text('GRANT EXECUTE ON FUNCTION public.cloudpos_web_login(TEXT, TEXT, VARCHAR) TO anon'))
+		conn.execute(text('GRANT EXECUTE ON FUNCTION public.cloudpos_web_session() TO anon'))
+		conn.execute(text('GRANT EXECUTE ON FUNCTION public.cloudpos_current_tenant() TO anon'))
+		conn.execute(text('GRANT EXECUTE ON FUNCTION public.cloudpos_current_user() TO anon'))
+		conn.execute(text('GRANT EXECUTE ON FUNCTION public.cloudpos_web_is_manager() TO anon'))
+
+		direct_tables = (
+			'tenants', 'branches', 'warehouses', 'suppliers', 'categories', 'articles',
+			'article_history', 'stock_movements', 'customers', 'sales', 'cash_sessions',
+			'purchases', 'purchase_returns', 'quotations', 'promotions',
+		)
+		manager_tables = {
+			'suppliers', 'article_history', 'cash_sessions', 'purchases',
+			'purchase_returns', 'promotions',
+		}
+		for table_name in direct_tables:
+			predicate = (
+				"tenant_id IS NULL OR tenant_id = public.cloudpos_current_tenant()"
+				if table_name == 'categories'
+				else "tenant_id = public.cloudpos_current_tenant()"
+			)
+			if table_name == 'tenants':
+				predicate = 'id = public.cloudpos_current_tenant()'
+			if table_name in manager_tables:
+				predicate = f'({predicate}) AND public.cloudpos_web_is_manager()'
+			conn.execute(text(f'ALTER TABLE public.{table_name} ENABLE ROW LEVEL SECURITY'))
+			conn.execute(text(f'DROP POLICY IF EXISTS cloudpos_tenant_read ON public.{table_name}'))
+			conn.execute(text(f'CREATE POLICY cloudpos_tenant_read ON public.{table_name} FOR SELECT TO anon USING ({predicate})'))
+			conn.execute(text(f'REVOKE ALL ON TABLE public.{table_name} FROM anon'))
+			conn.execute(text(f'GRANT SELECT ON TABLE public.{table_name} TO anon'))
+
+		child_policies = {
+			'article_variants': 'EXISTS (SELECT 1 FROM public.articles a WHERE a.id = article_variants.article_id AND a.tenant_id = public.cloudpos_current_tenant())',
+			'stocks': 'EXISTS (SELECT 1 FROM public.article_variants v JOIN public.articles a ON a.id = v.article_id WHERE v.id = stocks.variant_id AND a.tenant_id = public.cloudpos_current_tenant())',
+			'sale_details': 'EXISTS (SELECT 1 FROM public.sales s WHERE s.id = sale_details.sale_id AND s.tenant_id = public.cloudpos_current_tenant())',
+			'purchase_details': 'EXISTS (SELECT 1 FROM public.purchases p WHERE p.id = purchase_details.purchase_id AND p.tenant_id = public.cloudpos_current_tenant())',
+			'purchase_return_items': 'EXISTS (SELECT 1 FROM public.purchase_returns r WHERE r.id = purchase_return_items.purchase_return_id AND r.tenant_id = public.cloudpos_current_tenant())',
+			'quotation_items': 'EXISTS (SELECT 1 FROM public.quotations q WHERE q.id = quotation_items.quotation_id AND q.tenant_id = public.cloudpos_current_tenant())',
+			'cash_movements': 'EXISTS (SELECT 1 FROM public.cash_sessions c WHERE c.id = cash_movements.session_id AND c.tenant_id = public.cloudpos_current_tenant())',
+			'combo_items': 'EXISTS (SELECT 1 FROM public.article_variants v JOIN public.articles a ON a.id = v.article_id WHERE v.id = combo_items.combo_id AND a.tenant_id = public.cloudpos_current_tenant())',
+		}
+		manager_child_tables = {
+			'purchase_details', 'purchase_return_items', 'cash_movements',
+		}
+		for table_name, predicate in child_policies.items():
+			if table_name in manager_child_tables:
+				predicate = f'({predicate}) AND public.cloudpos_web_is_manager()'
+			conn.execute(text(f'ALTER TABLE public.{table_name} ENABLE ROW LEVEL SECURITY'))
+			conn.execute(text(f'DROP POLICY IF EXISTS cloudpos_tenant_read ON public.{table_name}'))
+			conn.execute(text(f'CREATE POLICY cloudpos_tenant_read ON public.{table_name} FOR SELECT TO anon USING ({predicate})'))
+			conn.execute(text(f'REVOKE ALL ON TABLE public.{table_name} FROM anon'))
+			conn.execute(text(f'GRANT SELECT ON TABLE public.{table_name} TO anon'))
+
+		conn.execute(text('ALTER TABLE public.users ENABLE ROW LEVEL SECURITY'))
+		conn.execute(text('DROP POLICY IF EXISTS cloudpos_tenant_read ON public.users'))
+		conn.execute(text('''
+			CREATE POLICY cloudpos_tenant_read ON public.users FOR SELECT TO anon USING (
+				tenant_id = public.cloudpos_current_tenant()
+				AND (public.cloudpos_web_is_manager() OR id = public.cloudpos_current_user())
+			)
+		'''))
+		conn.execute(text('REVOKE ALL ON TABLE public.users FROM anon'))
+		conn.execute(text('GRANT SELECT (id, username, display_name, role, is_active, deleted_at, tenant_id, updated_at) ON TABLE public.users TO anon'))
+		conn.execute(text('REVOKE ALL ON TABLE public.cloudpos_web_sessions FROM PUBLIC'))
+		conn.execute(text('REVOKE ALL ON TABLE public.cloudpos_web_login_attempts FROM PUBLIC'))
 
 
 # ─── cloud schema column sync ───────────────────────────────────────────────────

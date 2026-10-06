@@ -16,11 +16,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from controllers.base import BaseController
+from controllers.sales_controller import SalesController
 from database.models import (
 	Article,
 	ArticleVariant,
 	CashMovement,
 	CashSession,
+	ComboItem,
 	Customer,
 	Quotation,
 	QuotationItem,
@@ -437,26 +439,99 @@ class QuotationController(BaseController):
 						quotation_id,
 					)
 
-				# Calcular el costo real para la rentabilidad de la venta
+				# Resolver el inventario como una venta normal: las filas Stock son
+				# por lote, por lo que ``first()`` podía descontar un lote arbitrario.
+				# La cotización usa el depósito elegido (o el general), pero distribuye
+				# el descuento FEFO entre sus lotes.
+				stock_items = [it for it in q.items if it.variant_id]
+				source_warehouse_id = warehouse_id
+				if stock_items and not source_warehouse_id:
+					source_warehouse_id = get_or_create_default_warehouse(s, q.tenant_id)
+
+				variant_ids = [it.variant_id for it in stock_items]
+				variants = {
+					v.id: v
+					for v in s.query(ArticleVariant)
+					.join(Article)
+					.options(
+						joinedload(ArticleVariant.article),
+						joinedload(ArticleVariant.ingredients).joinedload(
+							ComboItem.ingredient
+						),
+					)
+					.filter(
+						ArticleVariant.id.in_(variant_ids),
+						Article.tenant_id == q.tenant_id,
+					)
+					.all()
+				}
+				stock_variant_ids = set()
+				for it in stock_items:
+					variant = variants.get(it.variant_id)
+					if not variant:
+						raise ValueError(f'Producto no encontrado o no autorizado: {it.description}')
+					if variant.is_combo:
+						stock_variant_ids.update(ci.ingredient_id for ci in variant.ingredients)
+					else:
+						stock_variant_ids.add(variant.base_variant_id or variant.id)
+
+				stocks_by_variant = {}
+				if stock_variant_ids:
+					for row in (
+						s.query(Stock)
+						.filter(
+							Stock.variant_id.in_(stock_variant_ids),
+							Stock.warehouse_id == source_warehouse_id,
+						)
+						.with_for_update()
+						.all()
+					):
+						stocks_by_variant.setdefault(row.variant_id, []).append(row)
+
 				total_cost = Decimal('0')
 				items_data = []
-
+				stock_allocations = []
 				for it in q.items:
 					unit_cost = Decimal('0')
 					if it.variant_id:
-						variant = s.get(ArticleVariant, it.variant_id)
-						if variant and variant.cost_price:
-							unit_cost = variant.cost_price
+						variant = variants[it.variant_id]
+						if variant.is_combo:
+							for component in variant.ingredients:
+								if component.ingredient is None:
+									raise ValueError(
+										f'El combo "{it.description}" contiene un ingrediente eliminado.'
+									)
+								required = Decimal(str(component.quantity_required)) * Decimal(str(it.quantity))
+								allocations = SalesController._take_from_stock_rows(
+									stocks_by_variant.get(component.ingredient_id, []), required
+								)
+								stock_allocations.extend(
+									(stock, qty, component.ingredient_id) for stock, qty in allocations
+								)
+								unit_cost += Decimal(str(component.ingredient.cost_price or 0)) * Decimal(
+									str(component.quantity_required)
+								)
+						else:
+							deduct_variant_id = variant.base_variant_id or variant.id
+							units = Decimal(str(variant.units_per_pack or 1))
+							deduct_qty = Decimal(str(it.quantity)) * units if variant.base_variant_id else Decimal(str(it.quantity))
+							allocations = SalesController._take_from_stock_rows(
+								stocks_by_variant.get(deduct_variant_id, []), deduct_qty
+							)
+							stock_allocations.extend(
+								(stock, qty, deduct_variant_id) for stock, qty in allocations
+							)
+							unit_cost = Decimal(str(variant.cost_price or 0))
 
-					line_cost = unit_cost * it.quantity
-					total_cost += line_cost
-
+					total_cost += unit_cost * Decimal(str(it.quantity))
 					items_data.append({'ref': it, 'unit_cost': unit_cost})
 
 				real_profit = (q.total_amount - total_cost).quantize(
 					Decimal('0.01'), ROUND_HALF_UP
 				)
-
+				is_fiado = (payment_method or '').lower() == 'fiado'
+				if is_fiado and not q.customer_id:
+					raise ValueError('Debes seleccionar un cliente válido para fiar.')
 				sale = Sale(
 					tenant_id=q.tenant_id,
 					user_id=user_id,
@@ -464,8 +539,8 @@ class QuotationController(BaseController):
 					total_amount=q.total_amount,
 					discount_amount=q.discount_amount,
 					profit=real_profit,
-					payment_method=payment_method,
-					status='completada',
+					payment_method=(payment_method or 'efectivo').lower(),
+					status='pendiente' if is_fiado else 'completada',
 					quotation_number=q.number,
 				)
 				s.add(sale)
@@ -473,53 +548,31 @@ class QuotationController(BaseController):
 
 				for data in items_data:
 					it = data['ref']
-					sd = SaleDetail(
-						sale_id=sale.id,
-						description=it.description,
-						quantity=it.quantity,
-						unit_cost=data['unit_cost'],
-						unit_price=it.unit_price,
-						subtotal=it.subtotal,
-						variant_id=it.variant_id,
+					s.add(
+						SaleDetail(
+							sale_id=sale.id,
+							description=it.description,
+							quantity=it.quantity,
+							unit_cost=data['unit_cost'],
+							unit_price=it.unit_price,
+							subtotal=it.subtotal,
+							variant_id=it.variant_id,
+						)
 					)
-					s.add(sd)
-
-					if it.variant_id:
-						if not warehouse_id:
-							warehouse_id = get_or_create_default_warehouse(s, q.tenant_id)
-						stock_row = (
-							s.query(Stock)
-							.filter_by(
-								variant_id=it.variant_id, warehouse_id=warehouse_id
-							)
-							.with_for_update()
-							.first()
+				for stock, quantity, variant_id in stock_allocations:
+					s.add(
+						StockMovement(
+							movement_type='out',
+							quantity=quantity,
+							reference=f'Venta Ticket #{sale.id} (desde COT-{q.number.split("-")[-1]})',
+							source_warehouse_id=stock.warehouse_id,
+							variant_id=variant_id,
+							user_id=user_id,
+							tenant_id=q.tenant_id,
 						)
-						if not stock_row:
-							raise ValueError(
-								f'No hay stock registrado para "{it.description}" en el depósito seleccionado. '
-								'Registra el producto en inventario antes de convertir la cotización.'
-							)
-						if stock_row.quantity < it.quantity:
-							raise ValueError(
-								f'Stock insuficiente para "{it.description}": '
-								f'disponible {float(stock_row.quantity):.2f}, requerido {float(it.quantity):.2f}.'
-							)
-						stock_row.quantity -= it.quantity
-						s.add(
-							StockMovement(
-								movement_type='out',
-								quantity=it.quantity,
-								reference=f'Venta Ticket #{sale.id} (desde COT-{q.number.split("-")[-1]})',
-								source_warehouse_id=warehouse_id,
-								variant_id=it.variant_id,
-								user_id=user_id,
-								tenant_id=q.tenant_id,
-							)
-						)
+					)
 
 				# Registro del ingreso en caja o actualización de deuda de cliente
-				is_fiado = payment_method.lower() == 'fiado'
 				cash_session = None
 				if not is_fiado:
 					cash_session = (
@@ -548,9 +601,13 @@ class QuotationController(BaseController):
 					s.add(
 						CashMovement(
 							session_id=cash_session.id,
-							movement_type='venta',
+							movement_type=(
+								'venta'
+								if (payment_method or '').lower() == 'efectivo'
+								else 'venta_digital'
+							),
 							amount=q.total_amount,
-							description=f'Ticket #{sale.id} - Pago: {payment_method.capitalize()} (desde COT-{q.number.split("-")[-1]})',
+							description=f'Ticket #{sale.id} - Pago: {(payment_method or "efectivo").capitalize()} (desde COT-{q.number.split("-")[-1]})',
 						)
 					)
 

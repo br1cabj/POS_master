@@ -1591,26 +1591,38 @@ class ArticlesView(BaseView):
 			return
 
 		products_to_print = []
+		lbl_ctrl = LabelController()
 		for item_id in selected_items:
 			values = self.tree.item(item_id, 'values')
 			barcode = values[1] if values[1] != 'N/A' else ''
-			price_str = values[5].replace('$', '').replace(',', '.')
+			if not barcode:
+				try:
+					barcode = lbl_ctrl.ensure_variant_barcode(
+						self.ctx.db_engine, self.ctx.tenant_id, str(values[0])
+					)
+				except Exception as error:
+					self.show_error(f'No se pudo asignar código a «{values[2]}»: {error}')
+					return
+			try:
+				price = float(values[5].replace('$', '').replace(',', '').strip())
+			except (TypeError, ValueError):
+				self.show_error(f'El precio de «{values[2]}» es inválido.')
+				return
 			products_to_print.append(
 				{
 					'name': values[2],
 					'barcode': barcode,
-					'price': float(price_str),
+					'price': price,
 					'copies': 1,
 				}
 			)
 
 		try:
-			lbl_ctrl = LabelController()
 			ok, result = lbl_ctrl.generate_pdf(
 				products_to_print, template_key='supermercado'
 			)
 			if ok:
-				self.show_success('Etiquetas generadas correctamente.')
+				self.show_success(f'Etiquetas generadas. {lbl_ctrl.last_delivery_message}')
 			else:
 				self.show_error(f'No se pudo generar el PDF: {result}')
 		except Exception as e:

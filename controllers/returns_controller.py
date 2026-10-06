@@ -11,7 +11,8 @@ Operaciones soportadas:
 """
 
 import logging
-from datetime import datetime, timedelta
+from collections import defaultdict
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy.orm import joinedload
@@ -312,28 +313,33 @@ class ReturnsController(BaseController):
 				else:
 					discount_factor = Decimal('1')
 
+				# Consolidar antes de validar. Sin esto una petición que repite el
+				# mismo detail_id valida cada fila contra el saldo anterior y puede
+				# reembolsar más unidades que las vendidas.
 				return_map = {}
+				for r in items_to_return:
+					did = str(r['detail_id'])
+					qty = Decimal(str(r['qty_to_return']))
+					if did not in detail_map:
+						return False, f'Ítem #{did} no pertenece a este ticket.'
+					if qty <= 0:
+						return False, (
+							f'Cantidad inválida para "{detail_map[did].description}": debe ser mayor a cero.'
+						)
+					return_map[did] = return_map.get(did, Decimal('0')) + qty
+
 				refund_total = Decimal('0')
 				profit_reduction = Decimal('0')
 
-				for r in items_to_return:
-					# detail_id es UUID string (String(36)) — nunca convertir a int
-					did = str(r['detail_id'])
-					qty = Decimal(str(r['qty_to_return']))
-
-					if did not in detail_map:
-						return False, f'Ítem #{did} no pertenece a este ticket.'
-
+				for did, qty in return_map.items():
 					original_qty = Decimal(str(detail_map[did].quantity))
 					already_ret = Decimal(str(detail_map[did].returned_quantity or 0))
 					available = original_qty - already_ret
-					if qty <= 0 or qty > available:
+					if qty > available:
 						return (
 							False,
 							f'Cantidad inválida para "{detail_map[did].description}": máximo disponible {available:.2f}.',
 						)
-
-					return_map[did] = qty
 
 					# CORRECCIÓN: Cálculos ajustados por descuentos y costos
 					unit_price = Decimal(str(detail_map[did].unit_price))
@@ -478,17 +484,30 @@ class ReturnsController(BaseController):
 					_stock_ids.add(_ci.ingredient_id)
 			else:
 				_stock_ids.add(_v.base_variant_id or _detail.variant_id)
-		stocks_map = (
-			{
-				s.variant_id: s
-				for s in session.query(Stock)
+		stocks_map = defaultdict(list)
+		if _stock_ids:
+			for stock_row in (
+				session.query(Stock)
 				.filter(Stock.variant_id.in_(_stock_ids))
 				.with_for_update()
 				.all()
-			}
-			if _stock_ids
-			else {}
-		)
+			):
+				stocks_map[stock_row.variant_id].append(stock_row)
+
+		def restore_target(variant_id):
+			"""Choose a stable destination row instead of an arbitrary dict overwrite."""
+			rows = stocks_map.get(variant_id, [])
+			if not rows:
+				return None
+			return min(
+				rows,
+				key=lambda s: (
+					s.expiration_date is None,
+					s.expiration_date or date.max,
+					s.warehouse_id,
+					s.id,
+				),
+			)
 
 		for detail in details:
 			if not detail.variant_id:
@@ -510,7 +529,7 @@ class ReturnsController(BaseController):
 			if variant.is_combo:
 				for ci in variant.ingredients:
 					req_qty = Decimal(str(ci.quantity_required)) * qty
-					stock = stocks_map.get(ci.ingredient_id)
+					stock = restore_target(ci.ingredient_id)
 					if stock:
 						stock.quantity += req_qty
 						session.add(
@@ -535,7 +554,7 @@ class ReturnsController(BaseController):
 					if variant.base_variant_id
 					else qty
 				)
-				stock = stocks_map.get(target_vid)
+				stock = restore_target(target_vid)
 				if stock:
 					stock.quantity += restore_qty
 					session.add(
@@ -591,7 +610,11 @@ class ReturnsController(BaseController):
 				session.add(
 					CashMovement(
 						session_id=active_cash.id,
-						movement_type='gasto',
+						# Un reintegro digital no extrae efectivo del cajón. El
+						# resumen de caja sólo descuenta ``gasto`` físico.
+						movement_type=(
+							'gasto' if method == 'efectivo' else 'gasto_digital'
+						),
 						amount=split_amount,
 						description=f'{description} ({method.capitalize()})',
 					)

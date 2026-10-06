@@ -127,13 +127,27 @@ class PurchasesController(BaseController):
 					)
 					.all()
 				}
-				stocks_db = {
-					s.variant_id: s
-					for s in session.query(Stock)
-					.filter(Stock.variant_id.in_(variant_ids))
+				if not default_warehouse:
+					return (
+						False,
+						"No se encontró el 'Depósito General'. Créelo antes de registrar compras.",
+					)
+				# A purchase is received into the default warehouse.  Do not pick an
+				# arbitrary row from another warehouse/batch just because it has the
+				# same variant id.
+				stocks_db = {}
+				for stock_row in (
+					session.query(Stock)
+					.filter(
+						Stock.variant_id.in_(variant_ids),
+						Stock.warehouse_id == default_warehouse.id,
+						Stock.batch_number.is_(None),
+					)
 					.with_for_update()
+					.order_by(Stock.id)
 					.all()
-				}
+				):
+					stocks_db.setdefault(stock_row.variant_id, stock_row)
 
 				total = Decimal('0.0')
 				kardex_entries = []
@@ -177,11 +191,6 @@ class PurchasesController(BaseController):
 						stock.quantity += qty
 						warehouse_id = stock.warehouse_id
 					else:
-						if not default_warehouse:
-							raise ValueError(
-								f"No se encontró el 'Depósito General' para ingresar '{desc}'. "
-								'Cree el almacén predeterminado antes de registrar compras.'
-							)
 						session.add(
 							Stock(
 								quantity=qty,

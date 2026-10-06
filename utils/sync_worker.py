@@ -21,7 +21,7 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import and_, inspect as sa_inspect, or_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import sessionmaker
 
@@ -121,6 +121,40 @@ def _save_state(state: dict) -> None:
 		)
 	except Exception as e:
 		logger.warning('Could not persist sync state: %s', e)
+
+
+def _read_cursor(value) -> tuple[datetime, str]:
+	"""Read both legacy timestamp watermarks and the lossless v2 cursor."""
+	if isinstance(value, dict):
+		try:
+			return datetime.fromisoformat(value['updated_at']), str(value.get('id', ''))
+		except (KeyError, TypeError, ValueError):
+			return datetime.min, ''
+	if value:
+		try:
+			return datetime.fromisoformat(value), ''
+		except (TypeError, ValueError):
+			logger.warning('Invalid sync cursor %r; replaying table safely.', value)
+	return datetime.min, ''
+
+
+def _write_cursor(state: dict, table_name: str, row) -> None:
+	"""Persist a total ordering cursor, not only a possibly duplicated timestamp."""
+	state[table_name] = {'updated_at': row.updated_at.isoformat(), 'id': str(row.id)}
+
+
+def _rows_after_cursor(query, model, cursor_time: datetime, cursor_id: str):
+	"""Return rows strictly after ``(updated_at, id)`` in a deterministic order."""
+	return (
+		query.filter(
+			or_(
+				model.updated_at > cursor_time,
+				and_(model.updated_at == cursor_time, model.id > cursor_id),
+			)
+		)
+		.order_by(model.updated_at, model.id)
+		.limit(_SYNC_BATCH_SIZE)
+	)
 
 
 # ─── row serialization ─────────────────────────────────────────────────────────
@@ -288,35 +322,28 @@ class SyncWorker:
 					continue
 
 				table_name = model.__tablename__
-				last_str = state.get(table_name)
-				last_sync = (
-					datetime.fromisoformat(last_str) if last_str else datetime.min
-				)
+				last_sync, last_id = _read_cursor(state.get(table_name))
 
 				# Cash tables: never push data older than 7 days to the cloud.
 				if table_name in ('cash_sessions', 'cash_movements'):
 					cutoff = sync_time - timedelta(days=_CASH_SYNC_DAYS)
 					if last_sync < cutoff:
 						last_sync = cutoff
+						last_id = ''
 
 				# Pre-sync parent tables to avoid FK violations.
 				# For example, article_variants needs its article to exist first.
 				self._ensure_parents_synced(local, cloud, model, state)
 
 				try:
-					rows_q = (
-						local.query(model)
-						.filter(model.updated_at > last_sync)  # strict > to include same-timestamp rows in next batch
-						.order_by(model.updated_at)
-						.limit(_SYNC_BATCH_SIZE)
-						.all()
-					)
+					rows_q = _rows_after_cursor(
+						local.query(model), model, last_sync, last_id
+					).all()
 				except Exception as e:
 					logger.error('Could not query %s: %s', table_name, e)
 					continue
 
 				if not rows_q:
-					state[table_name] = sync_time.isoformat()
 					continue
 
 				data = [_row_to_dict(r) for r in rows_q]
@@ -327,15 +354,9 @@ class SyncWorker:
 					# only rolls back that table, not all previously synced data.
 					cloud.commit()
 					total_pushed += pushed
-					# Advance watermark: if batch < limit, all rows for this cycle
-					# were sent, so advance to sync_time. If batch == limit, more rows
-					# may exist; advance to the last row's updated_at so the next cycle
-					# continues from there. Since we now use strict '>' in the query,
-					# rows with the exact same updated_at will be included in the next batch.
-					if len(rows_q) < _SYNC_BATCH_SIZE:
-						state[table_name] = sync_time.isoformat()
-					else:
-						state[table_name] = rows_q[-1].updated_at.isoformat()
+					# Always advance to the last ordered row.  A timestamp alone is not a
+					# cursor: many rows can share it, so the primary key is persisted too.
+					_write_cursor(state, table_name, rows_q[-1])
 					logger.debug('Synced %d rows → %s', pushed, table_name)
 				except Exception as e:
 					logger.error('Upsert failed for %s: %s', table_name, e)
@@ -393,16 +414,11 @@ class SyncWorker:
 				continue
 
 			parent_table = parent_model.__tablename__
-			last_str = state.get(parent_table)
-			last_sync = datetime.fromisoformat(last_str) if last_str else datetime.min
+			last_sync, last_id = _read_cursor(state.get(parent_table))
 
-			parent_rows = (
-				local_session.query(parent_model)
-				.filter(parent_model.updated_at > last_sync)
-				.order_by(parent_model.updated_at)
-				.limit(_SYNC_BATCH_SIZE)
-				.all()
-			)
+			parent_rows = _rows_after_cursor(
+				local_session.query(parent_model), parent_model, last_sync, last_id
+			).all()
 
 			if not parent_rows:
 				continue
@@ -412,10 +428,7 @@ class SyncWorker:
 				_upsert_batch(cloud_session, parent_model, parent_data)
 				cloud_session.commit()
 				synced_this_cycle.add(parent_table)
-				if len(parent_rows) < _SYNC_BATCH_SIZE:
-					state[parent_table] = datetime.now().isoformat()
-				else:
-					state[parent_table] = parent_rows[-1].updated_at.isoformat()
+				_write_cursor(state, parent_table, parent_rows[-1])
 				logger.debug('Pre-synced %d parent rows → %s', len(parent_rows), parent_table)
 			except Exception as e:
 				logger.warning('Pre-sync failed for %s: %s', parent_table, e)

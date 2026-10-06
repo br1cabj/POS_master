@@ -18,8 +18,12 @@ export const CustomerLedger = () => {
   });
 
   const { data: sales, loading: salesLoading, error: salesError } = useSupabaseQuery('sales', {
-    select: '*, customer:customers(name), items:sale_details(quantity, unit_price, subtotal, description)',
-    filter: selectedCustomer ? [['customer_id', 'eq', selectedCustomer]] : null,
+    select: 'id, date, total_amount, total_returned, customer:customers(name), items:sale_details(quantity, unit_price, subtotal, description)',
+    filter: selectedCustomer ? [
+      ['customer_id', 'eq', selectedCustomer],
+      ['payment_method', 'eq', 'fiado'],
+      ['status', 'neq', 'anulada'],
+    ] : null,
     order: { column: 'date', ascending: true },
     enabled: !!selectedCustomer,
   });
@@ -43,7 +47,7 @@ export const CustomerLedger = () => {
         date: s.date,
         type: 'cargo',
         description: `Venta ${s.id?.slice(0, 8)}`,
-        amount: parseFloat(s.total_amount || 0),
+        amount: Math.max(0, parseFloat(s.total_amount || 0) - parseFloat(s.total_returned || 0)),
         balance: 0,
         items: s.items || [],
       });

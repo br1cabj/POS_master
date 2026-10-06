@@ -56,6 +56,7 @@ Thumbs.db
 # === Cache / misc ===
 .ruff_cache/
 .pytest_cache/
+pytest-cache-files-*/
 *.bak
 *.tmp
 

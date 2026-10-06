@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy.orm import joinedload
@@ -187,33 +187,38 @@ class SupplierReturnsController(BaseController):
 
 				already_returned = self._get_already_returned(session, purchase_id)
 
+				# Consolidar líneas repetidas y tomar precio/descripción/variante
+				# exclusivamente desde la compra original. Los valores enviados por
+				# pantalla no son una fuente de verdad para un reembolso.
+				requested_by_detail: dict[str, Decimal] = {}
+				for item in items_to_return:
+					did = str(item['detail_id'])
+					if did not in detail_map:
+						return False, 'El ítem indicado no pertenece a esta compra.'
+					qty = Decimal(str(item['qty_to_return']))
+					if qty <= 0:
+						return False, (
+							f'Cantidad inválida para "{detail_map[did].description}": debe ser mayor a cero.'
+						)
+					requested_by_detail[did] = requested_by_detail.get(did, Decimal('0')) + qty
+
 				# Validar y preparar ítems
 				validated = []
 				total_refund = Decimal('0')
 
-				for item in items_to_return:
-					did = str(item['detail_id'])
-					qty = Decimal(str(item['qty_to_return']))
-					unit_cost = Decimal(str(item['unit_cost']))
-					description = str(item.get('description', ''))
-					variant_id = item.get('variant_id')
-
-					if did not in detail_map:
-						return (
-							False,
-							f'El ítem "{description}" no pertenece a esta compra.',
-						)
-
+				for did, qty in requested_by_detail.items():
+					detail = detail_map[did]
 					original_qty = Decimal(str(detail_map[did].quantity))
 					returned_so_far = already_returned.get(did, Decimal('0'))
 					available = original_qty - returned_so_far
 
-					if qty <= 0 or qty > available:
+					if qty > available:
 						return False, (
-							f'Cantidad inválida para "{description}": '
+							f'Cantidad inválida para "{detail.description}": '
 							f'disponible para devolver: {available:.2f}.'
 						)
 
+					unit_cost = Decimal(str(detail.unit_cost))
 					subtotal = qty * unit_cost
 					total_refund += subtotal
 					validated.append(
@@ -222,8 +227,8 @@ class SupplierReturnsController(BaseController):
 							'qty': qty,
 							'unit_cost': unit_cost,
 							'subtotal': subtotal,
-							'description': description,
-							'variant_id': variant_id or detail_map[did].variant_id,
+							'description': detail.description,
+							'variant_id': detail.variant_id,
 						}
 					)
 
@@ -257,11 +262,12 @@ class SupplierReturnsController(BaseController):
 				session.add(purchase_return)
 				session.flush()
 
-				# Ítems de la devolución + movimientos de stock
-				# BUG 10: en multi-almacén puede haber varios Stock por variant_id.
-				# Seleccionar el depósito con mayor cantidad (el más probable receptor original).
+				# Ítems de la devolución + movimientos de stock. Como el detalle de
+				# compra histórico no almacena lote/depósito, descontamos de forma
+				# FEFO y repartimos entre filas si es necesario; nunca elegimos una
+				# fila arbitraria ni dejamos la devolución sin impacto de stock.
 				_sids = [v['variant_id'] for v in validated if v['variant_id']]
-				stocks_map: dict[str, Stock] = {}
+				stocks_map: dict[str, list[Stock]] = {}
 				if _sids:
 					_stock_rows = (
 						session.query(Stock)
@@ -269,20 +275,19 @@ class SupplierReturnsController(BaseController):
 						.with_for_update()
 						.all()
 					)
-					# Agrupar por variant_id para detectar múltiples almacenes
 					_by_variant: dict[str, list[Stock]] = {}
 					for sr in _stock_rows:
 						_by_variant.setdefault(sr.variant_id, []).append(sr)
 					for vid, rows in _by_variant.items():
-						if len(rows) > 1:
-							logger.warning(
-								'Múltiples almacenes para variant %s en devolución a proveedor. '
-								'Usando el de mayor cantidad. Almacenes: %s',
-								vid,
-								[(r.warehouse_id, float(r.quantity)) for r in rows],
-							)
-						# Elegir el de mayor cantidad (heurística; idealmente debería ser el almacén original de la compra)
-						stocks_map[vid] = max(rows, key=lambda r: r.quantity)
+						stocks_map[vid] = sorted(
+							rows,
+							key=lambda r: (
+								r.expiration_date is None,
+								r.expiration_date or date.max,
+								r.warehouse_id,
+								r.id,
+							),
+						)
 				for v in validated:
 					session.add(
 						PurchaseReturnItem(
@@ -298,18 +303,28 @@ class SupplierReturnsController(BaseController):
 
 					# Reducir stock (sale del depósito hacia el proveedor)
 					if v['variant_id']:
-						stock = stocks_map.get(v['variant_id'])
-						if stock:
-							if stock.quantity < v['qty']:
-								raise ValueError(
-									f'Stock insuficiente para devolver "{v["description"]}": '
-									f'en depósito {stock.quantity}, se intenta devolver {v["qty"]}.'
-								)
-							stock.quantity -= v['qty']
+						rows = stocks_map.get(v['variant_id'], [])
+						available_stock = sum(
+							(Decimal(str(row.quantity)) for row in rows), Decimal('0')
+						)
+						if available_stock < v['qty']:
+							raise ValueError(
+								f'Stock insuficiente para devolver "{v["description"]}": '
+								f'disponible {available_stock:.2f}, se intenta devolver {v["qty"]}. '
+							)
+						remaining = v['qty']
+						for stock in rows:
+							if remaining <= 0:
+								break
+							take = min(Decimal(str(stock.quantity)), remaining)
+							if take <= 0:
+								continue
+							stock.quantity -= take
+							remaining -= take
 							session.add(
 								StockMovement(
 									movement_type='out',
-									quantity=v['qty'],
+									quantity=take,
 									reference=f'Devolución a Proveedor #{purchase_return.id}',
 									source_warehouse_id=stock.warehouse_id,
 									variant_id=v['variant_id'],

@@ -90,6 +90,9 @@ a = Analysis(
         'barcode.writer',
         'barcode.ean',
         'barcode.codex',
+        # Motor de renderizado del preview de etiquetas
+        'pypdfium2',
+        'pypdfium2.raw',
         # ── Backend de matplotlib para Tkinter ──
         'matplotlib.backends.backend_tkagg',
         # ── psycopg2 (sync cloud) ──
@@ -99,6 +102,8 @@ a = Analysis(
         'serial',
         'serial.tools.list_ports',
         'serial.tools.list_ports_windows',
+        # Impresión de etiquetas por el driver de Windows (importación diferida)
+        'win32api',
         # ── python-dotenv ──
         'dotenv',
     ],

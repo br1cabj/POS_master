@@ -8,10 +8,12 @@ openpyxl==3.1.5
 Pillow==12.1.1
 fpdf2==2.8.7
 python-barcode==0.16.1
+pypdfium2==5.14.0
 python-dotenv==1.2.2
 requests==2.32.3
 psycopg2-binary==2.9.12
 pyinstaller==6.20.0
 pyserial==3.5
+pywin32==311; platform_system == "Windows"
 pytest==8.2.0
 pytest-mock==3.14.0

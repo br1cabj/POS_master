@@ -9,6 +9,7 @@ import time
 import unicodedata
 import uuid
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 import barcode
@@ -61,10 +62,16 @@ TEMPLATES = {
 def _sanitize(text: str) -> str:
 	if not text:
 		return ''
+	# Las fuentes base de FPDF usan Latin-1. Normalizar comillas y guiones
+	# tipográficos evita que un texto válido del catálogo cancele todo el PDF.
+	translations = str.maketrans({
+		'—': '-', '–': '-', '−': '-', '…': '...', '“': '"', '”': '"',
+		'‘': "'", '’': "'", '•': '-', '·': '-',
+	})
 	return (
-		unicodedata.normalize('NFC', str(text))
-		.encode('cp1252', 'replace')
-		.decode('cp1252')
+		unicodedata.normalize('NFC', str(text)).translate(translations)
+		.encode('latin-1', 'replace')
+		.decode('latin-1')
 	)
 
 
@@ -73,9 +80,10 @@ def _fmt_price(amount: float, symbol: str = '$', decimals: int = 0) -> str:
 		amount = float(amount or 0)
 	except (ValueError, TypeError):
 		amount = 0.0
-	if decimals == 0:
-		return f'{symbol}{amount:,.0f}'
-	return f'{symbol}{amount:,.{decimals}f}'
+	# La aplicación usa formato hispano: $1.234,50.  El formato de Python
+	# (1,234.50) era inconsistente con el resto del POS y puede inducir a error.
+	formatted = f'{amount:,.{max(0, decimals)}f}'
+	return f'{symbol}{formatted.replace(",", "_").replace(".", ",").replace("_", ".")}'
 
 
 def _split_text(text: str, max_chars: int) -> list:
@@ -89,6 +97,42 @@ def _split_text(text: str, max_chars: int) -> list:
 	return [line1, line2] if line2 else [line1]
 
 
+def _fit_text(pdf, text: str, max_width: float) -> str:
+	"""Ajusta texto por ancho real de fuente y agrega puntos suspensivos."""
+	text = str(text or '').strip()
+	if not text or pdf.get_string_width(text) <= max_width:
+		return text
+	ellipsis = '...'
+	while text and pdf.get_string_width(text + ellipsis) > max_width:
+		text = text[:-1].rstrip()
+	return (text + ellipsis) if text else ellipsis
+
+
+def _wrap_label_text(pdf, text: str, max_width: float, max_lines: int) -> list[str]:
+	"""Parte texto por palabras sin invadir la zona reservada de una etiqueta."""
+	words = str(text or '').split()
+	if not words:
+		return []
+	lines: list[str] = []
+	current = ''
+	for word in words:
+		candidate = f'{current} {word}'.strip()
+		if not current or pdf.get_string_width(candidate) <= max_width:
+			current = candidate
+			continue
+		lines.append(current)
+		current = word
+		if len(lines) == max_lines:
+			break
+	if len(lines) < max_lines and current:
+		lines.append(current)
+	if len(lines) > max_lines:
+		lines = lines[:max_lines]
+	if len(lines) == max_lines and (len(' '.join(lines)) < len(' '.join(words))):
+		lines[-1] = _fit_text(pdf, lines[-1], max_width - pdf.get_string_width('...')) + '...'
+	return [_fit_text(pdf, line, max_width) for line in lines]
+
+
 _BC_CACHE_MAXSIZE = 200
 
 
@@ -97,6 +141,7 @@ class LabelController:
 		self._tmp_dir = os.path.join(tempfile.gettempdir(), 'CloudPOS_Etiquetas')
 		os.makedirs(self._tmp_dir, exist_ok=True)
 		self._bc_cache: dict = {}
+		self.last_delivery_message = ''
 		self._clean_old_temp_files()
 
 	def _clean_old_temp_files(self, max_age_hours: int = 24):
@@ -118,6 +163,74 @@ class LabelController:
 		"""Genera un código Code128 interno único para artículos sin EAN."""
 		return 'INT' + uuid.uuid4().hex[:11].upper()
 
+	@staticmethod
+	def _check_digit(digits: str) -> int:
+		"""Calcula el dígito de control GS1 para EAN/UPC."""
+		return (10 - sum(
+			int(digit) * (3 if index % 2 == 0 else 1)
+			for index, digit in enumerate(reversed(digits))
+		) % 10) % 10
+
+	@classmethod
+	def barcode_spec(cls, code: str) -> tuple[str, str]:
+		"""Valida un código y devuelve la simbología y los datos para python-barcode.
+
+		EAN-8, EAN-13 y UPC-A se validan con checksum. Los identificadores internos
+		y alfanuméricos siguen usando Code128, que es apropiado para el POS.
+		"""
+		value = str(code or '').strip()
+		if not value:
+			raise ValueError('La etiqueta requiere un código de barras.')
+		if len(value) > 48 or any(ord(char) < 32 or ord(char) > 126 for char in value):
+			raise ValueError('El código contiene caracteres no imprimibles o es demasiado largo.')
+		if value.isdigit() and len(value) in (8, 12, 13):
+			if cls._check_digit(value[:-1]) != int(value[-1]):
+				raise ValueError(f'El código {value} tiene un dígito verificador inválido.')
+			# python-barcode recibe los dígitos sin checksum y lo vuelve a calcular.
+			return ({8: 'ean8', 12: 'upc', 13: 'ean13'}[len(value)], value[:-1])
+		return 'code128', value
+
+	@classmethod
+	def validate_barcode(cls, code: str) -> Optional[str]:
+		try:
+			cls.barcode_spec(code)
+			return None
+		except ValueError as error:
+			return str(error)
+
+	def ensure_variant_barcode(self, db_engine, tenant_id: str, variant_id: str) -> str:
+		"""Asigna y persiste un Code128 interno a una variante que no tenía código."""
+		from sqlalchemy.orm import sessionmaker as _sm
+		from database.models import Article, ArticleVariant
+
+		Session = _sm(bind=db_engine)
+		with Session() as session:
+			variant = (
+				session.query(ArticleVariant)
+				.join(Article, ArticleVariant.article_id == Article.id)
+				.filter(ArticleVariant.id == variant_id, Article.tenant_id == tenant_id)
+				.first()
+			)
+			if not variant:
+				raise ValueError('El artículo ya no existe o no pertenece a esta empresa.')
+			if variant.barcode and str(variant.barcode).strip():
+				return str(variant.barcode).strip()
+			# Aunque una colisión UUID es extremadamente improbable, se comprueba antes
+			# de guardar para que el código sea realmente escaneable y único por empresa.
+			for _ in range(5):
+				candidate = self.generate_internal_barcode()
+				exists = (
+					session.query(ArticleVariant.id)
+					.join(Article, ArticleVariant.article_id == Article.id)
+					.filter(Article.tenant_id == tenant_id, ArticleVariant.barcode == candidate)
+					.first()
+				)
+				if not exists:
+					variant.barcode = candidate
+					session.commit()
+					return candidate
+			raise RuntimeError('No se pudo reservar un código interno único.')
+
 	def save_manual_article(
 		self, db_engine, tenant_id: str, name: str, price: float, barcode_val: str
 	) -> str:
@@ -129,6 +242,20 @@ class LabelController:
 		from sqlalchemy.orm import sessionmaker as _sm
 
 		from database.models import Article, ArticleVariant, Category
+
+		name = str(name or '').strip()
+		if not name:
+			raise ValueError('El nombre del artículo es obligatorio.')
+		try:
+			price = Decimal(str(price))
+		except (InvalidOperation, ValueError, TypeError) as error:
+			raise ValueError('El precio es inválido.') from error
+		if price < 0:
+			raise ValueError('El precio no puede ser negativo.')
+		barcode_val = str(barcode_val or '').strip() or self.generate_internal_barcode()
+		error = self.validate_barcode(barcode_val)
+		if error:
+			raise ValueError(error)
 
 		Session = _sm(bind=db_engine)
 		with Session() as session:
@@ -164,14 +291,23 @@ class LabelController:
 				session.add(article)
 				session.flush()
 
-			# BUG 7: reusar variante existente con el mismo barcode en lugar de crear duplicado
+			# El barcode es identificador de venta: buscarlo en toda la empresa, no
+			# solamente en el artículo manual actual.
 			variant = (
 				session.query(ArticleVariant)
-				.filter_by(article_id=article.id, barcode=barcode_val, is_active=True)
+				.join(Article, ArticleVariant.article_id == Article.id)
+				.filter(
+					Article.tenant_id == tenant_id,
+					ArticleVariant.barcode == barcode_val,
+					ArticleVariant.is_active.is_(True),
+					ArticleVariant.deleted_at.is_(None),
+				)
 				.first()
 			)
 			if variant:
-				variant.selling_price = price  # actualizar precio si cambió
+				if variant.article_id != article.id:
+					raise ValueError('Ese código ya pertenece a otro artículo de esta empresa.')
+				variant.selling_price = price
 			else:
 				variant = ArticleVariant(
 					article_id=article.id,
@@ -208,8 +344,11 @@ class LabelController:
 			session.commit()
 			return variant.id
 
-	def _generate_barcode_png(self, code: str) -> Optional[str]:
-		if not code or not str(code).strip():
+	def _generate_barcode_png(self, code: str, target_width_mm: float = 45) -> Optional[str]:
+		try:
+			symbology, encoded_value = self.barcode_spec(code)
+		except ValueError as error:
+			logger.warning('Código descartado al generar etiqueta: %s', error)
 			return None
 		safe_code = str(code).strip()
 
@@ -231,15 +370,18 @@ class LabelController:
 
 		try:
 			file_safe_code = re.sub(r'[^a-zA-Z0-9]', '', safe_code)[:20]
-			cls = barcode.get_barcode_class('code128')
+			cls = barcode.get_barcode_class(symbology)
 			buf = io.BytesIO()
-			cls(safe_code, writer=ImageWriter()).write(
+			# Mantiene una zona silenciosa generosa y reduce los módulos en códigos
+			# largos para no deformarlos al ajustarlos al ancho de la etiqueta.
+			module_width = max(0.18, min(0.32, (target_width_mm - 6) / max(80, len(safe_code) * 13)))
+			cls(encoded_value, writer=ImageWriter()).write(
 				buf,
 				options={
 					'write_text': False,
-					'quiet_zone': 1,
+					'quiet_zone': 2.5,
 					'module_height': 8,
-					'module_width': 0.8,
+					'module_width': module_width,
 					'font_size': 0,
 					'text_distance': 1,
 				},
@@ -266,9 +408,28 @@ class LabelController:
 		pdf.set_line_width(0.2)
 		pdf.set_draw_color(0, 0, 0)
 
-	def generate_pdf(self, items: list, template_key: str = 'supermercado') -> tuple:
+	def _validate_items(self, items: list) -> Optional[str]:
+		for position, item in enumerate(items, start=1):
+			name = str(item.get('name') or '').strip()
+			if not name:
+				return f'La etiqueta {position} no tiene nombre de artículo.'
+			error = self.validate_barcode(item.get('barcode', ''))
+			if error:
+				return f'{name}: {error}'
+			try:
+				if int(float(item.get('copies', 1))) < 1:
+					raise ValueError
+			except (TypeError, ValueError):
+				return f'{name}: la cantidad de copias debe ser mayor a cero.'
+		return None
+
+	def generate_pdf(
+		self, items: list, template_key: str = 'supermercado', deliver: bool = True
+	) -> tuple:
 		if not items:
 			return False, 'No hay artículos en la cola de impresión.'
+		if error := self._validate_items(items):
+			return False, error
 		if template_key not in TEMPLATES:
 			template_key = 'supermercado'
 
@@ -353,12 +514,41 @@ class LabelController:
 				self._tmp_dir, f'etiquetas_{uuid.uuid4().hex[:8]}.pdf'
 			)
 			pdf.output(out_path)
-			self._open(out_path)
+			if deliver:
+				self._deliver_pdf(out_path, cfg)
 			return True, out_path
 
 		except Exception as e:
 			logger.error(f'Error generando etiquetas: {e}', exc_info=True)
 			return False, str(e)
+
+	def render_preview_image(self, item: dict, template_key: str = 'supermercado'):
+		"""Renderiza exactamente la misma página que se envía a impresión.
+
+		La vista previa no reproduce coordenadas ni reglas en la UI: rasteriza el
+		PDF generado por las plantillas para eliminar diferencias visuales.
+		"""
+		pdf_path = None
+		try:
+			ok, result = self.generate_pdf([dict(item)], template_key, deliver=False)
+			if not ok:
+				raise ValueError(result)
+			pdf_path = result
+			import pypdfium2 as pdfium
+
+			document = pdfium.PdfDocument(pdf_path)
+			try:
+				page = document[0]
+				# 3x produce texto y barras nítidas antes de reducir en la UI.
+				return page.render(scale=3).to_pil().convert('RGB')
+			finally:
+				document.close()
+		finally:
+			if pdf_path:
+				try:
+					os.unlink(pdf_path)
+				except OSError:
+					pass
 
 	# ── Helpers compartidos ────────────────────────────────────────────────────────
 
@@ -366,7 +556,7 @@ class LabelController:
 		self, pdf, barcode_val, W, H, bc_y, bc_h, foot_h, margin, font_size=4.0
 	):
 		"""Dibuja el código de barras centrado y el pie con código + fecha."""
-		bc_path = self._generate_barcode_png(barcode_val)
+		bc_path = self._generate_barcode_png(barcode_val, W - margin * 2)
 		if bc_path:
 			pdf.image(bc_path, x=margin, y=bc_y, w=W - margin * 2, h=bc_h)
 
@@ -383,7 +573,7 @@ class LabelController:
 		code_txt = _sanitize(str(barcode_val)) if barcode_val else 'SIN CODIGO'
 		half = (W - margin * 2) / 2
 
-		pdf.set_font('Arial', '', font_size)
+		pdf.set_font('Helvetica', '', font_size)
 		pdf.set_text_color(100, 116, 139)
 		pdf.set_xy(margin, foot_y + 0.5)
 		pdf.cell(half, foot_h - 1, code_txt[:20], align='L')
@@ -433,9 +623,10 @@ class LabelController:
 		pdf.set_text_color(255, 255, 255)
 
 		if is_offer:
-			pdf.set_font('Arial', 'B', 7.5)
+			offer_header = f'OFERTA HASTA {discount_until}' if discount_until else '* OFERTA *'
+			pdf.set_font('Helvetica', 'B', 6.2)
 			pdf.set_xy(0, 0)
-			pdf.cell(W, HEADER_H, '* OFERTA IMPERDIBLE *', align='C')
+			pdf.cell(W, HEADER_H, _fit_text(pdf, offer_header, W - 4), align='C')
 		else:
 			header_txt = (
 				mode_label if mode_label else (company[:24] if company else 'CloudPOS')
@@ -449,63 +640,47 @@ class LabelController:
 					pdf.set_xy(MARGIN, 0)
 			else:
 				pdf.set_xy(MARGIN, 0)
-			pdf.set_font('Arial', 'B', 6.5)
+			pdf.set_font('Helvetica', 'B', 6.5)
 			pdf.cell(W - MARGIN * 2, HEADER_H, _sanitize(header_txt).upper(), align='L')
 
 		pdf.set_text_color(0, 0, 0)
 
-		# ── Nombre del producto ────────────────────────────────
-		y = HEADER_H + 2.5
-		display = f'{name} {attr}'.strip() if attr else name
-		font_size = 10.5
-		while font_size >= 7:
-			pdf.set_font('Arial', 'B', font_size)
-			approx_chars = int((W - MARGIN * 2) / (font_size * 0.42))
-			lines = _split_text(display, approx_chars)
-			if len(lines) <= 2:
-				break
-			font_size -= 1
-		for ln in lines:
-			if y + 4.5 > HEADER_H + BODY_H:
-				break
+		# ── Nombre: zona fija de dos líneas; no puede invadir el precio ──
+		display = f'{name} - {attr}'.strip(' -') if attr else name
+		pdf.set_font('Helvetica', 'B', 8.8 if is_offer else 9.5)
+		lines = _wrap_label_text(pdf, display, W - MARGIN * 2, 2)
+		y = HEADER_H + 1.2
+		for line in lines:
 			pdf.set_xy(MARGIN, y)
-			pdf.cell(W - MARGIN * 2, 4.5, ln, align='L')
-			y += 4.5
+			pdf.cell(W - MARGIN * 2, 3.5, line, align='L')
+			y += 3.5
 
-		# ── Precio ─────────────────────────────────────────────
-		price_zone_top = HEADER_H + BODY_H - 13
+		# ── Precio: bloque reservado debajo del nombre ─────────
+		price_zone_top = HEADER_H + 8.5
 		if is_offer:
 			before_label = 'Antes: '
 			orig_str = _sanitize(_fmt_price(display_price, symbol, decimals))
 			pdf.set_xy(MARGIN, price_zone_top)
-			pdf.set_font('Arial', '', 7.5)
+			pdf.set_font('Helvetica', '', 6.5)
 			pdf.set_text_color(140, 140, 140)
-			pdf.cell(W - MARGIN * 2, 4, before_label + orig_str, align='L')
+			pdf.cell(W - MARGIN * 2, 3, before_label + orig_str, align='L')
 			strike_x = MARGIN + pdf.get_string_width(before_label)
-			self._draw_strikethrough(pdf, strike_x, price_zone_top, orig_str, 2.2)
+			self._draw_strikethrough(pdf, strike_x, price_zone_top, orig_str, 1.7)
 			pdf.set_text_color(0, 0, 0)
 
 			disc_str = _sanitize(_fmt_price(discount_price, symbol, decimals))
-			pdf.set_xy(MARGIN, price_zone_top + 3.5)
-			pdf.set_font('Arial', 'B', 22)
+			pdf.set_xy(MARGIN, price_zone_top + 2.8)
+			pdf.set_font('Helvetica', 'B', 19)
 			pdf.set_text_color(220, 38, 38)
-			pdf.cell(W - MARGIN * 2, 10, disc_str, align='L')
+			pdf.cell(W - MARGIN * 2, 8.5, disc_str, align='L')
 			pdf.set_text_color(0, 0, 0)
 
-			if discount_until:
-				pdf.set_xy(MARGIN, price_zone_top + 13)
-				pdf.set_font('Arial', 'I', 5)
-				pdf.set_text_color(160, 50, 50)
-				pdf.cell(
-					W - MARGIN * 2, 3, f'Valido hasta: {discount_until}', align='L'
-				)
-				pdf.set_text_color(0, 0, 0)
 		else:
 			price_str = _sanitize(_fmt_price(display_price, symbol, decimals))
-			pdf.set_xy(MARGIN, price_zone_top + 2)
-			pdf.set_font('Arial', 'B', 24)
+			pdf.set_xy(MARGIN, price_zone_top + 1)
+			pdf.set_font('Helvetica', 'B', 21)
 			pdf.set_text_color(15, 23, 42)
-			pdf.cell(W - MARGIN * 2, 11, price_str, align='L')
+			pdf.cell(W - MARGIN * 2, 9.5, price_str, align='L')
 			pdf.set_text_color(0, 0, 0)
 
 		# ── Separador ──────────────────────────────────────────
@@ -558,9 +733,10 @@ class LabelController:
 		pdf.set_text_color(255, 255, 255)
 
 		if is_offer:
-			pdf.set_font('Arial', 'B', 9)
+			offer_header = f'OFERTA HASTA {discount_until}' if discount_until else '* OFERTA *'
+			pdf.set_font('Helvetica', 'B', 7.5)
 			pdf.set_xy(0, 0)
-			pdf.cell(W, HEADER_H, '* OFERTA IMPERDIBLE *', align='C')
+			pdf.cell(W, HEADER_H, _fit_text(pdf, offer_header, W - 6), align='C')
 		else:
 			brand_txt = (
 				mode_label if mode_label else (company[:30] if company else 'CloudPOS')
@@ -574,69 +750,52 @@ class LabelController:
 					pdf.set_xy(MARGIN, 0)
 			else:
 				pdf.set_xy(MARGIN, 0)
-			pdf.set_font('Arial', 'B', 7)
+			pdf.set_font('Helvetica', 'B', 7)
 			pdf.cell(W - MARGIN * 2, HEADER_H, _sanitize(brand_txt).upper(), align='L')
 
 		pdf.set_text_color(0, 0, 0)
 
-		# ── Nombre del producto ────────────────────────────────
-		y = HEADER_H + 3.5
-		font_size = 13
-		while font_size >= 8:
-			pdf.set_font('Arial', 'B', font_size)
-			approx_chars = int((W - MARGIN * 2) / (font_size * 0.42))
-			lines = _split_text(name, approx_chars)
-			if len(lines) <= 3:
-				break
-			font_size -= 1
-		for ln in lines:
-			if y + 6 > HEADER_H + BODY_H - 2:
-				break
+		# ── Identificación: dos líneas + atributo, con altura protegida ──
+		pdf.set_font('Helvetica', 'B', 11 if is_offer else 12)
+		lines = _wrap_label_text(pdf, name, W - MARGIN * 2, 2)
+		y = HEADER_H + 1.8
+		for line in lines:
 			pdf.set_xy(MARGIN, y)
-			pdf.cell(W - MARGIN * 2, 6, ln, align='L')
-			y += 6
-
+			pdf.cell(W - MARGIN * 2, 4.5, line, align='L')
+			y += 4.5
 		if attr:
-			pdf.set_font('Arial', '', 8)
+			pdf.set_font('Helvetica', '', 6.5)
 			pdf.set_text_color(100, 116, 139)
-			pdf.set_xy(MARGIN, y)
-			pdf.cell(W - MARGIN * 2, 4, attr[:34], align='L')
+			pdf.set_xy(MARGIN, HEADER_H + 10.8)
+			pdf.cell(W - MARGIN * 2, 3, _fit_text(pdf, attr, W - MARGIN * 2), align='L')
 			pdf.set_text_color(0, 0, 0)
 
-		# ── Precio ─────────────────────────────────────────────
-		price_zone_top = HEADER_H + BODY_H - 16
+		# ── Precio: ocupa siempre el bloque inferior sin tocar el título ──
+		price_zone_top = HEADER_H + 15
 		if is_offer:
 			before_label = 'Antes: '
 			orig_str = _sanitize(_fmt_price(display_price, symbol, decimals))
 			pdf.set_xy(MARGIN, price_zone_top)
-			pdf.set_font('Arial', '', 8.5)
+			pdf.set_font('Helvetica', '', 7)
 			pdf.set_text_color(140, 140, 140)
-			pdf.cell(W - MARGIN * 2, 4.5, before_label + orig_str, align='L')
+			pdf.cell(W - MARGIN * 2, 3, before_label + orig_str, align='L')
 			strike_x = MARGIN + pdf.get_string_width(before_label)
-			self._draw_strikethrough(pdf, strike_x, price_zone_top, orig_str, 2.5)
+			self._draw_strikethrough(pdf, strike_x, price_zone_top, orig_str, 1.8)
 			pdf.set_text_color(0, 0, 0)
 
 			disc_str = _sanitize(_fmt_price(discount_price, symbol, decimals))
-			pdf.set_xy(MARGIN, price_zone_top + 4)
-			pdf.set_font('Arial', 'B', 26)
+			pdf.set_xy(MARGIN, price_zone_top + 3)
+			pdf.set_font('Helvetica', 'B', 23)
 			pdf.set_text_color(220, 38, 38)
-			pdf.cell(W - MARGIN * 2, 12, disc_str, align='L')
+			pdf.cell(W - MARGIN * 2, 10, disc_str, align='L')
 			pdf.set_text_color(0, 0, 0)
 
-			if discount_until:
-				pdf.set_xy(MARGIN, price_zone_top + 16)
-				pdf.set_font('Arial', 'I', 5.5)
-				pdf.set_text_color(160, 50, 50)
-				pdf.cell(
-					W - MARGIN * 2, 3.5, f'Valido hasta: {discount_until}', align='L'
-				)
-				pdf.set_text_color(0, 0, 0)
 		else:
 			price_str = _sanitize(_fmt_price(display_price, symbol, decimals))
-			pdf.set_xy(MARGIN, price_zone_top + 4)
-			pdf.set_font('Arial', 'B', 28)
+			pdf.set_xy(MARGIN, price_zone_top + 2)
+			pdf.set_font('Helvetica', 'B', 25)
 			pdf.set_text_color(15, 23, 42)
-			pdf.cell(W - MARGIN * 2, 13, price_str, align='L')
+			pdf.cell(W - MARGIN * 2, 11, price_str, align='L')
 			pdf.set_text_color(0, 0, 0)
 
 		# ── Separador ──────────────────────────────────────────
@@ -682,10 +841,10 @@ class LabelController:
 		# ── Nombre ─────────────────────────────────────────────
 		y = 5.0
 		full_name = f'{name} {attr}'.strip() if attr else name
-		pdf.set_font('Arial', 'B', 8.5)
+		pdf.set_font('Helvetica', 'B', 8.5)
 		pdf.set_text_color(51, 65, 85)
 		pdf.set_xy(MARGIN, y)
-		pdf.cell(W - MARGIN * 2, 4.5, full_name[:30], align='L')
+		pdf.cell(W - MARGIN * 2, 4.5, _fit_text(pdf, full_name, W - MARGIN * 2), align='L')
 		y += 5.0
 
 		# ── Precio ─────────────────────────────────────────────
@@ -693,7 +852,7 @@ class LabelController:
 			orig_str = _sanitize(_fmt_price(display_price, symbol, decimals))
 			full_text = f'Antes: {orig_str}'
 			pdf.set_xy(MARGIN, y)
-			pdf.set_font('Arial', '', 6)
+			pdf.set_font('Helvetica', '', 6)
 			pdf.set_text_color(150, 150, 150)
 			pdf.cell(W - MARGIN * 2, 3, full_text, align='C')
 			full_w = pdf.get_string_width(full_text)
@@ -706,7 +865,7 @@ class LabelController:
 		price_to_show = discount_price if is_offer else display_price
 		price_str = _sanitize(_fmt_price(price_to_show, symbol, decimals))
 		pdf.set_xy(0, y)
-		pdf.set_font('Arial', 'B', 18)
+		pdf.set_font('Helvetica', 'B', 18)
 		pdf.set_text_color(220, 38, 38 if is_offer else 15)
 		if not is_offer:
 			pdf.set_text_color(15, 23, 42)
@@ -715,7 +874,7 @@ class LabelController:
 
 		if is_offer and discount_until:
 			pdf.set_xy(MARGIN, y + 9)
-			pdf.set_font('Arial', 'I', 4.5)
+			pdf.set_font('Helvetica', 'I', 4.5)
 			pdf.set_text_color(160, 50, 50)
 			pdf.cell(W - MARGIN * 2, 3, f'Hasta: {discount_until}', align='C')
 			pdf.set_text_color(0, 0, 0)
@@ -766,42 +925,42 @@ class LabelController:
 
 		pdf.rect(0, 0, W, HEADER_H, 'F')
 		pdf.set_text_color(255, 255, 255)
-		pdf.set_font('Arial', 'B', 6)
+		pdf.set_font('Helvetica', 'B', 6)
 		pdf.set_xy(0, 0.5)
 		pdf.cell(W, HEADER_H - 1, header_txt.upper(), align='C')
 		pdf.set_text_color(0, 0, 0)
 
-		# ── Nombre ─────────────────────────────────────────────
-		y = HEADER_H + 1.0
-		display = f'{name} {attr}'.strip() if attr else name
-		pdf.set_font('Arial', 'B', 7.5)
+		# ── Nombre: una sola línea siempre completa o con elipsis ──
+		y = HEADER_H + 0.8
+		display = f'{name} - {attr}'.strip(' -') if attr else name
+		pdf.set_font('Helvetica', 'B', 6.5)
 		pdf.set_xy(MARGIN, y)
-		pdf.cell(W - MARGIN * 2, 3.5, display[:22], align='L')
-		y += 4.0
+		pdf.cell(W - MARGIN * 2, 2.8, _fit_text(pdf, display, W - MARGIN * 2), align='L')
+		y = HEADER_H + 3.7
 
 		# ── Precio ─────────────────────────────────────────────
 		if is_offer:
 			orig_str = _sanitize(_fmt_price(display_price, symbol, decimals))
-			pdf.set_font('Arial', '', 5.5)
+			pdf.set_font('Helvetica', '', 5)
 			pdf.set_text_color(150, 150, 150)
 			pdf.set_xy(MARGIN, y)
-			pdf.cell(W - MARGIN * 2, 2.5, orig_str, align='L')
-			self._draw_strikethrough(pdf, MARGIN, y, orig_str, 1.5)
+			pdf.cell(W - MARGIN * 2, 2, orig_str, align='L')
+			self._draw_strikethrough(pdf, MARGIN, y, orig_str, 1.3)
 			pdf.set_text_color(0, 0, 0)
-			y += 3.0
+			y += 2.3
 
 			disc_str = _sanitize(_fmt_price(discount_price, symbol, decimals))
-			pdf.set_font('Arial', 'B', 12)
+			pdf.set_font('Helvetica', 'B', 10.5)
 			pdf.set_text_color(220, 38, 38)
 			pdf.set_xy(MARGIN, y)
-			pdf.cell(W - MARGIN * 2, 5, disc_str, align='L')
+			pdf.cell(W - MARGIN * 2, 4.2, disc_str, align='L')
 			pdf.set_text_color(0, 0, 0)
 		else:
 			price_str = _sanitize(_fmt_price(display_price, symbol, decimals))
-			pdf.set_font('Arial', 'B', 13)
+			pdf.set_font('Helvetica', 'B', 11)
 			pdf.set_text_color(247, 127, 0)
 			pdf.set_xy(MARGIN, y)
-			pdf.cell(W - MARGIN * 2, 6, price_str, align='L')
+			pdf.cell(W - MARGIN * 2, 4.8, price_str, align='L')
 			pdf.set_text_color(0, 0, 0)
 
 		# ── Barcode + footer ───────────────────────────────────
@@ -834,7 +993,6 @@ class LabelController:
 		HEADER_H = 7.0
 		BC_H = 10.0
 		FOOT_H = 4.0
-		BODY_H = H - HEADER_H - BC_H - FOOT_H
 		MARGIN = 3.0
 
 		# ── Borde sutil ────────────────────────────────────────
@@ -851,9 +1009,10 @@ class LabelController:
 		pdf.set_text_color(255, 255, 255)
 
 		if is_offer:
-			pdf.set_font('Arial', 'B', 9)
+			offer_header = f'OFERTA HASTA {discount_until}' if discount_until else '* OFERTA *'
+			pdf.set_font('Helvetica', 'B', 7.5)
 			pdf.set_xy(0, 0)
-			pdf.cell(W, HEADER_H, '* OFERTA IMPERDIBLE *', align='C')
+			pdf.cell(W, HEADER_H, _fit_text(pdf, offer_header, W - 6), align='C')
 		else:
 			brand_txt = company[:30] if company else 'CloudPOS'
 			if logo_path and os.path.exists(logo_path):
@@ -865,89 +1024,73 @@ class LabelController:
 					pdf.set_xy(MARGIN, 0)
 			else:
 				pdf.set_xy(MARGIN, 0)
-			pdf.set_font('Arial', 'B', 7)
+			pdf.set_font('Helvetica', 'B', 7)
 			pdf.cell(W - MARGIN * 2, HEADER_H, _sanitize(brand_txt).upper(), align='L')
 
 		pdf.set_text_color(0, 0, 0)
 
-		# ── Nombre del producto ────────────────────────────────
-		y = HEADER_H + 3.0
-		font_size = 11
-		while font_size >= 7:
-			pdf.set_font('Arial', 'B', font_size)
-			approx_chars = int((W - MARGIN * 2) / (font_size * 0.42))
-			lines = _split_text(name, approx_chars)
-			if len(lines) <= 2:
-				break
-			font_size -= 1
-		for ln in lines:
-			if y + 5 > HEADER_H + BODY_H - 2:
-				break
+		# ── Identificación: bloque superior independiente de los precios ──
+		pdf.set_font('Helvetica', 'B', 10)
+		lines = _wrap_label_text(pdf, name, W - MARGIN * 2, 2)
+		y = HEADER_H + 1.7
+		for line in lines:
 			pdf.set_xy(MARGIN, y)
-			pdf.cell(W - MARGIN * 2, 5, ln, align='L')
-			y += 5
-
-		if attr:
-			pdf.set_font('Arial', '', 7)
-			pdf.set_text_color(100, 116, 139)
-			pdf.set_xy(MARGIN, y)
-			pdf.cell(W - MARGIN * 2, 3.5, attr[:34], align='L')
+			pdf.cell(W - MARGIN * 2, 4, line, align='L')
 			y += 4
+		if attr:
+			pdf.set_font('Helvetica', '', 6.5)
+			pdf.set_text_color(100, 116, 139)
+			pdf.set_xy(MARGIN, HEADER_H + 9.8)
+			pdf.cell(W - MARGIN * 2, 2.7, _fit_text(pdf, attr, W - MARGIN * 2), align='L')
 			pdf.set_text_color(0, 0, 0)
 
-		# ── Precios duales ─────────────────────────────────────
-		price_zone_y = HEADER_H + BODY_H - 16
+		# ── Dos columnas con tarjetas independientes para cada lista ──
+		price_zone_y = HEADER_H + 14
+		gap = 2.0
+		column_w = (W - MARGIN * 2 - gap) / 2
+		left_x = MARGIN
+		right_x = MARGIN + column_w + gap
+		for x in (left_x, right_x):
+			pdf.set_fill_color(248, 250, 252)
+			pdf.set_draw_color(226, 232, 240)
+			pdf.rect(x, price_zone_y, column_w, 10.5, 'DF')
+		pdf.set_draw_color(0, 0, 0)
 
-		# Precio minorista (Lista A)
+		# Minorista
+		pdf.set_xy(left_x + 1, price_zone_y + 0.5)
+		pdf.set_font('Helvetica', 'B', 5)
+		pdf.set_text_color(100, 116, 139)
+		pdf.cell(column_w - 2, 2, 'MINORISTA', align='L')
 		if is_offer:
 			orig_str = _sanitize(_fmt_price(base_price, symbol, decimals))
-			pdf.set_xy(MARGIN, price_zone_y)
-			pdf.set_font('Arial', '', 6.5)
+			pdf.set_xy(left_x + 1, price_zone_y + 2.4)
+			pdf.set_font('Helvetica', '', 5)
 			pdf.set_text_color(140, 140, 140)
-			pdf.cell(W - MARGIN * 2, 3, f'Antes: {orig_str}', align='L')
-			strike_x = MARGIN + pdf.get_string_width('Antes: ')
-			self._draw_strikethrough(pdf, strike_x, price_zone_y, orig_str, 2.0)
-			pdf.set_text_color(0, 0, 0)
-
-			disc_str = _sanitize(_fmt_price(discount_price, symbol, decimals))
-			pdf.set_xy(MARGIN, price_zone_y + 2.5)
-			pdf.set_font('Arial', 'B', 12)
+			pdf.cell(column_w - 2, 2, f'Antes: {orig_str}', align='L')
+			strike_x = left_x + 1 + pdf.get_string_width('Antes: ')
+			self._draw_strikethrough(pdf, strike_x, price_zone_y + 2.4, orig_str, 1.3)
+			price_y = price_zone_y + 4.3
+			price_a_str = _sanitize(_fmt_price(discount_price, symbol, decimals))
 			pdf.set_text_color(220, 38, 38)
-			pdf.cell((W - MARGIN * 2) / 2, 6, disc_str, align='L')
-			pdf.set_text_color(0, 0, 0)
 		else:
+			price_y = price_zone_y + 3.3
 			price_a_str = _sanitize(_fmt_price(base_price, symbol, decimals))
-			pdf.set_xy(MARGIN, price_zone_y)
-			pdf.set_font('Arial', 'B', 12)
 			pdf.set_text_color(15, 23, 42)
-			pdf.cell((W - MARGIN * 2) / 2, 6, price_a_str, align='L')
-			pdf.set_text_color(0, 0, 0)
+		pdf.set_xy(left_x + 1, price_y)
+		pdf.set_font('Helvetica', 'B', 11)
+		pdf.cell(column_w - 2, 4.5, _fit_text(pdf, price_a_str, column_w - 2), align='L')
 
-		# Precio mayorista (Lista B)
-		if price_b_val is not None:
-			price_b_str = _sanitize(_fmt_price(price_b_val, symbol, decimals))
-			pdf.set_xy(W / 2, price_zone_y)
-			pdf.set_font('Arial', 'B', 12)
-			pdf.set_text_color(37, 99, 235)
-			pdf.cell((W - MARGIN * 2) / 2, 6, price_b_str, align='R')
-			pdf.set_text_color(0, 0, 0)
-
-		# Etiquetas de lista
-		pdf.set_font('Arial', '', 5)
+		# Mayorista
+		pdf.set_xy(right_x + 1, price_zone_y + 0.5)
+		pdf.set_font('Helvetica', 'B', 5)
 		pdf.set_text_color(100, 116, 139)
-		pdf.set_xy(MARGIN, price_zone_y + 6)
-		pdf.cell((W - MARGIN * 2) / 2, 2.5, 'Minorista', align='L')
-		if price_b_val is not None:
-			pdf.set_xy(W / 2, price_zone_y + 6)
-			pdf.cell((W - MARGIN * 2) / 2, 2.5, 'Mayorista', align='R')
+		pdf.cell(column_w - 2, 2, 'MAYORISTA', align='L')
+		price_b_str = _sanitize(_fmt_price(price_b_val, symbol, decimals)) if price_b_val is not None else 'No disponible'
+		pdf.set_xy(right_x + 1, price_zone_y + 3.3)
+		pdf.set_font('Helvetica', 'B', 10 if price_b_val is not None else 6)
+		pdf.set_text_color(37, 99, 235 if price_b_val is not None else 140)
+		pdf.cell(column_w - 2, 4.5, _fit_text(pdf, price_b_str, column_w - 2), align='L')
 		pdf.set_text_color(0, 0, 0)
-
-		if is_offer and discount_until:
-			pdf.set_xy(MARGIN, price_zone_y + 9)
-			pdf.set_font('Arial', 'I', 5)
-			pdf.set_text_color(160, 50, 50)
-			pdf.cell(W - MARGIN * 2, 2.5, f'Hasta: {discount_until}', align='L')
-			pdf.set_text_color(0, 0, 0)
 
 		# ── Barcode + footer ───────────────────────────────────
 		sep_y = H - BC_H - FOOT_H
@@ -966,3 +1109,37 @@ class LabelController:
 				subprocess.run(['xdg-open', filepath], capture_output=True)
 		except Exception as e:
 			logger.warning(f'No se pudo abrir el PDF de etiquetas: {e}')
+
+	def _deliver_pdf(self, filepath: str, config: dict):
+		"""Entrega el PDF por el driver configurado o lo abre para revisión.
+
+		Las impresoras Zebra, Dymo y genéricas reciben un PDF mediante su driver;
+		no se les envía ZPL arbitrario, que podría imprimir basura o cortar papel.
+		"""
+		printer = str(config.get('printer_label_name') or '').strip()
+		mode = config.get('label_output_mode', 'preview')
+		if mode == 'printer' and printer and not printer.startswith('('):
+			try:
+				if platform.system() != 'Windows':
+					raise OSError('La impresión directa por driver está disponible en Windows.')
+				import win32api  # type: ignore
+
+				result = win32api.ShellExecute(
+					0, 'printto', os.path.abspath(filepath), f'"{printer}"', '.', 0
+				)
+				if result <= 32:
+					raise OSError(f'Windows devolvió el código {result}.')
+				self.last_delivery_message = f'PDF enviado a «{printer}».'
+				return
+			except ImportError:
+				self.last_delivery_message = (
+					'PDF generado y abierto: instalá pywin32 para enviarlo al driver seleccionado.'
+				)
+			except Exception as error:
+				logger.warning('No se pudo enviar el PDF a la impresora: %s', error)
+				self.last_delivery_message = f'No se pudo enviar a «{printer}»: {error}. PDF abierto.'
+			else:
+				return
+		else:
+			self.last_delivery_message = 'PDF generado y abierto para revisar o imprimir.'
+		self._open(filepath)

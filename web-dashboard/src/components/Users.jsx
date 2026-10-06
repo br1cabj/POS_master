@@ -5,7 +5,7 @@ import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/inde
 
 export const Users = () => {
   const { data: users, loading, error } = useSupabaseQuery('users', {
-    select: '*',
+    select: 'id, username, display_name, role, is_active, updated_at',
     filter: ['is_active', 'eq', true],
     order: { column: 'username', ascending: true },
     limit: 500,
