@@ -860,16 +860,22 @@ class SalesView(BaseView):
 			for widget in self.touch_scroll.winfo_children():
 				widget.destroy()
 			self.touch_buttons.clear()
+			shortcuts_enabled = _cfg_mgr.get('show_shortcuts_bar', True)
 			self._touch_queue = [
 				variant
 				for variant in self.db_variants
-				if variant.get('is_combo') or variant.get('show_on_touch')
+				if shortcuts_enabled
+				and (variant.get('is_combo') or variant.get('show_on_touch'))
 			]
 			self._touch_row, self._touch_col = 0, 0
 			if not self._touch_queue:
 				ctk.CTkLabel(
 					self.touch_scroll,
-					text='Sin combos\nasignados',
+					text=(
+						'Accesos táctiles desactivados en Configuración.'
+						if not shortcuts_enabled
+						else 'Sin combos\nasignados'
+					),
 					font=FONT_BODY,
 					text_color=TEXT_MUTED,
 					justify='center',

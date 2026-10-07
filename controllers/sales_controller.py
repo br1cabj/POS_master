@@ -20,8 +20,10 @@ from database.models import (
 	Stock,
 	StockMovement,
 	User,
+	Warehouse,
 )
 from utils.shared import parse_decimal
+from utils import settings_manager
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,17 @@ class SalesController(BaseController):
 
 	def _parse_decimal(self, value):
 		return parse_decimal(value, default=Decimal('0.0'))
+
+	@staticmethod
+	def _resolve_warehouse(session, tenant_id, warehouse_id=None):
+		"""Return the requested tenant warehouse, or a deterministic default."""
+		query = session.query(Warehouse).filter(
+			Warehouse.tenant_id == tenant_id,
+			Warehouse.is_active.is_(True),
+		)
+		if warehouse_id:
+			return query.filter(Warehouse.id == warehouse_id).first()
+		return query.order_by(Warehouse.name, Warehouse.id).first()
 
 	@staticmethod
 	def _promotion_is_active_now(promo, now: datetime) -> bool:
@@ -168,7 +181,7 @@ class SalesController(BaseController):
 			allocations.append((stock, on_row))
 		return allocations
 
-	def get_articles_for_sale(self, tenant_id):
+	def get_articles_for_sale(self, tenant_id, warehouse_id=None):
 		"""
 		Retorna el catálogo activo con stock calculado.
 		Para combos, el stock virtual es el mínimo de unidades armables según ingredientes.
@@ -208,7 +221,7 @@ class SalesController(BaseController):
 									continue  # ingrediente con cantidad inválida; se ignora
 								ing = ci.ingredient
 								ing_stock = (
-									sum(s.quantity for s in ing.stocks)
+									sum(s.quantity for s in ing.stocks if s.warehouse_id == warehouse.id)
 									if ing and ing.stocks
 									else 0
 								)
@@ -220,7 +233,7 @@ class SalesController(BaseController):
 							total_stock = 0 if virtual == float('inf') else virtual
 					else:
 						total_stock = (
-							sum(s.quantity for s in v.stocks) if v.stocks else 0
+							sum(s.quantity for s in v.stocks if s.warehouse_id == warehouse.id) if v.stocks else 0
 						)
 
 					# Stock visible: para presentaciones mostrar en unidades del paquete
@@ -231,7 +244,7 @@ class SalesController(BaseController):
 						base_v = variants_by_id.get(base_vid)
 						if base_v:
 							base_stock = (
-								sum(s.quantity for s in base_v.stocks)
+								sum(s.quantity for s in base_v.stocks if s.warehouse_id == warehouse.id)
 								if base_v.stocks
 								else 0
 							)
@@ -280,7 +293,7 @@ class SalesController(BaseController):
 				)
 				return []
 
-	def search_articles(self, tenant_id, query: str, limit: int = 50):
+	def search_articles(self, tenant_id, query: str, limit: int = 50, warehouse_id=None):
 		"""
 		Búsqueda paginada por nombre o código de barras — no carga el catálogo completo.
 		Usado por el dropdown de búsqueda en tiempo real.
@@ -289,6 +302,9 @@ class SalesController(BaseController):
 
 		with self._Session() as session:
 			try:
+				warehouse = self._resolve_warehouse(session, tenant_id, warehouse_id)
+				if warehouse is None:
+					return []
 				q_like = f'%{query}%'
 				variants = (
 					session.query(ArticleVariant)
@@ -325,6 +341,7 @@ class SalesController(BaseController):
 							if component.quantity_required > 0 and component.ingredient:
 								available = sum(
 									stock.quantity for stock in component.ingredient.stocks
+									if stock.warehouse_id == warehouse.id
 								)
 								virtual_stock = min(
 									virtual_stock,
@@ -332,13 +349,15 @@ class SalesController(BaseController):
 								)
 						total_stock = 0 if virtual_stock == float('inf') else virtual_stock
 					else:
-						total_stock = sum(s.quantity for s in v.stocks) if v.stocks else 0
+						total_stock = sum(
+							s.quantity for s in v.stocks if s.warehouse_id == warehouse.id
+						) if v.stocks else 0
 					units = getattr(v, 'units_per_pack', 1) or 1
 					base_vid = getattr(v, 'base_variant_id', None)
 					if base_vid and units > 1:
 						base = v.base_variant
 						base_stock = (
-							sum(s.quantity for s in base.stocks)
+							sum(s.quantity for s in base.stocks if s.warehouse_id == warehouse.id)
 							if base and base.stocks
 							else 0
 						)
@@ -510,6 +529,7 @@ class SalesController(BaseController):
 		payment_method_2=None,
 		amount_method_2=None,
 		paid_amount=None,
+		warehouse_id=None,
 	):
 		"""
 		Procesa una venta de forma atómica. Verifica caja, resuelve cliente, descuenta stock
@@ -551,6 +571,10 @@ class SalesController(BaseController):
 
 		with self._Session() as session:
 			try:
+				warehouse = self._resolve_warehouse(session, tenant_id, warehouse_id)
+				if warehouse is None:
+					logger.warning('No active warehouse for tenant %s', tenant_id)
+					return []
 				user = (
 					session.query(User)
 					.filter(
@@ -563,6 +587,9 @@ class SalesController(BaseController):
 				)
 				if not user:
 					return False, 'Usuario inválido o inactivo.'
+				warehouse = self._resolve_warehouse(session, tenant_id, warehouse_id)
+				if warehouse is None:
+					return False, 'No hay un depósito activo configurado para esta venta.'
 				user_role = str(user.role or '').strip().lower()
 				max_discount = Decimal('100') if user_role in ('admin', 'gerente') else Decimal('20')
 				if discount_pct > max_discount:
@@ -583,6 +610,8 @@ class SalesController(BaseController):
 
 				customer_str = 'Consumidor Final'
 				customer_obj = None
+				if settings_manager.get('require_customer', False) and not customer_id:
+					return False, 'La configuración requiere seleccionar un cliente registrado.'
 
 				if customer_id:
 					customer_obj = (
@@ -598,6 +627,11 @@ class SalesController(BaseController):
 					)
 					if not customer_obj:
 						return False, 'Cliente inválido o no autorizado.'
+					if (
+						settings_manager.get('require_customer', False)
+						and customer_obj.name.strip().casefold() == 'consumidor final'
+					):
+						return False, 'La configuración requiere seleccionar un cliente registrado.'
 					customer_str = customer_obj.name
 				else:
 					# Verificar fiado ANTES de asignar Consumidor Final,
@@ -621,6 +655,7 @@ class SalesController(BaseController):
 					tenant_id=tenant_id,
 					user_id=user_id,
 					customer_id=customer_id,
+					warehouse_id=warehouse.id,
 					payment_method=metodo_final,
 					status='pendiente' if is_fiado else 'completada',
 					date=datetime.now(),
@@ -677,7 +712,11 @@ class SalesController(BaseController):
 					stocks_db = defaultdict(list)
 					for stock_row in (
 						session.query(Stock)
-						.filter(Stock.variant_id.in_(variants_to_deduct))
+						.filter(
+							Stock.tenant_id == tenant_id,
+							Stock.variant_id.in_(variants_to_deduct),
+							Stock.warehouse_id == warehouse.id,
+						)
 						.with_for_update()
 						.all()
 					):
@@ -797,6 +836,7 @@ class SalesController(BaseController):
 					total_cost += cost_price * qty
 					new_sale.items.append(
 						SaleDetail(
+							tenant_id=tenant_id,
 							variant_id=v_id,
 							description=description,
 							quantity=qty,
@@ -875,6 +915,7 @@ class SalesController(BaseController):
 						)
 						session.add(
 							CashMovement(
+								tenant_id=tenant_id,
 								session_id=active_cash.id,
 								movement_type=mov_type_1,
 								amount=amount_m1,
@@ -883,6 +924,7 @@ class SalesController(BaseController):
 						)
 						session.add(
 							CashMovement(
+								tenant_id=tenant_id,
 								session_id=active_cash.id,
 								movement_type=mov_type_2,
 								amount=amount_m2,
@@ -897,6 +939,7 @@ class SalesController(BaseController):
 						)
 						session.add(
 							CashMovement(
+								tenant_id=tenant_id,
 								session_id=active_cash.id,
 								movement_type=mov_type,
 								amount=final_total,

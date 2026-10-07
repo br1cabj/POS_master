@@ -221,6 +221,7 @@ class CustomerController(BaseController):
 
 				session.add(
 					CashMovement(
+						tenant_id=tenant_id,
 						session_id=active_cash.id,
 						movement_type='ingreso',
 						amount=amount_dec,

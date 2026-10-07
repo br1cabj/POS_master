@@ -50,6 +50,7 @@ def test_partial_return_rejects_repeated_detail_id(test_db_session):
 	)
 	detail = SaleDetail(
 		id='sale-detail-return-guard',
+		tenant_id=tenant.id,
 		sale_id=sale.id,
 		description='Artículo',
 		quantity=Decimal('1'),
@@ -91,7 +92,7 @@ def test_supplier_return_rejects_repeated_detail_id(test_db_session):
 		supplier_id=supplier.id, total_amount=Decimal('10'), status='pagada',
 	)
 	detail = PurchaseDetail(
-		id='purchase-detail-return-guard', purchase_id=purchase.id,
+		id='purchase-detail-return-guard', tenant_id=tenant.id, purchase_id=purchase.id,
 		description='Artículo', quantity=Decimal('1'),
 		unit_cost=Decimal('10'), subtotal=Decimal('10'),
 	)
@@ -147,7 +148,7 @@ def test_quote_conversion_uses_fefo_batches_and_digital_cash_movement(test_db_se
 	)
 	article = Article(id='article-quote-guard', tenant_id=tenant.id, name='Artículo')
 	variant = ArticleVariant(
-		id='variant-quote-guard', article_id=article.id,
+		id='variant-quote-guard', tenant_id=tenant.id, article_id=article.id,
 		cost_price=Decimal('4'), selling_price=Decimal('10'),
 	)
 	quotation = Quotation(
@@ -155,16 +156,16 @@ def test_quote_conversion_uses_fefo_batches_and_digital_cash_movement(test_db_se
 		number='COT-0001', status='enviada', total_amount=Decimal('20'),
 	)
 	item = QuotationItem(
-		id='quotation-item-guard', quotation_id=quotation.id,
+		id='quotation-item-guard', tenant_id=tenant.id, quotation_id=quotation.id,
 		description='Artículo', quantity=Decimal('2'), unit_price=Decimal('10'),
 		subtotal=Decimal('20'), variant_id=variant.id,
 	)
 	first_batch = Stock(
-		id='stock-quote-first', variant_id=variant.id, warehouse_id=warehouse.id,
+		id='stock-quote-first', tenant_id=tenant.id, variant_id=variant.id, warehouse_id=warehouse.id,
 		batch_number='B-1', expiration_date=date(2026, 1, 1), quantity=Decimal('1'),
 	)
 	second_batch = Stock(
-		id='stock-quote-second', variant_id=variant.id, warehouse_id=warehouse.id,
+		id='stock-quote-second', tenant_id=tenant.id, variant_id=variant.id, warehouse_id=warehouse.id,
 		batch_number='B-2', expiration_date=date(2026, 2, 1), quantity=Decimal('2'),
 	)
 	test_db_session.add_all([

@@ -263,6 +263,7 @@ class ArticleController(BaseController):
 						spb = None
 
 				variant = ArticleVariant(
+					tenant_id=tenant_id,
 					barcode=str(barcode).strip(),
 					cost_price=cost_price,
 					selling_price=selling_price,
@@ -277,6 +278,7 @@ class ArticleController(BaseController):
 
 				session.add(
 					Stock(
+						tenant_id=tenant_id,
 						quantity=initial_stock,
 						warehouse_id=warehouse_id,
 						variant_id=variant.id,
@@ -851,6 +853,7 @@ class ArticleController(BaseController):
 						return False, f'El codigo "{bc}" ya esta en uso.'
 
 				variant = ArticleVariant(
+					tenant_id=tenant_id,
 					article_id=base.article_id,
 					barcode=bc,
 					cost_price=base.cost_price * units_per_pack,

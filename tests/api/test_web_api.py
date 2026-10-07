@@ -29,7 +29,7 @@ def _seed(engine):
 			Article(id='article-a', tenant_id='tenant-a', name='Producto A', min_stock=1),
 		])
 		session.add(ArticleVariant(
-			id='variant-a', article_id='article-a', barcode='779000', cost_price=10,
+			id='variant-a', tenant_id='tenant-a', article_id='article-a', barcode='779000', cost_price=10,
 			selling_price=15, is_active=True,
 		))
 		session.commit()
@@ -95,10 +95,54 @@ def test_sync_requires_a_provisioned_device_and_filters_sensitive_fields():
 				'event_id': 'two', 'table': 'customers', 'payload': {'id': 'new', 'tenant_id': 'tenant-a', 'name': 'Nuevo'},
 			}]}, headers={'Authorization': f'Bearer {token}'})
 			assert accepted.status_code == 200
+			branch = client.post('/api/v1/sync/events', json={'events': [{
+				'event_id': 'branch', 'table': 'branches',
+				'payload': {'id': 'branch-a', 'tenant_id': 'tenant-a', 'name': 'Sucursal'},
+			}]}, headers={'Authorization': f'Bearer {token}'})
+			assert branch.status_code == 200
 			secret = client.post('/api/v1/sync/events', json={'events': [{
 				'event_id': 'three', 'table': 'customers', 'payload': {'id': 'bad', 'tenant_id': 'tenant-a', 'name': 'No', 'password_hash': 'never'},
 			}]}, headers={'Authorization': f'Bearer {token}'})
 			assert secret.status_code == 400
+	finally:
+		os.environ.pop('CLOUDPOS_ADMIN_API_KEY', None)
+		database_path.unlink(missing_ok=True)
+
+
+def test_sync_rejects_unscoped_fields_and_cross_tenant_references():
+	database_path = Path('.web-api-integrity-test.db').resolve()
+	database_path.unlink(missing_ok=True)
+	os.environ['CLOUDPOS_ADMIN_API_KEY'] = 'test-admin-key'
+	app = create_app(f'sqlite:///{database_path}')
+	try:
+		with TestClient(app) as client:
+			_seed(app.state.engine)
+			provision = client.post('/api/v1/admin/devices', json={
+				'tenant_id': 'tenant-a', 'name': 'Caja principal',
+				'cloud_username': 'owner', 'cloud_password': 'cloud-password-123',
+			}, headers={'X-CloudPOS-Admin-Key': 'test-admin-key'})
+			headers = {'Authorization': f"Bearer {provision.json()['device_token']}"}
+
+			missing_tenant = client.post('/api/v1/sync/events', json={'events': [{
+				'event_id': 'missing-tenant', 'table': 'customers',
+				'payload': {'id': 'bad', 'name': 'Sin empresa'},
+			}]}, headers=headers)
+			assert missing_tenant.status_code == 403
+
+			unknown_column = client.post('/api/v1/sync/events', json={'events': [{
+				'event_id': 'unknown-column', 'table': 'customers',
+				'payload': {'id': 'bad', 'tenant_id': 'tenant-a', 'name': 'Cliente', 'is_admin': True},
+			}]}, headers=headers)
+			assert unknown_column.status_code == 400
+
+			cross_tenant = client.post('/api/v1/sync/events', json={'events': [{
+				'event_id': 'cross-tenant', 'table': 'article_variants',
+				'payload': {
+					'id': 'bad-variant', 'tenant_id': 'tenant-a', 'article_id': 'article-b',
+					'cost_price': 10, 'selling_price': 15,
+				},
+			}]}, headers=headers)
+			assert cross_tenant.status_code == 409
 	finally:
 		os.environ.pop('CLOUDPOS_ADMIN_API_KEY', None)
 		database_path.unlink(missing_ok=True)

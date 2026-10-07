@@ -4,13 +4,14 @@ views/settings_view.py
 Panel de configuración del sistema — navegación lateral por secciones.
 """
 
-import glob
+import hashlib
 import logging
 import os
 import shutil
 import subprocess
 import sys
 import threading
+import uuid
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog
@@ -25,6 +26,7 @@ import customtkinter as ctk
 import utils.settings_manager as cfg
 from core.base_view import BaseView
 from core.context import AppContext
+from controllers.settings_controller import SettingsController
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
@@ -83,6 +85,7 @@ class SettingsView(BaseView):
 	def __init__(self, master, ctx: AppContext):
 		super().__init__(master, ctx)
 		self._settings = cfg.load()
+		self._settings_ctrl = SettingsController()
 		self._saved = True
 		self._is_rebuilding = False
 		self._dirty_sections: dict = {k: False for k, *_ in _SECTIONS}
@@ -270,13 +273,14 @@ class SettingsView(BaseView):
 		self._content_wrapper.grid_columnconfigure(0, weight=1)
 		self._content_wrapper.grid_rowconfigure(0, weight=1)
 
-	def _show_section(self, key: str):
+	def _show_section(self, key: str, persist_current: bool = True):
 		# En modo cajero la sección de respaldo no existe — redirigir a empresa.
 		import utils.settings_manager as _sm
 
 		if key == 'respaldo' and _sm.get('terminal_mode', 'primary') == 'cashier':
 			key = 'empresa'
-		self._persist_current_section()
+		if persist_current and not self._persist_current_section():
+			return
 
 		if self._content_frame and self._content_frame.winfo_exists():
 			self._content_frame.destroy()
@@ -324,6 +328,8 @@ class SettingsView(BaseView):
 	def _persist_current_section(self):
 		"""Guarda en _settings los valores de la sección activa antes de cambiar."""
 		sec = self._active_section
+		if not self._validate_active_fields():
+			return False
 
 		if sec == 'empresa':
 			if w := getattr(self, 'entry_company_name', None):
@@ -422,6 +428,62 @@ class SettingsView(BaseView):
 
 		elif sec == 'datos':
 			pass  # paths se persisten directamente en sus callbacks
+		errors = self._settings_ctrl.validate(self._settings)
+		if errors:
+			self.show_warning('\n'.join(errors), 'Revisá la configuración')
+			return False
+		return True
+
+	def _validate_active_fields(self) -> bool:
+		"""Keep focus on the current section when a field cannot be saved safely."""
+		sec = self._active_section
+		message = ''
+		if sec == 'empresa':
+			name = getattr(self, 'entry_company_name', None)
+			if name and not name.get().strip():
+				message = 'Ingresá el nombre del negocio antes de continuar.'
+		elif sec == 'moneda':
+			if hasattr(self, '_sym_var') and not self._sym_var.get().strip():
+				message = 'El símbolo de moneda no puede quedar vacío.'
+		elif sec == 'ventas':
+			try:
+				tax = float(self.entry_tax.get().strip().replace(',', '.'))
+				threshold = int(self.entry_low_stock.get().strip())
+				if not 0 <= tax <= 100:
+					message = 'El IVA debe estar entre 0 y 100%.'
+				elif threshold < 0:
+					message = 'El umbral de stock no puede ser negativo.'
+			except (ValueError, TypeError):
+				message = 'Revisá el IVA y el umbral de stock: deben ser números válidos.'
+			if not message:
+				for key, label in (
+					('_entry_list_a_name', 'Lista A'),
+					('_entry_list_b_name', 'Lista B'),
+				):
+					entry = getattr(self, key, None)
+					if entry and (not entry.get().strip() or len(entry.get().strip()) > 40):
+						message = f'{label}: ingresá un nombre de 1 a 40 caracteres.'
+						break
+		elif sec == 'perifericos':
+			try:
+				chars = int(self._peri_ticket_chars_entry.get().strip())
+				if not 16 <= chars <= 96:
+					message = 'Los caracteres por línea deben estar entre 16 y 96.'
+			except (ValueError, TypeError):
+				message = 'Los caracteres por línea deben ser un número entero.'
+			if not message:
+				for entry_name, label in (
+					('_peri_poledisplay_line1_entry', 'Línea 1 de pantalla'),
+					('_peri_poledisplay_line2_entry', 'Línea 2 de pantalla'),
+				):
+					entry = getattr(self, entry_name, None)
+					if entry and len(entry.get()) > 20:
+						message = f'{label}: el máximo es 20 caracteres.'
+						break
+		if message:
+			self.show_warning(message, 'Revisá la configuración')
+			return False
+		return True
 
 	# =========================================================
 	# DIRTY TRACKING
@@ -465,7 +527,7 @@ class SettingsView(BaseView):
 			self._is_rebuilding = False
 		self._pending_logo_path = None
 		self._clear_dirty()
-		self._show_section(self._active_section)
+		self._show_section(self._active_section, persist_current=False)
 
 	# =========================================================
 	# HELPERS DE UI
@@ -653,7 +715,8 @@ class SettingsView(BaseView):
 		path = self._pending_logo_path or self._settings.get('company_logo_path', '')
 		if path and os.path.exists(path) and _PIL_Image is not None:
 			try:
-				img = _PIL_Image.open(path)
+				with _PIL_Image.open(path) as source:
+					img = source.convert('RGBA')
 				img.thumbnail((76, 76))
 				ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(76, 76))
 				self._logo_preview.configure(image=ctk_img, text='')
@@ -667,16 +730,27 @@ class SettingsView(BaseView):
 		path = filedialog.askopenfilename(
 			title='Seleccionar logo',
 			filetypes=[
-				('Imágenes', '*.png *.jpg *.jpeg *.gif *.bmp'),
+				('Imágenes PNG o JPEG', '*.png *.jpg *.jpeg'),
 				('Todos', '*.*'),
 			],
 		)
 		if not path:
 			return
-		if os.path.getsize(path) > 2 * 1024 * 1024:
-			self.show_warning('El logo debe pesar menos de 2 MB.', 'Archivo muy grande')
+		try:
+			if not os.path.isfile(path):
+				raise OSError('El archivo seleccionado ya no está disponible.')
+			if os.path.getsize(path) > 2 * 1024 * 1024:
+				self.show_warning('El logo debe pesar menos de 2 MB.', 'Archivo muy grande')
+				return
+			if os.path.splitext(path)[1].lower() not in {'.png', '.jpg', '.jpeg'}:
+				self.show_warning('Seleccioná una imagen PNG o JPEG válida.')
+				return
+			if _PIL_Image is not None:
+				with _PIL_Image.open(path) as image:
+					image.verify()
+		except (OSError, ValueError) as exc:
+			self.show_warning(f'No se pudo leer la imagen seleccionada: {exc}')
 			return
-
 		# File copy is deferred to _save_all() to keep discard fully reversible
 		self._pending_logo_path = path
 		self._lbl_logo_name.configure(
@@ -867,10 +941,12 @@ class SettingsView(BaseView):
 
 	def _use_custom_sym(self):
 		val = self.entry_custom_sym.get().strip()
-		if val:
+		if val and len(val) <= 5:
 			self._sym_var.set(val)
 			self._mark_dirty(section='moneda')
 			self._update_currency_preview()
+		elif not val:
+			self.show_warning('Ingresá un símbolo de hasta 5 caracteres.')
 
 	def _update_currency_preview(self):
 		sym = getattr(self, '_sym_var', None)
@@ -971,8 +1047,8 @@ class SettingsView(BaseView):
 		)
 		self._toggle_row(
 			beh_card,
-			'Mostrar barra de atajos táctiles',
-			'Panel de acceso rápido a productos en la pantalla de ventas.',
+			'Mostrar accesos rápidos táctiles en ventas',
+			'Muestra u oculta el panel de combos y productos fijados en Ventas.',
 			self._show_bar_var,
 		)
 		ctk.CTkFrame(beh_card, height=8, fg_color='transparent').pack()
@@ -1193,7 +1269,7 @@ class SettingsView(BaseView):
 		self._peri_ticket_type_var = ctk.StringVar(master=self, 
 			value=s.get('printer_ticket_type', '80mm')
 		)
-		for val, lbl in [('58mm', '58 mm'), ('80mm', '80 mm'), ('laser', 'A4 / Laser')]:
+		for val, lbl in [('58mm', '58 mm'), ('80mm', '80 mm')]:
 			ctk.CTkRadioButton(
 				type_row,
 				text=lbl,
@@ -1208,7 +1284,7 @@ class SettingsView(BaseView):
 		chars_row.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 		ctk.CTkLabel(
 			chars_row,
-			text='Chars por línea:',
+			text='Ancho prueba RAW:',
 			font=FONT_LABEL_BOLD,
 			text_color=TEXT_SECONDARY,
 			anchor='w',
@@ -1228,10 +1304,18 @@ class SettingsView(BaseView):
 		self._peri_ticket_chars_entry.pack(side='left')
 		ctk.CTkLabel(
 			chars_row,
-			text='(58mm≈32  |  80mm≈48)',
+			text='Solo prueba RAW',
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).pack(side='left', padx=(PAD_SM, 0))
+		ctk.CTkLabel(
+			tc,
+			text='Los tickets PDF usan automáticamente el ancho de papel seleccionado.',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			wraplength=500,
+			justify='left',
+		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
 		self._peri_ticket_status = self._peri_status_label(tc)
 		ctk.CTkButton(
@@ -1307,8 +1391,8 @@ class SettingsView(BaseView):
 		)
 		self._toggle_row(
 			sc,
-			'Balanza habilitada',
-			'Activa la lectura de peso desde el puerto serial.',
+			'Balanza configurada',
+			'Guarda el puerto y protocolo para probar la conexión. La lectura durante la venta aún no está integrada.',
 			self._peri_scale_enabled_var,
 			section='perifericos',
 		)
@@ -1368,6 +1452,14 @@ class SettingsView(BaseView):
 
 		# ── Lector de código de barras ───────────────────────
 		bc = self._card(parent, 'Lector de Código de Barras', '📷')
+		ctk.CTkLabel(
+			bc,
+			text='HID / USB funciona como teclado. El modo serial solo permite probar el puerto; lectura serial y prefijo/sufijo aún no se aplican durante la venta.',
+			font=FONT_LABEL,
+			text_color=TEXT_MUTED,
+			wraplength=500,
+			justify='left',
+		).pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
 		self._peri_barcode_mode_var = ctk.StringVar(master=self, value=s.get('barcode_mode', 'hid'))
 		mode_row = ctk.CTkFrame(bc, fg_color='transparent')
@@ -1468,7 +1560,7 @@ class SettingsView(BaseView):
 		cdc = self._card(parent, 'Cajón de Dinero', '💵')
 		ctk.CTkLabel(
 			cdc,
-			text='El cajón puede abrirse vía la impresora (ESC/POS) o un puerto COM propio.',
+			text='Podés probar la conexión aquí. La apertura automática al cobrar todavía no está integrada.',
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 			anchor='w',
@@ -1529,8 +1621,8 @@ class SettingsView(BaseView):
 		)
 		self._toggle_row(
 			pdc,
-			'Pantalla de cliente habilitada',
-			'Muestra precios y mensajes en la pantalla orientada al cliente.',
+			'Pantalla de cliente configurada',
+			'Guarda puerto y mensajes para probar la conexión. La actualización durante la venta aún no está integrada.',
 			self._peri_poledisplay_enabled_var,
 			section='perifericos',
 		)
@@ -1685,7 +1777,8 @@ class SettingsView(BaseView):
 			)
 
 	def _test_ticket_print(self):
-		self._persist_current_section()
+		if not self._persist_current_section():
+			return
 		name = self._settings.get('printer_ticket_name', '')
 		chars = int(self._settings.get('printer_ticket_chars', 48))
 		if not name or name.startswith('('):
@@ -1736,7 +1829,8 @@ class SettingsView(BaseView):
 			self._set_peri_status(self._peri_ticket_status, f'✕  Error: {e}', False)
 
 	def _test_label_print(self):
-		self._persist_current_section()
+		if not self._persist_current_section():
+			return
 		name = self._settings.get('printer_label_name', '')
 		if not name or name.startswith('('):
 			self._set_peri_status(
@@ -1761,7 +1855,8 @@ class SettingsView(BaseView):
 			self._set_peri_status(self._peri_label_status, f'✕  Error: {e}', False)
 
 	def _test_scale(self):
-		self._persist_current_section()
+		if not self._persist_current_section():
+			return
 		port = self._settings.get('scale_port', 'COM1')
 		baud = int(self._settings.get('scale_baud', 9600))
 		try:
@@ -1792,7 +1887,8 @@ class SettingsView(BaseView):
 			self._set_peri_status(self._peri_scale_status, f'✕  {e}', False)
 
 	def _test_barcode(self):
-		self._persist_current_section()
+		if not self._persist_current_section():
+			return
 		mode = self._settings.get('barcode_mode', 'hid')
 		if mode == 'hid':
 			self.show_success(
@@ -1823,7 +1919,8 @@ class SettingsView(BaseView):
 			self._set_peri_status(self._peri_barcode_status, f'✕  {e}', False)
 
 	def _test_cashdrawer(self):
-		self._persist_current_section()
+		if not self._persist_current_section():
+			return
 		conn = self._settings.get('cashdrawer_connection', 'printer')
 		ESC_POS_KICK = b'\x1b\x70\x00\x19\xfa'
 
@@ -1881,7 +1978,8 @@ class SettingsView(BaseView):
 				self._set_peri_status(self._peri_cashdrawer_status, f'✕  {e}', False)
 
 	def _test_poledisplay(self):
-		self._persist_current_section()
+		if not self._persist_current_section():
+			return
 		port = self._settings.get('poledisplay_port', 'COM4')
 		baud = int(self._settings.get('poledisplay_baud', 9600))
 		line1 = self._settings.get('poledisplay_line1', 'Bienvenido!')
@@ -1916,7 +2014,7 @@ class SettingsView(BaseView):
 
 		ctk.CTkLabel(
 			rep_card,
-			text='Reportes PDF, CSV, Reporte Z y respaldos se guardan aquí.',
+			text='Los reportes exportados y los respaldos manuales se guardan aquí. Los respaldos automáticos quedan en la carpeta segura de CloudPOS.',
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 			anchor='w',
@@ -1925,7 +2023,7 @@ class SettingsView(BaseView):
 		path_box = ctk.CTkFrame(rep_card, fg_color=SURFACE3, corner_radius=8)
 		path_box.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 
-		current_path = cfg.get('reports_path', '') or cfg.get_reports_path()
+		current_path = cfg.get_reports_path()
 		self._lbl_reports_path = ctk.CTkLabel(
 			path_box,
 			text=current_path,
@@ -1971,19 +2069,19 @@ class SettingsView(BaseView):
 		# ── Base de datos ──
 		db_card = self._card(parent, 'Base de datos', '🗄️')
 
-		_db_dir = (
-			os.path.dirname(sys.executable)
-			if getattr(sys, 'frozen', False)
-			else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+		database_name = self.ctx.db_engine.url.database
+		db_path = (
+			Path(database_name).expanduser().resolve()
+			if database_name and database_name != ':memory:' and not database_name.startswith('file:')
+			else None
 		)
-		db_path = Path(os.path.join(_db_dir, 'pos_system.db'))
 
 		info_box = ctk.CTkFrame(db_card, fg_color=SURFACE3, corner_radius=8)
 		info_box.pack(fill='x', padx=PAD_MD, pady=(0, PAD_SM))
 
 		ctk.CTkLabel(
 			info_box,
-			text=f'📄  {db_path.name}',
+			text=f'📄  {db_path.name}' if db_path else '📄  Base SQLite en memoria',
 			font=FONT_BODY_BOLD,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
@@ -1991,7 +2089,7 @@ class SettingsView(BaseView):
 
 		ctk.CTkLabel(
 			info_box,
-			text=str(db_path.parent),
+			text=str(db_path.parent) if db_path else 'No se conserva un archivo local entre sesiones.',
 			font=(FONT_FAMILY_MONO, 10),
 			text_color=TEXT_MUTED,
 			wraplength=400,
@@ -2019,6 +2117,9 @@ class SettingsView(BaseView):
 		)
 		if not path:
 			return
+		if not os.path.isdir(path) or not os.access(path, os.W_OK):
+			self.show_warning('La carpeta seleccionada no existe o no permite guardar archivos.')
+			return
 		self._settings['reports_path'] = path
 		self._mark_dirty(section='datos')
 		self._lbl_reports_path.configure(text=path)
@@ -2031,29 +2132,34 @@ class SettingsView(BaseView):
 	def _backup_db(self):
 		import sqlite3
 
-		_db_dir = (
-			os.path.dirname(sys.executable)
-			if getattr(sys, 'frozen', False)
-			else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-		)
-		db_path = Path(os.path.join(_db_dir, 'pos_system.db'))
-		if not db_path.exists():
-			self.show_error("No se encontró el archivo 'pos_system.db'.")
+		engine = self.ctx.db_engine
+		if engine.dialect.name != 'sqlite' or engine.url.database == ':memory:':
+			self.show_error('El respaldo manual requiere una base SQLite en archivo.')
 			return
-		dest_folder = cfg.get_reports_path()
+		candidate_folder = self._settings.get('reports_path')
+		dest_folder = (
+			candidate_folder
+			if candidate_folder and os.path.isdir(candidate_folder) and os.access(candidate_folder, os.W_OK)
+			else cfg.get_reports_path()
+		)
 		timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
 		dest_path = Path(dest_folder) / f'respaldo_CloudPOS_{timestamp}.db'
+		src = dst = None
 		try:
-			# sqlite3.backup() maneja WAL correctamente a diferencia de shutil.copy2
-			src = sqlite3.connect(str(db_path))
+			Path(dest_folder).mkdir(parents=True, exist_ok=True)
+			# Use the engine actually serving the app; this also respects DATABASE_URL.
+			src = engine.raw_connection()
 			dst = sqlite3.connect(str(dest_path))
 			src.backup(dst)
-			dst.close()
-			src.close()
 			self.show_success(f'Respaldo creado correctamente:\n{dest_path}')
 		except Exception as e:
 			logger.error(f'Fallo al respaldar BD: {e}', exc_info=True)
 			self.show_error(f'Error al crear el respaldo:\n{e}')
+		finally:
+			if dst is not None:
+				dst.close()
+			if src is not None:
+				src.close()
 
 	# =========================================================
 	# =========================================================
@@ -2683,35 +2789,34 @@ class SettingsView(BaseView):
 	# GUARDAR TODO
 	# =========================================================
 	def _save_all(self):
-		self._persist_current_section()
+		if not self._persist_current_section():
+			return
 
+		copied_logo = None
 		if self._pending_logo_path:
-			base = (
-				os.path.dirname(sys.executable)
-				if getattr(sys, 'frozen', False)
-				else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-			)
-			dest_dir = os.path.join(base, 'assets')
+			dest_dir = os.path.join(cfg.get_user_data_dir(), 'assets')
 			try:
 				os.makedirs(dest_dir, exist_ok=True)
-				for old in glob.glob(os.path.join(dest_dir, 'logo.*')):
-					try:
-						os.remove(old)
-					except Exception:
-						pass
 				ext = os.path.splitext(self._pending_logo_path)[1].lower()
-				dest = os.path.join(dest_dir, f'logo{ext}')
+				with open(self._pending_logo_path, 'rb') as logo_file:
+					logo_digest = hashlib.sha256(logo_file.read()).hexdigest()[:16]
+				dest = os.path.join(dest_dir, f'logo_{logo_digest}_{uuid.uuid4().hex[:8]}{ext}')
 				shutil.copy2(self._pending_logo_path, dest)
+				copied_logo = dest
 				self._settings['company_logo_path'] = dest
-				self._pending_logo_path = None
 			except OSError as e:
 				self.show_error(f'No se pudo guardar el logo:\n{e}', 'Error')
 				return
 
-		if cfg.save(self._settings):
+		ok, error = self._settings_ctrl.save(self._settings)
+		if ok:
+			self._pending_logo_path = None
 			self._clear_dirty()
-			self.show_success(
-				'Configuración guardada. Reiniciá la sesión para aplicar cambios visuales.'
-			)
+			self.show_success('Configuración guardada. Los cambios se aplican al usar o volver a abrir cada sección.')
 		else:
-			self.show_error('No se pudo guardar la configuración en el disco.')
+			if copied_logo:
+				try:
+					os.remove(copied_logo)
+				except OSError:
+					logger.warning('No se pudo limpiar el logo temporal %s', copied_logo)
+			self.show_error(error, 'No se pudo guardar')

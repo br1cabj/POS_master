@@ -165,28 +165,15 @@ class PosApp(ctk.CTk):
 
 	def _get_or_create_engine(self):
 		if self.db_engine is None:
-			terminal_mode = settings_get('terminal_mode', 'primary')
+			# SQLite is intentionally local to this installation. Opening a .db
+			# through an SMB/UNC share is not a multi-user database protocol and can
+			# corrupt WAL state or silently lose concurrent cashier operations.
+			self.db_engine = get_engine()
+			run_migrations(self.db_engine)
+			from utils.sync_worker import SyncWorker
 
-			if terminal_mode == 'cashier':
-				# Cajero: conecta al .db remoto, sin migraciones ni sync.
-				# Normalizar la ruta para SQLAlchemy: las rutas UNC de Windows
-				# (\\server\share\file.db) necesitan barras y 4 slashes en la URL.
-				from utils.config import make_engine
-
-				db_path = settings_get('db_remote_path', '')
-				_p = db_path.replace('\\', '/')
-				_url = f'sqlite://{_p}' if _p.startswith('//') else f'sqlite:///{_p}'
-				self.db_engine = make_engine(_url)
-				# Actualizar el DB offline de respaldo en segundo plano
-				self._update_offline_backup(db_path)
-			else:
-				# Principal: flujo normal con migraciones y sync
-				self.db_engine = get_engine()
-				run_migrations(self.db_engine)
-				from utils.sync_worker import SyncWorker
-
-				self._sync_worker = SyncWorker(self.db_engine)
-				self._sync_worker.start()
+			self._sync_worker = SyncWorker(self.db_engine)
+			self._sync_worker.start()
 		return self.db_engine
 
 	# =========================================================
@@ -197,32 +184,11 @@ class PosApp(ctk.CTk):
 
 		terminal_mode = settings_get('terminal_mode', 'primary')
 
-		# ── Modo Cajero ──────────────────────────────────────────────────
+		# Legacy configurations previously opened a shared SQLite file through a
+		# network path.  Do not silently keep running that unsafe architecture.
 		if terminal_mode == 'cashier':
-			db_path = settings_get('db_remote_path', '')
-			if db_path:
-				# Show a loading screen while checking network drive
-				loading_frame = ctk.CTkFrame(self)
-				loading_frame.pack(fill='both', expand=True, padx=60, pady=60)
-				ctk.CTkLabel(
-					loading_frame,
-					text='Buscando Terminal Principal...',
-					font=('Arial', 20, 'bold'),
-					text_color='#3498DB',
-				).pack(pady=40)
-
-				import threading
-
-				def check_db_path():
-					exists = os.path.exists(db_path)
-					if self.winfo_exists():
-						self.after(
-							0, lambda: self._on_cashier_path_checked(exists, db_path)
-						)
-
-				threading.Thread(target=check_db_path, daemon=True).start()
-				return
-			# db_remote_path vacío → wizard no completado, continuar al wizard
+			self._show_shared_sqlite_disabled()
+			return
 
 		# ── Modo Principal (o cajero sin configurar) ─────────────────────
 		_dir = (
@@ -243,6 +209,26 @@ class PosApp(ctk.CTk):
 			self.show_login()
 		else:
 			self.show_license_lock(status_msg)
+
+	def _show_shared_sqlite_disabled(self):
+		"""Explain why the retired network-SQLite cashier mode cannot be opened."""
+		frame = ctk.CTkFrame(self)
+		frame.pack(fill='both', expand=True, padx=60, pady=60)
+		ctk.CTkLabel(
+			frame, text='Configuración de terminal desactualizada',
+			font=('Arial', 20, 'bold'), text_color='#E67E22',
+		).pack(pady=(40, 12))
+		ctk.CTkLabel(
+			frame,
+			text=(
+				'CloudPOS ya no abre archivos SQLite compartidos por red.\n\n'
+				'Una base SQLite debe vivir en una sola PC para proteger ventas, stock y caja. '
+				'Configurá esta instalación como independiente; los reportes remotos se '
+				'publican mediante el complemento Cloud, sin compartir el archivo local.'
+			),
+			font=('Arial', 12), text_color='#AAAAAA', justify='center', wraplength=620,
+		).pack(pady=12)
+		ctk.CTkButton(frame, text='Abrir configuración', command=self.show_wizard).pack(pady=(18, 8))
 
 	def _on_cashier_path_checked(self, exists: bool, db_path: str):
 		self._clear_window()

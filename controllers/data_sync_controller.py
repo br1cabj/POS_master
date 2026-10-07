@@ -550,6 +550,7 @@ class DataSyncController(BaseController):
 						session.flush()
 
 						variant = ArticleVariant(
+							tenant_id=tenant_id,
 							barcode=barcode,
 							cost_price=cost,
 							selling_price=price,
@@ -563,6 +564,7 @@ class DataSyncController(BaseController):
 						if warehouse_id and stock_val > 0:
 							session.add(
 								Stock(
+									tenant_id=tenant_id,
 									quantity=stock_val,
 									warehouse_id=warehouse_id,
 									variant_id=variant.id,

@@ -41,6 +41,7 @@ def _sale_environment(session, role='cajero'):
 	)
 	variant = ArticleVariant(
 		id='variant-sale',
+		tenant_id=tenant.id,
 		article_id=article.id,
 		cost_price=Decimal('40'),
 		selling_price=Decimal('100'),
@@ -48,6 +49,7 @@ def _sale_environment(session, role='cajero'):
 	)
 	stock = Stock(
 		id='stock-sale',
+		tenant_id=tenant.id,
 		variant_id=variant.id,
 		warehouse_id=warehouse.id,
 		quantity=Decimal('20'),
@@ -117,3 +119,30 @@ def test_cashier_cannot_apply_excessive_discount_or_free_sale(test_db_session):
 	)
 	assert not ok
 	assert 'administradora' in message
+
+
+def test_sale_only_deducts_the_selected_warehouse(test_db_session):
+	tenant, user, _category, variant = _sale_environment(test_db_session)
+	primary = test_db_session.get(Warehouse, 'warehouse-sale')
+	second = Warehouse(
+		id='warehouse-sale-2', tenant_id=tenant.id, branch_id='branch-sale', name='Secundario'
+	)
+	test_db_session.add_all([
+		second,
+		Stock(
+			id='stock-sale-2', tenant_id=tenant.id, variant_id=variant.id,
+			warehouse_id=second.id, quantity=Decimal('100'),
+		),
+	])
+	test_db_session.commit()
+
+	ok, message = SalesController(test_db_session.get_bind()).process_sale(
+		tenant.id,
+		user.id,
+		[{'variant_id': variant.id, 'qty': '21', 'price': '100'}],
+		payment_method='efectivo',
+		warehouse_id=primary.id,
+	)
+
+	assert not ok
+	assert 'Stock insuficiente' in message

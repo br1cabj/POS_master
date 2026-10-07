@@ -13,6 +13,7 @@ def _seed_variant(session, barcode=None, variant_id='variant-label'):
 	article = Article(id='article-label', tenant_id=tenant.id, name='Producto de prueba')
 	variant = ArticleVariant(
 		id=variant_id,
+		tenant_id=tenant.id,
 		article_id=article.id,
 		barcode=barcode,
 		cost_price=Decimal('10'),

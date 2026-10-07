@@ -305,13 +305,14 @@ class CashView(BaseView):
 		history_frame.grid_columnconfigure(0, weight=1)
 		history_frame.grid_rowconfigure(1, weight=1)
 
-		ctk.CTkLabel(
+		self.lbl_history_title = ctk.CTkLabel(
 			history_frame,
 			text='Historial del Turno',
 			font=FONT_NAV_BOLD,
 			text_color=TEXT_SECONDARY,
 			anchor='w',
-		).grid(row=0, column=0, sticky='w', pady=(12, 6))
+		)
+		self.lbl_history_title.grid(row=0, column=0, sticky='w', pady=(12, 6))
 
 		self.history_scroll = ctk.CTkScrollableFrame(
 			history_frame,
@@ -341,6 +342,7 @@ class CashView(BaseView):
 			self._show_closed_state()
 
 	def _show_open_state(self):
+		self.lbl_history_title.configure(text='Historial del Turno')
 		sess = self.active_session
 		opening = float(sess.get('opening_balance', 0.0))
 		opening_time = sess.get('opening_time')
@@ -384,6 +386,7 @@ class CashView(BaseView):
 		self._refresh_history(tenant_id, session_id)
 
 	def _show_closed_state(self):
+		self.lbl_history_title.configure(text='Último Reporte Z')
 		self.lbl_status.configure(text='CAJA CERRADA', text_color=ORANGE_TEXT)
 		self.lbl_session_info.configure(text='Abrí la caja para empezar a operar.')
 		self.lbl_blind_note.configure(text='')
@@ -403,6 +406,38 @@ class CashView(BaseView):
 
 		self._set_form_state('disabled')
 		self._clear_history()
+		latest_closed_id = self.controller.get_latest_closed_session_id(
+			self.ctx.tenant_id, self.ctx.user_id
+		)
+		if latest_closed_id:
+			ctk.CTkLabel(
+				self.history_scroll,
+				text=f'Último turno cerrado: #{str(latest_closed_id)[:8]}',
+				font=FONT_LABEL_BOLD,
+				text_color=TEXT_SECONDARY,
+			).pack(pady=(18, 6))
+			ctk.CTkButton(
+				self.history_scroll,
+				text='📄  Volver a generar Reporte Z',
+				fg_color=ACCENT_DIM,
+				hover_color=ACCENT,
+				text_color=ACCENT_TEXT,
+				command=lambda sid=latest_closed_id: self._regenerate_z_report(sid),
+			).pack(fill='x', padx=12, pady=(0, 12))
+		else:
+			ctk.CTkLabel(
+				self.history_scroll,
+				text='Todavía no hay turnos cerrados para consultar.',
+				font=FONT_BODY,
+				text_color=TEXT_MUTED,
+			).pack(pady=24)
+
+	def _regenerate_z_report(self, session_id):
+		ok, result = self.controller.regenerate_z_report(self.ctx.tenant_id, session_id)
+		if ok:
+			self.show_success(f'Reporte Z regenerado correctamente:\n{result}', title='Reporte Z')
+		else:
+			self.show_error(result, title='No se pudo generar el reporte')
 
 	def _refresh_history(self, tenant_id, session_id):
 		self._clear_history()

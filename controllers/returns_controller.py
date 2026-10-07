@@ -609,6 +609,7 @@ class ReturnsController(BaseController):
 					)
 				session.add(
 					CashMovement(
+						tenant_id=tenant_id,
 						session_id=active_cash.id,
 						# Un reintegro digital no extrae efectivo del cajón. El
 						# resumen de caja sólo descuenta ``gasto`` físico.

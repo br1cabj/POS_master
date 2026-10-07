@@ -2095,7 +2095,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			self._card_cashier,
-			text='Terminal Cajero',
+			text='Instalación adicional',
 			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
@@ -2103,7 +2103,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			self._card_cashier,
-			text='Se conecta a la Terminal Principal\npor la red local del comercio.',
+			text='Cada PC usa su base local.\nNunca se comparte un archivo SQLite por red.',
 			font=FONT_BODY,
 			text_color=TEXT_MUTED,
 			anchor='w',
@@ -2113,10 +2113,10 @@ class SetupWizard(ctk.CTkFrame):
 
 		for i, (feat, ok) in enumerate(
 			[
-				('✓  Ventas y cobros', True),
-				('✓  Consulta de precios y stock', True),
-				('✓  Historial del turno', True),
-				('✗  Sin reportes ni backup', False),
+				('✓  Operación completa sin internet', True),
+				('✓  Stock y caja consistentes', True),
+				('✓  Backup local propio', True),
+				('✓  Cloud opcional para reportes', True),
 			]
 		):
 			ctk.CTkLabel(
@@ -2133,7 +2133,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			self._card_cashier,
-			text='RUTA A LA BASE DE DATOS',
+			text='BASE COMPARTIDA POR RED',
 			font=FONT_LABEL_BOLD,
 			text_color=TEXT_SECONDARY,
 			anchor='w',
@@ -2141,7 +2141,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			self._card_cashier,
-			text='Indicá el archivo pos_system.db compartido. La PC principal debe estar encendida y la carpeta debe tener permiso de lectura/escritura.',
+			text='No disponible: SQLite no admite escrituras concurrentes seguras por red. Configurá esta PC como instalación independiente.',
 			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 			anchor='w',
@@ -2161,6 +2161,7 @@ class SetupWizard(ctk.CTkFrame):
 			border_color=BORDER_ACTIVE,
 			text_color=TEXT_PRIMARY,
 			font=FONT_SMALL,
+			state='disabled',
 		)
 		self._entry_cashier_path.grid(row=0, column=0, sticky='ew', padx=(0, PAD_XS))
 		if self._cashier_db_path:
@@ -2183,6 +2184,7 @@ class SetupWizard(ctk.CTkFrame):
 			corner_radius=6,
 			font=FONT_BODY_BOLD,
 			command=self._browse_cashier_db,
+			state='disabled',
 		).grid(row=0, column=1)
 
 		self._btn_test_cashier = ctk.CTkButton(
@@ -2198,12 +2200,13 @@ class SetupWizard(ctk.CTkFrame):
 			corner_radius=6,
 			font=FONT_LABEL_BOLD,
 			command=self._test_cashier_connection,
+			state='disabled',
 		)
 		self._btn_test_cashier.grid(row=0, column=2, padx=(PAD_XS, 0))
 
 		self._btn_sel_cashier = ctk.CTkButton(
 			self._card_cashier,
-			text='🔗  Usar como Terminal Cajero',
+			text='No disponible con SQLite local',
 			height=46,
 			corner_radius=10,
 			font=FONT_BODY_BOLD,
@@ -2212,7 +2215,7 @@ class SetupWizard(ctk.CTkFrame):
 			text_color=TEXT_SECONDARY,
 			border_width=2,
 			border_color=BORDER_ACTIVE,
-			command=self._select_cashier_terminal,
+			state='disabled',
 		)
 		self._btn_sel_cashier.grid(
 			row=11, column=0, padx=PAD_LG, pady=(0, PAD_LG), sticky='ew'
@@ -2226,13 +2229,11 @@ class SetupWizard(ctk.CTkFrame):
 		)
 		self._lbl_terminal_status.pack(pady=(PAD_SM, 0))
 		self._make_card_selectable(self._card_primary, self._select_primary_terminal)
-		self._make_card_selectable(self._card_cashier, self._select_cashier_terminal)
+		# The old shared-SQLite option is intentionally not selectable: it is not
+		# a safe multi-user database architecture.
 
 		# Restaurar selección previa
-		if self._terminal_mode_sel == 'cashier':
-			self._select_cashier_terminal()
-		else:
-			self._select_primary_terminal()
+		self._select_primary_terminal()
 
 	def _select_primary_terminal(self):
 		self._terminal_mode_sel = 'primary'

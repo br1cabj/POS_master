@@ -17,7 +17,7 @@ from sqlalchemy.orm import joinedload
 from controllers.base import BaseController
 from controllers.user_controller import get_display_name
 from database.models import CashMovement, CashSession
-from utils.settings_manager import get_reports_path
+from utils.settings_manager import fmt_price, get, get_reports_path
 from utils.shared import parse_decimal
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,13 @@ def _sanitize(text: str) -> str:
 		.encode('latin-1', 'ignore')
 		.decode('latin-1')
 	)
+
+
+def _pdf_money(amount) -> str:
+	value = fmt_price(amount)
+	for symbol, replacement in (('€', 'EUR '), ('£', 'GBP '), ('¥', 'JPY ')):
+		value = value.replace(symbol, replacement)
+	return _sanitize(value)
 
 
 class CashController(BaseController):
@@ -159,6 +166,7 @@ class CashController(BaseController):
 						parsed_declared,
 						difference,
 						ventas_digital,
+						cash_session.closed_at,
 					)
 				except Exception as pdf_err:
 					logger.warning(
@@ -184,7 +192,7 @@ class CashController(BaseController):
 				return True, (
 					f'Caja cerrada correctamente.\n\n'
 					f'Resultado del Arqueo: {estado}\n'
-					f'Diferencia: ${abs(difference):,.2f}' + pdf_msg
+					f'Diferencia: {fmt_price(abs(difference))}' + pdf_msg
 				)
 			except Exception as e:
 				session.rollback()
@@ -325,6 +333,7 @@ class CashController(BaseController):
 
 				session.add(
 					CashMovement(
+						tenant_id=tenant_id,
 						session_id=session_id,
 						movement_type=mov_type,
 						amount=parsed,
@@ -343,6 +352,52 @@ class CashController(BaseController):
 				)
 				return False, 'Error interno del servidor al procesar el movimiento.'
 
+	def get_latest_closed_session_id(self, tenant_id, user_id):
+		"""Return the current user's most recently closed cash session, if any."""
+		with self._Session() as session:
+			row = (
+				session.query(CashSession.id)
+				.filter(
+					CashSession.tenant_id == tenant_id,
+					CashSession.user_id == user_id,
+					CashSession.is_open.is_(False),
+				)
+				.order_by(CashSession.closed_at.desc())
+				.first()
+			)
+			return row[0] if row else None
+
+	def regenerate_z_report(self, tenant_id, session_id):
+		"""Recreate a closed shift's Z report without changing its persisted cash close."""
+		with self._Session() as session:
+			try:
+				cash_session = (
+					session.query(CashSession)
+					.options(joinedload(CashSession.user))
+					.filter_by(id=session_id, tenant_id=tenant_id)
+					.first()
+				)
+				if not cash_session or cash_session.is_open:
+					return False, 'No se encontró un turno cerrado para generar el Reporte Z.'
+				ventas, ingresos, gastos, ventas_digital = self.get_session_summary(
+					tenant_id, session_id, db_session=session
+				)
+				opening = Decimal(str(cash_session.opening_balance or 0))
+				expected = Decimal(str(cash_session.expected_amount or 0))
+				declared = Decimal(
+					str(cash_session.declared_amount or cash_session.closing_balance or 0)
+				)
+				difference = Decimal(str(cash_session.difference or 0))
+				username = get_display_name(cash_session.user) if cash_session.user else 'Cajero'
+				path = self._generate_z_report_pdf(
+					cash_session.id, username, opening, ventas, ingresos, gastos,
+					expected, declared, difference, ventas_digital, cash_session.closed_at,
+				)
+				return True, path
+			except Exception as e:
+				logger.error('No se pudo regenerar el Reporte Z %s: %s', session_id, e, exc_info=True)
+				return False, 'No se pudo generar el Reporte Z. Revisá la carpeta de reportes y los permisos.'
+
 	def _generate_z_report_pdf(
 		self,
 		session_id,
@@ -355,19 +410,33 @@ class CashController(BaseController):
 		declared,
 		difference,
 		ventas_digital=None,
+		closed_at=None,
 	):
 		"""Crea el documento PDF del Reporte Z y lo almacena en el directorio del usuario."""
 		pdf = FPDF(format='A5')
 		pdf.add_page()
 		pdf.set_auto_page_break(auto=True, margin=15)
 
+		company_name = get('company_name', 'Mi Negocio')
+		logo_path = get('company_logo_path', '')
+		header_x, header_width = 10, 128
+		if logo_path and os.path.isfile(logo_path):
+			try:
+				pdf.image(logo_path, x=12, y=8, w=18, h=18, keep_aspect_ratio=True)
+				header_x, header_width = 32, 106
+			except Exception as exc:
+				logger.warning('No se pudo insertar el logo en el Reporte Z: %s', exc)
+		pdf.set_font('Arial', 'B', 10)
+		pdf.set_xy(header_x, 8)
+		pdf.cell(header_width, 6, _sanitize(company_name)[:55], align='C')
+		pdf.set_xy(10, 17)
 		pdf.set_font('Arial', 'B', 16)
-		pdf.cell(0, 10, 'REPORTE Z - CIERRE DE CAJA', ln=True, align='C')
+		pdf.cell(128, 8, 'REPORTE Z - CIERRE DE CAJA', ln=True, align='C')
 		pdf.set_font('Arial', '', 10)
 		pdf.cell(
 			0,
 			5,
-			'Fecha de Cierre: ' + datetime.now().strftime('%d/%m/%Y %H:%M'),
+			'Fecha de Cierre: ' + (closed_at or datetime.now()).strftime('%d/%m/%Y %H:%M'),
 			ln=True,
 			align='C',
 		)
@@ -380,8 +449,9 @@ class CashController(BaseController):
 			ln=True,
 			align='C',
 		)
-		pdf.line(10, 35, 138, 35)
-		pdf.ln(10)
+		pdf.line(10, 40, 138, 40)
+		pdf.set_y(40)
+		pdf.ln(5)
 
 		pdf.set_font('Arial', 'B', 12)
 		pdf.cell(0, 8, 'RESUMEN DE MOVIMIENTOS', ln=True)
@@ -397,7 +467,7 @@ class CashController(BaseController):
 			rows_pdf.insert(2, ('Ventas Digitales (*):', ventas_digital))
 		for label, value in rows_pdf:
 			pdf.cell(80, 8, label)
-			pdf.cell(0, 8, f'${float(value):,.2f}', ln=True, align='R')
+			pdf.cell(0, 8, _pdf_money(value), ln=True, align='R')
 		if ventas_digital and ventas_digital > 0:
 			pdf.set_font('Arial', 'I', 9)
 			pdf.cell(
@@ -415,9 +485,9 @@ class CashController(BaseController):
 		pdf.cell(0, 8, 'ARQUEO DE CAJA (BLIND CLOSE)', ln=True)
 		pdf.set_font('Arial', '', 12)
 		pdf.cell(80, 8, 'Monto Esperado (Sistema):')
-		pdf.cell(0, 8, f'${float(expected):,.2f}', ln=True, align='R')
+		pdf.cell(0, 8, _pdf_money(expected), ln=True, align='R')
 		pdf.cell(80, 8, 'Monto Declarado (Cajero):')
-		pdf.cell(0, 8, f'${float(declared):,.2f}', ln=True, align='R')
+		pdf.cell(0, 8, _pdf_money(declared), ln=True, align='R')
 
 		if difference < 0:
 			pdf.set_text_color(200, 0, 0)
@@ -432,7 +502,7 @@ class CashController(BaseController):
 
 		pdf.set_font('Arial', 'B', 14)
 		pdf.cell(80, 10, f'DIFERENCIA ({estado}):')
-		pdf.cell(0, 10, f'${float(difference):,.2f}', ln=True, align='R')
+		pdf.cell(0, 10, _pdf_money(difference), ln=True, align='R')
 		pdf.set_text_color(0, 0, 0)
 
 		pdf.ln(20)
@@ -440,9 +510,10 @@ class CashController(BaseController):
 		pdf.cell(0, 5, '_______________________', ln=True, align='C')
 		pdf.cell(0, 5, 'Firma del Cajero', ln=True, align='C')
 
+		os.makedirs(get_reports_path(), exist_ok=True)
 		filename = os.path.join(
 			get_reports_path(),
-			f'ReporteZ_Turno{session_id}_{datetime.now().strftime("%Y%m%d_%H%M")}.pdf',
+			f'ReporteZ_Turno{session_id}_{datetime.now().strftime("%Y%m%d_%H%M%S_%f")}.pdf',
 		)
 		pdf.output(filename)
 		return filename

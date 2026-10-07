@@ -15,6 +15,7 @@ This release focuses on transaction integrity, cloud-dashboard hardening, and re
 - **Secure cloud dashboard:** database-enforced tenant isolation, expiring web sessions, login rate limiting, and no embedded cloud database URL in the desktop client.
 - **Professional labels:** validated EAN/UPC and Code128 barcodes, persisted internal codes, driver-based printing, five redesigned templates, and a live preview rendered from the exact PDF page sent to the printer.
 - **Web administration:** refreshed session handling, authorization behavior, and dashboard/customer-ledger views.
+- **Database baseline:** new installations use a versioned, tenant-safe schema with composite foreign keys, constrained document states, per-warehouse sale attribution, and inventory uniqueness by batch/location. SQLite stays local to one installation; it is never opened through a shared network folder.
 
 See [CHANGELOG.md](CHANGELOG.md) for implementation notes and upgrade considerations.
 
@@ -166,6 +167,8 @@ pyinstaller CloudPOS.spec --clean
 > ⚠️ **Security Warning:** Never commit the `.env` file to version control.
 
 El panel web y el escritorio no reciben credenciales PostgreSQL. La PC principal publica una réplica de reportes mediante HTTPS y el panel web es solo de lectura. Consulta la guía de [despliegue en VPS](docs/VPS_DEPLOYMENT.md).
+
+> **Local-first rule:** SQLite is a local single-installation database. Do not put `pos_system.db` on a network share or open it from multiple PCs. For mobile reporting, enable the optional Cloud Sync API; for future multi-terminal operation, use a server API/database rather than a shared SQLite file.
 
 ## 🗺 Roadmap
 

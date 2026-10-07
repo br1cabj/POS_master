@@ -36,8 +36,11 @@ class BackupController:
 
 	# ── rutas ─────────────────────────────────────────────────────────────────
 
-	@staticmethod
-	def _db_path() -> Path:
+	def _db_path(self) -> Path:
+		if self._engine is not None and self._engine.dialect.name == 'sqlite':
+			database = self._engine.url.database
+			if database and database != ':memory:' and not database.startswith('file:'):
+				return Path(database).expanduser().resolve()
 		if getattr(sys, 'frozen', False):
 			return Path(sys.executable).parent / 'pos_system.db'
 		return Path(__file__).parent.parent / 'pos_system.db'
@@ -131,7 +134,7 @@ class BackupController:
 
 		from sqlalchemy import select
 
-		from utils.config import get_cloud_engine, get_engine
+		from utils.config import get_cloud_engine
 
 		def _report(m: str):
 			logger.info('CloudRestore: %s', m)
@@ -263,10 +266,6 @@ class BackupController:
 		# Dispose SQLAlchemy pool so sqlite3 can write freely
 		if self._engine:
 			self._engine.dispose()
-		try:
-			get_engine().dispose()
-		except Exception as e:
-			logger.debug('dispose() de get_engine() falló: %s', e)
 
 		# BUG 9: abortar si no se descargó NINGÚN dato — indica problema de conexión
 		# o de tenant ID, no un tenant vacío (que tendría al menos su propio registro)

@@ -291,6 +291,7 @@ class SupplierReturnsController(BaseController):
 				for v in validated:
 					session.add(
 						PurchaseReturnItem(
+							tenant_id=tenant_id,
 							purchase_return_id=purchase_return.id,
 							purchase_detail_id=v['detail_id'],
 							variant_id=v['variant_id'],
@@ -347,6 +348,7 @@ class SupplierReturnsController(BaseController):
 						)
 					session.add(
 						CashMovement(
+							tenant_id=tenant_id,
 							session_id=active_cash.id,
 							movement_type='ingreso',
 							amount=total_refund,

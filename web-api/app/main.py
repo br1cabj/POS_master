@@ -9,7 +9,7 @@ import hashlib
 import os
 import secrets
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -18,15 +18,17 @@ from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import Column, DateTime, Integer, MetaData, String, Table, and_, delete, or_, select
+from sqlalchemy import Column, DateTime, Integer, MetaData, String, Table, and_, create_engine, delete, event, or_, select
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database.migrations import setup_cloud_schema
 from database.models import (
-    Article,
-    ArticleHistory,
-    ArticleVariant,
+	Article,
+	ArticleHistory,
+	ArticleVariant,
+	Branch,
     CashMovement,
     CashSession,
     Category,
@@ -81,7 +83,7 @@ cloud_devices = Table(
 )
 
 MODELS = {
-    'tenants': Tenant, 'users': User, 'categories': Category, 'suppliers': Supplier,
+	'tenants': Tenant, 'branches': Branch, 'users': User, 'categories': Category, 'suppliers': Supplier,
     'articles': Article, 'article_variants': ArticleVariant,
     'article_history': ArticleHistory, 'stocks': Stock, 'stock_movements': StockMovement,
     'customers': Customer, 'sales': Sale, 'sale_details': SaleDetail,
@@ -210,8 +212,19 @@ def _parse_selection(value: str) -> Selection:
 def _database_engine() -> Engine:
     if not DATABASE_URL:
         raise RuntimeError('CLOUD_DATABASE_URL no está configurada en el servidor.')
-    from sqlalchemy import create_engine
-    return create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20, pool_recycle=1800)
+    if DATABASE_URL.startswith('sqlite'):
+        return _create_api_engine(DATABASE_URL)
+    return _create_api_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20, pool_recycle=1800)
+
+
+def _create_api_engine(database_url: str, **kwargs: Any) -> Engine:
+    """Create a server engine with SQLite foreign keys enabled for dev/tests."""
+    engine = create_engine(database_url, **kwargs)
+    if engine.dialect.name == 'sqlite':
+        @event.listens_for(engine, 'connect')
+        def _enable_foreign_keys(dbapi_connection, _connection_record):
+            dbapi_connection.execute('PRAGMA foreign_keys=ON')
+    return engine
 
 
 def _token_hash(token: str) -> str:
@@ -278,6 +291,35 @@ def _scope_statement(model: type, table: str, tenant_id: str):
     if table == 'warehouses':
         return model.tenant_id == tenant_id
     raise HTTPException(status_code=400, detail='Tabla sin política de aislamiento definida.')
+
+
+def _coerce_sync_payload(model: type, payload: dict[str, Any]) -> dict[str, Any]:
+    """Reject unknown fields and restore typed values sent as JSON strings."""
+    columns = {column.name: column for column in model.__table__.columns}
+    unknown = set(payload).difference(columns)
+    if unknown:
+        raise HTTPException(status_code=400, detail='El evento contiene columnas no permitidas.')
+    if not payload.get('id'):
+        raise HTTPException(status_code=400, detail='El evento no contiene un identificador.')
+
+    for name, value in tuple(payload.items()):
+        if value is None:
+            continue
+        try:
+            python_type = columns[name].type.python_type
+        except NotImplementedError:
+            continue
+        if python_type is datetime and isinstance(value, str):
+            payload[name] = datetime.fromisoformat(value.replace('Z', '+00:00')).replace(tzinfo=None)
+        elif python_type is date and isinstance(value, str):
+            payload[name] = date.fromisoformat(value)
+        elif python_type is Decimal and not isinstance(value, Decimal):
+            payload[name] = Decimal(str(value))
+        elif python_type is bool and isinstance(value, str):
+            if value.lower() not in {'true', 'false'}:
+                raise HTTPException(status_code=400, detail='El evento contiene un booleano inválido.')
+            payload[name] = value.lower() == 'true'
+    return payload
 
 
 def _apply_filters(statement, model: type, filters: list[Any] | None):
@@ -382,7 +424,7 @@ def _get_device(
 def create_app(database_url: str | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.engine = _database_engine() if database_url is None else __import__('sqlalchemy').create_engine(database_url)
+        app.state.engine = _database_engine() if database_url is None else _create_api_engine(database_url)
         setup_cloud_schema(app.state.engine)
         _metadata.create_all(app.state.engine, checkfirst=True)
         yield
@@ -481,36 +523,49 @@ def create_app(database_url: str | None = None) -> FastAPI:
 
     @app.post('/api/v1/sync/events', include_in_schema=False)
     def sync_events(batch: SyncBatch, request: Request, device=Depends(_get_device)):
-        """One-way ingestion endpoint for the offline desktop reporting replica."""
+        """Ingest typed, tenant-bound snapshots from an authorised desktop device."""
         with Session(request.app.state.engine) as db:
-            for event in batch.events:
-                model = MODELS.get(event.table)
-                if model is None:
-                    raise HTTPException(status_code=400, detail='Tipo de dato no sincronizable.')
-                payload = dict(event.payload)
-                if SECRET_COLUMNS.intersection(payload):
-                    raise HTTPException(status_code=400, detail='El evento contiene datos sensibles.')
-                if 'tenant_id' in payload and payload['tenant_id'] != device['tenant_id']:
-                    raise HTTPException(status_code=403, detail='Evento fuera de la empresa autorizada.')
-                if event.table == 'tenants' and payload.get('id') != device['tenant_id']:
-                    raise HTTPException(status_code=403, detail='Empresa no autorizada.')
-                if event.table == 'users':
-                    # Cloud passwords belong to the web account created by the
-                    # VPS admin, never to the replicated desktop user record.
-                    payload.pop('password_hash', None)
-                    payload.pop('recovery_pin_hash', None)
-                    existing = db.get(User, payload.get('id'))
-                    if existing is None:
-                        payload['password_hash'] = bcrypt.hashpw(secrets.token_bytes(32), bcrypt.gensalt()).decode()
-                        db.add(User(**payload))
+            try:
+                for event in batch.events:
+                    model = MODELS.get(event.table)
+                    if model is None:
+                        raise HTTPException(status_code=400, detail='Tipo de dato no sincronizable.')
+                    payload = dict(event.payload)
+                    if SECRET_COLUMNS.intersection(payload):
+                        raise HTTPException(status_code=400, detail='El evento contiene datos sensibles.')
+                    payload = _coerce_sync_payload(model, payload)
+
+                    if event.table == 'tenants':
+                        if payload['id'] != device['tenant_id']:
+                            raise HTTPException(status_code=403, detail='Empresa no autorizada.')
                     else:
-                        for key, value in payload.items():
-                            if key in {'id', 'password_hash', 'recovery_pin_hash'}:
-                                continue
-                            setattr(existing, key, value)
-                else:
-                    db.merge(model(**payload))
-            db.commit()
+                        # Every replicated business row carries its own tenant id.
+                        # This is mandatory: it prevents children from bypassing
+                        # tenant checks by merely referencing a foreign parent id.
+                        if payload.get('tenant_id') != device['tenant_id']:
+                            raise HTTPException(status_code=403, detail='Evento fuera de la empresa autorizada.')
+
+                    existing = db.get(model, payload['id'])
+                    if existing is not None:
+                        existing_tenant = existing.id if event.table == 'tenants' else existing.tenant_id
+                        if existing_tenant != device['tenant_id']:
+                            raise HTTPException(status_code=403, detail='El evento intenta modificar otra empresa.')
+
+                    if event.table == 'users':
+                        # Cloud account secrets are never replicated from desktop.
+                        if existing is None:
+                            payload['password_hash'] = bcrypt.hashpw(secrets.token_bytes(32), bcrypt.gensalt()).decode()
+                            db.add(User(**payload))
+                        else:
+                            for key, value in payload.items():
+                                if key != 'id':
+                                    setattr(existing, key, value)
+                    else:
+                        db.merge(model(**payload))
+                db.commit()
+            except IntegrityError as exc:
+                db.rollback()
+                raise HTTPException(status_code=409, detail='El evento viola la integridad de los datos.') from exc
         return {'accepted': [event.event_id for event in batch.events]}
 
     @app.post('/api/v1/data/{table}', include_in_schema=False)

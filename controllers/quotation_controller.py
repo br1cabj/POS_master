@@ -346,6 +346,7 @@ class QuotationController(BaseController):
 
 					for it in normalized_items:
 						qi = QuotationItem(
+							tenant_id=tenant_id,
 							quotation_id=q.id,
 							description=it.get('description', ''),
 							quantity=_to_dec(it.get('quantity', 1)),
@@ -424,6 +425,7 @@ class QuotationController(BaseController):
 
 				for it in normalized_items:
 					qi = QuotationItem(
+						tenant_id=tenant_id,
 						quotation_id=q.id,
 						description=it.get('description', ''),
 						quantity=_to_dec(it.get('quantity', 1)),
@@ -538,6 +540,7 @@ class QuotationController(BaseController):
 				for it in orig.items:
 					s.add(
 						QuotationItem(
+							tenant_id=tenant_id,
 							quotation_id=new_q.id,
 							description=it.description,
 							quantity=it.quantity,
@@ -754,6 +757,7 @@ class QuotationController(BaseController):
 					it = data['ref']
 					s.add(
 						SaleDetail(
+							tenant_id=q.tenant_id,
 							sale_id=sale.id,
 							description=it.description,
 							quantity=it.quantity,
@@ -804,6 +808,7 @@ class QuotationController(BaseController):
 				if cash_session and q.total_amount > Decimal('0'):
 					s.add(
 						CashMovement(
+							tenant_id=q.tenant_id,
 							session_id=cash_session.id,
 							movement_type=(
 								'venta'

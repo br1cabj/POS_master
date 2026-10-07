@@ -310,6 +310,7 @@ class LabelController:
 				variant.selling_price = price
 			else:
 				variant = ArticleVariant(
+					tenant_id=tenant_id,
 					article_id=article.id,
 					barcode=barcode_val,
 					cost_price=0,
@@ -335,6 +336,7 @@ class LabelController:
 					if warehouse:
 						session.add(
 							Stock(
+								tenant_id=tenant_id,
 								quantity=0,
 								warehouse_id=warehouse.id,
 								variant_id=variant.id,

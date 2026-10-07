@@ -57,10 +57,10 @@ def test_inventory_adjustment_removes_fractional_stock_exactly(test_db_session):
 	)
 	article = Article(id='article-stock', tenant_id=tenant.id, name='Harina')
 	variant = ArticleVariant(
-		id='variant-stock', article_id=article.id, cost_price=Decimal('1'), selling_price=Decimal('2')
+		id='variant-stock', tenant_id=tenant.id, article_id=article.id, cost_price=Decimal('1'), selling_price=Decimal('2')
 	)
 	stock = Stock(
-		id='stock-fraction', variant_id=variant.id, warehouse_id=warehouse.id, quantity=Decimal('1.5')
+		id='stock-fraction', tenant_id=tenant.id, variant_id=variant.id, warehouse_id=warehouse.id, quantity=Decimal('1.5')
 	)
 	test_db_session.add_all([tenant, user, branch, warehouse, article, variant, stock])
 	test_db_session.commit()

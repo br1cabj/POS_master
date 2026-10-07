@@ -18,12 +18,14 @@ Incluye:
 import csv
 import logging
 import os
+import tempfile
 import unicodedata
+import uuid
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from fpdf import FPDF
-from sqlalchemy import func
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
@@ -34,7 +36,8 @@ from database.models import (
 	Sale,
 	SaleDetail,
 )
-from utils.settings_manager import get_reports_path
+from utils.csv_utils import safe_spreadsheet_text
+from utils.settings_manager import fmt_price, get, get_reports_path
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +55,16 @@ def _sanitize(text: str) -> str:
 	)
 
 
+class _ReportPDF(FPDF):
+	"""PDF with unobtrusive page numbering for reports that span multiple pages."""
+
+	def footer(self):
+		self.set_y(-12)
+		self.set_font('Arial', '', 8)
+		self.set_text_color(110, 110, 110)
+		self.cell(0, 6, f'Página {self.page_no()}/{{nb}}', align='C')
+
+
 class ReportController(BaseController):
 	def __init__(self, db_engine=None):
 		super().__init__(db_engine)
@@ -64,6 +77,10 @@ class ReportController(BaseController):
 		Devuelve un dict con todos los datos del reporte para el período indicado.
 		También incluye la comparativa con el período anterior de la misma duración.
 		"""
+		if date_from > date_to:
+			raise ValueError(
+				'La fecha inicial no puede ser posterior a la fecha final.'
+			)
 		dt_from = datetime.combine(date_from, datetime.min.time())
 		dt_to = datetime.combine(date_to, datetime.max.time())
 
@@ -94,8 +111,8 @@ class ReportController(BaseController):
 					'cancellations': cancels,
 				}
 			except Exception as e:
-				logger.error(f'Error al generar reporte: {e}', exc_info=True)
-				return self._empty_report(tenant_id, date_from, date_to)
+				logger.error('Error al generar reporte: %s', e, exc_info=True)
+				raise
 
 	# =========================================================
 	# QUERIES INTERNAS
@@ -104,7 +121,10 @@ class ReportController(BaseController):
 		"""KPIs + desglose por método de pago para un rango de fechas."""
 		row = (
 			session.query(
-				func.coalesce(func.sum(Sale.total_amount), 0),
+				func.coalesce(
+					func.sum(Sale.total_amount - func.coalesce(Sale.total_returned, 0)),
+					0,
+				),
 				func.coalesce(func.sum(Sale.profit), 0),
 				func.count(Sale.id),
 			)
@@ -122,56 +142,54 @@ class ReportController(BaseController):
 		avg = revenue / tickets if tickets > 0 else 0.0
 
 		by_method = {}
-		# Deduct amount_method_2 from method 1 totals so mixed-payment sales
-		# are correctly distributed across both methods
-		for pm, total, count in (
+		payment_rows = (
 			session.query(
 				Sale.payment_method,
-				func.coalesce(
-					func.sum(
-						Sale.total_amount - func.coalesce(Sale.amount_method_2, 0)
-					),
-					0,
-				),
-				func.count(Sale.id),
-			)
-			.filter(
-				Sale.tenant_id == tenant_id,
-				Sale.date.between(dt_from, dt_to),
-				Sale.status.in_(_SOLD_STATUSES),
-			)
-			.group_by(Sale.payment_method)
-			.all()
-		):
-			by_method[pm or 'efectivo'] = {
-				'total': float(total or 0),
-				'count': int(count or 0),
-			}
-		# Add method 2 amounts separately
-		for pm2, total2, count2 in (
-			session.query(
 				Sale.payment_method_2,
-				func.coalesce(func.sum(Sale.amount_method_2), 0),
-				func.count(Sale.id),
+				Sale.total_amount,
+				Sale.total_returned,
+				Sale.amount_method_1,
+				Sale.amount_method_2,
 			)
 			.filter(
 				Sale.tenant_id == tenant_id,
 				Sale.date.between(dt_from, dt_to),
 				Sale.status.in_(_SOLD_STATUSES),
-				Sale.payment_method_2.isnot(None),
-				Sale.amount_method_2 > 0,
 			)
-			.group_by(Sale.payment_method_2)
 			.all()
-		):
-			key2 = pm2 or 'efectivo'
-			if key2 in by_method:
-				by_method[key2]['total'] += float(total2 or 0)
-			else:
-				by_method[key2] = {
-					'total': float(total2 or 0),
-					'count': 0,
-				}
+		)
+		for pm1, pm2, gross, returned, amount1, amount2 in payment_rows:
+			gross = Decimal(str(gross or 0))
+			returned = min(Decimal(str(returned or 0)), gross)
+			net = max(gross - returned, Decimal('0'))
+			if net <= 0:
+				continue
+			second = Decimal(str(amount2 or 0)) if pm2 else Decimal('0')
+			first = Decimal(str(amount1)) if amount1 is not None else gross - second
+			original_paid = first + second
+			if original_paid <= 0:
+				first, second, original_paid = gross, Decimal('0'), gross
+			second_net = (
+				(net * second / original_paid).quantize(
+					Decimal('0.01'), rounding=ROUND_HALF_UP
+				)
+				if pm2 and second > 0
+				else Decimal('0')
+			)
+			for method, method_net in (
+				(pm1 or 'efectivo', net - second_net),
+				(pm2, second_net),
+			):
+				if not method or method_net <= 0:
+					continue
+				key = str(method).strip().casefold() or 'efectivo'
+				info = by_method.setdefault(key, {'total': Decimal('0'), 'count': 0})
+				info['total'] += method_net
+				info['count'] += 1
+		by_method = {
+			method: {'total': float(info['total']), 'count': info['count']}
+			for method, info in by_method.items()
+		}
 
 		return {
 			'revenue': revenue,
@@ -185,9 +203,13 @@ class ReportController(BaseController):
 	def _query_top_products(self, session, tenant_id, dt_from, dt_to, limit=8) -> list:
 		rows = (
 			session.query(
+				Sale.id,
 				SaleDetail.description,
-				func.sum(SaleDetail.quantity).label('qty'),
-				func.sum(SaleDetail.subtotal).label('revenue'),
+				SaleDetail.quantity,
+				SaleDetail.returned_quantity,
+				SaleDetail.subtotal,
+				SaleDetail.unit_price,
+				Sale.total_amount,
 			)
 			.join(Sale)
 			.filter(
@@ -195,32 +217,85 @@ class ReportController(BaseController):
 				Sale.date.between(dt_from, dt_to),
 				Sale.status.in_(_SOLD_STATUSES),
 			)
-			.group_by(SaleDetail.description)
-			.order_by(func.sum(SaleDetail.quantity).desc())
-			.limit(limit)
 			.all()
 		)
+		gross_by_sale = {}
+		for sale_id, _description, _qty, _returned_qty, subtotal, *_ in rows:
+			gross_by_sale[sale_id] = gross_by_sale.get(sale_id, Decimal('0')) + Decimal(
+				str(subtotal or 0)
+			)
+		products = {}
+		for (
+			sale_id,
+			description,
+			qty,
+			returned_qty,
+			subtotal,
+			unit_price,
+			sale_total,
+		) in rows:
+			qty = Decimal(str(qty or 0))
+			retained_qty = max(qty - Decimal(str(returned_qty or 0)), Decimal('0'))
+			if retained_qty <= 0:
+				continue
+			gross_items = gross_by_sale.get(sale_id, Decimal('0'))
+			discount_factor = Decimal(str(sale_total or 0)) / max(
+				gross_items, Decimal('0.01')
+			)
+			# Sales store line subtotals before the sale-wide discount. Allocate that
+			# discount proportionally, then subtract quantities actually returned.
+			unit_net = Decimal(str(unit_price or 0)) * max(
+				min(discount_factor, Decimal('1')), Decimal('0')
+			)
+			entry = products.setdefault(
+				str(description or ''),
+				{'quantity': Decimal('0'), 'revenue': Decimal('0')},
+			)
+			entry['quantity'] += retained_qty
+			entry['revenue'] += retained_qty * unit_net
 		return [
 			{
-				'description': r[0],
-				'quantity': float(r[1] or 0),
-				'revenue': float(r[2] or 0),
+				'description': description,
+				'quantity': float(values['quantity']),
+				'revenue': float(values['revenue']),
 			}
-			for r in rows
+			for description, values in sorted(
+				products.items(), key=lambda item: item[1]['quantity'], reverse=True
+			)[:limit]
 		]
 
 	def _query_cancellations(self, session, tenant_id, dt_from, dt_to) -> dict:
 		row = (
 			session.query(
 				func.count(Sale.id),
-				func.coalesce(func.sum(Sale.total_amount), 0),
+				func.coalesce(
+					func.sum(
+						case(
+							(
+								Sale.status.in_(('anulada', 'cancelada')),
+								Sale.total_amount,
+							),
+							(
+								Sale.status == 'devuelta',
+								case(
+									(Sale.total_returned > 0, Sale.total_returned),
+									else_=Sale.total_amount,
+								),
+							),
+							(
+								Sale.status == 'parcial',
+								func.coalesce(Sale.total_returned, 0),
+							),
+							else_=0,
+						)
+					),
+					0,
+				),
 			)
 			.filter(
 				Sale.tenant_id == tenant_id,
 				Sale.date.between(dt_from, dt_to),
-				Sale.status.in_(
-					('anulada', 'devuelta')
-				),  # CORRECCIÓN: Removido 'parcial'
+				Sale.status.in_(('anulada', 'cancelada', 'devuelta', 'parcial')),
 			)
 			.first()
 		)
@@ -243,7 +318,10 @@ class ReportController(BaseController):
 				CashSession.tenant_id == tenant_id,
 				CashMovement.movement_type.in_(('gasto', 'ingreso')),
 				CashMovement.time.between(dt_from, dt_to),
-				~CashMovement.description.ilike('%Ticket #%'),
+				or_(
+					CashMovement.description.is_(None),
+					~CashMovement.description.ilike('%Ticket #%'),
+				),
 			)
 			.order_by(CashMovement.time)
 			.all()
@@ -282,23 +360,41 @@ class ReportController(BaseController):
 			else f'{date_from_str} al {date_to_str}'
 		)
 
-		pdf = FPDF('P', 'mm', 'A4')
+		pdf = _ReportPDF('P', 'mm', 'A4')
+		pdf.alias_nb_pages()
 		pdf.set_auto_page_break(auto=True, margin=15)
 		pdf.add_page()
 		W = 190
+		pdf.set_title(f'Reporte de cierre {period_label}')
+		pdf.set_author(_sanitize(company_name))
 
 		# ── Encabezado ────────────────────────────────────────
-		pdf.set_font('Arial', 'B', 20)
+		logo_path = get('company_logo_path', '')
+		header_x, header_w = 10, W
+		if logo_path and os.path.isfile(logo_path):
+			try:
+				pdf.image(logo_path, x=12, y=10, w=22, h=22, keep_aspect_ratio=True)
+				header_x, header_w = 38, 162
+			except Exception as exc:
+				logger.warning('No se pudo insertar el logo en el reporte: %s', exc)
+		company_label = _sanitize(company_name.upper())[:70]
+		company_font_size = min(20, max(10, 500 // max(len(company_label), 1)))
+		pdf.set_font('Arial', 'B', company_font_size)
+		pdf.set_xy(header_x, 12)
 		pdf.cell(
-			W,
-			10,
-			_sanitize(company_name.upper()),
+			header_w,
+			9,
+			company_label,
 			new_x='LMARGIN',
-			new_y='NEXT',
+			new_y='LAST',
 			align='C',
 		)
+		pdf.set_xy(header_x, 21)
 		pdf.set_font('Arial', '', 11)
-		pdf.cell(W, 6, 'REPORTE DE CIERRE', new_x='LMARGIN', new_y='NEXT', align='C')
+		pdf.cell(
+			header_w, 6, 'REPORTE DE CIERRE', new_x='LMARGIN', new_y='LAST', align='C'
+		)
+		pdf.set_xy(10, 34)
 		pdf.set_font('Arial', 'B', 13)
 		pdf.cell(
 			W,
@@ -324,7 +420,11 @@ class ReportController(BaseController):
 		# ── KPIs ─────────────────────────────────────────────
 		self._pdf_section(pdf, 'RESUMEN GENERAL')
 
-		def _pct_change(curr, prev):
+		def _pct_change(curr, prev, percentage_points=False):
+			if percentage_points:
+				delta = curr - prev
+				arrow = '(+)' if delta >= 0 else '(-)'
+				return f'{arrow} {abs(delta):.1f} pp vs periodo anterior'
 			if prev == 0:
 				return '- vs anterior'
 			pct = (curr - prev) / prev * 100
@@ -335,18 +435,18 @@ class ReportController(BaseController):
 		kpis = [
 			(
 				'Total Ventas',
-				f'${current["revenue"]:,.0f}',
+				self._pdf_money(current['revenue']),
 				_pct_change(current['revenue'], prev['revenue']),
 			),
 			(
 				'Ganancia Neta',
-				f'${current["profit"]:,.0f}',
+				self._pdf_money(current['profit']),
 				_pct_change(current['profit'], prev['profit']),
 			),
 			(
 				'Margen',
 				f'{current["margin"]:.1f}%',
-				_pct_change(current['margin'], prev['margin']),
+				_pct_change(current['margin'], prev['margin'], percentage_points=True),
 			),
 			(
 				'Tickets Emitidos',
@@ -355,7 +455,7 @@ class ReportController(BaseController):
 			),
 			(
 				'Ticket Promedio',
-				f'${current["avg_ticket"]:,.0f}',
+				self._pdf_money(current['avg_ticket']),
 				_pct_change(current['avg_ticket'], prev['avg_ticket']),
 			),
 		]
@@ -374,7 +474,7 @@ class ReportController(BaseController):
 			pdf.set_font('Arial', '', 11)
 			pdf.cell(60, 7, _sanitize(method.capitalize() + ':'))
 			pdf.set_font('Arial', 'B', 11)
-			pdf.cell(50, 7, f'${info["total"]:,.0f}')
+			pdf.cell(50, 7, self._pdf_money(info['total']))
 			pdf.set_font('Arial', '', 10)
 			pdf.cell(0, 7, f'({info["count"]} tickets)', new_x='LMARGIN', new_y='NEXT')
 		pdf.ln(4)
@@ -387,7 +487,7 @@ class ReportController(BaseController):
 		pdf.cell(
 			0,
 			7,
-			f'{cancels["count"]}  (${cancels["total"]:,.0f})',
+			f'{cancels["count"]}  ({self._pdf_money(cancels["total"])})',
 			new_x='LMARGIN',
 			new_y='NEXT',
 		)
@@ -408,7 +508,7 @@ class ReportController(BaseController):
 				pdf.cell(
 					0,
 					6,
-					f'${item["revenue"]:,.0f}',
+					self._pdf_money(item['revenue']),
 					new_x='LMARGIN',
 					new_y='NEXT',
 					align='R',
@@ -416,6 +516,9 @@ class ReportController(BaseController):
 			pdf.ln(4)
 
 		# ── Movimientos de caja ───────────────────────────────
+		movement_time_format = (
+			'%d/%m %H:%M' if period['from'] != period['to'] else '%H:%M'
+		)
 		if movs['gastos'] or movs['ingresos']:
 			self._pdf_section(pdf, 'MOVIMIENTOS MANUALES DE CAJA')
 			if movs['ingresos']:
@@ -423,19 +526,19 @@ class ReportController(BaseController):
 				pdf.cell(
 					W,
 					6,
-					f'Ingresos  (Total: ${movs["total_ingresos"]:,.0f})',
+					f'Ingresos  (Total: {self._pdf_money(movs["total_ingresos"])})',
 					new_x='LMARGIN',
 					new_y='NEXT',
 				)
 				for m in movs['ingresos']:
 					pdf.set_font('Arial', '', 10)
-					t = m['time'].strftime('%H:%M') if m['time'] else ''
+					t = m['time'].strftime(movement_time_format) if m['time'] else ''
 					pdf.cell(20, 5, t)
 					pdf.cell(120, 5, _sanitize(m['desc'] or '')[:50])
 					pdf.cell(
 						0,
 						5,
-						f'${m["amount"]:,.0f}',
+						self._pdf_money(m['amount']),
 						new_x='LMARGIN',
 						new_y='NEXT',
 						align='R',
@@ -446,19 +549,19 @@ class ReportController(BaseController):
 				pdf.cell(
 					W,
 					6,
-					f'Gastos  (Total: ${movs["total_gastos"]:,.0f})',
+					f'Gastos  (Total: {self._pdf_money(movs["total_gastos"])})',
 					new_x='LMARGIN',
 					new_y='NEXT',
 				)
 				for m in movs['gastos']:
 					pdf.set_font('Arial', '', 10)
-					t = m['time'].strftime('%H:%M') if m['time'] else ''
+					t = m['time'].strftime(movement_time_format) if m['time'] else ''
 					pdf.cell(20, 5, t)
 					pdf.cell(120, 5, _sanitize(m['desc'] or '')[:50])
 					pdf.cell(
 						0,
 						5,
-						f'${m["amount"]:,.0f}',
+						self._pdf_money(m['amount']),
 						new_x='LMARGIN',
 						new_y='NEXT',
 						align='R',
@@ -480,11 +583,41 @@ class ReportController(BaseController):
 			W, 5, 'Firma del responsable', new_x='LMARGIN', new_y='NEXT', align='C'
 		)
 
-		# Guardar
-		fname = f'Reporte_{period["from"].strftime("%Y%m%d")}_{period["to"].strftime("%Y%m%d")}.pdf'
-		filepath = os.path.join(get_reports_path(), fname)
-		pdf.output(filepath)
+		# Guardar en un destino único y reemplazarlo solo cuando el PDF esté completo.
+		filepath = self._unique_export_path('Reporte', period, '.pdf')
+		fd, temp_path = tempfile.mkstemp(
+			prefix='cloudpos-report-', suffix='.pdf', dir=os.path.dirname(filepath)
+		)
+		os.close(fd)
+		try:
+			pdf.output(temp_path)
+			os.replace(temp_path, filepath)
+		except Exception:
+			try:
+				os.remove(temp_path)
+			except OSError:
+				pass
+			raise
 		return filepath
+
+	@staticmethod
+	def _pdf_money(amount) -> str:
+		value = fmt_price(amount)
+		for symbol, replacement in (('€', 'EUR '), ('£', 'GBP '), ('¥', 'JPY ')):
+			value = value.replace(symbol, replacement)
+		return _sanitize(value)
+
+	@staticmethod
+	def _unique_export_path(prefix: str, period: dict, extension: str) -> str:
+		folder = get_reports_path()
+		os.makedirs(folder, exist_ok=True)
+		date_part = (
+			f'{period["from"].strftime("%Y%m%d")}_{period["to"].strftime("%Y%m%d")}'
+		)
+		stamp = datetime.now().strftime('%H%M%S_%f')
+		return os.path.join(
+			folder, f'{prefix}_{date_part}_{stamp}_{uuid.uuid4().hex[:6]}{extension}'
+		)
 
 	def _pdf_section(self, pdf, title: str):
 		pdf.set_font('Arial', 'B', 12)
@@ -505,8 +638,7 @@ class ReportController(BaseController):
 		dt_from = datetime.combine(period['from'], datetime.min.time())
 		dt_to = datetime.combine(period['to'], datetime.max.time())
 
-		fname = f'Ventas_{period["from"].strftime("%Y%m%d")}_{period["to"].strftime("%Y%m%d")}.csv'
-		filepath = os.path.join(get_reports_path(), fname)
+		filepath = self._unique_export_path('Ventas', period, '.csv')
 
 		with self._Session() as session:
 			sales = (
@@ -515,64 +647,85 @@ class ReportController(BaseController):
 				.filter(
 					Sale.tenant_id == data['_tenant_id'],
 					Sale.date.between(dt_from, dt_to),
-					Sale.status != 'anulada',
+					Sale.status.in_(_SOLD_STATUSES),
 				)
 				.order_by(Sale.date)
 				.all()
 			)
-			with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
-				w = csv.writer(f)
-				w.writerow(
-					[
-						'ID',
-						'Fecha',
-						'Cliente',
-						'Vendedor',
-						'Total',
-						'Ganancia',
-						'Método',
-						'Estado',
-					]
-				)
-				for s in sales:
+			fd, temp_path = tempfile.mkstemp(
+				prefix='cloudpos-sales-', suffix='.csv', dir=os.path.dirname(filepath)
+			)
+			try:
+				with os.fdopen(fd, 'w', newline='', encoding='utf-8-sig') as f:
+					w = csv.writer(f, delimiter=';')
 					w.writerow(
 						[
-							s.id,
-							s.date.strftime('%d/%m/%Y %H:%M') if s.date else '',
-							s.customer.name if s.customer else 'Consumidor Final',
-							get_display_name(s.user) if s.user else '—',
-							float(s.total_amount or 0),
-							float(s.profit or 0),
-							s.payment_method or '',
-							s.status or '',
+							'ID',
+							'Fecha',
+							'Cliente',
+							'Vendedor',
+							'Total original',
+							'Devoluciones',
+							'Total neto',
+							'Ganancia neta',
+							'Método 1',
+							'Monto método 1',
+							'Método 2',
+							'Monto método 2',
+							'Estado',
 						]
 					)
+					for s in sales:
+						gross = Decimal(str(s.total_amount or 0))
+						net = max(
+							gross - Decimal(str(s.total_returned or 0)), Decimal('0')
+						)
+						method2_amount = Decimal(str(s.amount_method_2 or 0))
+						method1_amount = (
+							Decimal(str(s.amount_method_1))
+							if s.amount_method_1 is not None
+							else gross - method2_amount
+						)
+						paid_total = method1_amount + method2_amount
+						if paid_total > 0:
+							net_method2 = (
+								(net * method2_amount / paid_total).quantize(
+									Decimal('0.01'), rounding=ROUND_HALF_UP
+								)
+								if s.payment_method_2 and method2_amount > 0
+								else Decimal('0')
+							)
+							net_method1 = net - net_method2
+						else:
+							net_method1, net_method2 = net, Decimal('0')
+						w.writerow(
+							[
+								s.id,
+								s.date.strftime('%d/%m/%Y %H:%M') if s.date else '',
+								safe_spreadsheet_text(
+									s.customer.name
+									if s.customer
+									else 'Consumidor Final'
+								),
+								safe_spreadsheet_text(
+									get_display_name(s.user) if s.user else '—'
+								),
+								float(s.total_amount or 0),
+								float(s.total_returned or 0),
+								float((s.total_amount or 0) - (s.total_returned or 0)),
+								float(s.profit or 0),
+								safe_spreadsheet_text(s.payment_method or ''),
+								float(net_method1),
+								safe_spreadsheet_text(s.payment_method_2 or ''),
+								float(net_method2),
+								safe_spreadsheet_text(s.status or ''),
+							]
+						)
+				os.replace(temp_path, filepath)
+			except Exception:
+				try:
+					os.remove(temp_path)
+				except OSError:
+					pass
+				raise
 		return filepath
-
-	# =========================================================
-	# HELPER
-	# =========================================================
-	@staticmethod
-	def _empty_report(tenant_id, date_from, date_to) -> dict:
-		_empty = {
-			'revenue': 0,
-			'profit': 0,
-			'tickets': 0,
-			'margin': 0,
-			'avg_ticket': 0,
-			'by_method': {},
-		}
-		return {
-			'_tenant_id': tenant_id,
-			'period': {'from': date_from, 'to': date_to},
-			'current': _empty,
-			'previous': _empty,
-			'movements': {
-				'gastos': [],
-				'ingresos': [],
-				'total_gastos': 0,
-				'total_ingresos': 0,
-			},
-			'top_products': [],
-			'cancellations': {'count': 0, 'total': 0},
-		}

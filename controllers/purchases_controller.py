@@ -141,7 +141,9 @@ class PurchasesController(BaseController):
 					.filter(
 						Stock.variant_id.in_(variant_ids),
 						Stock.warehouse_id == default_warehouse.id,
-						Stock.batch_number.is_(None),
+						# Unlotted inventory is represented consistently as an empty
+						# string. NULL would bypass the unique stock-location key.
+						Stock.batch_number == '',
 					)
 					.with_for_update()
 					.order_by(Stock.id)
@@ -193,6 +195,7 @@ class PurchasesController(BaseController):
 					else:
 						session.add(
 							Stock(
+								tenant_id=tenant_id,
 								quantity=qty,
 								warehouse_id=default_warehouse.id,
 								variant_id=variant_id,
@@ -244,6 +247,7 @@ class PurchasesController(BaseController):
 				for d in detail_items:
 					session.add(
 						PurchaseDetail(
+							tenant_id=tenant_id,
 							purchase_id=purchase.id,
 							variant_id=d['variant_id'],
 							description=d['desc'],
@@ -255,6 +259,7 @@ class PurchasesController(BaseController):
 
 				session.add(
 					CashMovement(
+						tenant_id=tenant_id,
 						session_id=active_cash.id,
 						movement_type='gasto',
 						amount=total,

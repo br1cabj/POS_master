@@ -47,6 +47,7 @@ def test_dashboard_uses_net_sales_and_net_product_quantities(test_db_session):
 		partially_returned,
 		completed,
 		SaleDetail(
+			tenant_id=tenant.id,
 			sale_id=partially_returned.id,
 			description='Servicio A',
 			quantity=Decimal('5'),
@@ -56,6 +57,7 @@ def test_dashboard_uses_net_sales_and_net_product_quantities(test_db_session):
 			subtotal=Decimal('100'),
 		),
 		SaleDetail(
+			tenant_id=tenant.id,
 			sale_id=completed.id,
 			description='Servicio B',
 			quantity=Decimal('3'),
@@ -65,6 +67,7 @@ def test_dashboard_uses_net_sales_and_net_product_quantities(test_db_session):
 			subtotal=Decimal('50'),
 		),
 		SaleDetail(
+			tenant_id=tenant.id,
 			sale_id=completed.id,
 			description='Devuelto por completo',
 			quantity=Decimal('2'),

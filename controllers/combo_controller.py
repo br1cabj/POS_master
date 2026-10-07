@@ -100,6 +100,7 @@ class ComboController(BaseController):
 
 				# Persistencia de la Variante de tipo Venta
 				combo_variant = ArticleVariant(
+					tenant_id=tenant_id,
 					article_id=article.id,
 					barcode=None,
 					cost_price=combo_cost,
@@ -115,6 +116,7 @@ class ComboController(BaseController):
 				for variant_id, qty in validated_items:
 					session.add(
 						ComboItem(
+							tenant_id=tenant_id,
 							combo_id=combo_variant.id,
 							ingredient_id=variant_id,
 							quantity_required=qty,
@@ -235,6 +237,7 @@ class ComboController(BaseController):
 				for variant_id, qty in validated_items:
 					session.add(
 						ComboItem(
+							tenant_id=tenant_id,
 							combo_id=combo_variant_id,
 							ingredient_id=variant_id,
 							quantity_required=qty,

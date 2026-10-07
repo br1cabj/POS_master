@@ -7,6 +7,7 @@ from controllers.alerts_controller import AlertsController
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.settings_manager import get_reports_path
+from utils.csv_utils import safe_spreadsheet_text
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
@@ -461,12 +462,20 @@ class AlertsView(BaseView):
 
 			filepath = os.path.join(
 				get_reports_path(),
-				f'alertas_stock_{datetime.now().strftime("%Y%m%d_%H%M")}.csv',
+				f'alertas_stock_{datetime.now().strftime("%Y%m%d_%H%M%S_%f")}.csv',
 			)
 			with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
-				w = csv.writer(f)
+				w = csv.writer(f, delimiter=';')
 				w.writerow(['Código', 'Producto', 'Stock', 'Urgencia'])
-				w.writerows(rows)
+				w.writerows(
+					[
+						safe_spreadsheet_text(row[0]),
+						safe_spreadsheet_text(row[1]),
+						row[2],
+						safe_spreadsheet_text(row[3]),
+					]
+					for row in rows
+				)
 			self.show_success(f'Guardado en:\n{filepath}', 'Exportado')
 		except Exception as e:
 			self.show_error(f'No se pudo exportar: {e}')

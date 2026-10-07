@@ -29,6 +29,7 @@ from controllers.report_controller import ReportController
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.date_picker import CTkDatePicker
+from utils.settings_manager import fmt_price
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
@@ -64,6 +65,7 @@ from utils.styles import (
 )
 
 logger = logging.getLogger(__name__)
+_MOVEMENT_PAGE_SIZE = 20
 
 # ─── Colores para métodos de pago ─────────────────────────────────────────────
 _METHOD_COLORS = {
@@ -81,10 +83,15 @@ def _method_colors(method: str):
 	return _METHOD_COLORS.get((method or '').lower(), _DEFAULT_METHOD)
 
 
-def _pct_badge(curr, prev) -> tuple[str, str]:
+def _pct_badge(curr, prev, percentage_points=False) -> tuple[str, str]:
 	"""Devuelve (texto_badge, color). Verde si subió, rojo si bajó."""
 	if prev == 0:
 		return ('Sin datos ant.', TEXT_MUTED)
+	if percentage_points:
+		delta = curr - prev
+		if delta >= 0:
+			return (f'▲ {delta:.1f} pp vs anterior', GREEN_TEXT)
+		return (f'▼ {abs(delta):.1f} pp vs anterior', RED_TEXT)
 	pct = (curr - prev) / prev * 100
 	if pct >= 0:
 		return (f'▲ {pct:.1f}% vs anterior', GREEN_TEXT)
@@ -97,6 +104,10 @@ class ReportView(BaseView):
 		self.controller = ReportController(ctx.db_engine)
 		self._navigate = navigate
 		self._data = None  # último reporte cargado
+		self._load_request_id = 0
+		self._is_loading = False
+		self._is_exporting = False
+		self._movement_pages = {'ingresos': 0, 'gastos': 0}
 
 		# Fechas por defecto: hoy
 		self._date_from = date.today()
@@ -111,7 +122,7 @@ class ReportView(BaseView):
 		self._build_export_bar()
 
 		# Carga inicial
-		self.after(200, lambda: self._load_report(show_spinner=True))
+		self.after(200, self._load_report)
 
 	# =========================================================
 	# BARRA SUPERIOR (período)
@@ -243,6 +254,8 @@ class ReportView(BaseView):
 
 	def _on_generate_click(self):
 		"""Parsea las fechas ingresadas manualmente (más flexible) y genera el reporte."""
+		if self._is_loading or self._is_exporting:
+			return
 		try:
 			df_str = self._entry_from.get().strip().replace('-', '/')
 			dt_str = self._entry_to.get().strip().replace('-', '/')
@@ -268,7 +281,7 @@ class ReportView(BaseView):
 			return
 
 		self._highlight_quick_btn('')
-		self._load_report(show_spinner=True)
+		self._load_report()
 
 	# =========================================================
 	# CUERPO SCROLLABLE
@@ -345,23 +358,29 @@ class ReportView(BaseView):
 	# =========================================================
 	# CARGA DE DATOS (hilos seguros)
 	# =========================================================
-	def _load_report(self, show_spinner=False):
+	def _load_report(self):
 		if not self.winfo_exists():
 			return
-
-		if show_spinner:
-			self._clear_body()
-			self._lbl_spinner = ctk.CTkLabel(
-				self._scroll,
-				text='⏳  Generando reporte…',
-				font=FONT_SUBHEADING,
-				text_color=TEXT_MUTED,
-			)
-			self._lbl_spinner.grid(row=0, column=0, pady=80)
+		self._load_request_id += 1
+		request_id = self._load_request_id
+		self._is_loading = True
+		self._data = None
+		self._clear_body()
+		self._lbl_spinner = ctk.CTkLabel(
+			self._scroll,
+			text='⏳  Generando reporte…',
+			font=FONT_SUBHEADING,
+			text_color=TEXT_MUTED,
+		)
+		self._lbl_spinner.grid(row=0, column=0, pady=80)
 
 		self._btn_generate.configure(state='disabled', text='Cargando…')
 		self._btn_pdf.configure(state='disabled')
 		self._btn_csv.configure(state='disabled')
+		for button in self._quick_buttons.values():
+			button.configure(state='disabled')
+		self._entry_from.configure(state='disabled')
+		self._entry_to.configure(state='disabled')
 
 		tenant_id = self.ctx.tenant_id
 		date_from = self._date_from
@@ -372,18 +391,25 @@ class ReportView(BaseView):
 				data = self.controller.get_report_data(tenant_id, date_from, date_to)
 				self.after(
 					0,
-					lambda: self._render_report(data) if self.winfo_exists() else None,
+					lambda: self._render_report(data, request_id)
+					if self.winfo_exists() and request_id == self._load_request_id
+					else None,
 				)
 			except Exception as exc:
 				err = str(exc)
 				self.after(
 					0,
-					lambda: self._on_report_error(err) if self.winfo_exists() else None,
+					lambda: self._on_report_error(err, request_id)
+					if self.winfo_exists() and request_id == self._load_request_id
+					else None,
 				)
 
 		threading.Thread(target=worker, daemon=True).start()
 
-	def _render_report(self, data: dict):
+	def _render_report(self, data: dict, request_id=None):
+		if request_id is not None and request_id != self._load_request_id:
+			return
+		self._is_loading = False
 		self._data = data
 		self._clear_body()
 
@@ -406,8 +432,16 @@ class ReportView(BaseView):
 		self._btn_generate.configure(state='normal', text='Generar')
 		self._btn_pdf.configure(state='normal')
 		self._btn_csv.configure(state='normal')
+		for button in self._quick_buttons.values():
+			button.configure(state='normal')
+		self._entry_from.configure(state='normal')
+		self._entry_to.configure(state='normal')
 
-	def _on_report_error(self, error_msg: str):
+	def _on_report_error(self, error_msg: str, request_id=None):
+		if request_id is not None and request_id != self._load_request_id:
+			return
+		self._is_loading = False
+		self._data = None
 		self._clear_body()
 		from utils.styles import RED_TEXT
 
@@ -421,6 +455,10 @@ class ReportView(BaseView):
 		self._btn_generate.configure(state='normal', text='Generar')
 		self._btn_pdf.configure(state='disabled')
 		self._btn_csv.configure(state='disabled')
+		for button in self._quick_buttons.values():
+			button.configure(state='normal')
+		self._entry_from.configure(state='normal')
+		self._entry_to.configure(state='normal')
 
 	def _clear_body(self):
 		for widget in self._scroll.winfo_children():
@@ -446,9 +484,9 @@ class ReportView(BaseView):
 			phrase = f'No se registraron ventas {period_label}.'
 		else:
 			phrase = (
-				f'Se realizaron  {tickets} venta{"s" if tickets != 1 else ""}  '
-				f'{period_label},  totalizando  ${revenue:,.0f}  en ventas  '
-				f'con  ${profit:,.0f}  de ganancia  ({margin:.1f}% de margen).'
+				f'Se realizaron {tickets} venta{"s" if tickets != 1 else ""} '
+				f'{period_label}, totalizando {fmt_price(revenue)} en ventas '
+				f'con {fmt_price(profit)} de ganancia ({margin:.1f}% de margen).'
 			)
 
 		frame = ctk.CTkFrame(
@@ -483,14 +521,14 @@ class ReportView(BaseView):
 		kpi_defs = [
 			(
 				'Total Ventas',
-				f'${cur["revenue"]:,.0f}',
+				fmt_price(cur['revenue']),
 				cur['revenue'],
 				prev['revenue'],
 				ACCENT_TEXT,
 			),
 			(
 				'Ganancia Neta',
-				f'${cur["profit"]:,.0f}',
+				fmt_price(cur['profit']),
 				cur['profit'],
 				prev['profit'],
 				GREEN_TEXT,
@@ -511,7 +549,7 @@ class ReportView(BaseView):
 			),
 			(
 				'Ticket Promedio',
-				f'${cur["avg_ticket"]:,.0f}',
+				fmt_price(cur['avg_ticket']),
 				cur['avg_ticket'],
 				prev['avg_ticket'],
 				GREEN_TEXT,
@@ -549,7 +587,9 @@ class ReportView(BaseView):
 				text_color=color,
 			).pack(anchor='w', pady=(4, 0))
 
-			badge_text, badge_color = _pct_badge(curr_val, prev_val)
+			badge_text, badge_color = _pct_badge(
+				curr_val, prev_val, percentage_points=title == 'Margen (%)'
+			)
 			ctk.CTkLabel(
 				body,
 				text=badge_text,
@@ -625,7 +665,7 @@ class ReportView(BaseView):
 
 				ctk.CTkLabel(
 					row_f,
-					text=f'${info["total"]:,.0f}  ({info["count"]} t.)',
+					text=f'{fmt_price(info["total"])}  ({info["count"]} ventas)',
 					font=FONT_SMALL,
 					text_color=txt_color,
 					width=150,
@@ -665,21 +705,21 @@ class ReportView(BaseView):
 
 		ctk.CTkLabel(
 			right,
-			text='tickets cancelados / devueltos',
+			text='operaciones anuladas / con devolución',
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).pack(padx=16)
 
 		ctk.CTkLabel(
 			right,
-			text=f'${total:,.0f}',
+			text=fmt_price(total),
 			font=FONT_TITLE,
 			text_color=color,
 		).pack(padx=16, pady=(6, 2))
 
 		ctk.CTkLabel(
 			right,
-			text='monto total involucrado',
+			text='monto anulado / devuelto',
 			font=FONT_LABEL,
 			text_color=TEXT_MUTED,
 		).pack(padx=16, pady=(0, 14))
@@ -750,7 +790,7 @@ class ReportView(BaseView):
 
 			ctk.CTkLabel(
 				row_f,
-				text=f'{qty_str} u  ·  ${product["revenue"]:,.0f}',
+				text=f'{qty_str} u  ·  {fmt_price(product["revenue"])}',
 				font=FONT_SMALL,
 				text_color=ACCENT_TEXT,
 				width=160,
@@ -788,38 +828,14 @@ class ReportView(BaseView):
 
 		ctk.CTkLabel(
 			ing_frame,
-			text=f'▲ INGRESOS  ${movs["total_ingresos"]:,.0f}',
+			text=f'▲ INGRESOS  {fmt_price(movs["total_ingresos"])}',
 			font=FONT_BODY_BOLD,
 			text_color=GREEN_TEXT,
 		).pack(anchor='w', pady=(0, 4))
 
-		if not movs['ingresos']:
-			ctk.CTkLabel(
-				ing_frame,
-				text='Sin ingresos manuales.',
-				font=FONT_LABEL,
-				text_color=TEXT_MUTED,
-			).pack(anchor='w')
-		else:
-			for m in movs['ingresos']:
-				t = m['time'].strftime('%H:%M') if m['time'] else '--:--'
-				row_f = ctk.CTkFrame(ing_frame, fg_color='transparent')
-				row_f.pack(fill='x', pady=1)
-				ctk.CTkLabel(
-					row_f, text=t, font=FONT_LABEL, text_color=TEXT_MUTED, width=40
-				).pack(side='left')
-				ctk.CTkLabel(
-					row_f,
-					text=(m['desc'] or '—')[:45],
-					font=FONT_LABEL,
-					text_color=TEXT_SECONDARY,
-				).pack(side='left', padx=6)
-				ctk.CTkLabel(
-					row_f,
-					text=f'${m["amount"]:,.0f}',
-					font=FONT_LABEL_BOLD,
-					text_color=GREEN_TEXT,
-				).pack(side='right')
+		self._render_movement_list(
+			ing_frame, 'ingresos', movs['ingresos'], GREEN_TEXT, 'Sin ingresos manuales.'
+		)
 
 		# ── Gastos ──
 		gas_frame = ctk.CTkFrame(frame, fg_color='transparent')
@@ -827,49 +843,75 @@ class ReportView(BaseView):
 
 		ctk.CTkLabel(
 			gas_frame,
-			text=f'▼ GASTOS  ${movs["total_gastos"]:,.0f}',
+			text=f'▼ GASTOS  {fmt_price(movs["total_gastos"])}',
 			font=FONT_BODY_BOLD,
 			text_color=RED_TEXT,
 		).pack(anchor='w', pady=(0, 4))
 
-		if not movs['gastos']:
-			ctk.CTkLabel(
-				gas_frame,
-				text='Sin gastos manuales.',
-				font=FONT_LABEL,
-				text_color=TEXT_MUTED,
-			).pack(anchor='w')
-		else:
-			for m in movs['gastos']:
-				t = m['time'].strftime('%H:%M') if m['time'] else '--:--'
-				row_f = ctk.CTkFrame(gas_frame, fg_color='transparent')
-				row_f.pack(fill='x', pady=1)
-				ctk.CTkLabel(
-					row_f, text=t, font=FONT_LABEL, text_color=TEXT_MUTED, width=40
-				).pack(side='left')
-				ctk.CTkLabel(
-					row_f,
-					text=(m['desc'] or '—')[:45],
-					font=FONT_LABEL,
-					text_color=TEXT_SECONDARY,
-				).pack(side='left', padx=6)
-				ctk.CTkLabel(
-					row_f,
-					text=f'${m["amount"]:,.0f}',
-					font=FONT_LABEL_BOLD,
-					text_color=RED_TEXT,
-				).pack(side='right')
+		self._render_movement_list(
+			gas_frame, 'gastos', movs['gastos'], RED_TEXT, 'Sin gastos manuales.'
+		)
 
 		return row + 1
+
+	def _render_movement_list(self, parent, key, items, amount_color, empty_text):
+		if not items:
+			ctk.CTkLabel(
+				parent, text=empty_text, font=FONT_LABEL, text_color=TEXT_MUTED
+			).pack(anchor='w')
+			return
+		page_count = max(1, (len(items) + _MOVEMENT_PAGE_SIZE - 1) // _MOVEMENT_PAGE_SIZE)
+		page = min(self._movement_pages.get(key, 0), page_count - 1)
+		self._movement_pages[key] = page
+		start = page * _MOVEMENT_PAGE_SIZE
+		for movement in items[start : start + _MOVEMENT_PAGE_SIZE]:
+			if movement['time']:
+				time_format = '%d/%m %H:%M' if self._date_from != self._date_to else '%H:%M'
+				time_label = movement['time'].strftime(time_format)
+			else:
+				time_label = '--:--'
+			row_f = ctk.CTkFrame(parent, fg_color='transparent')
+			row_f.pack(fill='x', pady=1)
+			ctk.CTkLabel(
+				row_f, text=time_label, font=FONT_LABEL, text_color=TEXT_MUTED, width=40
+			).pack(side='left')
+			ctk.CTkLabel(
+				row_f, text=(movement['desc'] or '—')[:45], font=FONT_LABEL,
+				text_color=TEXT_SECONDARY, anchor='w',
+			).pack(side='left', fill='x', expand=True, padx=6)
+			ctk.CTkLabel(
+				row_f, text=fmt_price(movement['amount']), font=FONT_LABEL_BOLD,
+				text_color=amount_color,
+			).pack(side='right')
+		if page_count > 1:
+			pager = ctk.CTkFrame(parent, fg_color='transparent')
+			pager.pack(fill='x', pady=(5, 0))
+			ctk.CTkButton(
+				pager, text='‹', width=30, height=26, state='normal' if page else 'disabled',
+				command=lambda: self._change_movement_page(key, -1),
+			).pack(side='left')
+			ctk.CTkLabel(
+				pager, text=f'{start + 1}–{min(start + _MOVEMENT_PAGE_SIZE, len(items))} de {len(items)}',
+				font=FONT_SMALL, text_color=TEXT_MUTED,
+			).pack(side='left', padx=8)
+			ctk.CTkButton(
+				pager, text='›', width=30, height=26,
+				state='normal' if page + 1 < page_count else 'disabled',
+				command=lambda: self._change_movement_page(key, 1),
+			).pack(side='left')
+
+	def _change_movement_page(self, key, delta):
+		if not self._data:
+			return
+		self._movement_pages[key] = max(0, self._movement_pages.get(key, 0) + delta)
+		self._render_report(self._data)
 
 	# =========================================================
 	# EXPORTACIONES (Hilos seguros)
 	# =========================================================
 	def _export_pdf(self):
-		if not self._data:
+		if not self._data or not self._begin_export('Generando PDF…'):
 			return
-		self._lbl_status.configure(text='Generando PDF…', text_color=TEXT_MUTED)
-		self._btn_pdf.configure(state='disabled')
 
 		try:
 			from utils.settings_manager import get as settings_get
@@ -906,10 +948,8 @@ class ReportView(BaseView):
 		threading.Thread(target=worker, daemon=True).start()
 
 	def _export_csv(self):
-		if not self._data:
+		if not self._data or not self._begin_export('Exportando CSV…'):
 			return
-		self._lbl_status.configure(text='Exportando CSV…', text_color=TEXT_MUTED)
-		self._btn_csv.configure(state='disabled')
 
 		data = self._data
 
@@ -938,11 +978,31 @@ class ReportView(BaseView):
 
 		threading.Thread(target=worker, daemon=True).start()
 
+	def _begin_export(self, message: str) -> bool:
+		if self._is_exporting or self._is_loading or not self._data:
+			return False
+		self._is_exporting = True
+		self._lbl_status.configure(text=message, text_color=TEXT_MUTED)
+		self._btn_pdf.configure(state='disabled')
+		self._btn_csv.configure(state='disabled')
+		self._btn_generate.configure(state='disabled')
+		for button in self._quick_buttons.values():
+			button.configure(state='disabled')
+		self._entry_from.configure(state='disabled')
+		self._entry_to.configure(state='disabled')
+		return True
+
 	def _on_export_done(self, message: str, success: bool):
+		self._is_exporting = False
 		color = GREEN_TEXT if success else RED_TEXT
 		self._lbl_status.configure(text=message, text_color=color)
-		self._btn_pdf.configure(state='normal')
-		self._btn_csv.configure(state='normal')
+		self._btn_pdf.configure(state='normal' if self._data else 'disabled')
+		self._btn_csv.configure(state='normal' if self._data else 'disabled')
+		self._btn_generate.configure(state='normal', text='Generar')
+		for button in self._quick_buttons.values():
+			button.configure(state='normal')
+		self._entry_from.configure(state='normal')
+		self._entry_to.configure(state='normal')
 		self.schedule(
 			6000,
 			lambda: (

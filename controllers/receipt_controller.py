@@ -104,10 +104,12 @@ class ReceiptController:
 		amount_method_2: Optional[float | Decimal] = None,
 		paid_amount: Optional[float | Decimal] = None,
 		change_amount: Optional[float | Decimal] = None,
-		paper_width: int = 80,
+		paper_width: Optional[int] = None,
 	) -> Tuple[bool, str]:
 		"""Genera el PDF del ticket estándar con soporte UUID y diseño profesional."""
 		try:
+			if paper_width is None:
+				paper_width = 58 if settings_manager.get('printer_ticket_type', '80mm') == '58mm' else 80
 			try:
 				safe_sale_id = str(sale_id)
 				safe_tenant_id = str(tenant_id)
@@ -561,10 +563,12 @@ class ReceiptController:
 		customer_name: Optional[str],
 		cashier_name: str = 'Caja Principal',
 		note_type: str = 'Devolución',
-		paper_width: int = 80,
+		paper_width: Optional[int] = None,
 	) -> Tuple[bool, str]:
 		"""Genera e imprime una nota de crédito en PDF con diseño profesional y soporte UUID."""
 		try:
+			if paper_width is None:
+				paper_width = 58 if settings_manager.get('printer_ticket_type', '80mm') == '58mm' else 80
 			try:
 				safe_sale_id = str(sale_id)
 				safe_tenant_id = str(tenant_id)

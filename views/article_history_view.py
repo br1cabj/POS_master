@@ -18,6 +18,7 @@ from controllers.article_controller import ArticleController
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.settings_manager import get_reports_path
+from utils.csv_utils import safe_spreadsheet_text
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
@@ -301,7 +302,7 @@ class ArticleHistoryView(BaseView):
 
 		filepath = os.path.join(
 			get_reports_path(),
-			f'auditoria_precios_{datetime.now().strftime("%Y%m%d_%H%M")}.csv',
+			f'auditoria_precios_{datetime.now().strftime("%Y%m%d_%H%M%S_%f")}.csv',
 		)
 
 		try:
@@ -332,9 +333,9 @@ class ArticleHistoryView(BaseView):
 					writer.writerow(
 						[
 							date_str,
-							h.get('user_name', '').capitalize(),
-							h.get('action', ''),
-							h.get('article_name', ''),
+							safe_spreadsheet_text(h.get('user_name', '').capitalize()),
+							safe_spreadsheet_text(h.get('action', '')),
+							safe_spreadsheet_text(h.get('article_name', '')),
 							h.get('old_cost', 0),
 							h.get('new_cost', 0),
 							h.get('old_price', 0),

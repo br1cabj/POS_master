@@ -11,6 +11,7 @@ from core.base_view import BaseView
 from core.context import AppContext
 from utils.date_picker import CTkDatePicker
 from utils.settings_manager import get_reports_path
+from utils.csv_utils import safe_spreadsheet_text
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
@@ -474,7 +475,7 @@ class HistoryView(BaseView):
 				return
 
 			with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
-				w = csv.writer(f)
+				w = csv.writer(f, delimiter=';')
 				w.writerow(
 					[
 						'ID',
@@ -488,7 +489,9 @@ class HistoryView(BaseView):
 						'Estado',
 					]
 				)
-				w.writerows(rows)
+				w.writerows(
+					[[safe_spreadsheet_text(value) for value in row] for row in rows]
+				)
 
 			self.show_success(f'Archivo guardado en:\n{filepath}', 'Exportado')
 		except Exception as e:
