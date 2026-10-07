@@ -1,7 +1,7 @@
 """
 utils/sync_worker.py
 ====================
-Background thread that pushes local SQLite changes to Supabase (PostgreSQL).
+Background thread that publishes local SQLite changes to the Cloud API.
 
 Architecture
 ------------
@@ -12,7 +12,7 @@ Architecture
   survives restarts.
 - Fails silently on network / credential errors and retries on the next tick.
 
-To enable: set DATABASE_CLOUD_URL in .env and restart the app.
+To enable: configure the optional Cloud Sync API device credentials.
 """
 
 import json
@@ -24,8 +24,9 @@ from pathlib import Path
 from sqlalchemy import and_, inspect as sa_inspect, or_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import sessionmaker
+import requests
 
-from utils.config import CLOUD_SYNC_INTERVAL, get_cloud_engine, get_engine
+from utils.config import CLOUDPOS_DEVICE_TOKEN, CLOUDPOS_SYNC_API_URL, CLOUD_SYNC_ENABLED, CLOUD_SYNC_INTERVAL, get_cloud_engine, get_engine
 
 _SYNC_BATCH_SIZE = 500
 
@@ -161,7 +162,7 @@ def _rows_after_cursor(query, model, cursor_time: datetime, cursor_id: str):
 
 
 # Fields that must never be uploaded to the cloud.
-_CLOUD_EXCLUDED_FIELDS = frozenset()
+_CLOUD_EXCLUDED_FIELDS = frozenset({'password_hash', 'recovery_pin_hash'})
 
 
 def _row_to_dict(row) -> dict:
@@ -242,8 +243,8 @@ class SyncWorker:
 		self.last_sync_error: str = ''
 
 	def start(self) -> None:
-		if get_cloud_engine() is None:
-			logger.info('Cloud sync disabled — DATABASE_CLOUD_URL not set.')
+		if not CLOUD_SYNC_ENABLED:
+			logger.info('Cloud sync disabled — device is not paired with the Cloud API.')
 			return
 		from controllers.cloud_license_controller import CloudLicenseController
 
@@ -294,9 +295,12 @@ class SyncWorker:
 			logger.info('Sync skipped — cloud plan not active: %s', reason)
 			return
 
+		# The Cloud add-on is one-way: local SQLite remains authoritative and the
+		# VPS receives a read-only reporting replica through HTTPS.
+		self._publish_snapshots()
+		return
+
 		cloud_engine = get_cloud_engine()
-		if cloud_engine is None:
-			return
 
 		# Guarantee the cloud schema exists (safe to call repeatedly).
 		try:
@@ -366,7 +370,7 @@ class SyncWorker:
 					# Don't update state for this table so it retries next cycle.
 
 		if total_pushed:
-			logger.info('Sync complete: %d rows pushed to Supabase.', total_pushed)
+			logger.info('Sync complete: %d rows pushed to PostgreSQL.', total_pushed)
 
 		_save_state(state)
 		with self._state_lock:
@@ -376,6 +380,49 @@ class SyncWorker:
 				self.last_sync_error = ''
 			else:
 				self.last_sync_ok = False
+
+	def _publish_snapshots(self) -> None:
+		"""Publish retry-safe reporting snapshots without DB credentials on PCs."""
+		state = _load_state()
+		events, cursors = [], []
+		with self._LocalSession() as local:
+			for model in _sync_models():
+				if not hasattr(model, 'updated_at'):
+					continue
+				table_name = model.__tablename__
+				last_sync, last_id = _read_cursor(state.get(table_name))
+				rows = _rows_after_cursor(local.query(model), model, last_sync, last_id).all()
+				if not rows:
+					continue
+				for row in rows:
+					payload = _row_to_dict(row)
+					events.append({
+						'event_id': f'{table_name}:{row.id}:{row.updated_at.isoformat()}',
+						'table': table_name,
+						'payload': json.loads(json.dumps(payload, default=str)),
+					})
+				cursors.append((table_name, rows[-1]))
+				if len(events) >= _SYNC_BATCH_SIZE:
+					break
+		if not events:
+			with self._state_lock:
+				self.last_sync_ok, self.last_sync_time, self.last_sync_error = True, datetime.now(), ''
+			return
+		try:
+			response = requests.post(
+				f'{CLOUDPOS_SYNC_API_URL}/sync/events', json={'events': events}, timeout=20,
+				headers={'Authorization': f'Bearer {CLOUDPOS_DEVICE_TOKEN}'},
+			)
+			response.raise_for_status()
+		except requests.RequestException as exc:
+			with self._state_lock:
+				self.last_sync_ok, self.last_sync_error = False, str(exc)
+			return
+		for table_name, row in cursors:
+			_write_cursor(state, table_name, row)
+		_save_state(state)
+		with self._state_lock:
+			self.last_sync_ok, self.last_sync_time, self.last_sync_error = True, datetime.now(), ''
 
 	def _ensure_parents_synced(self, local_session, cloud_session, model, state) -> None:
 		"""

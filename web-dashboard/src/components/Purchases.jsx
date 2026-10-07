@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
 
@@ -21,13 +21,13 @@ const statusColor = (status) => {
 export const Purchases = () => {
   const [expandedPurchase, setExpandedPurchase] = useState(null);
 
-  const { data: purchases, loading, error } = useSupabaseQuery('purchases', {
+  const { data: purchases, loading, error } = useApiQuery('purchases', {
     select: '*, supplier:suppliers(name)',
     order: { column: 'date', ascending: false },
     limit: 500,
   });
 
-  const { data: purchaseDetails, loading: detailsLoading, error: detailsError } = useSupabaseQuery('purchase_details', {
+  const { data: purchaseDetails, loading: detailsLoading, error: detailsError } = useApiQuery('purchase_details', {
     select: '*, variant:article_variants(barcode, article:articles(name))',
     filter: expandedPurchase ? ['purchase_id', 'eq', expandedPurchase] : null,
     enabled: !!expandedPurchase,

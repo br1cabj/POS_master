@@ -1,12 +1,12 @@
 import { useState, useMemo } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
 
 export const Products = () => {
   const [page, setPage] = useState(0);
   const pageSize = 50;
-  const { data: variants, loading, error } = useSupabaseQuery('article_variants', {
+  const { data: variants, loading, error } = useApiQuery('article_variants', {
     select: '*, article:articles(name, description, min_stock, category:categories(name), supplier:suppliers(name)), stocks(quantity, warehouse:warehouses(name))',
     filter: ['is_active', 'eq', true],
     order: { column: 'updated_at', ascending: false },

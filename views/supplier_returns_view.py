@@ -528,7 +528,7 @@ class SupplierReturnsView(BaseView):
 				self.lbl_cart_empty.place_forget()
 			else:
 				self.lbl_cart_empty.place(relx=0.5, rely=0.5, anchor='center')
-		total = Decimal('0')
+		total = Decimal(0)
 		for i, item in enumerate(self._return_cart):
 			qty = item['qty']
 			qty_str = f'{int(qty)}' if qty % 1 == 0 else f'{qty:.2f}'

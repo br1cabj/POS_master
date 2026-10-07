@@ -1,0 +1,1 @@
+"""CloudPOS private web API."""

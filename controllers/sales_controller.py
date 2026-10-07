@@ -14,6 +14,7 @@ from database.models import (
 	CashSession,
 	ComboItem,
 	Customer,
+	Promotion,
 	Sale,
 	SaleDetail,
 	Stock,
@@ -31,6 +32,106 @@ class SalesController(BaseController):
 
 	def _parse_decimal(self, value):
 		return parse_decimal(value, default=Decimal('0.0'))
+
+	@staticmethod
+	def _promotion_is_active_now(promo, now: datetime) -> bool:
+		"""Valida vigencia completa de una promoción dentro de la transacción."""
+		if not promo.is_active or now < promo.date_from or now > promo.date_to:
+			return False
+		if promo.days_of_week:
+			try:
+				if now.weekday() not in {
+					int(day) for day in promo.days_of_week.split(',') if day.strip()
+				}:
+					return False
+			except ValueError:
+				return False
+		if promo.time_from and promo.time_to:
+			try:
+				start = datetime.strptime(promo.time_from, '%H:%M').time()
+				end = datetime.strptime(promo.time_to, '%H:%M').time()
+				if not start <= now.time().replace(second=0, microsecond=0) <= end:
+					return False
+			except ValueError:
+				return False
+		return True
+
+	def _resolve_promotion(self, session, tenant_id, variant, now: datetime):
+		"""Prioriza una promo directa; para empates, la última actualización gana."""
+		category_id = getattr(variant.article, 'category_id', None)
+		candidates = (
+			session.query(Promotion)
+			.filter(
+				Promotion.tenant_id == tenant_id,
+				Promotion.is_active.is_(True),
+				Promotion.date_from <= now,
+				Promotion.date_to >= now,
+				(
+					(Promotion.variant_id == variant.id)
+					| ((Promotion.variant_id.is_(None)) & (Promotion.category_id == category_id))
+				),
+			)
+			.all()
+		)
+		active = [p for p in candidates if self._promotion_is_active_now(p, now)]
+		return max(
+			active,
+			key=lambda p: (
+				p.variant_id == variant.id,
+				p.updated_at or p.date_from,
+				p.id,
+			),
+			default=None,
+		)
+
+	@staticmethod
+	def _discount_is_active(pct, until, now: datetime) -> bool:
+		return bool(pct and Decimal(str(pct)) > 0 and (until is None or until >= now))
+
+	def _resolve_variant_price(self, session, tenant_id, variant, total_qty, price_list, now):
+		"""Calcula precio y descripción canónicos; nunca confía en el carrito recibido."""
+		base_price = Decimal(str(variant.selling_price or 0))
+		if price_list == 'B' and variant.selling_price_b is not None:
+			base_price = Decimal(str(variant.selling_price_b))
+
+		promo = self._resolve_promotion(session, tenant_id, variant, now)
+		if promo:
+			if promo.promo_type == 'pct':
+				pct = Decimal(str(promo.discount_value or 0))
+				price = (base_price * (Decimal(1) - pct / Decimal(100))).quantize(
+					Decimal('0.01')
+				)
+			elif promo.promo_type == 'nxm':
+				buy, pay = Decimal(str(promo.buy_qty)), Decimal(str(promo.pay_qty))
+				sets, remainder = int(total_qty // buy), total_qty % buy
+				price = ((sets * pay * base_price + remainder * base_price) / total_qty).quantize(
+					Decimal('0.01')
+				)
+			elif promo.promo_type == 'fixed':
+				price = Decimal(str(promo.discount_value or 0)).quantize(Decimal('0.01'))
+			else:
+				price = base_price
+			return price, f'🎯 {promo.name}'
+
+		product_pct = getattr(variant, 'discount_pct', None)
+		supplier = getattr(variant.article, 'supplier', None)
+		supplier_pct = getattr(supplier, 'discount_pct', None) if supplier else None
+		if self._discount_is_active(
+			product_pct, getattr(variant, 'discount_until', None), now
+		):
+			pct = Decimal(str(product_pct))
+			return (base_price * (Decimal(1) - pct / Decimal(100))).quantize(
+				Decimal('0.01')
+			), f'🏷️ -{pct:.4g}% {variant.article.name}'
+		if self._discount_is_active(
+			supplier_pct, getattr(supplier, 'discount_until', None), now
+		):
+			pct = Decimal(str(supplier_pct))
+			return (base_price * (Decimal(1) - pct / Decimal(100))).quantize(
+				Decimal('0.01')
+			), f'🏷️ -{pct:.4g}% {variant.article.name}'
+		prefix = '💼 ' if price_list == 'B' and variant.selling_price_b is not None else ''
+		return base_price, f'{prefix}{variant.article.name}'
 
 	@staticmethod
 	def _take_from_stock_rows(stock_rows, requested_qty):
@@ -86,8 +187,9 @@ class SalesController(BaseController):
 					.join(Article)
 					.filter(
 						Article.tenant_id == tenant_id,
+						Article.is_active.is_(True),
 						Article.deleted_at.is_(None),
-						ArticleVariant.is_active,
+						ArticleVariant.is_active.is_(True),
 						ArticleVariant.deleted_at.is_(None),
 					)
 					.all()
@@ -140,6 +242,7 @@ class SalesController(BaseController):
 					result.append(
 						{
 							'variant_id': v.id,
+							'category_id': v.article.category_id,
 							'name': v.article.name,
 							'barcode': v.barcode,
 							'selling_price': v.selling_price,
@@ -190,8 +293,11 @@ class SalesController(BaseController):
 				variants = (
 					session.query(ArticleVariant)
 					.options(
-						joinedload(ArticleVariant.article),
+						joinedload(ArticleVariant.article).joinedload(Article.supplier),
 						joinedload(ArticleVariant.stocks),
+						joinedload(ArticleVariant.ingredients)
+						.joinedload(ComboItem.ingredient)
+						.joinedload(ArticleVariant.stocks),
 						joinedload(ArticleVariant.base_variant).joinedload(
 							ArticleVariant.stocks
 						),
@@ -199,7 +305,10 @@ class SalesController(BaseController):
 					.join(Article)
 					.filter(
 						Article.tenant_id == tenant_id,
+						Article.is_active.is_(True),
+						Article.deleted_at.is_(None),
 						ArticleVariant.is_active,  # noqa: E712
+						ArticleVariant.deleted_at.is_(None),
 						or_(
 							Article.name.ilike(q_like),
 							ArticleVariant.barcode.ilike(q_like),
@@ -210,7 +319,20 @@ class SalesController(BaseController):
 				)
 				result = []
 				for v in variants:
-					total_stock = sum(s.quantity for s in v.stocks) if v.stocks else 0
+					if v.is_combo:
+						virtual_stock = float('inf')
+						for component in v.ingredients:
+							if component.quantity_required > 0 and component.ingredient:
+								available = sum(
+									stock.quantity for stock in component.ingredient.stocks
+								)
+								virtual_stock = min(
+									virtual_stock,
+									int(Decimal(str(available)) / component.quantity_required),
+								)
+						total_stock = 0 if virtual_stock == float('inf') else virtual_stock
+					else:
+						total_stock = sum(s.quantity for s in v.stocks) if v.stocks else 0
 					units = getattr(v, 'units_per_pack', 1) or 1
 					base_vid = getattr(v, 'base_variant_id', None)
 					if base_vid and units > 1:
@@ -224,6 +346,7 @@ class SalesController(BaseController):
 					result.append(
 						{
 							'variant_id': v.id,
+							'category_id': v.article.category_id,
 							'name': v.article.name,
 							'barcode': v.barcode,
 							'selling_price': v.selling_price,
@@ -241,8 +364,14 @@ class SalesController(BaseController):
 							if v.discount_pct
 							else 0.0,
 							'discount_until': v.discount_until,
-							'supplier_discount_pct': 0.0,
-							'supplier_discount_until': None,
+							'supplier_discount_pct': float(
+								v.article.supplier.discount_pct
+							)
+							if v.article.supplier and v.article.supplier.discount_pct
+							else 0.0,
+							'supplier_discount_until': v.article.supplier.discount_until
+							if v.article.supplier
+							else None,
 						}
 					)
 				return result
@@ -261,7 +390,11 @@ class SalesController(BaseController):
 						'price_list': c.price_list or 'A',
 					}
 					for c in session.query(Customer.id, Customer.name, Customer.current_balance, Customer.price_list)
-					.filter_by(tenant_id=tenant_id, is_active=True)
+					.filter(
+						Customer.tenant_id == tenant_id,
+						Customer.is_active.is_(True),
+						Customer.deleted_at.is_(None),
+					)
 					.order_by(Customer.name)
 					.all()
 				]
@@ -372,7 +505,8 @@ class SalesController(BaseController):
 		customer_id=None,
 		is_fiado=False,
 		payment_method='efectivo',
-		discount_amount=None,
+		discount_pct=None,
+		price_list='A',
 		payment_method_2=None,
 		amount_method_2=None,
 		paid_amount=None,
@@ -385,19 +519,28 @@ class SalesController(BaseController):
 		if not cart_items:
 			return False, 'El carrito está vacío.'
 
-		discount_amount = (
-			self._parse_decimal(discount_amount)
-			if discount_amount is not None
+		discount_pct = (
+			self._parse_decimal(discount_pct)
+			if discount_pct is not None
 			else Decimal('0.0')
 		)
-		if discount_amount < Decimal('0.0'):
-			return False, 'El descuento no puede ser negativo.'
+		if not Decimal('0') <= discount_pct <= Decimal('100'):
+			return False, 'El descuento debe estar entre 0% y 100%.'
+		price_list = 'B' if str(price_list).upper() == 'B' else 'A'
+		payment_method = str(payment_method or '').strip().lower()
+		allowed_methods = {'efectivo', 'tarjeta', 'transferencia', 'qr', 'qr billetera'}
+		if not is_fiado and payment_method not in allowed_methods:
+			return False, 'Método de pago inválido.'
 
 		# Normalizar pago mixto
 		amount_m2 = Decimal('0')
 		payment_method_2_lower = None
 		if payment_method_2 and not is_fiado:
-			payment_method_2_lower = payment_method_2.lower()
+			payment_method_2_lower = str(payment_method_2).strip().lower()
+			if payment_method_2_lower not in allowed_methods:
+				return False, 'Segundo método de pago inválido.'
+			if payment_method_2_lower == payment_method:
+				return False, 'Los métodos de pago mixto deben ser distintos.'
 			try:
 				amount_m2 = self._parse_decimal(amount_method_2)
 				if amount_m2 < Decimal('0'):
@@ -408,6 +551,27 @@ class SalesController(BaseController):
 
 		with self._Session() as session:
 			try:
+				user = (
+					session.query(User)
+					.filter(
+						User.id == user_id,
+						User.tenant_id == tenant_id,
+						User.is_active.is_(True),
+						User.deleted_at.is_(None),
+					)
+					.first()
+				)
+				if not user:
+					return False, 'Usuario inválido o inactivo.'
+				user_role = str(user.role or '').strip().lower()
+				max_discount = Decimal('100') if user_role in ('admin', 'gerente') else Decimal('20')
+				if discount_pct > max_discount:
+					return False, f'Tu perfil permite hasta {max_discount:.0f}% de descuento global.'
+				if any(item.get('variant_id') is None for item in cart_items) and user_role not in (
+					'admin',
+					'gerente',
+				):
+					return False, 'La venta libre requiere una cuenta administradora.'
 				active_cash = (
 					session.query(CashSession)
 					.filter_by(tenant_id=tenant_id, user_id=user_id, is_open=True)
@@ -423,7 +587,12 @@ class SalesController(BaseController):
 				if customer_id:
 					customer_obj = (
 						session.query(Customer)
-						.filter_by(id=customer_id, tenant_id=tenant_id)
+						.filter(
+							Customer.id == customer_id,
+							Customer.tenant_id == tenant_id,
+							Customer.is_active.is_(True),
+							Customer.deleted_at.is_(None),
+						)
 						.with_for_update()
 						.first()
 					)
@@ -437,7 +606,12 @@ class SalesController(BaseController):
 						return False, 'Debes seleccionar un cliente válido para fiar.'
 					customer_obj = (
 						session.query(Customer)
-						.filter_by(name='Consumidor Final', tenant_id=tenant_id)
+						.filter(
+							Customer.name == 'Consumidor Final',
+							Customer.tenant_id == tenant_id,
+							Customer.is_active.is_(True),
+							Customer.deleted_at.is_(None),
+						)
 						.first()
 					)
 					customer_id = customer_obj.id if customer_obj else None
@@ -470,7 +644,7 @@ class SalesController(BaseController):
 						for v in session.query(ArticleVariant)
 						.join(Article)
 						.options(
-							joinedload(ArticleVariant.article),
+							joinedload(ArticleVariant.article).joinedload(Article.supplier),
 							joinedload(ArticleVariant.ingredients).joinedload(
 								ComboItem.ingredient
 							),
@@ -478,6 +652,10 @@ class SalesController(BaseController):
 						.filter(
 							ArticleVariant.id.in_(variant_ids_in_cart),
 							Article.tenant_id == tenant_id,
+							Article.is_active.is_(True),
+							Article.deleted_at.is_(None),
+							ArticleVariant.is_active.is_(True),
+							ArticleVariant.deleted_at.is_(None),
 						)
 						.all()
 					}
@@ -507,6 +685,14 @@ class SalesController(BaseController):
 
 				total_sale = Decimal('0.0')
 				total_cost = Decimal('0.0')
+				qty_by_variant = defaultdict(lambda: Decimal('0.0'))
+				for item in cart_items:
+					if item.get('variant_id') is not None:
+						qty_by_variant[item['variant_id']] += self._parse_decimal(
+							item.get('qty', 1)
+						)
+				sale_now = datetime.now()
+				receipt_items = []
 
 				for item in cart_items:
 					qty = self._parse_decimal(item.get('qty', 1))
@@ -517,8 +703,9 @@ class SalesController(BaseController):
 
 					v_id = item.get('variant_id')
 					cost_price = Decimal('0.0')
-
-					# Inicializamos el precio desde el item de forma segura
+					description = str(item.get('desc', 'Artículo')).strip() or 'Artículo'
+					# El precio libre se valida de forma explícita; los productos de catálogo
+					# se recalculan exclusivamente desde la base local.
 					price = self._parse_decimal(item.get('price', 0))
 
 					if v_id is not None:
@@ -528,27 +715,14 @@ class SalesController(BaseController):
 								f'Producto no encontrado o no autorizado: {item.get("desc")}'
 							)
 
-						price = self._parse_decimal(
-							item.get('price', variant.selling_price)
+						price, description = self._resolve_variant_price(
+							session,
+							tenant_id,
+							variant,
+							qty_by_variant[v_id],
+							price_list,
+							sale_now,
 						)
-						if price < Decimal('0'):
-							raise ValueError(
-								f'El precio no puede ser negativo: {variant.article.name}'
-							)
-						# Validar contra DB: evitar manipulación desde frontend
-						db_price = Decimal(str(variant.selling_price or 0))
-						db_cost = Decimal(str(variant.cost_price or 0))
-						if price < db_cost:
-							raise ValueError(
-								f'Precio menor al costo para: {variant.article.name}. '
-								f'Precio mínimo: ${db_cost:.2f}'
-							)
-						# Permitir hasta 50% de descuento manual; más alló requiere autorización
-						if db_price > 0 and price < db_price * Decimal('0.5'):
-							raise ValueError(
-								f'Precio con descuento excesivo para: {variant.article.name}. '
-								f'Mínimo permitido: ${db_price * Decimal("0.5"):.2f}'
-							)
 
 						if variant.is_combo:
 							for ci in variant.ingredients:
@@ -611,10 +785,12 @@ class SalesController(BaseController):
 									)
 								)
 					else:
-						if price < 0:
+						if price <= 0:
 							raise ValueError(
-								f'El precio no puede ser negativo: {item.get("desc", "Desconocido")}'
+								'La venta libre debe tener un precio mayor a cero.'
 							)
+						if len(description) > 500:
+							raise ValueError('La descripción de la venta libre es demasiado extensa.')
 
 					subtotal = price * qty
 					total_sale += subtotal
@@ -622,22 +798,33 @@ class SalesController(BaseController):
 					new_sale.items.append(
 						SaleDetail(
 							variant_id=v_id,
-							description=item.get('desc', 'Artículo'),
+							description=description,
 							quantity=qty,
 							unit_cost=cost_price,
 							unit_price=price,
 							subtotal=subtotal,
 						)
 					)
-
-				# Validar y aplicar descuento al total final
-				if discount_amount > total_sale:
-					raise ValueError(
-						f'El descuento (${discount_amount:.2f}) no puede superar el total de la venta (${total_sale:.2f}).'
+					receipt_items.append(
+						{
+							'desc': description,
+							'price': price,
+							'qty': qty,
+							'subtotal': subtotal,
+						}
 					)
+
+				# El descuento también se calcula desde el porcentaje validado, no desde la UI.
+				discount_amount = (total_sale * discount_pct / Decimal(100)).quantize(
+					Decimal('0.01')
+				)
 				final_total = total_sale - discount_amount
 				if final_total < Decimal('0.0'):
 					final_total = Decimal('0.0')
+				if not is_fiado and not payment_method_2_lower and payment_method == 'efectivo':
+					paid = self._parse_decimal(paid_amount) if paid_amount is not None else final_total
+					if paid < final_total:
+						raise ValueError('El pago en efectivo es menor al total de la venta.')
 
 				new_sale.total_amount = final_total
 				new_sale.discount_amount = discount_amount
@@ -721,8 +908,7 @@ class SalesController(BaseController):
 				_sale_id = new_sale.id
 				_sale_date = new_sale.date
 				try:
-					_user_obj = session.query(User).filter_by(id=user_id).first()
-					cashier_label = get_display_name(_user_obj)
+					cashier_label = get_display_name(user)
 				except Exception as e:
 					logger.warning('Error obteniendo nombre del cajero %s: %s', user_id, e)
 					cashier_label = 'Operador'
@@ -755,7 +941,7 @@ class SalesController(BaseController):
 								tenant_id=tenant_id,
 								sale_id=_sale_id,
 								date_str=_sale_date.strftime('%d/%m/%Y  %H:%M'),
-								items_list=cart_items,
+								items_list=receipt_items,
 								total=final_total,
 								customer_name=customer_str,
 								discount_amount=discount_amount,

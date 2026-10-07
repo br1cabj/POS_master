@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
 
@@ -16,13 +16,13 @@ const statusColor = (status) => {
 export const Quotations = () => {
   const [expandedQuotation, setExpandedQuotation] = useState(null);
 
-  const { data: quotations, loading, error } = useSupabaseQuery('quotations', {
+  const { data: quotations, loading, error } = useApiQuery('quotations', {
     select: '*, customer:customers(name), user:users(username)',
     order: { column: 'date', ascending: false },
     limit: 500,
   });
 
-  const { data: quotationItems, loading: itemsLoading, error: itemsError } = useSupabaseQuery('quotation_items', {
+  const { data: quotationItems, loading: itemsLoading, error: itemsError } = useApiQuery('quotation_items', {
     select: '*, variant:article_variants(barcode, article:articles(name))',
     filter: expandedQuotation ? ['quotation_id', 'eq', expandedQuotation] : null,
     enabled: !!expandedQuotation,

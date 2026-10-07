@@ -151,11 +151,12 @@ _VIEW_SHORTCUTS = {
 
 
 class MainDashboard(ctk.CTkFrame):
-	def __init__(self, master, ctx: AppContext, logout_command, **kwargs):
+	def __init__(self, master, ctx: AppContext, logout_command, onboarding_command=None, **kwargs):
 		super().__init__(master, fg_color=SURFACE1, **kwargs)
 		self.master_app = master
 		self.ctx = ctx
 		self._external_logout_command = logout_command
+		self._onboarding_command = onboarding_command
 		self._active_view_path = _HOME
 		self._nav_buttons: dict = {}
 		self._clock_job = None
@@ -367,6 +368,19 @@ class MainDashboard(ctk.CTkFrame):
 			corner_radius=4,
 			anchor='w',
 		).pack(anchor='w', pady=(2, 0))
+
+		if self.is_admin and callable(self._onboarding_command):
+			ctk.CTkButton(
+				card,
+				text='✨  Abrir inicio rápido',
+				fg_color='transparent',
+				hover_color=SURFACE3,
+				text_color=ACCENT_TEXT,
+				font=FONT_SMALL,
+				height=30,
+				border_width=0,
+				command=self._onboarding_command,
+			).pack(fill='x', padx=8, pady=(8, 0))
 
 		ctk.CTkButton(
 			card,

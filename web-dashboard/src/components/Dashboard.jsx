@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { useAuth } from '@/context/AuthContext.jsx';
 import { StatCard, Loading, ErrorState, Badge, Skeleton } from '@/components/shared/index.jsx';
 import { AreaChart, DonutChart, HorizontalBarChart, LineChart, SalesByHourChart } from '@/components/charts/index.jsx';
@@ -16,14 +16,14 @@ export const Dashboard = () => {
 	const todayStr = useMemo(() => getTodayStr(), []);
   const monthAgoStr = useMemo(() => getDaysAgoStr(30), []);
 
-  const { data: sales, loading: salesLoading, error: salesError } = useSupabaseQuery('sales', {
+  const { data: sales, loading: salesLoading, error: salesError } = useApiQuery('sales', {
     select: 'id, total_amount, profit, date, status, payment_method, items:sale_details(description, quantity)',
     filter: ['date', 'gte', monthAgoStr],
     refreshInterval: REFRESH_INTERVAL,
     silent: true,
   });
 
-  const { data: activePromos, loading: promosLoading } = useSupabaseQuery('promotions', {
+  const { data: activePromos, loading: promosLoading } = useApiQuery('promotions', {
     select: 'id, name, promo_type, discount_value, buy_qty, pay_qty, date_to',
     filter: ['is_active', 'eq', true],
     refreshInterval: REFRESH_INTERVAL,
@@ -31,13 +31,13 @@ export const Dashboard = () => {
 		enabled: isManager,
   });
 
-  const { data: stockRows } = useSupabaseQuery('stocks', {
+  const { data: stockRows } = useApiQuery('stocks', {
     select: 'quantity, variant:article_variants(id, article:articles(name, min_stock))',
     refreshInterval: REFRESH_INTERVAL,
     silent: true,
   });
 
-  const { data: purchases } = useSupabaseQuery('purchases', {
+  const { data: purchases } = useApiQuery('purchases', {
     select: 'id, total_amount, date, status',
     filter: ['date', 'gte', monthAgoStr],
     refreshInterval: REFRESH_INTERVAL,

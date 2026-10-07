@@ -7,6 +7,7 @@ Solucionados errores de precisión Decimal, cierres de ciclos asíncronos y seri
 """
 
 import logging
+import queue
 import sys
 import threading
 import tkinter
@@ -98,16 +99,21 @@ class SalesView(BaseView):
 		self._active_promos = []
 		self.cart = []
 
-		self._discount_pct = Decimal('0')
-		self._discount_amount = Decimal('0')
+		self._discount_pct = Decimal(0)
+		self._discount_amount = Decimal(0)
 		self._preset_btns: list = []
 		self._paid_amount = None
 		self._active_price_list = 'A'
+		self._max_global_discount = Decimal(100 if ctx.is_admin else 20)
 
 		self._is_loading_data = False
 		self._search_popup = None
 		self._search_mode = 'scan'
 		self._muted = False
+		self._search_results_queue: queue.Queue = queue.Queue()
+		self._search_request_id = 0
+		self._catalog_results_queue: queue.Queue = queue.Queue()
+		self._catalog_request_id = 0
 
 		# Timers unificados
 		self._flash_timers = {}
@@ -115,6 +121,8 @@ class SalesView(BaseView):
 		self._msg_timer_id = None
 		self._touch_batch_timer = None
 		self._disc_border_timer = None
+		self._search_poll_job = None
+		self._catalog_poll_job = None
 
 		self.grid_columnconfigure(0, weight=3)
 		self.grid_columnconfigure(1, weight=1)
@@ -133,6 +141,8 @@ class SalesView(BaseView):
 
 		self.after(50, self.load_data)
 		self.setup_shortcuts()
+		self._search_poll_job = self.after(75, self._poll_search_results)
+		self._catalog_poll_job = self.after(75, self._poll_catalog_results)
 
 	# =========================================================
 	# HELPERS DE UX
@@ -186,7 +196,7 @@ class SalesView(BaseView):
 		self.entry_barcode.bind('<KeyRelease>', self._barcode_on_key)
 		self.entry_barcode.bind('<FocusOut>', self._on_search_entry_focus_out)
 		# Escape sobre el campo de búsqueda: limpia sin afectar el binding global del dashboard
-		self.entry_barcode.bind('<Escape>', lambda e: self._clear_search())
+		self.entry_barcode.bind('<Escape>', self._on_search_escape)
 		self.entry_manual_search = self.entry_barcode
 
 		bottom_search = ctk.CTkFrame(search_zone, fg_color='transparent')
@@ -241,7 +251,7 @@ class SalesView(BaseView):
 		self.qty_entry.bind('<Return>', self._manual_search_on_enter)
 		self.qty_entry.bind('<FocusIn>', self._select_all_text)
 
-		ctk.CTkButton(
+		self._btn_free_sale = ctk.CTkButton(
 			bottom_search,
 			text='⚡  Venta Libre',
 			fg_color=SURFACE3,
@@ -253,7 +263,14 @@ class SalesView(BaseView):
 			height=34,
 			corner_radius=8,
 			command=self._open_venta_libre_popup,
-		).pack(side='left')
+		)
+		self._btn_free_sale.pack(side='left')
+		if not self.ctx.is_admin:
+			self._btn_free_sale.configure(
+				state='disabled',
+				text='⚡  Venta Libre (solo admin)',
+				text_color=TEXT_MUTED,
+			)
 
 		self._btn_mute = ctk.CTkButton(
 			bottom_search,
@@ -304,6 +321,7 @@ class SalesView(BaseView):
 			height=30,
 			font=FONT_SMALL,
 			command=self._on_customer_changed,
+			state='readonly',
 		)
 		self.customers_combo.set('Cargando...')
 		self.customers_combo.pack(side='left', fill='x', expand=True, padx=(0, 8))
@@ -509,7 +527,7 @@ class SalesView(BaseView):
 			fg_color=SURFACE2,
 			border_color=BORDER,
 			text_color=TEXT_PRIMARY,
-			placeholder_text='%',
+			placeholder_text=f'máx. {self._max_global_discount:.0f}%',
 			placeholder_text_color=TEXT_MUTED,
 			justify='center',
 		)
@@ -544,7 +562,7 @@ class SalesView(BaseView):
 			border_width=1,
 			border_color=BORDER,
 			corner_radius=6,
-			command=lambda: self._set_discount_pct(Decimal('0')),
+			command=lambda: self._set_discount_pct(Decimal(0)),
 		)
 		self._btn_clear_disc.pack(side='right')
 
@@ -653,7 +671,11 @@ class SalesView(BaseView):
 	# DESCUENTO — Lógica y estado
 	# =========================================================
 	def _set_discount_pct(self, pct: Decimal):
-		if pct < Decimal('0') or pct > Decimal('100'):
+		if pct < Decimal(0) or pct > self._max_global_discount:
+			self._set_msg(
+				f'El descuento máximo para tu perfil es {self._max_global_discount:.0f}%.',
+				RED_TEXT,
+			)
 			return
 		self._discount_pct = pct
 
@@ -691,7 +713,7 @@ class SalesView(BaseView):
 			return
 		try:
 			pct = Decimal(raw)
-			if pct < 0 or pct > 100:
+			if pct < 0 or pct > self._max_global_discount:
 				raise ValueError
 			self._set_discount_pct(pct)
 			self._entry_custom_disc.configure(border_color=BORDER)
@@ -763,43 +785,76 @@ class SalesView(BaseView):
 		if not self.winfo_exists():  # BUG 19: guard contra callback post-destroy
 			return
 		self._is_loading_data = True
+		self._catalog_request_id += 1
+		request_id = self._catalog_request_id
+		current_customer = (
+			self.customers_combo.get() if hasattr(self, 'customers_combo') else None
+		)
+		tenant_id = self.ctx.tenant_id
+		sales_ctrl, promo_ctrl = self.sales_ctrl, self.promo_ctrl
+		self._set_msg('Actualizando catálogo…', TEXT_MUTED)
+
+		def fetch_catalog():
+			try:
+				payload = (
+					sales_ctrl.get_articles_for_sale(tenant_id),
+					promo_ctrl.get_active_promos_now(tenant_id),
+					sales_ctrl.get_customers(tenant_id),
+				)
+				error = None
+			except Exception as exc:
+				logger.exception('No se pudo cargar el catálogo de ventas')
+				payload, error = ([], [], []), str(exc)
+			self._catalog_results_queue.put((request_id, current_customer, payload, error))
+
+		threading.Thread(target=fetch_catalog, daemon=True, name='SalesCatalog').start()
+
+	def _poll_catalog_results(self):
+		"""Aplica el catálogo desde Tk y descarta respuestas de recargas obsoletas."""
+		self._catalog_poll_job = None
+		if not self.winfo_exists():
+			return
 		try:
-			# Si hay un render batch previo en curso, lo matamos
+			while True:
+				request_id, current_customer, payload, error = (
+					self._catalog_results_queue.get_nowait()
+				)
+				if request_id != self._catalog_request_id:
+					continue
+				self._apply_catalog_payload(current_customer, *payload, error=error)
+		except queue.Empty:
+			pass
+		self._catalog_poll_job = self.after(75, self._poll_catalog_results)
+
+	def _apply_catalog_payload(self, current_customer, variants, promos, customers, error=None):
+		try:
+			if error:
+				self._set_msg('No se pudo actualizar el catálogo. Se conservan los datos previos.', ORANGE_TEXT)
+				return
 			if self._touch_batch_timer:
 				self.after_cancel(self._touch_batch_timer)
 				self._touch_batch_timer = None
-
-			current_customer = (
-				self.customers_combo.get() if hasattr(self, 'customers_combo') else None
-			)
-			tenant_id = self.ctx.tenant_id
-
-			self.db_variants = self.sales_ctrl.get_articles_for_sale(tenant_id)
-			self._active_promos = self.promo_ctrl.get_active_promos_now(tenant_id)
-			customers = self.sales_ctrl.get_customers(tenant_id)
-			self.customer_map = {c.get('name'): c for c in customers}
-
-			customer_names = list(self.customer_map.keys())
+			self.db_variants = variants
+			self._active_promos = promos
+			self.customer_map = {customer.get('name'): customer for customer in customers}
+			customer_names = list(self.customer_map)
 			if 'Consumidor Final' not in customer_names:
 				customer_names.insert(0, 'Consumidor Final')
 			self.customers_combo.configure(values=customer_names)
+			self.customers_combo.set(
+				current_customer if current_customer in customer_names else 'Consumidor Final'
+			)
+			self._on_customer_changed(self.customers_combo.get())
 
-			if current_customer and current_customer in customer_names:
-				self.customers_combo.set(current_customer)
-			else:
-				self.customers_combo.set('Consumidor Final')
-
-			for w in self.touch_scroll.winfo_children():
-				w.destroy()
+			for widget in self.touch_scroll.winfo_children():
+				widget.destroy()
 			self.touch_buttons.clear()
-
 			self._touch_queue = [
-				v
-				for v in self.db_variants
-				if v.get('is_combo') or v.get('show_on_touch')
+				variant
+				for variant in self.db_variants
+				if variant.get('is_combo') or variant.get('show_on_touch')
 			]
 			self._touch_row, self._touch_col = 0, 0
-
 			if not self._touch_queue:
 				ctk.CTkLabel(
 					self.touch_scroll,
@@ -814,15 +869,14 @@ class SalesView(BaseView):
 				self.grid_columnconfigure(1, weight=1)
 				self.right_panel.grid()
 				self._render_touch_batch()
-
-			self.entry_barcode.focus()
 			self._check_cash_status()
-
 			if self._context_data and 'restore_sale' in self._context_data:
 				self._load_restored_sale(self._context_data['restore_sale'])
 				self._context_data = None
+			self._set_msg('Catálogo actualizado.', GREEN_TEXT)
 		finally:
 			self._is_loading_data = False
+			self.entry_barcode.focus()
 
 	def _render_touch_batch(self):
 		if not self.winfo_exists() or not self._touch_queue:
@@ -835,7 +889,14 @@ class SalesView(BaseView):
 
 		for v in chunk:
 			stock = Decimal(str(v.get('total_stock', 0)))
-			price = Decimal(str(v.get('selling_price', 0)))
+			base_price = self._get_list_price(v)
+			promo = self._find_promo_for_variant(v)
+			if promo:
+				price, _description = self._apply_promo_price(
+					promo, base_price, Decimal(1)
+				)
+			else:
+				price, _pct, _source = self._apply_product_discount(v, base_price)
 			name = v.get('name', 'Promo')
 			is_disabled = stock <= 0
 			stock_int = int(stock)
@@ -873,7 +934,7 @@ class SalesView(BaseView):
 			lbl_name.pack()
 			lbl_price = ctk.CTkLabel(
 				inner,
-				text=f'${price:.2f}',
+				text=_cfg_mgr.fmt_price(float(price)),
 				font=FONT_SMALL,
 				text_color=TEXT_MUTED if is_disabled else ACCENT_TEXT,
 			)
@@ -968,15 +1029,15 @@ class SalesView(BaseView):
 	def _apply_product_discount(self, variant: dict, base_price: Decimal):
 		def _pct_active(pct, until):
 			if not pct or pct <= 0:
-				return Decimal('0')
+				return Decimal(0)
 			if until:
 				if isinstance(until, str):
 					try:
 						until = datetime.fromisoformat(until)
 					except Exception:
-						return Decimal('0')
+						return Decimal(0)
 				if until < datetime.now():
-					return Decimal('0')
+					return Decimal(0)
 			return Decimal(str(pct))
 
 		prod_pct = _pct_active(
@@ -987,24 +1048,37 @@ class SalesView(BaseView):
 			variant.get('supplier_discount_until'),
 		)
 
-		if prod_pct > Decimal('0'):
-			factor = Decimal('1') - (prod_pct / Decimal('100'))
+		if prod_pct > Decimal(0):
+			factor = Decimal(1) - (prod_pct / Decimal(100))
 			return (base_price * factor).quantize(Decimal('0.01')), prod_pct, 'producto'
-		if supp_pct > Decimal('0'):
-			factor = Decimal('1') - (supp_pct / Decimal('100'))
+		if supp_pct > Decimal(0):
+			factor = Decimal(1) - (supp_pct / Decimal(100))
 			return (
 				(base_price * factor).quantize(Decimal('0.01')),
 				supp_pct,
 				'distribuidor',
 			)
-		return base_price, Decimal('0'), ''
+		return base_price, Decimal(0), ''
 
-	def _find_promo_for_variant(self, variant_id) -> dict | None:
-		"""Devuelve la primera promo activa que aplica a este variant_id, o None."""
-		for p in self._active_promos:
-			if p.get('variant_id') == variant_id:
-				return p
-		return None
+	def _find_promo_for_variant(self, variant: dict) -> dict | None:
+		"""Prioriza producto sobre categoría y resuelve empates de forma estable."""
+		variant_id = variant.get('variant_id')
+		category_id = variant.get('category_id')
+		matches = [
+			promo
+			for promo in self._active_promos
+			if promo.get('variant_id') == variant_id
+			or (not promo.get('variant_id') and promo.get('category_id') == category_id)
+		]
+		return max(
+			matches,
+			key=lambda promo: (
+				promo.get('variant_id') == variant_id,
+				promo.get('updated_at') or promo.get('date_from'),
+				promo.get('id', ''),
+			),
+			default=None,
+		)
 
 	def _apply_promo_price(
 		self, promo: dict, base_price: Decimal, total_qty: Decimal
@@ -1018,7 +1092,7 @@ class SalesView(BaseView):
 
 		if ptype == 'pct':
 			pct = Decimal(str(promo.get('discount_value', 0)))
-			factor = Decimal('1') - (pct / Decimal('100'))
+			factor = Decimal(1) - (pct / Decimal(100))
 			price = (base_price * factor).quantize(Decimal('0.01'))
 			return price, f'🎯 -{pct:.4g}% {name}'
 
@@ -1069,8 +1143,17 @@ class SalesView(BaseView):
 			if variant and lbl:
 				try:
 					if lbl.winfo_exists():
-						p = self._get_list_price(variant)
-						lbl.configure(text=f'${p:.2f}')
+						base_price = self._get_list_price(variant)
+						promo = self._find_promo_for_variant(variant)
+						if promo:
+							price, _description = self._apply_promo_price(
+								promo, base_price, Decimal(1)
+							)
+						else:
+							price, _pct, _source = self._apply_product_discount(
+								variant, base_price
+							)
+						lbl.configure(text=_cfg_mgr.fmt_price(float(price)))
 				except Exception:
 					pass
 
@@ -1144,9 +1227,20 @@ class SalesView(BaseView):
 			]
 
 		for v in matches:
+			base_price = self._get_list_price(v)
+			promo = self._find_promo_for_variant(v)
+			if promo:
+				price, _description = self._apply_promo_price(
+					promo, base_price, Decimal(1)
+				)
+			else:
+				price, _pct, _source = self._apply_product_discount(v, base_price)
 			btn = ctk.CTkButton(
 				scroll,
-				text=f'{v.get("name", "")}  |  ${v.get("selling_price", 0):.2f}  |  Stock: {v.get("total_stock", 0)}',
+				text=(
+					f'{v.get("name", "")}  |  {_cfg_mgr.fmt_price(float(price))}  '
+					f'|  Stock: {v.get("total_stock", 0)}'
+				),
 				font=FONT_BODY,
 				height=36,
 				fg_color=SURFACE3,
@@ -1193,11 +1287,11 @@ class SalesView(BaseView):
 		using_list_b = self._active_price_list == 'B' and variant.get('selling_price_b')
 
 		# Promos con vigencia tienen prioridad sobre descuentos de producto/proveedor
-		promo = self._find_promo_for_variant(variant_id)
+		promo = self._find_promo_for_variant(variant)
 		if promo:
 			price, display_desc = self._apply_promo_price(promo, base_price, total_qty)
-			product_disc_pct = Decimal('0')
-		elif product_disc_pct > Decimal('0'):
+			product_disc_pct = Decimal(0)
+		elif product_disc_pct > Decimal(0):
 			display_desc = f'🏷️ -{product_disc_pct:.4g}% {desc}'
 		elif using_list_b:
 			display_desc = f'💼 {desc}'
@@ -1260,7 +1354,7 @@ class SalesView(BaseView):
 		# Alertas suaves vs validaciones
 		if stock_warning:
 			self._set_msg(f'⚠ Stock de sistema superado ({desc})', ORANGE_TEXT)
-		elif product_disc_pct > Decimal('0'):
+		elif product_disc_pct > Decimal(0):
 			self._set_msg(
 				f'🏷️ Descuento -{product_disc_pct:.4g}% aplicado en {desc}', ORANGE_TEXT
 			)
@@ -1324,6 +1418,7 @@ class SalesView(BaseView):
 			self._close_dropdown()
 
 	def _set_search_mode(self, mode: str):
+		self._search_request_id += 1
 		self._search_mode = mode
 		if mode == 'scan':
 			self._btn_scan_mode.configure(
@@ -1354,13 +1449,18 @@ class SalesView(BaseView):
 		if self._search_mode == 'search':
 			# Búsqueda incremental en el backend — no filtra el catálogo completo en memoria
 			tenant_id = self.ctx.tenant_id
+			self._search_request_id += 1
+			request_id = self._search_request_id
+			controller = self.sales_ctrl
 
 			def _fetch(query=q):
-				matches = self.sales_ctrl.search_articles(tenant_id, query, limit=50)
-				if self.winfo_exists():
-					self.after(
-						0, lambda m=matches, qq=query: self._show_search_results(qq, m)
-					)
+				try:
+					matches = controller.search_articles(tenant_id, query, limit=50)
+					error = None
+				except Exception as exc:
+					logger.warning('Error en búsqueda de artículos: %s', exc)
+					matches, error = [], str(exc)
+				self._search_results_queue.put((request_id, query, matches, error))
 
 			threading.Thread(target=_fetch, daemon=True, name='ArtSearch').start()
 		else:
@@ -1376,17 +1476,28 @@ class SalesView(BaseView):
 			else:
 				self._close_dropdown()
 
-	def _show_search_results(self, query: str, matches: list):
-		"""Callback del thread de búsqueda — descarta resultados obsoletos."""
+	def _poll_search_results(self):
+		"""Consume resultados en el hilo Tk; los workers nunca tocan widgets."""
+		self._search_poll_job = None
 		if not self.winfo_exists():
 			return
-		current = self.entry_barcode.get().strip()
-		if current != query:
-			return
-		if matches:
-			self._open_dropdown(matches[:10])
-		else:
-			self._close_dropdown()
+		try:
+			while True:
+				request_id, query, matches, error = self._search_results_queue.get_nowait()
+				if request_id != self._search_request_id:
+					continue
+				if self._search_mode != 'search' or self.entry_barcode.get().strip() != query:
+					continue
+				if error:
+					self._set_msg('No se pudo buscar el artículo. Intentá nuevamente.', RED_TEXT)
+					self._close_dropdown()
+				elif matches:
+					self._open_dropdown(matches[:10])
+				else:
+					self._close_dropdown()
+		except queue.Empty:
+			pass
+		self._search_poll_job = self.after(75, self._poll_search_results)
 
 	def _open_dropdown(self, matches: list):
 		for w in self._dropdown_frame.winfo_children():
@@ -1394,9 +1505,17 @@ class SalesView(BaseView):
 		self._dropdown_items = matches
 
 		for i, v in enumerate(matches):
-			price_text = f'${float(v.get("selling_price", 0)):.2f}'
-			if v.get('selling_price_b'):
-				price_text += f'  💼 ${float(v.get("selling_price_b")):.2f}'
+			base_price = self._get_list_price(v)
+			promo = self._find_promo_for_variant(v)
+			if promo:
+				price, _description = self._apply_promo_price(
+					promo, base_price, Decimal(1)
+				)
+			else:
+				price, _pct, _source = self._apply_product_discount(v, base_price)
+			price_text = _cfg_mgr.fmt_price(float(price))
+			if self._active_price_list == 'B' and v.get('selling_price_b'):
+				price_text = f'💼 {price_text}'
 			row = ctk.CTkFrame(
 				self._dropdown_frame,
 				fg_color=SURFACE2 if i % 2 == 0 else SURFACE3,
@@ -1456,25 +1575,39 @@ class SalesView(BaseView):
 
 		is_scale_barcode = False
 		scale_price = Decimal('0.0')
+		scale_plu_codes = ()
 		# Buscar siempre primero el valor exacto: EAN/UPC pueden empezar con cero.
 		# Se conserva un fallback normalizado únicamente para códigos antiguos que se
 		# hubieran guardado sin esos ceros.
 		search_code = raw_code
 
 		if len(raw_code) == 13 and raw_code.startswith('20'):
-			plu_code = str(int(raw_code[2:7]))
-			scale_price = Decimal(raw_code[7:12]) / Decimal('100')
+			plu_raw = raw_code[2:7]
+			plu_code = str(int(plu_raw))
+			scale_price = Decimal(raw_code[7:12]) / Decimal(100)
 			search_code = plu_code
+			scale_plu_codes = (plu_raw, plu_code)
 			is_scale_barcode = True
 
 		found_variant = next(
-			(v for v in self.db_variants if str(v.get('barcode')) == search_code), None
+			(
+				v
+				for v in self.db_variants
+				if str(v.get('barcode'))
+				in (scale_plu_codes if is_scale_barcode else (search_code,))
+			),
+			None,
 		)
 		if not found_variant and not is_scale_barcode:
 			legacy_code = raw_code.lstrip('0') or '0'
 			if legacy_code != raw_code:
 				found_variant = next(
-					(v for v in self.db_variants if str(v.get('barcode')) == legacy_code), None
+					(
+						v
+						for v in self.db_variants
+						if str(v.get('barcode')) == legacy_code
+					),
+					None,
 				)
 
 		if not found_variant and not is_scale_barcode and self._search_mode != 'scan':
@@ -1502,7 +1635,7 @@ class SalesView(BaseView):
 		current_cart_qty = self._get_qty_in_cart(variant_id)
 
 		if is_scale_barcode:
-			if base_price == Decimal('0'):
+			if base_price == Decimal(0):
 				self._set_msg('⚠ Producto de balanza con precio $0', RED_TEXT)
 				self.entry_barcode.delete(0, 'end')
 				return
@@ -1510,12 +1643,12 @@ class SalesView(BaseView):
 			total_qty = current_cart_qty + qty_to_add
 			unit_price = self._get_list_price(found_variant)
 			subtotal = unit_price * total_qty
-			product_disc_pct = Decimal('0')
+			product_disc_pct = Decimal(0)
 			using_list_b = self._active_price_list == 'B' and found_variant.get(
 				'selling_price_b'
 			)
 		else:
-			qty_to_add = Decimal('1')
+			qty_to_add = Decimal(1)
 			total_qty = current_cart_qty + qty_to_add
 			list_base = self._get_list_price(found_variant)
 			unit_price, product_disc_pct, _disc_src = self._apply_product_discount(
@@ -1529,15 +1662,15 @@ class SalesView(BaseView):
 		stock_warning = total_qty > total_stock
 
 		# Promos con vigencia tienen prioridad sobre descuentos de producto/proveedor
-		promo = self._find_promo_for_variant(variant_id)
+		promo = self._find_promo_for_variant(found_variant)
 		if promo and not is_scale_barcode:
 			list_base_for_promo = self._get_list_price(found_variant)
 			unit_price, display_name = self._apply_promo_price(
 				promo, list_base_for_promo, total_qty
 			)
-			product_disc_pct = Decimal('0')
+			product_disc_pct = Decimal(0)
 			subtotal = unit_price * total_qty
-		elif product_disc_pct > Decimal('0'):
+		elif product_disc_pct > Decimal(0):
 			display_name = f'🏷️ -{product_disc_pct:.4g}% {name}'
 		elif using_list_b:
 			display_name = f'💼 {name}'
@@ -1609,7 +1742,7 @@ class SalesView(BaseView):
 
 		if stock_warning:
 			self._set_msg(f'⚠ Stock superado ({name})', ORANGE_TEXT)
-		elif product_disc_pct > Decimal('0'):
+		elif product_disc_pct > Decimal(0):
 			self._set_msg(f'🏷️ {name} — Descuento -{product_disc_pct:.4g}%', ORANGE_TEXT)
 		elif using_list_b:
 			self._set_msg(f'💼 {name} — Precio Mayorista', ORANGE_TEXT)
@@ -1625,7 +1758,7 @@ class SalesView(BaseView):
 		if not found:
 			return
 
-		qty_to_add = Decimal('1')
+		qty_to_add = Decimal(1)
 		total_stock = Decimal(str(found.get('total_stock', 0)))
 		current_cart_qty = self._get_qty_in_cart(variant_id)
 		total_qty = current_cart_qty + qty_to_add
@@ -1640,11 +1773,11 @@ class SalesView(BaseView):
 		using_list_b = self._active_price_list == 'B' and found.get('selling_price_b')
 
 		# Promos con vigencia tienen prioridad (BUG 6: add_from_touch ignoraba promos)
-		promo = self._find_promo_for_variant(variant_id)
+		promo = self._find_promo_for_variant(found)
 		if promo:
 			price, display_name = self._apply_promo_price(promo, base_price, total_qty)
-			product_disc_pct = Decimal('0')
-		elif product_disc_pct > Decimal('0'):
+			product_disc_pct = Decimal(0)
+		elif product_disc_pct > Decimal(0):
 			display_name = f'🏷️ -{product_disc_pct:.4g}% {name}'
 		elif using_list_b:
 			display_name = f'💼 {name}'
@@ -1705,7 +1838,7 @@ class SalesView(BaseView):
 
 		if stock_warning:
 			self._set_msg(f'⚠ Stock superado ({name})', ORANGE_TEXT)
-		elif product_disc_pct > Decimal('0'):
+		elif product_disc_pct > Decimal(0):
 			self._set_msg(f'🏷️ Descuento -{product_disc_pct:.4g}% · {name}', ORANGE_TEXT)
 		elif using_list_b:
 			self._set_msg(f'💼 {name} — Mayorista', ORANGE_TEXT)
@@ -1724,7 +1857,7 @@ class SalesView(BaseView):
 		try:
 			price = Decimal(price_str)
 			qty = Decimal(qty_str)
-			if price < Decimal('0.0') or qty <= Decimal('0.0'):
+			if price <= Decimal(0) or qty <= Decimal(0):
 				raise ValueError
 		except (ValueError, InvalidOperation):
 			self._set_msg('⚠ Ingresá números válidos', RED_TEXT)
@@ -1795,11 +1928,11 @@ class SalesView(BaseView):
 			)
 
 		raw = sum(
-			(item.get('subtotal', Decimal('0')) for item in self.cart), Decimal('0.0')
+			(item.get('subtotal', Decimal(0)) for item in self.cart), Decimal('0.0')
 		)
 
-		if self._discount_pct > Decimal('0') and raw > Decimal('0'):
-			disc = (raw * self._discount_pct / Decimal('100')).quantize(Decimal('0.01'))
+		if self._discount_pct > Decimal(0) and raw > Decimal(0):
+			disc = (raw * self._discount_pct / Decimal(100)).quantize(Decimal('0.01'))
 		else:
 			disc = Decimal('0.0')
 
@@ -1809,7 +1942,7 @@ class SalesView(BaseView):
 		self._lbl_subtotal.configure(text=fmt_price(float(raw)))
 		self.lbl_total.configure(text=fmt_price(float(final)))
 
-		if disc > Decimal('0'):
+		if disc > Decimal(0):
 			pct_str = f'{self._discount_pct:.4g}%'
 			self._lbl_disc_label.configure(text=f'DESCUENTO  ({pct_str})')
 			self._lbl_disc_value.configure(text=f'-{fmt_price(float(disc))}')
@@ -1823,7 +1956,7 @@ class SalesView(BaseView):
 			disc_items = [
 				i
 				for i in self.cart
-				if i.get('product_disc_pct', Decimal('0')) > Decimal('0')
+				if i.get('product_disc_pct', Decimal(0)) > Decimal(0)
 			]
 			list_b_items = [i for i in self.cart if i.get('desc', '').startswith('💼')]
 			msgs = []
@@ -1871,7 +2004,7 @@ class SalesView(BaseView):
 		for item in self.tree.get_children():
 			self.tree.delete(item)
 		self.btn_remove.configure(state='disabled')
-		self._set_discount_pct(Decimal('0'))
+		self._set_discount_pct(Decimal(0))
 		self._active_price_list = 'A'
 		self.update_total()
 		self._set_msg('Venta anulada.', RED_TEXT)
@@ -1881,6 +2014,13 @@ class SalesView(BaseView):
 	# POP-UP DE COBRO Y EVENTOS
 	# =========================================================
 	def process_sale(self):
+		if getattr(self.ctx, 'offline_mode', False):
+			self._set_msg('Las ventas están deshabilitadas en modo sin conexión.', ORANGE_TEXT)
+			return
+		if not self._cash_ctrl.get_active_session(self.ctx.tenant_id, self.ctx.user_id):
+			self._check_cash_status()
+			self._set_msg('⚠ Abrí la caja antes de cobrar.', ORANGE_TEXT)
+			return
 		if (
 			hasattr(self, 'popup')
 			and self.popup is not None
@@ -1895,11 +2035,11 @@ class SalesView(BaseView):
 
 		fmt_price = _cfg_mgr.fmt_price
 		raw_total = sum(
-			(item.get('subtotal', Decimal('0')) for item in self.cart), Decimal('0.0')
+			(item.get('subtotal', Decimal(0)) for item in self.cart), Decimal('0.0')
 		)
 		self._discount_amount = (
-			(raw_total * self._discount_pct / Decimal('100')).quantize(Decimal('0.01'))
-			if self._discount_pct > Decimal('0')
+			(raw_total * self._discount_pct / Decimal(100)).quantize(Decimal('0.01'))
+			if self._discount_pct > Decimal(0)
 			else Decimal('0.0')
 		)
 		self.current_total = raw_total - self._discount_amount
@@ -1920,6 +2060,13 @@ class SalesView(BaseView):
 
 		pw = 480
 		self.popup.bind('<Escape>', lambda e: self.popup.destroy())
+		self._popup_body = ctk.CTkScrollableFrame(
+			self.popup,
+			fg_color='transparent',
+			scrollbar_button_color=SURFACE4,
+			scrollbar_button_hover_color=ACCENT,
+		)
+		self._popup_body.pack(fill='both', expand=True)
 		self._render_popup_ui(pw, 0, raw_total, fmt_price)
 		self.popup.update_idletasks()
 		ph = min(
@@ -1931,8 +2078,9 @@ class SalesView(BaseView):
 		self.popup.geometry(f'{pw}x{ph}+{rx}+{ry}')
 
 	def _render_popup_ui(self, pw, ph, raw_total, fmt_price):
+		body = self._popup_body
 		card = ctk.CTkFrame(
-			self.popup,
+			body,
 			fg_color=SURFACE3,
 			corner_radius=12,
 			border_width=1,
@@ -1944,7 +2092,7 @@ class SalesView(BaseView):
 
 		item_count, total_qty = (
 			len(self.cart),
-			sum(i.get('qty', Decimal('0')) for i in self.cart),
+			sum(i.get('qty', Decimal(0)) for i in self.cart),
 		)
 		qty_str = f'{int(total_qty)}' if total_qty % 1 == 0 else f'{total_qty:.2f}'
 		ctk.CTkLabel(
@@ -1955,7 +2103,7 @@ class SalesView(BaseView):
 			anchor='w',
 		).pack(anchor='w', pady=(0, 6))
 
-		if self._discount_amount > Decimal('0'):
+		if self._discount_amount > Decimal(0):
 			r = ctk.CTkFrame(ci, fg_color='transparent')
 			r.pack(fill='x')
 			ctk.CTkLabel(
@@ -2010,13 +2158,13 @@ class SalesView(BaseView):
 			).pack(anchor='w', pady=(6, 0))
 
 		ctk.CTkLabel(
-			self.popup,
+			body,
 			text='MÉTODO DE PAGO',
 			font=FONT_LABEL_BOLD,
 			text_color=TEXT_MUTED,
 			anchor='w',
 		).pack(padx=20, anchor='w', pady=(2, 4))
-		methods_grid = ctk.CTkFrame(self.popup, fg_color='transparent')
+		methods_grid = ctk.CTkFrame(body, fg_color='transparent')
 		methods_grid.pack(fill='x', padx=20, pady=(0, 10))
 		methods_grid.grid_columnconfigure((0, 1), weight=1)
 
@@ -2047,11 +2195,11 @@ class SalesView(BaseView):
 			btn.grid(row=row, column=col, sticky='ew', padx=2, pady=2)
 			self._pay_btns[method] = btn
 
-		self._cash_section = ctk.CTkFrame(self.popup, fg_color='transparent')
+		self._cash_section = ctk.CTkFrame(body, fg_color='transparent')
 		self._cash_section.pack(fill='x', padx=20, pady=(0, 6))
 		ctk.CTkLabel(
 			self._cash_section,
-			text='Monto recibido ($)',
+			text='Monto recibido',
 			font=FONT_LABEL_BOLD,
 			text_color=TEXT_MUTED,
 			anchor='w',
@@ -2084,7 +2232,7 @@ class SalesView(BaseView):
 		self._vuelto_box.pack(fill='x')
 		self.lbl_change = ctk.CTkLabel(
 			self._vuelto_box,
-			text='VUELTO  $0,00',
+			text=f'VUELTO  {fmt_price(0)}',
 			font=FONT_AMOUNT_BOLD,
 			text_color=GREEN_TEXT,
 		)
@@ -2092,7 +2240,7 @@ class SalesView(BaseView):
 		self._calculate_change()
 
 		mixto_frame = ctk.CTkFrame(
-			self.popup,
+			body,
 			fg_color=SURFACE3,
 			corner_radius=8,
 			border_width=1,
@@ -2134,7 +2282,7 @@ class SalesView(BaseView):
 
 		self.entry_amount_2 = ctk.CTkEntry(
 			mx_top,
-			placeholder_text='Monto ($)',
+			placeholder_text='Monto',
 			font=FONT_SMALL,
 			justify='center',
 			fg_color=SURFACE2,
@@ -2154,12 +2302,12 @@ class SalesView(BaseView):
 		self._lbl_amount_1_auto.pack(fill='x', pady=(4, 0))
 
 		self.lbl_error_popup = ctk.CTkLabel(
-			self.popup, text='', text_color=RED_TEXT, font=FONT_NAV
+			body, text='', text_color=RED_TEXT, font=FONT_NAV
 		)
 		self.lbl_error_popup.pack(pady=(2, 0))
 
 		self.btn_confirm_pay = ctk.CTkButton(
-			self.popup,
+			body,
 			text='✅  CONFIRMAR COBRO  [Enter]',
 			fg_color=GREEN,
 			hover_color=GREEN_HOVER,
@@ -2173,7 +2321,7 @@ class SalesView(BaseView):
 
 		if self.customer_name != 'Consumidor Final':
 			ctk.CTkButton(
-				self.popup,
+				body,
 				text='📝  Anotar como Fiado',
 				fg_color=SURFACE3,
 				hover_color=SURFACE4,
@@ -2187,7 +2335,7 @@ class SalesView(BaseView):
 			).pack(fill='x', padx=20, pady=(0, 4))
 
 		ctk.CTkButton(
-			self.popup,
+			body,
 			text='⬅  Volver  (Esc)',
 			fg_color='transparent',
 			hover_color=SURFACE3,
@@ -2219,6 +2367,7 @@ class SalesView(BaseView):
 			self._calculate_change()
 
 	def _calculate_change(self, event=None):
+		fmt_price = _cfg_mgr.fmt_price
 		is_cash = getattr(self, '_payment_method', 'Efectivo') == 'Efectivo'
 		mixto_on = getattr(self, '_mixto_var', None) and self._mixto_var.get()
 
@@ -2232,7 +2381,9 @@ class SalesView(BaseView):
 		paid_str = self.entry_paid.get().strip().replace(',', '.')
 		if not paid_str:
 			if hasattr(self, 'lbl_change'):
-				self.lbl_change.configure(text='VUELTO  $0,00', text_color=GREEN_TEXT)
+				self.lbl_change.configure(
+					text=f'VUELTO  {fmt_price(0)}', text_color=GREEN_TEXT
+				)
 			if hasattr(self, '_vuelto_box'):
 				self._vuelto_box.configure(fg_color=SURFACE3, border_color=BORDER)
 			return
@@ -2243,7 +2394,7 @@ class SalesView(BaseView):
 			if change < Decimal('0.0'):
 				if hasattr(self, 'lbl_change'):
 					self.lbl_change.configure(
-						text=f'⚠  FALTAN  ${abs(change):,.2f}',
+						text=f'⚠  FALTAN  {fmt_price(float(abs(change)))}',
 						text_color=RED_TEXT,
 						font=FONT_TITLE,
 					)
@@ -2254,7 +2405,7 @@ class SalesView(BaseView):
 			elif change > Decimal('0.0'):
 				if hasattr(self, 'lbl_change'):
 					self.lbl_change.configure(
-						text=f'VUELTO: ${change:,.2f}',
+						text=f'VUELTO: {fmt_price(float(change))}',
 						text_color=GREEN_TEXT,
 						font=FONT_DISPLAY,
 					)
@@ -2265,7 +2416,7 @@ class SalesView(BaseView):
 			else:
 				if hasattr(self, 'lbl_change'):
 					self.lbl_change.configure(
-						text='VUELTO  $0,00',
+						text=f'VUELTO  {fmt_price(0)}',
 						text_color=GREEN_TEXT,
 						font=FONT_AMOUNT_BOLD,
 					)
@@ -2321,7 +2472,7 @@ class SalesView(BaseView):
 			amt1 = self.current_total - amt2
 			method1 = getattr(self, '_payment_method', 'Efectivo')
 
-			if amt1 < Decimal('0'):
+			if amt1 < Decimal(0):
 				self.entry_amount_2.configure(border_color=RED)
 				self._lbl_amount_1_auto.configure(
 					text='⚠ El monto excede el total', text_color=RED_TEXT
@@ -2329,7 +2480,7 @@ class SalesView(BaseView):
 			else:
 				self.entry_amount_2.configure(border_color=BORDER)
 				self._lbl_amount_1_auto.configure(
-					text=f'{method1}: ${amt1:,.2f}', text_color=GREEN_TEXT
+					text=f'{method1}: {_cfg_mgr.fmt_price(float(amt1))}', text_color=GREEN_TEXT
 				)
 		except (ValueError, InvalidOperation):
 			self.entry_amount_2.configure(border_color=RED)
@@ -2354,10 +2505,10 @@ class SalesView(BaseView):
 			payment_method_2 = self.combo_payment_2.get()
 			raw2 = self.entry_amount_2.get().strip().replace(',', '.')
 			try:
-				amount_method_2 = Decimal(raw2) if raw2 else Decimal('0')
+				amount_method_2 = Decimal(raw2) if raw2 else Decimal(0)
 				limit = self.current_total - Decimal('0.01')
 				if (
-					amount_method_2 <= Decimal('0')
+					amount_method_2 <= Decimal(0)
 					or amount_method_2 >= self.current_total
 				):
 					self.lbl_error_popup.configure(
@@ -2453,7 +2604,8 @@ class SalesView(BaseView):
 			customer_id,
 			is_fiado,
 			payment_method,
-			discount_amount=self._discount_amount,
+			discount_pct=self._discount_pct,
+			price_list=self._active_price_list,
 			payment_method_2=payment_method_2,
 			amount_method_2=amount_method_2,
 			paid_amount=paid_amount,
@@ -2466,7 +2618,7 @@ class SalesView(BaseView):
 			self.cart.clear()
 			for item in self.tree.get_children():
 				self.tree.delete(item)
-			self._set_discount_pct(Decimal('0'))
+			self._set_discount_pct(Decimal(0))
 			self.update_total()
 			self.load_data()
 			self.entry_barcode.focus()
@@ -2529,7 +2681,7 @@ class SalesView(BaseView):
 		def _apply():
 			try:
 				new_qty = Decimal(entry_qty.get().strip().replace(',', '.'))
-				if new_qty <= Decimal('0'):
+				if new_qty <= Decimal(0):
 					raise ValueError
 			except (ValueError, InvalidOperation):
 				entry_qty.configure(border_color=RED)
@@ -2537,24 +2689,38 @@ class SalesView(BaseView):
 
 			variant_id = cart_item.get('variant_id')
 			if variant_id:
-				stock = Decimal(
-					str(
-						next(
-							(
-								v
-								for v in self.db_variants
-								if v['variant_id'] == variant_id
-							),
-							{},
-						).get('total_stock', 0)
-					)
+				variant = next(
+					(v for v in self.db_variants if v['variant_id'] == variant_id), {}
 				)
+				stock = Decimal(str(variant.get('total_stock', 0)))
 				other_qty = self._get_qty_in_cart(variant_id) - cart_item.get(
-					'qty', Decimal('0')
+					'qty', Decimal(0)
 				)
 
 				if new_qty + other_qty > stock:
 					self._set_msg('⚠ Stock superado al editar', ORANGE_TEXT)
+
+				# NxM depende de la cantidad total: recalcular evita dejar el precio viejo.
+				base_price = self._get_list_price(variant)
+				promo = self._find_promo_for_variant(variant)
+				if promo:
+					price, description = self._apply_promo_price(promo, base_price, new_qty)
+					cart_item['product_disc_pct'] = Decimal(0)
+				else:
+					price, product_pct, _source = self._apply_product_discount(
+						variant, base_price
+					)
+					description = (
+						f'🏷️ -{product_pct:.4g}% {variant.get("name", "Artículo")}'
+						if product_pct > Decimal(0)
+						else f'💼 {variant.get("name", "Artículo")}'
+						if self._active_price_list == 'B' and variant.get('selling_price_b')
+						else variant.get('name', 'Artículo')
+					)
+					cart_item['product_disc_pct'] = product_pct
+				cart_item['price'] = price
+				cart_item['desc'] = description
+				cart_item['base_price'] = base_price
 
 			cart_item['qty'] = new_qty
 			cart_item['subtotal'] = cart_item['price'] * new_qty
@@ -2587,6 +2753,9 @@ class SalesView(BaseView):
 		).pack(fill='x', padx=20, pady=8)
 
 	def _open_venta_libre_popup(self):
+		if not self.ctx.is_admin:
+			self.show_toast('La venta libre requiere una cuenta administradora.', 'error')
+			return
 		popup = ctk.CTkToplevel(self)
 		popup.title('Venta Libre')
 		popup.configure(fg_color=SURFACE2)
@@ -2698,40 +2867,45 @@ class SalesView(BaseView):
 	def setup_shortcuts(self):
 		top = self.winfo_toplevel()
 		self._shortcut_ids = {}
+
+		def run_when_visible(action):
+			def handler(_event=None):
+				if self.winfo_ismapped():
+					action()
+				return 'break'
+
+			return handler
+
 		# Forma estándar y segura de registrar eventos en Tkinter sin cruzar identificadores.
 		self._shortcut_ids['<F5>'] = top.bind(
 			'<F5>',
-			lambda e: self.process_sale() if self.winfo_ismapped() else None,
+			run_when_visible(self.process_sale),
 			add='+',
 		)
 		# F10 como alias de F5 para cobrar (más accesible en teclados estándar)
 		self._shortcut_ids['<F10>'] = top.bind(
 			'<F10>',
-			lambda e: self.process_sale() if self.winfo_ismapped() else None,
+			run_when_visible(self.process_sale),
 			add='+',
 		)
 		self._shortcut_ids['<F6>'] = top.bind(
 			'<F6>',
-			lambda e: (
-				self.entry_barcode.focus()
-				if self.winfo_ismapped() and self.entry_barcode.winfo_exists()
-				else None
-			),
+			run_when_visible(self._restore_scan_focus),
 			add='+',
 		)
 		self._shortcut_ids['<F7>'] = top.bind(
 			'<F7>',
-			lambda e: self._open_venta_libre_popup() if self.winfo_ismapped() else None,
+			run_when_visible(self._open_venta_libre_popup),
 			add='+',
 		)
 		self._shortcut_ids['<Delete>'] = top.bind(
 			'<Delete>',
-			lambda e: self.remove_from_cart() if self.winfo_ismapped() else None,
+			run_when_visible(self.remove_from_cart),
 			add='+',
 		)
 		self._shortcut_ids['<Control-Delete>'] = top.bind(
 			'<Control-Delete>',
-			lambda e: self._confirm_clear_cart() if self.winfo_ismapped() else None,
+			run_when_visible(self._confirm_clear_cart),
 			add='+',
 		)
 		# Auto-foco: devuelve el cursor al campo de barcode tras cualquier click
@@ -2750,8 +2924,13 @@ class SalesView(BaseView):
 			'<Destroy>', lambda e: self.destroy_custom() if e.widget is self else None
 		)
 
+	def _on_search_escape(self, _event=None):
+		self._clear_search()
+		return 'break'
+
 	def _clear_search(self):
 		"""Limpia el campo de búsqueda y cierra el dropdown."""
+		self._search_request_id += 1
 		if hasattr(self, 'entry_barcode') and self.entry_barcode.winfo_exists():
 			self.entry_barcode.delete(0, 'end')
 		self._close_dropdown()
@@ -2783,6 +2962,10 @@ class SalesView(BaseView):
 			self.after_cancel(self._msg_timer_id)
 		if hasattr(self, '_disc_border_timer') and self._disc_border_timer:
 			self.after_cancel(self._disc_border_timer)
+		if getattr(self, '_search_poll_job', None):
+			self.after_cancel(self._search_poll_job)
+		if getattr(self, '_catalog_poll_job', None):
+			self.after_cancel(self._catalog_poll_job)
 
 		for timer in getattr(self, '_flash_timers', {}).values():
 			try:

@@ -2154,7 +2154,7 @@ class SettingsView(BaseView):
 			ctk.CTkLabel(
 				card_cloud,
 				text=(
-					'Descarga todos los datos sincronizados desde Supabase y reemplaza\n'
+					'Descarga todos los datos sincronizados desde PostgreSQL y reemplaza\n'
 					'la base de datos local. Requiere plan cloud activo.\n'
 					'Se crea un respaldo automático antes de comenzar.'
 				),
@@ -2232,7 +2232,7 @@ class SettingsView(BaseView):
 		confirm = CTkMessagebox(
 			title='Confirmar restauración desde la nube',
 			message=(
-				'Esta acción descargará todos los datos desde Supabase\n'
+				'Esta acción descargará todos los datos desde PostgreSQL\n'
 				'y reemplazará la base de datos local.\n\n'
 				'Se creará un respaldo automático antes de comenzar.\n'
 				'La aplicación se reiniciará al finalizar.\n\n'

@@ -6,7 +6,7 @@ Schema migrations for the local SQLite database.
 Each migration is idempotent: if the column/index already exists it is silently
 skipped.  Run order is sequential and must never change.
 
-For Supabase (PostgreSQL) the schema is created in one shot via
+For the VPS PostgreSQL deployment the schema is created in one shot via
 `setup_cloud_schema(engine)` which calls SQLAlchemy's `create_all()` — no need
 to run these incremental SQLite migrations on the cloud.
 """
@@ -150,6 +150,12 @@ def setup_cloud_schema(engine) -> None:
 	"""
 	from database.models import Base
 
+	# This helper is normally PostgreSQL-only.  Supporting SQLite here keeps the
+	# API integration testable without issuing PostgreSQL's `public.` DDL.
+	if _is_sqlite(engine):
+		Base.metadata.create_all(engine, checkfirst=True)
+		return
+
 	try:
 		Base.metadata.create_all(engine, checkfirst=True)
 		logger.info('Cloud schema verified / created.')
@@ -167,10 +173,45 @@ def setup_cloud_schema(engine) -> None:
 				'ON public.cash_sessions(tenant_id, user_id) WHERE is_open'
 			)
 		)
-	_configure_cloud_dashboard_security(engine)
+	_configure_web_api_schema(engine)
 
 
-def _configure_cloud_dashboard_security(engine) -> None:
+def _configure_web_api_schema(engine) -> None:
+	"""Create private API session tables without exposing PostgreSQL to browsers.
+
+	The previous Supabase/PostgREST deployment used database functions, the
+	``anon`` role and RLS policies keyed from an HTTP header.  A self-hosted VPS
+	uses the authenticated web API instead, so public database roles receive no
+	permissions and the browser never receives a database key.
+	"""
+	if _is_sqlite(engine):
+		return
+	with engine.begin() as conn:
+		conn.execute(text('''
+			CREATE TABLE IF NOT EXISTS public.cloudpos_web_sessions (
+				token_hash VARCHAR(64) PRIMARY KEY,
+				tenant_id VARCHAR(36) NOT NULL,
+				user_id VARCHAR(36) NOT NULL,
+				role VARCHAR(50) NOT NULL,
+				expires_at TIMESTAMP NOT NULL
+			)
+		'''))
+		conn.execute(text('''
+			CREATE TABLE IF NOT EXISTS public.cloudpos_web_login_attempts (
+				tenant_id VARCHAR(36) NOT NULL,
+				username VARCHAR(100) NOT NULL,
+				attempts INTEGER NOT NULL DEFAULT 0,
+				locked_until TIMESTAMP NULL,
+				last_attempt TIMESTAMP NOT NULL DEFAULT now(),
+				PRIMARY KEY (tenant_id, username)
+			)
+		'''))
+		conn.execute(text('CREATE INDEX IF NOT EXISTS ix_cloudpos_web_sessions_expiry ON public.cloudpos_web_sessions(expires_at)'))
+		conn.execute(text('REVOKE ALL ON TABLE public.cloudpos_web_sessions FROM PUBLIC'))
+		conn.execute(text('REVOKE ALL ON TABLE public.cloudpos_web_login_attempts FROM PUBLIC'))
+
+
+def _configure_legacy_supabase_dashboard_security(engine) -> None:
 	"""Install database-enforced, tenant-scoped read access for the web UI.
 
 	The browser never receives password hashes.  It obtains an opaque, expiring

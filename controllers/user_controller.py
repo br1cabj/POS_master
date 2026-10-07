@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_ROLES = ['admin', 'cajero', 'gerente']
 _PIN_MIN_LEN = 4
+PASSWORD_MIN_LENGTH = 10
 _DUMMY_HASH = bcrypt.hashpw(b'dummy', bcrypt.gensalt())
 
 
@@ -59,8 +60,12 @@ class UserController(BaseController):
 		username_clean = str(username).strip()
 		if not username_clean:
 			return False, 'El nombre de usuario es obligatorio.'
-		if not password or len(str(password).strip()) < 6:
-			return False, 'La contraseña debe tener al menos 6 caracteres.'
+		password_text = str(password) if password is not None else ''
+		if len(password_text) < PASSWORD_MIN_LENGTH:
+			return (
+				False,
+				f'La contraseña debe tener al menos {PASSWORD_MIN_LENGTH} caracteres.',
+			)
 
 		role_clean = str(role).strip().lower()
 		if role_clean not in ALLOWED_ROLES:
@@ -80,9 +85,9 @@ class UserController(BaseController):
 
 		with self._Session() as session:
 			try:
-				hashed_pw = bcrypt.hashpw(
-					str(password).encode('utf-8'), bcrypt.gensalt()
-				).decode('utf-8')
+				hashed_pw = bcrypt.hashpw(password_text.encode('utf-8'), bcrypt.gensalt()).decode(
+					'utf-8'
+				)
 
 				exist = (
 					session.query(User)
@@ -177,8 +182,12 @@ class UserController(BaseController):
 	# RESET POR ADMIN
 	# =========================================================
 	def reset_password_by_admin(self, tenant_id, target_user_id, new_password):
-		if not new_password or len(str(new_password).strip()) < 6:
-			return False, 'La nueva contraseña debe tener al menos 6 caracteres.'
+		password_text = str(new_password) if new_password is not None else ''
+		if len(password_text) < PASSWORD_MIN_LENGTH:
+			return (
+				False,
+				f'La nueva contraseña debe tener al menos {PASSWORD_MIN_LENGTH} caracteres.',
+			)
 
 		with self._Session() as session:
 			try:
@@ -191,7 +200,7 @@ class UserController(BaseController):
 					return False, 'Usuario no encontrado.'
 
 				user.password_hash = bcrypt.hashpw(
-					str(new_password).strip().encode('utf-8'), bcrypt.gensalt()
+					password_text.encode('utf-8'), bcrypt.gensalt()
 				).decode('utf-8')
 				session.commit()
 				return (
@@ -210,11 +219,15 @@ class UserController(BaseController):
 	# RESET CON PIN (auto-servicio)
 	# =========================================================
 	def reset_password_with_pin(self, tenant_id, username, recovery_pin, new_password):
-		if not username or not recovery_pin or not new_password:
+		if not username or not recovery_pin or new_password is None:
 			return False, 'Todos los campos son obligatorios.'
 
-		if len(str(new_password).strip()) < 6:
-			return False, 'La nueva contraseña debe tener al menos 6 caracteres.'
+		password_text = str(new_password)
+		if len(password_text) < PASSWORD_MIN_LENGTH:
+			return (
+				False,
+				f'La nueva contraseña debe tener al menos {PASSWORD_MIN_LENGTH} caracteres.',
+			)
 
 		with self._Session() as session:
 			try:
@@ -242,7 +255,7 @@ class UserController(BaseController):
 					return False, 'Usuario o PIN incorrecto.'
 
 				user.password_hash = bcrypt.hashpw(
-					str(new_password).strip().encode('utf-8'), bcrypt.gensalt()
+					password_text.encode('utf-8'), bcrypt.gensalt()
 				).decode('utf-8')
 				session.commit()
 				logger.info(f'Contraseña restablecida via PIN para: {user.username}')

@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
 
 export const ArticleHistory = () => {
-  const { data: history, loading, error } = useSupabaseQuery('article_history', {
+  const { data: history, loading, error } = useApiQuery('article_history', {
     select: '*, user:users(username)',
     order: { column: 'date', ascending: false },
     limit: 500,

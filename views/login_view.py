@@ -1,11 +1,12 @@
 import logging
+import queue
 import threading
 
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
 
 from controllers.auth_controller import AuthController
-from controllers.user_controller import UserController
+from controllers.user_controller import PASSWORD_MIN_LENGTH, UserController
 from utils.styles import (
 	ACCENT,
 	ACCENT_DIM,
@@ -43,6 +44,7 @@ class LoginView(ctk.CTkFrame):
 		self.on_login_success = on_login_success
 		self.auth_ctrl = AuthController(db_engine)
 		self.user_ctrl = UserController(db_engine)
+		self._login_in_progress = False
 
 		self.grid_rowconfigure(0, weight=1)
 		self.grid_rowconfigure(2, weight=1)
@@ -73,6 +75,9 @@ class LoginView(ctk.CTkFrame):
 			text_color=TEXT_MUTED,
 		).pack(pady=(2, 28))
 
+		make_form_label(self.login_frame, 'USUARIO', required=True)[0].pack(
+			padx=36, anchor='w', pady=(0, 2)
+		)
 		self.entry_username = ctk.CTkEntry(
 			self.login_frame,
 			width=300,
@@ -84,6 +89,9 @@ class LoginView(ctk.CTkFrame):
 		)
 		self.entry_username.pack(pady=(0, 10), padx=36)
 
+		make_form_label(self.login_frame, 'CONTRASEÑA', required=True)[0].pack(
+			padx=36, anchor='w', pady=(0, 2)
+		)
 		self.entry_password = ctk.CTkEntry(
 			self.login_frame,
 			width=300,
@@ -140,11 +148,16 @@ class LoginView(ctk.CTkFrame):
 			text='',
 			text_color=RED_TEXT,
 			font=FONT_BODY_BOLD,
+			height=24,
+			wraplength=300,
+			justify='center',
 		)
 		self.lbl_error.pack(pady=(0, 18))
 
 		self.entry_username.bind('<Return>', self._handle_username_return)
 		self.entry_password.bind('<Return>', lambda e: self.trigger_login())
+		self.entry_username.bind('<Control-Return>', lambda e: self.trigger_login())
+		self.entry_password.bind('<Control-Return>', lambda e: self.trigger_login())
 
 		self.entry_username.bind(
 			'<FocusIn>', lambda e: self.entry_username.select_range(0, 'end')
@@ -165,42 +178,70 @@ class LoginView(ctk.CTkFrame):
 		else:
 			self.trigger_login()
 
+	def _set_login_controls(self, pending: bool):
+		self._login_in_progress = pending
+		state = 'disabled' if pending else 'normal'
+		self.btn_login.configure(
+			state=state, text='VERIFICANDO…' if pending else 'INICIAR SESIÓN'
+		)
+		self.entry_username.configure(state=state)
+		self.entry_password.configure(state=state)
+		self.check_show_pass.configure(state=state)
+		self.btn_forgot.configure(state=state)
+
 	def trigger_login(self):
+		if self._login_in_progress:
+			return
 		self.lbl_error.configure(text='')
 		user = self.entry_username.get().strip()
-		pwd = self.entry_password.get().strip()
+		pwd = self.entry_password.get()
 
 		if not user or not pwd:
 			self.show_error('Por favor, completa todos los campos.')
 			return
 
-		self.btn_login.configure(state='disabled', text='CONECTANDO...')
-		self.entry_username.configure(state='disabled')
-		self.entry_password.configure(state='disabled')
+		self._set_login_controls(True)
+		result_queue = queue.Queue()
 
-		tenant_id = self.auth_ctrl.get_first_tenant_id()
+		def _poll_result():
+			if not self.winfo_exists():
+				return
+			try:
+				user_dict, error = result_queue.get_nowait()
+			except queue.Empty:
+				self.after(50, _poll_result)
+				return
+			self._on_login_result(user_dict, error)
 
 		def _run():
 			try:
+				tenant_id = self.auth_ctrl.get_first_tenant_id()
+				if not tenant_id:
+					result_queue.put(
+						(
+							None,
+							self.auth_ctrl.last_error
+							or 'No se pudo acceder a la configuración local del sistema.',
+						)
+					)
+					return
 				user_dict = self.auth_ctrl.login(user, pwd, tenant_id=tenant_id)
+				result_queue.put((user_dict, self.auth_ctrl.last_error))
 			except Exception as e:
-				logger.error(f'Error inesperado durante el login: {e}', exc_info=True)
-				user_dict = None
-			if self.winfo_exists():
-				self.after(0, lambda ud=user_dict: self._on_login_result(ud))
+				logger.error('Error inesperado durante el login: %s', e, exc_info=True)
+				result_queue.put((None, 'No se pudo verificar el acceso. Intentá nuevamente.'))
 
 		threading.Thread(target=_run, daemon=True).start()
+		self.after(50, _poll_result)
 
-	def _on_login_result(self, user_dict):
+	def _on_login_result(self, user_dict, error_message=None):
 		if not self.winfo_exists():
 			return
+		self._login_in_progress = False
 		if user_dict:
 			self.on_login_success(user_dict)
 			return
-		self.show_error('Usuario o contraseña incorrectos.')
-		self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
-		self.entry_username.configure(state='normal')
-		self.entry_password.configure(state='normal')
+		self.show_error(error_message or 'Usuario o contraseña incorrectos.')
 		self.entry_password.focus()
 		self.entry_password.select_range(0, 'end')
 
@@ -208,9 +249,7 @@ class LoginView(ctk.CTkFrame):
 		if not self.winfo_exists():
 			return
 		self.lbl_error.configure(text=message)
-		self.btn_login.configure(state='normal', text='INICIAR SESIÓN')
-		self.entry_username.configure(state='normal')
-		self.entry_password.configure(state='normal')
+		self._set_login_controls(False)
 
 	# ── Diálogo Recuperación de Contraseña ────────────────────────────────────
 	def _open_recovery_dialog(self):
@@ -219,6 +258,8 @@ class LoginView(ctk.CTkFrame):
 
 		dialog.geometry('420x550')
 		dialog.minsize(420, 480)
+		dialog.transient(self.winfo_toplevel())
+		dialog.resizable(False, True)
 		dialog.grab_set()
 		dialog.focus()
 
@@ -277,7 +318,7 @@ class LoginView(ctk.CTkFrame):
 		)
 		entry_new_pass = ctk.CTkEntry(
 			container,
-			placeholder_text='Mínimo 6 caracteres',
+			placeholder_text=f'Mínimo {PASSWORD_MIN_LENGTH} caracteres',
 			show='*',
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
@@ -300,6 +341,15 @@ class LoginView(ctk.CTkFrame):
 		)
 		entry_confirm.pack(padx=32, fill='x', pady=(0, 16))
 
+		show_passwords = ctk.CTkCheckBox(
+			container,
+			text='Mostrar nueva contraseña',
+			font=FONT_SMALL,
+			text_color=TEXT_MUTED,
+			command=lambda: _toggle_recovery_passwords(),
+		)
+		show_passwords.pack(padx=32, anchor='w', pady=(0, 12))
+
 		lbl_err = ctk.CTkLabel(
 			container, text='', font=FONT_SMALL_BOLD, text_color=RED_TEXT
 		)
@@ -308,16 +358,16 @@ class LoginView(ctk.CTkFrame):
 		def _do_recovery(event=None):
 			username = entry_username.get().strip()
 			pin = entry_pin.get().strip()
-			new_pass = entry_new_pass.get().strip()
-			confirmed = entry_confirm.get().strip()
+			new_pass = entry_new_pass.get()
+			confirmed = entry_confirm.get()
 
 			if not all([username, pin, new_pass, confirmed]):
 				lbl_err.configure(text='Todos los campos son obligatorios.')
 				return
 
-			if len(new_pass) < 6:
+			if len(new_pass) < PASSWORD_MIN_LENGTH:
 				lbl_err.configure(
-					text='La contraseña debe tener al menos 6 caracteres.'
+					text=f'La contraseña debe tener al menos {PASSWORD_MIN_LENGTH} caracteres.'
 				)
 				return
 
@@ -326,23 +376,39 @@ class LoginView(ctk.CTkFrame):
 				return
 
 			btn_recover.configure(state='disabled', text='Verificando...')
-			tenant_id = self.auth_ctrl.get_first_tenant_id()
-			dialog.after(
-				50, lambda: _execute_recovery(tenant_id, username, pin, new_pass)
-			)
+			_execute_recovery(username, pin, new_pass)
 
-		def _execute_recovery(tenant_id, username, pin, new_pass):
-			import threading
+		def _execute_recovery(username, pin, new_pass):
+			result_queue = queue.Queue()
+
+			def _poll_recovery_result():
+				if not dialog.winfo_exists():
+					return
+				try:
+					result = result_queue.get_nowait()
+				except queue.Empty:
+					dialog.after(50, _poll_recovery_result)
+					return
+				_on_done(result)
 
 			def _run():
 				try:
+					tenant_id = self.auth_ctrl.get_first_tenant_id()
+					if not tenant_id:
+						result_queue.put(
+							(
+								False,
+								self.auth_ctrl.last_error
+								or 'No se pudo acceder a la configuración local del sistema.',
+							)
+						)
+						return
 					result = self.user_ctrl.reset_password_with_pin(
 						tenant_id, username, pin, new_pass
 					)
 				except Exception as exc:
 					result = (False, f'Error del sistema: {exc}')
-				if dialog.winfo_exists():
-					dialog.after(0, lambda r=result: _on_done(r))
+				result_queue.put(result)
 
 			def _on_done(result):
 				if not dialog.winfo_exists():
@@ -366,8 +432,16 @@ class LoginView(ctk.CTkFrame):
 					btn_recover.configure(state='normal', text='Restablecer Contraseña')
 
 			threading.Thread(target=_run, daemon=True).start()
+			dialog.after(50, _poll_recovery_result)
+
+		def _toggle_recovery_passwords():
+			show = '' if show_passwords.get() else '*'
+			entry_new_pass.configure(show=show)
+			entry_confirm.configure(show=show)
 
 		entry_confirm.bind('<Return>', _do_recovery)
+		entry_confirm.bind('<Control-Return>', _do_recovery)
+		dialog.bind('<Escape>', lambda event: dialog.destroy())
 
 		btn_recover = ctk.CTkButton(
 			container,
@@ -382,3 +456,14 @@ class LoginView(ctk.CTkFrame):
 			command=_do_recovery,
 		)
 		btn_recover.pack(padx=32, fill='x', pady=(0, 6))
+
+		ctk.CTkButton(
+			container,
+			text='Cancelar',
+			fg_color='transparent',
+			hover_color=SURFACE3,
+			text_color=TEXT_MUTED,
+			height=32,
+			corner_radius=8,
+			command=dialog.destroy,
+		).pack(padx=32, fill='x', pady=(0, 20))

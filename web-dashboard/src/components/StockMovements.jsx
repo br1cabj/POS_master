@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
 
@@ -11,7 +11,7 @@ const movementTypeColor = (type) => {
 };
 
 export const StockMovements = () => {
-  const { data: movements, loading, error } = useSupabaseQuery('stock_movements', {
+  const { data: movements, loading, error } = useApiQuery('stock_movements', {
     select: '*, variant:article_variants(barcode, article:articles(name)), user:users(username)',
     order: { column: 'date', ascending: false },
     limit: 500,

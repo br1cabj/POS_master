@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
 
@@ -13,13 +13,13 @@ const movementTypeColor = (type) => {
 export const Cash = () => {
   const [expandedSession, setExpandedSession] = useState(null);
 
-  const { data: sessions, loading, error } = useSupabaseQuery('cash_sessions', {
+  const { data: sessions, loading, error } = useApiQuery('cash_sessions', {
     select: '*, user:users(username, display_name)',
     order: { column: 'opened_at', ascending: false },
     limit: 500,
   });
 
-  const { data: movements, loading: movementsLoading, error: movementsError } = useSupabaseQuery('cash_movements', {
+  const { data: movements, loading: movementsLoading, error: movementsError } = useApiQuery('cash_movements', {
     select: '*, customer:customers(name)',
     filter: expandedSession ? ['session_id', 'eq', expandedSession] : null,
     enabled: !!expandedSession,

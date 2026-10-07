@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
 
 export const Promos = () => {
-  const { data: promos, loading, error } = useSupabaseQuery('promotions', {
+  const { data: promos, loading, error } = useApiQuery('promotions', {
     select: '*, variant:article_variants(article:articles(name)), category:categories(name)',
     order: { column: 'date_to', ascending: true },
     limit: 500,

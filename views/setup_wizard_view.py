@@ -1,17 +1,21 @@
 """
 views/setup_wizard_view.py
 ==========================
-Wizard de primer arranque en 3 pasos:
-  1. Licencia  — demo gratuita o código Pro
-  2. Tu Negocio — datos del comercio
-  3. Tu Usuario — credenciales del administrador
+Wizard de primer arranque en 4 pasos:
+  1. Terminal  — PC principal o cajero conectado por red local
+  2. Licencia  — demo gratuita o código Pro
+  3. Tu Negocio — datos del comercio
+  4. Tu Usuario — credenciales del administrador
 """
 
 import glob
 import logging
+import math
 import os
+import queue
 import re
 import shutil
+import sqlite3
 import sys
 
 import bcrypt
@@ -20,6 +24,7 @@ from CTkMessagebox import CTkMessagebox
 from sqlalchemy.orm import sessionmaker
 
 from controllers.license_controller import LicenseController
+from controllers.user_controller import PASSWORD_MIN_LENGTH
 from database.models import Base, Branch, Tenant, User, Warehouse
 from utils.settings_manager import get_reports_path
 from utils.settings_manager import load as _cfg_load
@@ -77,6 +82,23 @@ _STEP_NEXT_LABELS = {
 }
 
 _CURRENCY_SYMBOLS = ['$', '€', 'S/.', '£', 'Bs.', '₱']
+_SETUP_DRAFT_KEY = '_setup_wizard_draft'
+_SETUP_IN_PROGRESS_KEY = '_setup_in_progress'
+
+
+def _parse_tax_rate(value: str) -> float | None:
+	"""Devuelve una tasa de IVA válida o None; evita NaN e infinitos."""
+	try:
+		rate = float(value.strip().replace(',', '.'))
+	except (AttributeError, ValueError):
+		return None
+	return rate if math.isfinite(rate) and 0 <= rate <= 100 else None
+
+
+def _currency_symbol(value: str | None) -> str:
+	"""Normaliza un símbolo de moneda, incluso si es personalizado."""
+	value = (value or '').strip()
+	return value or '$'
 
 _DEMO_FEATURES = [
 	'✓  Ventas, compras y stock sin límites',
@@ -115,9 +137,13 @@ class SetupWizard(ctk.CTkFrame):
 		self.license_ctrl = LicenseController()
 		self._busy = False
 		self._step = 1
+		self._active_scroll = None
+		self._shortcut_bindings: list[tuple[str, str]] = []
 
 		self._terminal_mode_sel: str = 'primary'  # 'primary' | 'cashier'
 		self._cashier_db_path: str = ''
+		self._cashier_connection_verified = False
+		self._cashier_verified_path = ''
 
 		self._license_mode: str | None = None
 		self._license_key: str = ''
@@ -134,6 +160,7 @@ class SetupWizard(ctk.CTkFrame):
 		self._d_username = ''
 		self._d_password = ''
 		self._d_pin = ''
+		self._restore_draft()
 
 		self.pack(fill='both', expand=True)
 		self.grid_columnconfigure(0, weight=1)
@@ -172,6 +199,14 @@ class SetupWizard(ctk.CTkFrame):
 		)
 		self._btn_back.grid(row=0, column=0, padx=PAD_LG, pady=PAD_MD)
 
+		self._lbl_shortcuts = ctk.CTkLabel(
+			nav,
+			text='Ctrl + Enter: continuar   ·   Alt + ←: atrás   ·   Esc: salir',
+			font=FONT_SMALL,
+			text_color=TEXT_MUTED,
+		)
+		self._lbl_shortcuts.grid(row=0, column=1, padx=PAD_MD, sticky='w')
+
 		self._btn_next = ctk.CTkButton(
 			nav,
 			text=_STEP_NEXT_LABELS[1],
@@ -187,6 +222,9 @@ class SetupWizard(ctk.CTkFrame):
 			command=self._go_next,
 		)
 		self._btn_next.grid(row=0, column=2, padx=PAD_LG, pady=PAD_MD)
+
+		self._setup_shortcuts()
+		self.bind('<Destroy>', self._cleanup_shortcuts, add='+')
 
 		self._show_step(1)
 
@@ -288,19 +326,182 @@ class SetupWizard(ctk.CTkFrame):
 	# NAVEGACIÓN
 	# ═══════════════════════════════════════════════════════════════════════
 
+	def _setup_shortcuts(self):
+		"""Atajos acotados al wizard, retirados al destruir la vista."""
+		top = self.winfo_toplevel()
+		for sequence, callback in (
+			('<Control-Return>', self._shortcut_next),
+			('<Alt-Right>', self._shortcut_next),
+			('<Alt-Left>', self._shortcut_back),
+			('<Escape>', self._shortcut_escape),
+		):
+			binding_id = top.bind(sequence, callback, add='+')
+			self._shortcut_bindings.append((sequence, binding_id))
+
+	def _cleanup_shortcuts(self, event=None):
+		if event is not None and event.widget is not self:
+			return
+		try:
+			top = self.winfo_toplevel()
+			for sequence, binding_id in self._shortcut_bindings:
+				top.unbind(sequence, binding_id)
+		except Exception:
+			pass
+		finally:
+			self._shortcut_bindings = []
+
+	def _shortcut_next(self, event=None):
+		if self.winfo_ismapped() and not self._busy:
+			self._go_next()
+		return 'break'
+
+	def _shortcut_back(self, event=None):
+		if self.winfo_ismapped() and not self._busy:
+			self._go_back()
+		return 'break'
+
+	def _shortcut_escape(self, event=None):
+		if not self.winfo_ismapped() or self._busy:
+			return 'break'
+		if self._step == 1:
+			self._handle_exit()
+		else:
+			self._go_back()
+		return 'break'
+
+	def _make_card_selectable(self, card, callback):
+		"""Permite elegir una opción al pulsar cualquier zona informativa de su tarjeta."""
+		def _bind(widget):
+			if isinstance(widget, (ctk.CTkButton, ctk.CTkEntry, ctk.CTkCheckBox)):
+				return
+			widget.bind('<Button-1>', lambda event: callback(), add='+')
+			for child in widget.winfo_children():
+				_bind(child)
+
+		_bind(card)
+
+	def _focus_widget(self, widget):
+		"""Da foco y desplaza el paso actual para que el error sea visible."""
+		widget.focus()
+		self.after_idle(lambda: self._reveal_widget(widget))
+
+	def _reveal_widget(self, widget):
+		scroll = self._active_scroll
+		if scroll is None or not scroll.winfo_exists() or not widget.winfo_exists():
+			return
+		try:
+			canvas = scroll._parent_canvas
+			canvas.update_idletasks()
+			bbox = canvas.bbox('all')
+			if not bbox:
+				return
+			widget_top = widget.winfo_rooty() - canvas.winfo_rooty() + canvas.canvasy(0)
+			visible_top = canvas.canvasy(0)
+			visible_bottom = visible_top + canvas.winfo_height()
+			if widget_top < visible_top + 16 or widget_top + widget.winfo_height() > visible_bottom - 16:
+				content_height = max(1, bbox[3] - bbox[1])
+				viewport_height = canvas.winfo_height()
+				target = max(0, widget_top - 24)
+				denominator = max(1, content_height - viewport_height)
+				canvas.yview_moveto(min(1, target / denominator))
+		except Exception:
+			logger.debug('No se pudo desplazar el formulario hacia el campo activo.', exc_info=True)
+
+	def _restore_draft(self):
+		"""Restaura únicamente datos no sensibles de una configuración interrumpida."""
+		try:
+			draft = _cfg_load().get(_SETUP_DRAFT_KEY, {})
+		except Exception as exc:
+			logger.warning('No se pudo recuperar el borrador del asistente: %s', exc)
+			return
+		if not isinstance(draft, dict):
+			return
+
+		for attr, key, default in (
+			('_terminal_mode_sel', 'terminal_mode', 'primary'),
+			('_cashier_db_path', 'cashier_db_path', ''),
+			('_license_mode', 'license_mode', None),
+			('_d_store', 'store', ''),
+			('_d_address', 'address', ''),
+			('_d_phone', 'phone', ''),
+			('_d_currency', 'currency', '$'),
+			('_d_decimals', 'decimals', '0  (enteros)'),
+			('_d_tax', 'tax', '21'),
+			('_d_reports_path', 'reports_path', ''),
+			('_d_logo_path', 'logo_path', None),
+			('_d_username', 'username', ''),
+		):
+			setattr(self, attr, draft.get(key, default))
+
+	def _capture_visible_draft(self):
+		"""Conserva el avance entre pasos sin guardar contraseñas, PIN ni licencias."""
+		if hasattr(self, '_entry_cashier_path') and self._entry_cashier_path.winfo_exists():
+			self._cashier_db_path = self._entry_cashier_path.get().strip()
+		if hasattr(self, '_e_store') and self._e_store.winfo_exists():
+			self._d_store = self._e_store.get().strip()
+			self._d_address = self._e_address.get().strip()
+			self._d_phone = self._e_phone.get().strip()
+			self._d_currency = getattr(self, '_sym_var', '$') or '$'
+			self._d_decimals = self._seg_decimals.get()
+			self._d_tax = self._e_tax.get().strip() or '21'
+		if hasattr(self, '_e_username') and self._e_username.winfo_exists():
+			self._d_username = self._e_username.get().strip()
+
+	def _capture_sensitive_session_values(self):
+		"""Conserva credenciales solo mientras esta ventana continúa abierta."""
+		if hasattr(self, '_e_pass') and self._e_pass.winfo_exists():
+			self._d_password = self._e_pass.get()
+		if hasattr(self, '_e_pin') and self._e_pin.winfo_exists():
+			self._d_pin = self._e_pin.get().strip()
+
+	def _save_draft(self):
+		self._capture_visible_draft()
+		try:
+			cfg = _cfg_load()
+			cfg[_SETUP_DRAFT_KEY] = {
+				'terminal_mode': self._terminal_mode_sel,
+				'cashier_db_path': self._cashier_db_path,
+				'license_mode': self._license_mode,
+				'store': self._d_store,
+				'address': self._d_address,
+				'phone': self._d_phone,
+				'currency': self._d_currency,
+				'decimals': self._d_decimals,
+				'tax': self._d_tax,
+				'reports_path': self._d_reports_path,
+				'logo_path': self._d_logo_path,
+				'username': self._d_username,
+			}
+			_cfg_save(cfg)
+		except Exception as exc:
+			logger.warning('No se pudo guardar el borrador del asistente: %s', exc)
+
+	def _clear_setup_progress_marker(self):
+		"""Permite reintentar una instalación fallida conservando el borrador."""
+		cfg = _cfg_load()
+		if _SETUP_IN_PROGRESS_KEY in cfg:
+			cfg.pop(_SETUP_IN_PROGRESS_KEY, None)
+			_cfg_save(cfg)
+
 	def _handle_exit(self):
 		confirm = CTkMessagebox(
 			title='Salir del asistente',
-			message='¿Salir? El sistema no quedará configurado hasta completar este proceso.',
+			message=(
+				'¿Salir por ahora? Guardaremos los datos no sensibles para que puedas continuar '
+				'desde este punto al volver. La contraseña, el PIN y el código de licencia no se guardan.'
+			),
 			icon='warning',
 			option_1='Cancelar',
-			option_2='Salir de todas formas',
+			option_2='Guardar y salir',
 		)
-		if confirm.get() == 'Salir de todas formas':
+		if confirm.get() == 'Guardar y salir':
+			self._save_draft()
 			self.winfo_toplevel().destroy()
 
 	def _go_back(self):
 		if self._step > 1 and not self._busy:
+			if self._step == 4:
+				self._capture_sensitive_session_values()
 			self._show_step(self._step - 1)
 
 	def _go_next(self):
@@ -308,15 +509,18 @@ class SetupWizard(ctk.CTkFrame):
 			return
 		if self._step == 1:
 			if self._validate_step_terminal():
+				self._save_draft()
 				if self._terminal_mode_sel == 'cashier':
 					self._finish_cashier()
 				else:
 					self._show_step(2)
 		elif self._step == 2:
 			if self._validate_step1():
+				self._save_draft()
 				self._show_step(3)
 		elif self._step == 3:
 			if self._validate_step2():
+				self._save_draft()
 				self._show_step(4)
 		elif self._step == 4:
 			self._finish()
@@ -328,6 +532,9 @@ class SetupWizard(ctk.CTkFrame):
 		self._update_step_indicator()
 
 		if step == 1:
+			self._lbl_shortcuts.configure(
+				text='Ctrl + Enter: continuar   ·   Esc: guardar y salir'
+			)
 			self._btn_back.configure(
 				text='✕  Salir',
 				command=self._handle_exit,
@@ -337,6 +544,9 @@ class SetupWizard(ctk.CTkFrame):
 				border_color=BORDER,
 			)
 		else:
+			self._lbl_shortcuts.configure(
+				text='Ctrl + Enter: continuar   ·   Alt + ← / Esc: atrás'
+			)
 			self._btn_back.configure(
 				text='←  Atrás',
 				command=self._go_back,
@@ -383,6 +593,7 @@ class SetupWizard(ctk.CTkFrame):
 		)
 		scroll.grid(row=0, column=0, sticky='nsew')
 		scroll.grid_columnconfigure(0, weight=1)
+		self._active_scroll = scroll
 
 		ctk.CTkLabel(
 			scroll,
@@ -595,16 +806,18 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			cloud_banner,
-			text='☁️  ¿Tenés también un Plan Cloud?',
+			text='☁️  Cloud es opcional',
 			font=FONT_BODY_BOLD,
 			text_color=ACCENT_TEXT,
 		).pack(side='left', padx=(PAD_LG, PAD_XS), pady=PAD_MD)
 
 		ctk.CTkLabel(
 			cloud_banner,
-			text='El complemento Cloud para backups y reportes web se activa desde Configuración > Licencia una vez dentro del sistema.',
+			text='Podés activarlo después para consultar reportes desde el celular. Las ventas, la caja y el stock siguen funcionando localmente, aun sin internet.',
 			font=FONT_BODY,
 			text_color=TEXT_SECONDARY,
+			wraplength=620,
+			justify='left',
 		).pack(side='left', padx=(0, PAD_LG), pady=PAD_MD)
 
 		self._lbl_lic_status = ctk.CTkLabel(
@@ -614,6 +827,8 @@ class SetupWizard(ctk.CTkFrame):
 			text_color=TEXT_MUTED,
 		)
 		self._lbl_lic_status.pack(pady=(PAD_SM, 0))
+		self._make_card_selectable(self._card_demo, self._select_demo)
+		self._make_card_selectable(self._card_pro, self._select_pro)
 
 		if self._license_mode == 'DEMO':
 			self._select_demo()
@@ -645,7 +860,7 @@ class SetupWizard(ctk.CTkFrame):
 		self._lbl_lic_status.configure(
 			text='Ingresá tu código y presioná Siguiente', text_color=PURPLE_TEXT
 		)
-		self._entry_license.focus()
+		self._focus_widget(self._entry_license)
 
 	def _handle_activate_pro(self):
 		self._select_pro()
@@ -665,15 +880,15 @@ class SetupWizard(ctk.CTkFrame):
 				self._lbl_lic_status.configure(
 					text='⚠  Ingresá el código de licencia Pro', text_color=RED_TEXT
 				)
-				self._entry_license.focus()
+				self._focus_widget(self._entry_license)
 				return False
 
 			if key.upper().startswith('CLOUD-'):
 				self._entry_license.configure(border_color=ORANGE)
 				self._lbl_lic_status.configure(
-					text='⚠ Este es un código Cloud. Aquí debes activar el sistema base (o usar la Demo).\nEl Plan Cloud se activa después, desde el menú Configuración.', text_color=ORANGE_TEXT
+					text='⚠ Este es un código Cloud. Acá debés activar el sistema base (o usar la Demo).\nEl Plan Cloud se activa después, desde el menú Configuración.', text_color=ORANGE_TEXT
 				)
-				self._entry_license.focus()
+				self._focus_widget(self._entry_license)
 				return False
 
 			success, msg = self.license_ctrl.validate_license_format(key)
@@ -682,7 +897,7 @@ class SetupWizard(ctk.CTkFrame):
 				self._lbl_lic_status.configure(
 					text=f'⚠  {msg}', text_color=RED_TEXT
 				)
-				self._entry_license.focus()
+				self._focus_widget(self._entry_license)
 				return False
 
 			self._entry_license.configure(border_color=BORDER_ACTIVE)
@@ -703,6 +918,7 @@ class SetupWizard(ctk.CTkFrame):
 		)
 		scroll.grid(row=0, column=0, sticky='nsew')
 		scroll.grid_columnconfigure(0, weight=1)
+		self._active_scroll = scroll
 
 		card = ctk.CTkFrame(
 			scroll,
@@ -732,16 +948,18 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			card,
-			text='Personalizá la identidad de tu punto de venta.',
+			text='Para empezar solo necesitamos el nombre y la moneda. El resto es opcional y podés editarlo más adelante.',
 			font=FONT_BODY,
 			text_color=TEXT_MUTED,
 			anchor='w',
+			wraplength=700,
+			justify='left',
 		).grid(row=1, column=0, columnspan=2, padx=PAD_XL, pady=(0, PAD_LG), sticky='w')
 
-		# ── Logo ──
+		# ── Logo (se muestra después de los datos necesarios para comenzar) ──
 		logo_frame = ctk.CTkFrame(card, fg_color=SURFACE3, corner_radius=12)
 		logo_frame.grid(
-			row=2, column=0, columnspan=2, padx=PAD_XL, pady=(0, PAD_LG), sticky='ew'
+			row=13, column=0, columnspan=2, padx=PAD_XL, pady=(0, PAD_LG), sticky='ew'
 		)
 		logo_frame.grid_columnconfigure(1, weight=1)
 
@@ -809,7 +1027,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		# ── Nombre del comercio (full width) ──
 		make_form_label(card, 'NOMBRE DEL COMERCIO', required=True)[0].grid(
-			row=3, column=0, columnspan=2, sticky='w', padx=PAD_XL, pady=(0, PAD_XS)
+			row=2, column=0, columnspan=2, sticky='w', padx=PAD_XL, pady=(0, PAD_XS)
 		)
 		self._e_store = ctk.CTkEntry(
 			card,
@@ -821,14 +1039,14 @@ class SetupWizard(ctk.CTkFrame):
 			font=FONT_BODY,
 		)
 		self._e_store.grid(
-			row=4, column=0, columnspan=2, sticky='ew', padx=PAD_XL, pady=(0, PAD_MD)
+			row=3, column=0, columnspan=2, sticky='ew', padx=PAD_XL, pady=(0, PAD_MD)
 		)
 		if self._d_store:
 			self._e_store.insert(0, self._d_store)
 
 		# ── Teléfono | Dirección ──
-		make_form_label(card, 'TELÉFONO / WHATSAPP')[0].grid(
-			row=5, column=0, sticky='w', padx=(PAD_XL, PAD_MD), pady=(0, PAD_XS)
+		make_form_label(card, 'TELÉFONO / WHATSAPP (OPCIONAL)')[0].grid(
+			row=4, column=0, sticky='w', padx=(PAD_XL, PAD_MD), pady=(0, PAD_XS)
 		)
 		self._e_phone = ctk.CTkEntry(
 			card,
@@ -840,13 +1058,13 @@ class SetupWizard(ctk.CTkFrame):
 			font=FONT_BODY,
 		)
 		self._e_phone.grid(
-			row=6, column=0, sticky='ew', padx=(PAD_XL, PAD_MD), pady=(0, PAD_MD)
+			row=5, column=0, sticky='ew', padx=(PAD_XL, PAD_MD), pady=(0, PAD_MD)
 		)
 		if self._d_phone:
 			self._e_phone.insert(0, self._d_phone)
 
-		make_form_label(card, 'DIRECCIÓN')[0].grid(
-			row=5, column=1, sticky='w', padx=(PAD_MD, PAD_XL), pady=(0, PAD_XS)
+		make_form_label(card, 'DIRECCIÓN (OPCIONAL)')[0].grid(
+			row=4, column=1, sticky='w', padx=(PAD_MD, PAD_XL), pady=(0, PAD_XS)
 		)
 		self._e_address = ctk.CTkEntry(
 			card,
@@ -858,28 +1076,26 @@ class SetupWizard(ctk.CTkFrame):
 			font=FONT_BODY,
 		)
 		self._e_address.grid(
-			row=6, column=1, sticky='ew', padx=(PAD_MD, PAD_XL), pady=(0, PAD_MD)
+			row=5, column=1, sticky='ew', padx=(PAD_MD, PAD_XL), pady=(0, PAD_MD)
 		)
 		if self._d_address:
 			self._e_address.insert(0, self._d_address)
 
 		# ── Separador ──
 		ctk.CTkFrame(card, height=1, fg_color=BORDER).grid(
-			row=7, column=0, columnspan=2, sticky='ew', padx=PAD_XL, pady=(0, PAD_MD)
+			row=6, column=0, columnspan=2, sticky='ew', padx=PAD_XL, pady=(0, PAD_MD)
 		)
 
 		# ── Símbolo de moneda (botones) ──
 		make_form_label(card, 'MONEDA')[0].grid(
-			row=8, column=0, columnspan=2, sticky='w', padx=PAD_XL, pady=(0, PAD_XS)
+			row=7, column=0, columnspan=2, sticky='w', padx=PAD_XL, pady=(0, PAD_XS)
 		)
 		sym_row = ctk.CTkFrame(card, fg_color='transparent')
 		sym_row.grid(
-			row=9, column=0, columnspan=2, sticky='w', padx=PAD_XL, pady=(0, PAD_MD)
+			row=8, column=0, columnspan=2, sticky='w', padx=PAD_XL, pady=(0, PAD_MD)
 		)
 
-		self._sym_var = (
-			self._d_currency if self._d_currency in _CURRENCY_SYMBOLS else '$'
-		)
+		self._sym_var = _currency_symbol(self._d_currency)
 		self._sym_btns = {}
 
 		for sym in _CURRENCY_SYMBOLS:
@@ -915,7 +1131,9 @@ class SetupWizard(ctk.CTkFrame):
 			font=FONT_BODY,
 		)
 		self._e_custom_sym.pack(side='left', padx=(0, PAD_XS))
-		if self._d_currency not in _CURRENCY_SYMBOLS:
+		self._e_custom_sym.bind('<KeyRelease>', self._sync_custom_currency)
+		self._e_custom_sym.bind('<Return>', lambda e: self._go_next())
+		if self._sym_var not in _CURRENCY_SYMBOLS:
 			self._e_custom_sym.insert(0, self._d_currency)
 
 		ctk.CTkButton(
@@ -935,7 +1153,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		# ── Decimales | IVA ──
 		make_form_label(card, 'DECIMALES EN PRECIOS')[0].grid(
-			row=10, column=0, sticky='w', padx=(PAD_XL, PAD_MD), pady=(0, PAD_XS)
+			row=9, column=0, sticky='w', padx=(PAD_XL, PAD_MD), pady=(0, PAD_XS)
 		)
 		self._seg_decimals = ctk.CTkSegmentedButton(
 			card,
@@ -952,12 +1170,12 @@ class SetupWizard(ctk.CTkFrame):
 			command=lambda v: self._update_currency_preview(),
 		)
 		self._seg_decimals.grid(
-			row=11, column=0, sticky='ew', padx=(PAD_XL, PAD_MD), pady=(0, PAD_MD)
+			row=10, column=0, sticky='ew', padx=(PAD_XL, PAD_MD), pady=(0, PAD_MD)
 		)
 		self._seg_decimals.set(self._d_decimals)
 
 		make_form_label(card, 'IMPUESTO / IVA (%)')[0].grid(
-			row=10, column=1, sticky='w', padx=(PAD_MD, PAD_XL), pady=(0, PAD_XS)
+			row=9, column=1, sticky='w', padx=(PAD_MD, PAD_XL), pady=(0, PAD_XS)
 		)
 		self._e_tax = ctk.CTkEntry(
 			card,
@@ -969,14 +1187,14 @@ class SetupWizard(ctk.CTkFrame):
 			font=FONT_BODY,
 		)
 		self._e_tax.grid(
-			row=11, column=1, sticky='ew', padx=(PAD_MD, PAD_XL), pady=(0, PAD_MD)
+			row=10, column=1, sticky='ew', padx=(PAD_MD, PAD_XL), pady=(0, PAD_MD)
 		)
 		self._e_tax.insert(0, self._d_tax)
 
 		# ── Preview de moneda ──
 		preview_frame = ctk.CTkFrame(card, fg_color=SURFACE3, corner_radius=12)
 		preview_frame.grid(
-			row=12, column=0, columnspan=2, padx=PAD_XL, pady=(0, PAD_MD), sticky='ew'
+			row=11, column=0, columnspan=2, padx=PAD_XL, pady=(0, PAD_MD), sticky='ew'
 		)
 
 		ctk.CTkLabel(
@@ -995,9 +1213,18 @@ class SetupWizard(ctk.CTkFrame):
 		self._lbl_currency_preview.pack(pady=(0, PAD_SM))
 		self._update_currency_preview()
 
+		# ── Personalización opcional ──
+		ctk.CTkLabel(
+			card,
+			text='PERSONALIZACIÓN OPCIONAL',
+			font=FONT_LABEL_BOLD,
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).grid(row=12, column=0, columnspan=2, padx=PAD_XL, pady=(0, PAD_XS), sticky='w')
+
 		# ── Separador ──
 		ctk.CTkFrame(card, height=1, fg_color=BORDER).grid(
-			row=13, column=0, columnspan=2, sticky='ew', padx=PAD_XL, pady=(0, PAD_XS)
+			row=14, column=0, columnspan=2, sticky='ew', padx=PAD_XL, pady=(0, PAD_XS)
 		)
 
 		# ── Configuración avanzada (colapsable) ──
@@ -1015,7 +1242,7 @@ class SetupWizard(ctk.CTkFrame):
 			command=self._toggle_advanced,
 		)
 		self._btn_toggle_adv.grid(
-			row=14,
+			row=15,
 			column=0,
 			columnspan=2,
 			sticky='w',
@@ -1079,7 +1306,7 @@ class SetupWizard(ctk.CTkFrame):
 			command=self._reset_reports_folder,
 		).pack(side='left')
 
-		self._e_store.focus()
+		self._focus_widget(self._e_store)
 
 	def _toggle_advanced(self):
 		if self._adv_expanded:
@@ -1088,7 +1315,7 @@ class SetupWizard(ctk.CTkFrame):
 			self._adv_expanded = False
 		else:
 			self._adv_container.grid(
-				row=15,
+				row=16,
 				column=0,
 				columnspan=2,
 				sticky='ew',
@@ -1100,6 +1327,8 @@ class SetupWizard(ctk.CTkFrame):
 
 	def _pick_currency_sym(self, sym: str):
 		self._sym_var = sym
+		if hasattr(self, '_e_custom_sym') and self._e_custom_sym.winfo_exists():
+			self._e_custom_sym.delete(0, 'end')
 		self._update_currency_preview()
 		for s, btn in self._sym_btns.items():
 			active = s == sym
@@ -1112,9 +1341,7 @@ class SetupWizard(ctk.CTkFrame):
 			)
 
 	def _use_custom_sym(self):
-		val = self._e_custom_sym.get().strip()
-		if not val:
-			return
+		val = _currency_symbol(self._e_custom_sym.get())
 		self._sym_var = val
 		for btn in self._sym_btns.values():
 			btn.configure(
@@ -1125,6 +1352,11 @@ class SetupWizard(ctk.CTkFrame):
 				border_color=BORDER,
 			)
 		self._update_currency_preview()
+
+	def _sync_custom_currency(self, event=None):
+		"""Aplica el símbolo escrito sin exigir que el usuario pulse un botón extra."""
+		if self._e_custom_sym.get().strip():
+			self._use_custom_sym()
 
 	def _update_currency_preview(self):
 		if (
@@ -1193,7 +1425,7 @@ class SetupWizard(ctk.CTkFrame):
 		store = self._e_store.get().strip()
 		if not store:
 			self._e_store.configure(border_color=RED)
-			self._e_store.focus()
+			self._focus_widget(self._e_store)
 			CTkMessagebox(
 				title='Campo requerido',
 				message='El nombre del comercio es obligatorio.',
@@ -1202,16 +1434,13 @@ class SetupWizard(ctk.CTkFrame):
 			return False
 		self._e_store.configure(border_color=BORDER_ACTIVE)
 
-		tax_str = self._e_tax.get().strip().replace(',', '.')
-		try:
-			if float(tax_str) < 0:
-				raise ValueError
-		except ValueError:
+		tax_rate = _parse_tax_rate(self._e_tax.get())
+		if tax_rate is None:
 			self._e_tax.configure(border_color=RED)
-			self._e_tax.focus()
+			self._focus_widget(self._e_tax)
 			CTkMessagebox(
 				title='Valor inválido',
-				message='El impuesto debe ser un número ≥ 0 (Ej: 21).',
+				message='El impuesto debe ser un número entre 0 y 100 (Ej: 21).',
 				icon='cancel',
 			)
 			return False
@@ -1220,9 +1449,9 @@ class SetupWizard(ctk.CTkFrame):
 		self._d_store = store
 		self._d_address = self._e_address.get().strip()
 		self._d_phone = self._e_phone.get().strip()
-		self._d_currency = getattr(self, '_sym_var', '$') or '$'
+		self._d_currency = _currency_symbol(getattr(self, '_sym_var', '$'))
 		self._d_decimals = self._seg_decimals.get()
-		self._d_tax = tax_str
+		self._d_tax = str(tax_rate)
 		return True
 
 	# ═══════════════════════════════════════════════════════════════════════
@@ -1238,6 +1467,7 @@ class SetupWizard(ctk.CTkFrame):
 		)
 		scroll.grid(row=0, column=0, sticky='nsew')
 		scroll.grid_columnconfigure(0, weight=1)
+		self._active_scroll = scroll
 
 		card = ctk.CTkFrame(
 			scroll,
@@ -1296,7 +1526,7 @@ class SetupWizard(ctk.CTkFrame):
 		)
 		self._e_pass = ctk.CTkEntry(
 			form,
-			placeholder_text='Mínimo 6 caracteres',
+			placeholder_text=f'Mínimo {PASSWORD_MIN_LENGTH} caracteres',
 			show='*',
 			height=42,
 			fg_color=SURFACE3,
@@ -1325,7 +1555,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		self._strength_lbl = ctk.CTkLabel(
 			strength_row,
-			text='',
+			text=f'0 / {PASSWORD_MIN_LENGTH}',
 			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 			width=72,
@@ -1401,7 +1631,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			pin_box,
-			text='Usalo para recuperar el acceso si olvidás tu contraseña. ¡Guardalo en un lugar seguro!',
+			text='No es tu contraseña. Usalo solo para recuperar el acceso si la olvidás y guardalo en un lugar seguro.',
 			font=FONT_SMALL,
 			text_color=ORANGE_TEXT,
 			anchor='w',
@@ -1423,12 +1653,34 @@ class SetupWizard(ctk.CTkFrame):
 		if self._d_pin:
 			self._e_pin.insert(0, self._d_pin)
 
+		ctk.CTkLabel(
+			pin_box,
+			text='CONFIRMAR PIN',
+			font=FONT_LABEL_BOLD,
+			text_color=ORANGE_TEXT,
+			anchor='w',
+		).pack(anchor='w', padx=PAD_MD, pady=(PAD_XS, 2))
+		self._e_pin2 = ctk.CTkEntry(
+			pin_box,
+			placeholder_text='Repetí el PIN de 4 dígitos',
+			show='*',
+			height=42,
+			fg_color=SURFACE3,
+			border_color=ORANGE,
+			text_color=TEXT_PRIMARY,
+			font=FONT_BODY,
+		)
+		self._e_pin2.pack(fill='x', padx=PAD_MD, pady=(0, PAD_XS))
+		self._e_pin2.bind('<Return>', lambda e: self._go_next())
+		if self._d_pin:
+			self._e_pin2.insert(0, self._d_pin)
+
 		self._err_pin = ctk.CTkLabel(
 			pin_box, text='', font=FONT_SMALL, text_color=RED_TEXT, anchor='w'
 		)
 		self._err_pin.pack(anchor='w', padx=PAD_MD, pady=(0, PAD_SM))
 
-		self._e_username.focus()
+		self._focus_widget(self._e_username)
 		if self._d_password:
 			self._update_password_strength()
 
@@ -1438,36 +1690,29 @@ class SetupWizard(ctk.CTkFrame):
 		pwd = self._e_pass.get()
 		if not pwd:
 			self._strength_bar.set(0)
-			self._strength_lbl.configure(text='')
+			self._strength_lbl.configure(
+				text=f'0 / {PASSWORD_MIN_LENGTH}', text_color=TEXT_MUTED
+			)
 			return
-		score = 0
-		if len(pwd) >= 6:
-			score += 1
-		if len(pwd) >= 10:
-			score += 1
-		if any(c.isupper() for c in pwd):
-			score += 1
-		if any(c.isdigit() for c in pwd):
-			score += 1
-		if any(c in '!@#$%^&*-_' for c in pwd):
-			score += 1
-		level = min(score, 4)
-		colors = [SURFACE4, RED, ORANGE, ORANGE, GREEN]
-		labels = ['', 'Muy débil', 'Débil', 'Aceptable', 'Fuerte']
-		tcolors = [TEXT_MUTED, RED_TEXT, ORANGE_TEXT, ORANGE_TEXT, GREEN_TEXT]
-		self._strength_bar.configure(progress_color=colors[level])
-		self._strength_bar.set(level / 4)
-		self._strength_lbl.configure(text=labels[level], text_color=tcolors[level])
+		length = len(pwd)
+		complete = min(length, PASSWORD_MIN_LENGTH)
+		is_valid = length >= PASSWORD_MIN_LENGTH
+		self._strength_bar.configure(progress_color=GREEN if is_valid else ORANGE)
+		self._strength_bar.set(complete / PASSWORD_MIN_LENGTH)
+		self._strength_lbl.configure(
+			text='Listo' if is_valid else f'{complete} / {PASSWORD_MIN_LENGTH}',
+			text_color=GREEN_TEXT if is_valid else ORANGE_TEXT,
+		)
 
 	def _toggle_pass(self):
 		show = '' if self._chk_show.get() else '*'
-		for e in (self._e_pin, self._e_pass, self._e_pass2):
+		for e in (self._e_pin, self._e_pin2, self._e_pass, self._e_pass2):
 			e.configure(show=show)
 
 	def _show_field_error(self, entry, err_label, msg: str):
 		entry.configure(border_color=RED)
 		err_label.configure(text=f'⚠  {msg}')
-		entry.focus()
+		self._focus_widget(entry)
 
 	def _clear_field_errors(self):
 		pairs = [
@@ -1475,6 +1720,7 @@ class SetupWizard(ctk.CTkFrame):
 			(self._e_pass, self._err_pass),
 			(self._e_pass2, self._err_pass2),
 			(self._e_pin, self._err_pin),
+			(self._e_pin2, self._err_pin),
 		]
 		for entry, lbl in pairs:
 			entry.configure(border_color=BORDER_ACTIVE)
@@ -1493,8 +1739,12 @@ class SetupWizard(ctk.CTkFrame):
 			return False
 
 		password = self._e_pass.get()
-		if len(password) < 6:
-			self._show_field_error(self._e_pass, self._err_pass, 'Mínimo 6 caracteres.')
+		if len(password) < PASSWORD_MIN_LENGTH:
+			self._show_field_error(
+				self._e_pass,
+				self._err_pass,
+				f'Mínimo {PASSWORD_MIN_LENGTH} caracteres.',
+			)
 			return False
 
 		if password != self._e_pass2.get():
@@ -1508,6 +1758,9 @@ class SetupWizard(ctk.CTkFrame):
 			self._show_field_error(
 				self._e_pin, self._err_pin, 'Debe ser exactamente 4 números.'
 			)
+			return False
+		if pin != self._e_pin2.get().strip():
+			self._show_field_error(self._e_pin2, self._err_pin, 'Los PIN no coinciden.')
 			return False
 
 		self._d_username = username
@@ -1525,6 +1778,10 @@ class SetupWizard(ctk.CTkFrame):
 			return
 		if not self._validate_step3():
 			return
+		self._save_draft()
+		cfg = _cfg_load()
+		cfg[_SETUP_IN_PROGRESS_KEY] = True
+		_cfg_save(cfg)
 
 		self._busy = True
 		self._btn_next.configure(state='disabled', text='Configurando…')
@@ -1532,23 +1789,37 @@ class SetupWizard(ctk.CTkFrame):
 		self.update_idletasks()
 
 		import threading
+		result_queue = queue.Queue()
 
-		def _run():
-			if self._license_mode == 'DEMO':
-				success, msg = self.license_ctrl.activate_demo()
-			else:
-				success, msg = self.license_ctrl.activate_license(self._license_key)
-
-			if not success:
+		def _poll_finish_result():
+			try:
+				kind, message = result_queue.get_nowait()
+			except queue.Empty:
 				if self.winfo_exists():
-					self.after(0, lambda: self._on_finish_license_failed(msg))
+					self.after(50, _poll_finish_result)
 				return
 
+			if kind == 'license_failed':
+				self._on_finish_license_failed(message)
+			elif kind == 'success':
+				self._on_finish_done(True, message)
+			else:
+				self._on_finish_done(False, message)
+
+		def _run():
 			try:
+				if self._license_mode == 'DEMO':
+					success, msg = self.license_ctrl.activate_demo()
+				else:
+					success, msg = self.license_ctrl.activate_license(self._license_key)
+
+				if not success:
+					result_queue.put(('license_failed', msg))
+					return
+
 				self._setup_database()
 				self._save_settings()
-				if self.winfo_exists():
-					self.after(0, lambda m=msg: self._on_finish_done(True, m))
+				result_queue.put(('success', msg))
 			except Exception as e:
 				logger.error('Error al crear la base de datos: %s', e, exc_info=True)
 				try:
@@ -1557,14 +1828,15 @@ class SetupWizard(ctk.CTkFrame):
 						os.remove(lf)
 				except Exception:
 					pass
-				if self.winfo_exists():
-					self.after(0, lambda err=str(e): self._on_finish_done(False, err))
+				result_queue.put(('error', str(e)))
 
 		threading.Thread(target=_run, daemon=True).start()
+		self.after(50, _poll_finish_result)
 
 	def _on_finish_license_failed(self, msg: str):
 		if not self.winfo_exists():
 			return
+		self._clear_setup_progress_marker()
 		CTkMessagebox(title='Licencia rechazada', message=msg, icon='cancel')
 		self._busy = False
 		self._btn_next.configure(state='normal', text=_STEP_NEXT_LABELS[4])
@@ -1576,11 +1848,18 @@ class SetupWizard(ctk.CTkFrame):
 		if success:
 			CTkMessagebox(
 				title='¡Todo listo!',
-				message=f'Tu sistema CloudPOS está configurado.\n¡Bienvenido, {self._d_username}!',
+				message=(
+					f'CloudPOS está listo para usar sin conexión.\n\n'
+					f'Negocio: {self._d_store}\n'
+					f'Administrador: {self._d_username}\n'
+					'Esta PC es la Terminal Principal y guarda los datos localmente.\n\n'
+					'El plan Cloud, si lo contratás, se configura después para consultar reportes desde otros dispositivos.'
+				),
 				icon='check',
 			).get()
 			self.winfo_toplevel().after(100, self.on_complete_callback)
 		else:
+			self._clear_setup_progress_marker()
 			CTkMessagebox(
 				title='Error Fatal',
 				message=f'Falló la creación de la base de datos:\n{msg}',
@@ -1596,7 +1875,28 @@ class SetupWizard(ctk.CTkFrame):
 		engine = get_engine()
 		Base.metadata.create_all(engine)
 		Session = sessionmaker(bind=engine)
-		with Session() as session:
+		with Session.begin() as session:
+			existing_tenant = session.query(Tenant).first()
+			existing_user = session.query(User).first()
+			if existing_tenant or existing_user:
+				if not (existing_tenant and existing_user):
+					raise RuntimeError(
+						'La base local quedó incompleta tras una instalación anterior. '
+						'Contactá a soporte antes de reintentar.'
+					)
+				if (
+					existing_user.username != self._d_username
+					or not bcrypt.checkpw(
+						self._d_password.encode('utf-8'),
+						existing_user.password_hash.encode('utf-8'),
+					)
+				):
+					raise RuntimeError(
+						'Esta base ya tiene una configuración iniciada. Para terminarla, '
+						'usá el mismo administrador y contraseña que elegiste anteriormente.'
+					)
+				return
+
 			tenant = Tenant(name=self._d_store)
 			session.add(tenant)
 			session.flush()
@@ -1628,7 +1928,6 @@ class SetupWizard(ctk.CTkFrame):
 					is_active=True,
 				)
 			)
-			session.commit()
 
 	def _save_settings(self):
 		cfg = _cfg_load()
@@ -1665,6 +1964,8 @@ class SetupWizard(ctk.CTkFrame):
 		cfg['currency_decimals'] = 2 if '2' in self._d_decimals else 0
 		cfg['tax_rate'] = float(self._d_tax) if self._d_tax else 0.0
 		cfg['reports_path'] = self._d_reports_path
+		cfg.pop(_SETUP_DRAFT_KEY, None)
+		cfg.pop(_SETUP_IN_PROGRESS_KEY, None)
 		_cfg_save(cfg)
 
 	# ═══════════════════════════════════════════════════════════════════════
@@ -1680,6 +1981,7 @@ class SetupWizard(ctk.CTkFrame):
 		)
 		scroll.grid(row=0, column=0, sticky='nsew')
 		scroll.grid_columnconfigure(0, weight=1)
+		self._active_scroll = scroll
 
 		ctk.CTkLabel(
 			scroll,
@@ -1728,7 +2030,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			self._card_primary,
-			text='La base de datos vive en esta PC.\nBackup y sync a la nube incluidos.',
+			text='Esta PC guarda los datos y funciona sin internet.\nCloud es un complemento opcional para reportes móviles.',
 			font=FONT_BODY,
 			text_color=TEXT_MUTED,
 			anchor='w',
@@ -1741,7 +2043,7 @@ class SetupWizard(ctk.CTkFrame):
 				'✓  Gestión completa del negocio',
 				'✓  Reportes y estadísticas',
 				'✓  Backup automático diario',
-				'✓  Sync a la nube (plan cloud)',
+				'✓  Ventas, caja y stock sin conexión',
 			]
 		):
 			ctk.CTkLabel(
@@ -1801,7 +2103,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			self._card_cashier,
-			text='Se conecta a la base de datos\nde la Terminal Principal por red local.',
+			text='Se conecta a la Terminal Principal\npor la red local del comercio.',
 			font=FONT_BODY,
 			text_color=TEXT_MUTED,
 			anchor='w',
@@ -1839,7 +2141,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		ctk.CTkLabel(
 			self._card_cashier,
-			text='Ruta al pos_system.db en la Terminal Principal (puede ser carpeta de red).',
+			text='Indicá el archivo pos_system.db compartido. La PC principal debe estar encendida y la carpeta debe tener permiso de lectura/escritura.',
 			font=FONT_SMALL,
 			text_color=TEXT_MUTED,
 			anchor='w',
@@ -1866,6 +2168,7 @@ class SetupWizard(ctk.CTkFrame):
 		self._entry_cashier_path.bind(
 			'<FocusIn>', lambda e: self._select_cashier_terminal()
 		)
+		self._entry_cashier_path.bind('<KeyRelease>', self._reset_cashier_connection)
 
 		ctk.CTkButton(
 			path_row,
@@ -1881,6 +2184,22 @@ class SetupWizard(ctk.CTkFrame):
 			font=FONT_BODY_BOLD,
 			command=self._browse_cashier_db,
 		).grid(row=0, column=1)
+
+		self._btn_test_cashier = ctk.CTkButton(
+			path_row,
+			text='Probar',
+			width=64,
+			height=36,
+			fg_color=SURFACE3,
+			hover_color=SURFACE4,
+			text_color=TEXT_SECONDARY,
+			border_width=1,
+			border_color=BORDER,
+			corner_radius=6,
+			font=FONT_LABEL_BOLD,
+			command=self._test_cashier_connection,
+		)
+		self._btn_test_cashier.grid(row=0, column=2, padx=(PAD_XS, 0))
 
 		self._btn_sel_cashier = ctk.CTkButton(
 			self._card_cashier,
@@ -1906,6 +2225,8 @@ class SetupWizard(ctk.CTkFrame):
 			text_color=TEXT_MUTED,
 		)
 		self._lbl_terminal_status.pack(pady=(PAD_SM, 0))
+		self._make_card_selectable(self._card_primary, self._select_primary_terminal)
+		self._make_card_selectable(self._card_cashier, self._select_cashier_terminal)
 
 		# Restaurar selección previa
 		if self._terminal_mode_sel == 'cashier':
@@ -1963,6 +2284,64 @@ class SetupWizard(ctk.CTkFrame):
 		if path:
 			self._entry_cashier_path.delete(0, 'end')
 			self._entry_cashier_path.insert(0, path)
+			self._reset_cashier_connection()
+
+	def _reset_cashier_connection(self, event=None):
+		self._cashier_connection_verified = False
+		self._cashier_verified_path = ''
+
+	def _test_cashier_connection(self) -> bool:
+		"""Comprueba que el archivo compartido sea una base CloudPOS legible sin modificarla."""
+		path = self._entry_cashier_path.get().strip()
+		if not path:
+			self._lbl_terminal_status.configure(
+				text='⚠  Indicá la ruta de la base de datos para probar la conexión.',
+				text_color=ORANGE_TEXT,
+			)
+			self._focus_widget(self._entry_cashier_path)
+			return False
+		if not os.path.isfile(path):
+			self._lbl_terminal_status.configure(
+				text='⚠  No se encontró el archivo indicado. Revisá la ruta y el recurso compartido.',
+				text_color=RED_TEXT,
+			)
+			return False
+
+		connection = None
+		try:
+			connection = sqlite3.connect(path, timeout=5)
+			tables = {
+				row[0]
+				for row in connection.execute(
+					"SELECT name FROM sqlite_master WHERE type = 'table'"
+				)
+			}
+			if not {'users', 'tenants'}.issubset(tables):
+				raise sqlite3.DatabaseError('No parece ser una base de datos de CloudPOS')
+		except (OSError, sqlite3.Error) as exc:
+			self._cashier_connection_verified = False
+			self._lbl_terminal_status.configure(
+				text=(
+					'⚠  No se pudo abrir la base compartida. Verificá que la Terminal Principal esté '
+					f'encendida, los permisos de red y la ruta. Detalle: {exc}'
+				),
+				text_color=RED_TEXT,
+			)
+			self._entry_cashier_path.configure(border_color=RED)
+			return False
+		finally:
+			if connection is not None:
+				connection.close()
+
+		self._cashier_db_path = path
+		self._cashier_verified_path = path
+		self._cashier_connection_verified = True
+		self._entry_cashier_path.configure(border_color=GREEN)
+		self._lbl_terminal_status.configure(
+			text='✓  Conexión comprobada: la base de datos de CloudPOS está disponible.',
+			text_color=GREEN_TEXT,
+		)
+		return True
 
 	def _validate_step_terminal(self) -> bool:
 		if self._terminal_mode_sel == 'primary':
@@ -1975,13 +2354,17 @@ class SetupWizard(ctk.CTkFrame):
 			)
 			self._entry_cashier_path.configure(border_color=RED)
 			return False
-		if not os.path.exists(path):
+		if not os.path.isfile(path):
 			self._lbl_terminal_status.configure(
 				text=f'⚠  No se encontró el archivo: {path}',
 				text_color=RED_TEXT,
 			)
 			self._entry_cashier_path.configure(border_color=RED)
 			return False
+		if not (
+			self._cashier_connection_verified and self._cashier_verified_path == path
+		):
+			return self._test_cashier_connection()
 		self._cashier_db_path = path
 		return True
 
@@ -2000,21 +2383,31 @@ class SetupWizard(ctk.CTkFrame):
 			cfg = _cfg_load()
 			cfg['terminal_mode'] = 'cashier'
 			cfg['db_remote_path'] = self._cashier_db_path
+			cfg.pop(_SETUP_DRAFT_KEY, None)
+			cfg.pop(_SETUP_IN_PROGRESS_KEY, None)
 			_cfg_save(cfg)
 
 			CTkMessagebox(
 				title='Terminal Cajero configurada',
 				message=(
 					f'Esta PC se conectará a:\n{self._cashier_db_path}\n\n'
-					'Asegurate de que la Terminal Principal esté encendida\n'
-					'y accesible en la red antes de iniciar esta terminal.'
+					'La conexión fue comprobada. Para usar esta terminal, mantené\n'
+					'la Terminal Principal encendida y accesible en la red local.'
 				),
 				icon='check',
 			).get()
 
 			self.winfo_toplevel().after(100, self.on_complete_callback)
-		except Exception:
+		except Exception as exc:
+			logger.error('No se pudo guardar la configuración del cajero: %s', exc, exc_info=True)
+			CTkMessagebox(
+				title='No se pudo guardar',
+				message=(
+					'La conexión fue comprobada, pero no se pudo guardar esta configuración.\n\n'
+					f'Detalle: {exc}\n\nPodés corregirlo e intentarlo nuevamente.'
+				),
+				icon='cancel',
+			)
 			self._busy = False
-			self._btn_next.configure(state='normal', text='Finalizar')
+			self._btn_next.configure(state='normal', text='✓  Guardar configuración')
 			self._btn_back.configure(state='normal')
-			raise

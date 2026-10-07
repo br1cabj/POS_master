@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
 
 export const Inventory = () => {
-  const { data: stocks, loading, error } = useSupabaseQuery('stocks', {
+  const { data: stocks, loading, error } = useApiQuery('stocks', {
     select: '*, variant:article_variants(barcode, article:articles(name, min_stock)), warehouse:warehouses(name)',
     order: { column: 'quantity', ascending: true },
     limit: 500,

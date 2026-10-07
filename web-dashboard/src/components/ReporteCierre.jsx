@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { StatCard, Loading, ErrorState, EmptyState, Badge } from '@/components/shared/index.jsx';
 import { DonutChart, HorizontalBarChart } from '@/components/charts/index.jsx';
 import jsPDF from 'jspdf';
@@ -36,19 +36,19 @@ export const ReporteCierre = () => {
     return nextDay.toISOString().split('T')[0];
   }, [periodo, fechaFin, fechaHasta]);
 
-  const { data: sales, loading: salesLoading, error: salesError } = useSupabaseQuery('sales', {
+  const { data: sales, loading: salesLoading, error: salesError } = useApiQuery('sales', {
     select: '*, customer:customers(name), user:users(username), items:sale_details(quantity, unit_price, subtotal, description, variant:article_variants(article:articles(name)))',
     filter: [['date', 'gte', fechaInicio], ['date', 'lt', fechaFinCompleta]],
     enabled: true,
   });
 
-  const { data: purchases, loading: purchasesLoading, error: purchasesError } = useSupabaseQuery('purchases', {
+  const { data: purchases, loading: purchasesLoading, error: purchasesError } = useApiQuery('purchases', {
     select: 'total_amount, date, status',
     filter: [['date', 'gte', fechaInicio], ['date', 'lt', fechaFinCompleta]],
     enabled: true,
   });
 
-  const { data: cashMovements, loading: cashLoading, error: cashError } = useSupabaseQuery('cash_movements', {
+  const { data: cashMovements, loading: cashLoading, error: cashError } = useApiQuery('cash_movements', {
     select: 'movement_type, amount, description, time',
     filter: [['time', 'gte', fechaInicio], ['time', 'lt', fechaFinCompleta]],
     enabled: true,

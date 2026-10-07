@@ -1,0 +1,63 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cloudpos}
+      POSTGRES_USER: ${POSTGRES_USER:-cloudpos_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deploy/.env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [private]
+
+  api:
+    build:
+      context: ..
+      dockerfile: web-api/Dockerfile
+    restart: unless-stopped
+    environment:
+      CLOUD_DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-cloudpos_app}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-cloudpos}
+      CLOUDPOS_WEB_SESSION_HOURS: ${CLOUDPOS_WEB_SESSION_HOURS:-8}
+      CLOUDPOS_WEB_CORS_ORIGINS: ${CLOUDPOS_WEB_CORS_ORIGINS:-}
+      CLOUDPOS_ADMIN_API_KEY: ${CLOUDPOS_ADMIN_API_KEY:?Set CLOUDPOS_ADMIN_API_KEY in deploy/.env}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [private]
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: web-dashboard/Dockerfile
+    restart: unless-stopped
+    networks: [private]
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      CLOUDPOS_DOMAIN: ${CLOUDPOS_DOMAIN:?Set CLOUDPOS_DOMAIN in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api, dashboard]
+    networks: [private]
+
+networks:
+  private:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

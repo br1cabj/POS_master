@@ -5,7 +5,7 @@ Respaldo y restauración de la base de datos local (SQLite).
 
 - create_backup()       → copia consistente via API de SQLite (maneja WAL sin cerrar engine)
 - restore_backup()      → reemplaza pos_system.db y descarta el pool de conexiones
-- restore_from_cloud()  → baja datos de Supabase y reconstruye la BD local
+- restore_from_cloud()  → baja datos de PostgreSQL y reconstruye la BD local
 - auto_backup_if_needed() → corre en hilo daemon, una vez por día
 """
 
@@ -118,10 +118,10 @@ class BackupController:
 
 	def restore_from_cloud(self, progress_cb=None) -> tuple[bool, str]:
 		"""
-		Pull all synced tables from Supabase and overwrite the local SQLite database.
+		Pull all synced tables from the VPS PostgreSQL database and overwrite local SQLite.
 
 		Design goals:
-		- Filtered by tenant_id so shared Supabase data stays isolated.
+		- Filtered by tenant_id so shared PostgreSQL data stays isolated.
 		- Cash tables limited to the last 7 days (mirrors sync policy).
 		- Server-side subqueries for child tables — no large IN lists over the wire.
 		- Native sqlite3 with bulk PRAGMAs for fast local write.
@@ -164,8 +164,8 @@ class BackupController:
 		cash_cutoff = datetime.now() - timedelta(days=7)
 		BATCH = 1000
 
-		# ── Pull from Supabase ──────────────────────────────────────────────────
-		_report('Conectando a Supabase…')
+		# ── Pull from PostgreSQL ─────────────────────────────────────────────────
+		_report('Conectando al servidor PostgreSQL…')
 		collected: dict[str, list[dict]] = {}
 
 		try:
@@ -241,7 +241,7 @@ class BackupController:
 					_report(f'{tname}: {len(rows_all)} registros descargados')
 
 		except Exception as e:
-			logger.error('Error descargando de Supabase: %s', e, exc_info=True)
+			logger.error('Error descargando de PostgreSQL: %s', e, exc_info=True)
 			return False, f'Error de conexión a la nube: {e}'
 
 		# ── Safety backup ───────────────────────────────────────────────────────

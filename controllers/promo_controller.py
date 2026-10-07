@@ -37,6 +37,7 @@ class PromoController(BaseController):
 			'days_of_week': promo.days_of_week,
 			'time_from': promo.time_from,
 			'time_to': promo.time_to,
+			'updated_at': promo.updated_at,
 		}
 
 	def _is_active_now(self, promo_dict) -> bool:

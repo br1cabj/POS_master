@@ -27,17 +27,16 @@ SECRET_SALT = 'aantesbajocabeconcontradedesdeenentrehaciahastaparaporsegunsinsob
 _default_db = f'sqlite:///{_app_dir() / "pos_system.db"}'
 DB_URL = os.getenv('DATABASE_URL', _default_db)
 
-# ── Cloud / Supabase ──────────────────────────────────────────────────────────
-# Never embed a database URI (even obfuscated) in a distributable client.  A
-# missing value deliberately keeps sync disabled, as documented in .env.example.
-DATABASE_CLOUD_URL = os.getenv('DATABASE_CLOUD_URL', '').strip()
-
-# Supabase REST API (used by the UI for status checks and future realtime).
-SUPABASE_URL = os.getenv('SUPABASE_URL', '')
-SUPABASE_SERVICE_ROLE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
+# ── Optional Cloud add-on ───────────────────────────────────────────────────
+# The desktop never receives PostgreSQL credentials.  It publishes its local
+# reporting replica to the VPS through the authenticated Sync API only.
+CLOUDPOS_SYNC_API_URL = os.getenv('CLOUDPOS_SYNC_API_URL', '').strip().rstrip('/')
+CLOUDPOS_DEVICE_TOKEN = os.getenv('CLOUDPOS_DEVICE_TOKEN', '').strip()
+# Compatibility only: desktop code must not use a cloud DB connection.
+DATABASE_CLOUD_URL = ''
 
 # True when cloud sync is configured and should run.
-CLOUD_SYNC_ENABLED = bool(DATABASE_CLOUD_URL)
+CLOUD_SYNC_ENABLED = bool(CLOUDPOS_SYNC_API_URL and CLOUDPOS_DEVICE_TOKEN)
 
 # How often the background worker syncs (seconds). Default: 5 minutes.
 try:
@@ -81,28 +80,8 @@ def make_engine(url: str = None) -> Engine:
 	return create_engine(target, **kwargs)
 
 
-def make_cloud_engine() -> Engine | None:
-	"""
-	Creates a PostgreSQL engine pointing at Supabase.
-	Returns None when DATABASE_CLOUD_URL is not set.
-	Uses a smaller pool than the local engine since sync is background-only.
-	"""
-	if not DATABASE_CLOUD_URL:
-		return None
-	return create_engine(
-		DATABASE_CLOUD_URL,
-		pool_size=3,
-		max_overflow=5,
-		pool_recycle=1800,
-		pool_pre_ping=True,
-		pool_timeout=15,
-	)
-
-
 _shared_engine: Engine | None = None
-_cloud_engine: Engine | None = None
 _engine_lock = threading.Lock()
-_cloud_engine_lock = threading.Lock()
 
 
 def get_engine(url: str = None) -> Engine:
@@ -114,13 +93,7 @@ def get_engine(url: str = None) -> Engine:
 		return _shared_engine
 
 
-def get_cloud_engine() -> Engine | None:
-	"""
-	Returns the shared cloud (PostgreSQL/Supabase) engine — singleton.
-	Returns None when DATABASE_CLOUD_URL is not configured.
-	"""
-	global _cloud_engine
-	with _cloud_engine_lock:
-		if _cloud_engine is None and DATABASE_CLOUD_URL:
-			_cloud_engine = make_cloud_engine()
-		return _cloud_engine
+def get_cloud_engine() -> None:
+	"""Removed by design: CloudPOS desktop never opens the VPS database."""
+	return None
+

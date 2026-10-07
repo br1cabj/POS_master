@@ -1,8 +1,10 @@
 from decimal import Decimal
+from types import SimpleNamespace
+import sys
 
 import pytest
 
-from controllers.label_controller import LabelController, _fmt_price, _sanitize
+from controllers.label_controller import TEMPLATES, LabelController, _fmt_price, _sanitize
 from database.models import Article, ArticleVariant, Tenant
 
 
@@ -63,7 +65,8 @@ def test_pdf_preflight_rejects_invalid_barcode():
 	assert 'dígito verificador' in message
 
 
-def test_preview_renders_the_same_template_page():
+@pytest.mark.parametrize('template_key', TEMPLATES)
+def test_preview_renders_each_print_template(template_key):
 	controller = LabelController()
 	image = controller.render_preview_image(
 		{
@@ -72,6 +75,30 @@ def test_preview_renders_the_same_template_page():
 			'price': 1234,
 			'copies': 1,
 		},
-		'dual',
+		template_key,
 	)
 	assert image.width > image.height > 0
+
+
+def test_label_delivery_uses_selected_windows_driver(monkeypatch):
+	controller = LabelController()
+	shell_execute_calls = []
+	monkeypatch.setattr(
+		'controllers.label_controller.platform.system', lambda: 'Windows'
+	)
+	monkeypatch.setitem(
+		sys.modules,
+		'win32api',
+		SimpleNamespace(
+			ShellExecute=lambda *args: shell_execute_calls.append(args) or 33
+		),
+	)
+
+	controller._deliver_pdf(
+		'C:/temp/etiqueta.pdf',
+		{'printer_label_name': 'Impresora de etiquetas', 'label_output_mode': 'printer'},
+	)
+
+	assert shell_execute_calls
+	assert 'Impresora de etiquetas' in shell_execute_calls[0][3]
+	assert controller.last_delivery_message == 'PDF enviado a «Impresora de etiquetas».'

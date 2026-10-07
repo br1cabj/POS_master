@@ -30,7 +30,6 @@ export default defineConfig({
         manualChunks: {
           apexcharts: ['apexcharts', 'react-apexcharts'],
           jspdf: ['jspdf', 'jspdf-autotable'],
-          supabase: ['@supabase/supabase-js'],
           router: ['react-router-dom'],
           query: ['@tanstack/react-query'],
         },

@@ -75,6 +75,9 @@ class PosApp(ctk.CTk):
 
 		self.title('CloudPOS - Sistema de Gestion')
 		self.geometry('1000x600')
+		# El wizard y las vistas de punto de venta tienen controles en dos columnas.
+		# Evita recortes al reducir la ventana por debajo del diseño soportado.
+		self.minsize(1000, 600)
 
 		try:
 			_base = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
@@ -374,7 +377,7 @@ class PosApp(ctk.CTk):
 	def start_dashboard(self, current_user):
 		"""
 		Decide si mostrar el onboarding (primer login) o el dashboard directamente.
-		El flag 'onboarding_shown' se escribe en settings.json desde OnboardingView._done().
+		El flag se escribe solo cuando el usuario termina u omite la guía de forma explícita.
 		"""
 		self._clear_window()
 		engine = self._get_or_create_engine()
@@ -402,7 +405,7 @@ class PosApp(ctk.CTk):
 			self._show_dashboard(ctx)
 
 	def _show_onboarding(self, ctx):
-		"""Muestra el onboarding post-primer-login."""
+		"""Muestra la guía de inicio, también disponible desde el dashboard."""
 		self._clear_window()
 		OnboardingView(
 			self,
@@ -420,6 +423,7 @@ class PosApp(ctk.CTk):
 			self,
 			ctx=ctx,
 			logout_command=self.show_login,
+			onboarding_command=lambda: self._show_onboarding(ctx),
 		)
 		dashboard.pack(fill='both', expand=True)
 

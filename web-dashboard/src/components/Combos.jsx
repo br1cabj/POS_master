@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
 
 export const Combos = () => {
-  const { data: combos, loading, error } = useSupabaseQuery('article_variants', {
+  const { data: combos, loading, error } = useApiQuery('article_variants', {
     select: '*, article:articles(name), combo_items!combo_id(ingredient_id, quantity_required, ingredient:article_variants!ingredient_id(barcode, article:articles(name)))',
     filter: ['is_combo', 'eq', true],
     order: { column: 'updated_at', ascending: false },

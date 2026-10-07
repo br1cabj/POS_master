@@ -36,7 +36,7 @@ See [CHANGELOG.md](CHANGELOG.md) for implementation notes and upgrade considerat
 - **CRM** — Customer accounts, credit lines (fiado), and quotation generation.
 - **Analytics & Reports** — End-of-day closing reports, sales/stock history, and Excel exports.
 - **Access Control** — Role-based access (Admin / Cashier) with secure employee session management.
-- **Hybrid Data Sync** — Local-first SQLite operations with optional cloud sync to Supabase via REST API.
+- **Hybrid Data Sync** — Local-first SQLite operations with optional synchronization to private PostgreSQL on your VPS.
 - **Web Dashboard** — Modern React-based remote administration panel with rich ApexCharts analytics.
 - **License System** — Secure trial periods, encrypted activation codes, and license renewals.
 
@@ -47,7 +47,7 @@ See [CHANGELOG.md](CHANGELOG.md) for implementation notes and upgrade considerat
 | **Desktop UI** | [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter) 5.x |
 | **Web UI** | React + Vite + Bootstrap Icons |
 | **ORM** | [SQLAlchemy](https://www.sqlalchemy.org/) 2.x |
-| **Database** | SQLite (Local) / Supabase (Cloud) |
+| **Database** | SQLite (Local) / PostgreSQL privado (VPS) |
 | **PDF Generation** | fpdf2 |
 | **Data Visualization** | Matplotlib (Desktop) / ApexCharts (Web) |
 | **Spreadsheets** | Pandas + openpyxl |
@@ -159,13 +159,13 @@ pyinstaller CloudPOS.spec --clean
 | Variable | Default | Description |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///pos_system.db` | SQLAlchemy database connection string |
-| `CLOUD_ENDPOINT` | — | Supabase REST endpoint for cloud sync (optional) |
-| `CLOUD_API_KEY` | — | API key for cloud synchronization (optional) |
-| `service_role` | — | Supabase service role key (optional) |
+| `CLOUDPOS_SYNC_API_URL` | — | URL HTTPS del complemento Cloud opcional |
+| `CLOUDPOS_DEVICE_TOKEN` | — | Credencial revocable del equipo principal para sincronizar |
+| `CLOUD_SYNC_INTERVAL` | `300` | Intervalo de sincronización en segundos |
 
 > ⚠️ **Security Warning:** Never commit the `.env` file to version control.
 
-For cloud synchronization, configure `DATABASE_CLOUD_URL` only in the deployment environment. The application deliberately does not include a fallback cloud URL or service key. Run migrations against the cloud database before exposing the web dashboard; they install the tenant-scoped access policies and the secure web-session functions.
+El panel web y el escritorio no reciben credenciales PostgreSQL. La PC principal publica una réplica de reportes mediante HTTPS y el panel web es solo de lectura. Consulta la guía de [despliegue en VPS](docs/VPS_DEPLOYMENT.md).
 
 ## 🗺 Roadmap
 

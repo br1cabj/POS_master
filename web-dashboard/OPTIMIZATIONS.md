@@ -5,7 +5,7 @@
 ### 1. State Management Moderno
 
 #### TanStack Query (React Query)
-- **Archivo**: `src/lib/queryClient.js`, `src/hooks/useSupabaseQuery.js`
+- **Archivo**: `src/lib/queryClient.js`, `src/hooks/useApiQuery.js`
 - **Beneficios**:
   - Caching automático de datos
   - Deduplicación de requests
@@ -87,10 +87,10 @@
   - `memoize` - Memoización de funciones puras
 
 ### 7. Backward Compatibility
-- **Archivo**: `src/hooks/useSupabase.jsx`
-- El hook original se mantiene funcional
-- Los componentes existentes siguen funcionando sin cambios
-- Migración gradual posible al nuevo `useSupabaseQuery.js`
+- **Archivo**: `src/hooks/useApiQuery.js`
+- El hook consulta la API privada del VPS
+- Los componentes existentes usan la misma interfaz de consulta
+- La base de datos no queda expuesta al navegador
 
 ## Métricas de Mejora Estimadas
 
@@ -105,7 +105,7 @@
 
 ## Próximos Pasos Recomendados
 
-1. **Migrar gradualmente** componentes al nuevo `useSupabaseQuery.js` con TanStack Query
+1. **Agregar virtualización** a consultas de gran volumen con TanStack Query
 2. **Agregar virtualización** con react-window para listas >100 items
 3. **Implementar ESLint + Prettier** para consistencia de código
 4. **Agregar tests** con Vitest + React Testing Library
@@ -117,9 +117,9 @@
 
 ### TanStack Query (nuevo hook)
 ```jsx
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 
-const { data, loading, error, refetch } = useSupabaseQuery('sales', {
+const { data, loading, error, refetch } = useApiQuery('sales', {
   select: 'id, total_amount',
   refreshInterval: 120000, // auto-refresh cada 2 min
 });

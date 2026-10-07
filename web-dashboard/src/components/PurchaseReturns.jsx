@@ -1,18 +1,18 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Badge, Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
 
 export const PurchaseReturns = () => {
   const [expandedReturn, setExpandedReturn] = useState(null);
 
-  const { data: returns, loading, error } = useSupabaseQuery('purchase_returns', {
+  const { data: returns, loading, error } = useApiQuery('purchase_returns', {
     select: '*, purchase:purchases(invoice_number, supplier:suppliers(name))',
     order: { column: 'date', ascending: false },
     limit: 500,
   });
 
-  const { data: returnItems, loading: itemsLoading, error: itemsError } = useSupabaseQuery('purchase_return_items', {
+  const { data: returnItems, loading: itemsLoading, error: itemsError } = useApiQuery('purchase_return_items', {
     select: '*, variant:article_variants(barcode, article:articles(name))',
     filter: expandedReturn ? ['purchase_return_id', 'eq', expandedReturn] : null,
     enabled: !!expandedReturn,

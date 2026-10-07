@@ -3,7 +3,7 @@ from tkinter import ttk
 
 import customtkinter as ctk
 
-from controllers.user_controller import UserController
+from controllers.user_controller import PASSWORD_MIN_LENGTH, UserController
 from core.base_view import BaseView
 from core.context import AppContext
 from utils.styles import (
@@ -121,7 +121,7 @@ class UsersView(BaseView):
 		)
 		self.entry_pass = ctk.CTkEntry(
 			self.pass_pin_container,
-			placeholder_text='Mínimo 6 caracteres',
+			placeholder_text=f'Mínimo {PASSWORD_MIN_LENGTH} caracteres',
 			show='*',
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
@@ -461,7 +461,7 @@ class UsersView(BaseView):
 		username = self.entry_user.get().strip()
 		role_ui = self.combo_role.get()
 		role = 'admin' if role_ui == 'Administrador' else 'cajero'
-		password = self.entry_pass.get().strip()
+		password = self.entry_pass.get()
 		pin = self.entry_pin.get().strip() or None
 		display_name = self.entry_display_name.get().strip() or None
 
@@ -490,8 +490,10 @@ class UsersView(BaseView):
 						)
 						return
 		else:
-			if not password or len(password) < 6:
-				self.show_warning('La contraseña debe tener al menos 6 caracteres.')
+			if len(password) < PASSWORD_MIN_LENGTH:
+				self.show_warning(
+					f'La contraseña debe tener al menos {PASSWORD_MIN_LENGTH} caracteres.'
+				)
 				return
 			if pin and (not pin.isdigit() or len(pin) < 4):
 				self.show_warning('El PIN debe tener al menos 4 dígitos numéricos.')
@@ -587,7 +589,7 @@ class UsersView(BaseView):
 		)
 		entry_new = ctk.CTkEntry(
 			popup,
-			placeholder_text='Mínimo 6 caracteres',
+			placeholder_text=f'Mínimo {PASSWORD_MIN_LENGTH} caracteres',
 			show='*',
 			fg_color=SURFACE3,
 			border_color=BORDER_ACTIVE,
@@ -622,15 +624,15 @@ class UsersView(BaseView):
 		lbl_err.pack()
 
 		def _do_reset():
-			new_pass = entry_new.get().strip()
-			confirmed = entry_confirm.get().strip()
+			new_pass = entry_new.get()
+			confirmed = entry_confirm.get()
 
 			if not new_pass:
 				lbl_err.configure(text='Ingresá la nueva contraseña.')
 				return
-			if len(new_pass) < 6:
+			if len(new_pass) < PASSWORD_MIN_LENGTH:
 				lbl_err.configure(
-					text='La contraseña debe tener al menos 6 caracteres.'
+					text=f'La contraseña debe tener al menos {PASSWORD_MIN_LENGTH} caracteres.'
 				)
 				return
 			if new_pass != confirmed:

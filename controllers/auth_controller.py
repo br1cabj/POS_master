@@ -12,6 +12,7 @@ class AuthController(BaseController):
 	def __init__(self, db_engine=None):
 		super().__init__(db_engine)
 		self._dummy_hash = bcrypt.hashpw(b'dummy_password', bcrypt.gensalt())
+		self.last_error: str | None = None
 
 	def get_first_tenant_id(self):
 		"""
@@ -19,6 +20,7 @@ class AuthController(BaseController):
 		En instalaciones de un solo negocio siempre hay uno.
 		"""
 		from database.models import Tenant
+		self.last_error = None
 
 		with self._Session() as session:
 			try:
@@ -26,6 +28,7 @@ class AuthController(BaseController):
 				return tenant.id if tenant else None
 			except Exception as e:
 				logger.error(f'Error al obtener tenant_id: {e}', exc_info=True)
+				self.last_error = 'No se pudo acceder a la base de datos local.'
 				return None
 
 	def login(self, username, password, tenant_id=None):
@@ -34,6 +37,7 @@ class AuthController(BaseController):
 		Ejecuta bcrypt.checkpw() incluso cuando el usuario no existe para equiparar
 		el tiempo de respuesta y prevenir enumeracion de usuarios por timing attack.
 		"""
+		self.last_error = None
 		if not username or not password:
 			logger.warning('Intento de login con campos vacios.')
 			return None
@@ -76,6 +80,7 @@ class AuthController(BaseController):
 							f'Error al verificar credenciales para {username_clean}: {bcrypt_err}',
 							exc_info=True,
 						)
+						self.last_error = 'No se pudo leer la configuración local del usuario.'
 						return None
 				else:
 					bcrypt.checkpw(password_bytes, self._dummy_hash)
@@ -87,4 +92,5 @@ class AuthController(BaseController):
 				logger.error(
 					f'Error de base de datos durante el login: {e}', exc_info=True
 				)
+				self.last_error = 'No se pudo acceder a la base de datos local.'
 				return None

@@ -57,7 +57,7 @@ def generar_codigo_cloud(tenant_id: str, dias_duracion: int) -> str:
 
 	El cliente lo ingresa en Configuración > Licencias y Plan > Plan Cloud.
 	El tenant_id se obtiene desde la misma pantalla de Configuración del cliente.
-	El primer ciclo de sync crea el tenant en Supabase automáticamente.
+	El primer ciclo de sync crea el tenant en PostgreSQL automáticamente.
 	"""
 	fecha_exp = (datetime.now() + timedelta(days=dias_duracion)).strftime('%Y%m%d')
 	fecha_fmt = f'{fecha_exp[:4]}-{fecha_exp[4:6]}-{fecha_exp[6:8]}'
@@ -82,7 +82,7 @@ def generar_codigo_cloud(tenant_id: str, dias_duracion: int) -> str:
 
 def _menu_cloud():
 	print('\n  --- PLAN CLOUD ---\n')
-	print('  Tenant ID (UUID del cliente en Supabase).')
+	print('  Tenant ID (UUID del cliente en PostgreSQL).')
 	print('  Dejá vacío para generar uno nuevo.\n')
 
 	raw = input('  Tenant ID: ').strip()
@@ -101,7 +101,7 @@ def _menu_cloud():
 		print(
 			'  Pedile al cliente que lo configure en Configuración > Licencia\n'
 			'  o usá el Tenant ID que el cliente ya tiene en esa pantalla.\n'
-			'  El primer sync lo crea en Supabase automáticamente.\n'
+			'  El primer sync lo crea en PostgreSQL automáticamente.\n'
 		)
 
 	print('\n  Duración del plan:')

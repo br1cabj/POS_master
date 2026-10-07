@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { Loading, ErrorState, EmptyState, Badge } from '@/components/shared/index.jsx';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import jsPDF from 'jspdf';
@@ -10,14 +10,14 @@ export const CustomerLedger = () => {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [pdfError, setPdfError] = useState(null);
 
-  const { data: customers, loading: customersLoading, error: customersError } = useSupabaseQuery('customers', {
+  const { data: customers, loading: customersLoading, error: customersError } = useApiQuery('customers', {
     select: '*',
     filter: ['is_active', 'eq', true],
     order: { column: 'name', ascending: true },
     limit: 500,
   });
 
-  const { data: sales, loading: salesLoading, error: salesError } = useSupabaseQuery('sales', {
+  const { data: sales, loading: salesLoading, error: salesError } = useApiQuery('sales', {
     select: 'id, date, total_amount, total_returned, customer:customers(name), items:sale_details(quantity, unit_price, subtotal, description)',
     filter: selectedCustomer ? [
       ['customer_id', 'eq', selectedCustomer],
@@ -28,7 +28,7 @@ export const CustomerLedger = () => {
     enabled: !!selectedCustomer,
   });
 
-  const { data: cashMovements, loading: cashLoading, error: cashError } = useSupabaseQuery('cash_movements', {
+  const { data: cashMovements, loading: cashLoading, error: cashError } = useApiQuery('cash_movements', {
     select: 'amount, description, time, customer_id',
     filter: selectedCustomer ? [['customer_id', 'eq', selectedCustomer]] : null,
     order: { column: 'time', ascending: true },

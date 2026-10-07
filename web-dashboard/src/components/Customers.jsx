@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
-import { useSupabaseQuery } from '@/hooks/useSupabaseQuery.js';
+import { useApiQuery } from '@/hooks/useApiQuery.js';
 import { DataTable } from '@/components/shared/DataTable.jsx';
 import { Loading, ErrorState, EmptyState } from '@/components/shared/index.jsx';
 
 export const Customers = () => {
-  const { data: customers, loading, error } = useSupabaseQuery('customers', {
+  const { data: customers, loading, error } = useApiQuery('customers', {
     select: '*',
     filter: ['is_active', 'eq', true],
     order: { column: 'name', ascending: true },

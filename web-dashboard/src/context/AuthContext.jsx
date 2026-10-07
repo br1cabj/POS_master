@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { clearCloudSession, setCloudSession, supabase } from '@/lib/supabase.jsx';
+import { apiRequest } from '@/lib/api.js';
 
 const AuthContext = createContext(null);
 
@@ -53,10 +53,6 @@ function normalizeUser(row) {
   };
 }
 
-function firstRow(data) {
-  return Array.isArray(data) ? data[0] : data;
-}
-
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -71,17 +67,13 @@ export const AuthProvider = ({ children }) => {
         return;
       }
       try {
-        setCloudSession(token);
-        const { data, error: rpcError } = await supabase.rpc('cloudpos_web_session');
-        if (rpcError) throw rpcError;
-        const restoredUser = normalizeUser(firstRow(data));
+        const restoredUser = normalizeUser(await apiRequest('/auth/session'));
         if (!restoredUser) throw new Error('La sesión expiró');
         if (!cancelled) {
           setUser(restoredUser);
           localStorage.setItem(USER_KEY, JSON.stringify(restoredUser));
         }
       } catch {
-        clearCloudSession();
         localStorage.removeItem(SESSION_KEY);
         localStorage.removeItem(USER_KEY);
       } finally {
@@ -101,17 +93,12 @@ export const AuthProvider = ({ children }) => {
       return false;
     }
     try {
-      clearCloudSession();
-      const { data, error: rpcError } = await supabase.rpc('cloudpos_web_login', {
-        p_username: username,
-        p_password: password,
-        p_tenant_id: tenantId,
+      const result = await apiRequest('/auth/login', {
+        method: 'POST', authenticated: false,
+        body: { username, password, tenant_id: tenantId },
       });
-      if (rpcError) throw rpcError;
-      const result = firstRow(data);
       const loggedUser = normalizeUser(result);
       if (!loggedUser || !result?.session_token) throw new Error('Credenciales o empresa incorrectas.');
-      setCloudSession(result.session_token);
       localStorage.setItem(SESSION_KEY, result.session_token);
       localStorage.setItem(USER_KEY, JSON.stringify(loggedUser));
       setUser(loggedUser);
@@ -130,7 +117,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const logout = useCallback(() => {
-    clearCloudSession();
+    apiRequest('/auth/logout', { method: 'POST' }).catch(() => {});
     setUser(null);
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(USER_KEY);
