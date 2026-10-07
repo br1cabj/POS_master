@@ -326,7 +326,7 @@ class QuotationView(BaseView):
 
 	def _show_detail(self, qid: int):
 		self._in_form_mode = False
-		data = self._ctrl.get_quotation(qid)
+		data = self._ctrl.get_quotation(qid, self.ctx.tenant_id)
 		if not data:
 			return
 		self._clear_right()
@@ -380,35 +380,17 @@ class QuotationView(BaseView):
 		acts.grid(row=r, column=0, sticky='ew', pady=(0, PAD_SM))
 		r += 1
 
-		for col, (txt, bg, hov, cmd) in enumerate(
-			[
-				(
-					'✏  Editar',
-					SURFACE3,
-					SURFACE4,
-					lambda d=data: self._open_form_edit(d),
-				),
-				(
-					'📄  PDF',
-					ACCENT,
-					ACCENT_HOVER,
-					lambda i=data['id']: self._export_pdf(i),
-				),
-				(
-					'📋  Duplicar',
-					SURFACE3,
-					SURFACE4,
-					lambda i=data['id']: self._duplicate(i),
-				),
-				(
-					'🛒  Convertir',
-					GREEN,
-					'#15803d',
-					lambda i=data['id']: self._convert_to_sale(i),
-				),
-				('🗑  Eliminar', RED, '#b91c1c', lambda i=data['id']: self._delete(i)),
-			]
-		):
+		actions = [
+			('📄  PDF', ACCENT, ACCENT_HOVER, lambda i=data['id']: self._export_pdf(i)),
+			('📋  Duplicar', SURFACE3, SURFACE4, lambda i=data['id']: self._duplicate(i)),
+		]
+		if data['status'] == 'borrador':
+			actions.insert(0, ('✏  Editar', SURFACE3, SURFACE4, lambda d=data: self._open_form_edit(d)))
+			actions.append(('🗑  Eliminar', RED, '#b91c1c', lambda i=data['id']: self._delete(i)))
+		if data['status'] == 'enviada':
+			actions.append(('🛒  Convertir', GREEN, '#15803d', lambda i=data['id']: self._convert_to_sale(i)))
+
+		for col, (txt, bg, hov, cmd) in enumerate(actions):
 			ctk.CTkButton(
 				acts,
 				text=txt,
@@ -428,9 +410,13 @@ class QuotationView(BaseView):
 			st_f, text='Estado:', font=FONT_LABEL, text_color=TEXT_SECONDARY
 		).pack(side='left', padx=PAD_SM, pady=PAD_SM)
 
+		allowed_transitions = QuotationController._ALLOWED_STATUS_TRANSITIONS.get(
+			data['status'], set()
+		)
 		for s in STATUS_OPTIONS:
 			s_bg2, s_fg2 = STATUS_THEME.get(s, (SURFACE3, TEXT_SECONDARY))
 			active = data['status'] == s
+			can_change = s in allowed_transitions
 			ctk.CTkButton(
 				st_f,
 				text=QuotationController.STATUS_LABELS[s],
@@ -442,7 +428,8 @@ class QuotationView(BaseView):
 				font=FONT_LABEL_BOLD if active else FONT_LABEL,
 				border_width=2 if active else 0,
 				border_color=s_fg2 if active else SURFACE3,
-				command=lambda st=s, i=data['id']: self._change_status(i, st),
+				command=(lambda st=s, i=data['id']: self._change_status(i, st)) if can_change else None,
+				state='normal' if can_change else 'disabled',
 			).pack(side='left', padx=3, pady=PAD_SM)
 
 		tbl = ctk.CTkFrame(scroll, fg_color=SURFACE2, corner_radius=10)
@@ -556,6 +543,9 @@ class QuotationView(BaseView):
 		self._render_form(prefill=None)
 
 	def _open_form_edit(self, data: dict):
+		if data.get('status') != 'borrador':
+			self.show_warning('Solo se pueden editar cotizaciones en borrador.', 'Estado inválido')
+			return
 		self._edit_id = data['id']
 		self._items = [dict(it) for it in data['items']]
 		self._item_widgets = []
@@ -638,14 +628,12 @@ class QuotationView(BaseView):
 		self._entry_valid.bind(
 			'<KeyRelease>', lambda e: setattr(self, '_form_is_dirty', True)
 		)
-		if prefill and prefill.get('valid_until'):
+		if prefill and prefill.get('valid_until_raw'):
 			try:
-				vu_date = datetime.strptime(
-					prefill['valid_until'][:10], '%Y-%m-%d'
-				).date()
+				vu_date = prefill['valid_until_raw']
 				days = (vu_date - datetime.now().date()).days
 				self._entry_valid.insert(0, str(max(days, 1)))
-			except Exception:
+			except (AttributeError, TypeError):
 				self._entry_valid.insert(0, '15')
 		else:
 			self._entry_valid.insert(0, '15')
@@ -699,6 +687,9 @@ class QuotationView(BaseView):
 
 		if prefill and prefill.get('notes'):
 			self._entry_notes.insert('1.0', prefill['notes'])
+		self._entry_notes.bind(
+			'<KeyRelease>', lambda e: setattr(self, '_form_is_dirty', True)
+		)
 
 		self._tot_frame = ctk.CTkFrame(scroll, fg_color=SURFACE2, corner_radius=10)
 		self._tot_frame.grid(row=r, column=0, sticky='ew', pady=(0, PAD_SM))
@@ -905,6 +896,7 @@ class QuotationView(BaseView):
 				'variant_id': res['variant_id'],
 			}
 		)
+		self._form_is_dirty = True
 		self._close_art_results()
 		if self._entry_art_search.winfo_exists():
 			self._entry_art_search.delete(0, 'end')
@@ -922,6 +914,7 @@ class QuotationView(BaseView):
 				'variant_id': None,
 			}
 		)
+		self._form_is_dirty = True
 		self._rebuild_items_table(focus_last=True)
 
 	def _rebuild_items_table(self, focus_last=False):
@@ -1045,6 +1038,8 @@ class QuotationView(BaseView):
 				self._recalc_item(i, eq, ep, ls)
 				if i < len(self._items):
 					self._items[i]['description'] = ed.get()
+				if e is not None:
+					self._form_is_dirty = True
 
 			e_qty.bind('<KeyRelease>', _upd)
 			e_price.bind('<KeyRelease>', _upd)
@@ -1064,14 +1059,16 @@ class QuotationView(BaseView):
 			price_str = e_price.get().strip().replace(',', '.') or '0'
 			qty = Decimal(qty_str)
 			price = Decimal(price_str)
+			if not qty.is_finite() or not price.is_finite():
+				raise InvalidOperation
 			sub = (qty * price).quantize(Decimal('0.01'))
 			if idx < len(self._items):
-				self._items[idx]['quantity'] = float(qty)
-				self._items[idx]['unit_price'] = float(price)
-				self._items[idx]['subtotal'] = float(sub)
+				self._items[idx]['quantity'] = qty
+				self._items[idx]['unit_price'] = price
+				self._items[idx]['subtotal'] = sub
 			if lbl_sub.winfo_exists():
 				lbl_sub.configure(text=fmt_price(float(sub)))
-		except (InvalidOperation, Exception):
+		except (InvalidOperation, ValueError, TypeError):
 			pass
 		self._update_totals_label()
 
@@ -1079,6 +1076,7 @@ class QuotationView(BaseView):
 		self._sync_items_from_widgets()
 		if 0 <= idx < len(self._items):
 			self._items.pop(idx)
+			self._form_is_dirty = True
 		self._rebuild_items_table()
 
 	def _update_totals_label(self):
@@ -1096,7 +1094,7 @@ class QuotationView(BaseView):
 				if self._entry_disc and self._entry_disc.winfo_exists()
 				else Decimal('0')
 			)
-		except (InvalidOperation, Exception):
+		except (InvalidOperation, ValueError, TypeError):
 			disc = Decimal('0')
 
 		subtotal = sum(Decimal(str(it.get('subtotal', 0))) for it in self._items)
@@ -1125,27 +1123,25 @@ class QuotationView(BaseView):
 			text_color=TEXT_PRIMARY,
 		).pack(anchor='e')
 
-	def _sync_items_from_widgets(self):
+	def _sync_items_from_widgets(self) -> bool:
 		for idx, (e_desc, e_qty, e_price, lbl_sub) in enumerate(self._item_widgets):
 			if idx >= len(self._items):
 				break
 			try:
 				if e_qty.winfo_exists():
-					qty = float(str(e_qty.get() or '0').replace(',', '.'))
-					price = float(str(e_price.get() or '0').replace(',', '.'))
-					sub = round(qty * price, 2)
+					qty = Decimal(str(e_qty.get() or '0').replace(',', '.'))
+					price = Decimal(str(e_price.get() or '0').replace(',', '.'))
+					if not qty.is_finite() or not price.is_finite():
+						return False
+					sub = (qty * price).quantize(Decimal('0.01'))
 				else:
 					qty, price, sub = (
 						self._items[idx].get('quantity', 1.0),
 						self._items[idx].get('unit_price', 0.0),
 						self._items[idx].get('subtotal', 0.0),
 					)
-			except ValueError:
-				qty, price, sub = (
-					self._items[idx].get('quantity', 1.0),
-					self._items[idx].get('unit_price', 0.0),
-					self._items[idx].get('subtotal', 0.0),
-				)
+			except (InvalidOperation, ValueError, TypeError):
+				return False
 
 			if e_desc.winfo_exists():
 				self._items[idx]['description'] = e_desc.get()
@@ -1153,9 +1149,12 @@ class QuotationView(BaseView):
 			self._items[idx]['quantity'] = qty
 			self._items[idx]['unit_price'] = price
 			self._items[idx]['subtotal'] = sub
+		return True
 
 	def _save_form(self):
-		self._sync_items_from_widgets()
+		if not self._sync_items_from_widgets():
+			self.show_warning('Revisá las cantidades y precios de los ítems.', 'Dato inválido')
+			return
 
 		if not self._items:
 			self.show_warning(
@@ -1175,17 +1174,18 @@ class QuotationView(BaseView):
 			)
 			return
 
-		no_price = [
-			i + 1
-			for i, it in enumerate(self._items)
-			if float(it.get('unit_price', 0)) == 0
-		]
-		if no_price:
-			self.show_error(
-				f'El ítem #{no_price[0]} tiene precio $0. No se pueden guardar cotizaciones con ítems sin precio.',
-				'Precio en $0',
-			)
-			return
+		for index, item in enumerate(self._items, start=1):
+			try:
+				qty = Decimal(str(item.get('quantity', 0)))
+				price = Decimal(str(item.get('unit_price', 0)))
+				if not qty.is_finite() or not price.is_finite() or qty <= 0 or price <= 0:
+					raise ValueError
+			except (InvalidOperation, ValueError, TypeError):
+				self.show_error(
+					f'El ítem #{index} debe tener cantidad y precio mayores a cero.',
+					'Dato inválido',
+				)
+				return
 
 		cust_name = self._combo_cust.get()
 		cust_id = next(
@@ -1195,13 +1195,20 @@ class QuotationView(BaseView):
 		try:
 			valid_days = int(self._entry_valid.get() or '15')
 			valid_days = max(valid_days, 0)
-		except Exception:
-			valid_days = 15
+		except (TypeError, ValueError):
+			self.show_warning('Ingresá días de validez como un número entero.', 'Dato inválido')
+			return
+		if valid_days > 3650:
+			self.show_warning('Los días de validez no pueden superar 3650.', 'Dato inválido')
+			return
 
 		try:
-			disc = float(str(self._entry_disc.get() or '0').replace(',', '.'))
-		except Exception:
-			disc = 0.0
+			disc = Decimal(str(self._entry_disc.get() or '0').replace(',', '.'))
+			if not disc.is_finite() or disc < 0:
+				raise ValueError
+		except (InvalidOperation, ValueError):
+			self.show_warning('El descuento debe ser un importe positivo válido.', 'Dato inválido')
+			return
 
 		notes = self._entry_notes.get('1.0', 'end').strip()
 
@@ -1213,6 +1220,7 @@ class QuotationView(BaseView):
 			)
 			ok, result = self._ctrl.update_quotation(
 				quotation_id=self._edit_id,
+				tenant_id=self.ctx.tenant_id,
 				items=self._items,
 				customer_id=cust_id,
 				valid_until=valid_until,
@@ -1261,14 +1269,16 @@ class QuotationView(BaseView):
 			self._show_empty_state()
 
 	def _export_pdf(self, qid: int):
-		ok, result = self._ctrl.generate_pdf(qid)
+		ok, result = self._ctrl.generate_pdf(qid, self.ctx.tenant_id)
 		if ok:
 			self.show_toast('PDF generado y abierto automáticamente')
 		else:
 			self.show_error(str(result), 'Error al generar PDF')
 
 	def _duplicate(self, qid: int):
-		ok, result = self._ctrl.duplicate_quotation(qid, self.ctx.user_id)
+		ok, result = self._ctrl.duplicate_quotation(
+			qid, self.ctx.user_id, self.ctx.tenant_id
+		)
 		if ok:
 			self._load_list()
 			self._selected_id = result['id']
@@ -1279,10 +1289,12 @@ class QuotationView(BaseView):
 			self.show_error(str(result))
 
 	def _change_status(self, qid: int, new_status: str):
-		ok, _ = self._ctrl.set_status(qid, new_status)
+		ok, message = self._ctrl.set_status(qid, new_status, self.ctx.tenant_id)
 		if ok:
 			self._load_list()
 			self._show_detail(qid)
+		else:
+			self.show_warning(message, 'No se pudo cambiar el estado')
 
 	def _delete(self, qid: int):
 		if not self.confirm(
@@ -1291,7 +1303,7 @@ class QuotationView(BaseView):
 		):
 			return
 
-		ok, result = self._ctrl.delete_quotation(qid)
+		ok, result = self._ctrl.delete_quotation(qid, self.ctx.tenant_id)
 		if ok:
 			self._selected_id = None
 			self._load_list()
@@ -1301,14 +1313,13 @@ class QuotationView(BaseView):
 			self.show_error(result)
 
 	def _convert_to_sale(self, qid: int):
-		data = self._ctrl.get_quotation(qid)
+		data = self._ctrl.get_quotation(qid, self.ctx.tenant_id)
 		if not data:
 			return
 
-		if data['status'] in ('rechazada', 'vencida'):
-			status_text = data['status'].capitalize()
+		if data['status'] != 'enviada':
 			self.show_warning(
-				f'No se puede convertir una cotización que ya está {status_text}.',
+				'Para convertirla en venta, la cotización debe estar enviada.',
 				'Estado inválido',
 			)
 			return
@@ -1319,25 +1330,9 @@ class QuotationView(BaseView):
 			)
 			return
 
-		items_sin_stock = [
-			it['description']
-			for it in data.get('items', [])
-			if it.get('variant_id')
-			and it.get('stock') is not None
-			and float(it['stock']) < float(it.get('qty', it.get('quantity', 1)))
-		]
-		if items_sin_stock:
-			lista = '\n'.join(f'  • {d}' for d in items_sin_stock[:5])
-			if not self.confirm(
-				f'Los siguientes ítems tienen stock insuficiente:\n{lista}\n\n'
-				'¿Querés continuar de todas formas?',
-				'Stock insuficiente',
-			):
-				return
-
 		popup = ctk.CTkToplevel(self)
 		popup.title('Convertir a Venta')
-		popup.geometry('380x280')
+		popup.geometry('380x360')
 		popup.resizable(False, False)
 		popup.grab_set()
 		popup.focus_set()
@@ -1384,11 +1379,36 @@ class QuotationView(BaseView):
 		)
 		combo.pack(padx=40, fill='x')
 
+		warehouses = self._ctrl.get_active_warehouses(self.ctx.tenant_id)
+		warehouse_by_name = {warehouse['name']: warehouse['id'] for warehouse in warehouses}
+		if warehouses:
+			ctk.CTkLabel(
+				popup,
+				text='Descontar stock del depósito:',
+				font=FONT_BODY_BOLD,
+				text_color=TEXT_SECONDARY,
+			).pack(pady=(PAD_MD, PAD_XS))
+			warehouse_var = ctk.StringVar(master=self, value=warehouses[0]['name'])
+			ctk.CTkOptionMenu(
+				popup,
+				values=list(warehouse_by_name),
+				variable=warehouse_var,
+				fg_color=SURFACE3,
+				button_color=SURFACE4,
+				dropdown_fg_color=SURFACE2,
+				text_color=TEXT_PRIMARY,
+				font=FONT_BODY,
+				height=36,
+			).pack(padx=40, fill='x')
+		else:
+			warehouse_var = None
+
 		def _do(event=None):
 			ok, result = self._ctrl.convert_to_sale(
 				quotation_id=qid,
 				user_id=self.ctx.user_id,
 				payment_method=pay_var.get(),
+				warehouse_id=warehouse_by_name.get(warehouse_var.get()) if warehouse_var else None,
 				tenant_id=self.ctx.tenant_id,
 			)
 			popup.destroy()

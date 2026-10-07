@@ -1,6 +1,7 @@
 import logging
 from decimal import Decimal, InvalidOperation
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from controllers.base import BaseController
@@ -20,14 +21,35 @@ logger = logging.getLogger(__name__)
 
 
 def _to_decimal_or_none(val):
-	if not val:
+	if val is None or val == '':
 		return None
 	try:
 		d = Decimal(str(val))
-		return d if d > 0 else None
-	except Exception as e:
+		return d if d.is_finite() and d > 0 else None
+	except (InvalidOperation, ValueError, TypeError) as e:
 		logger.warning('_to_decimal_or_none falló para %r: %s', val, e)
 		return None
+
+
+def _parse_nonnegative_decimal(value, label):
+	try:
+		parsed = Decimal(str(value))
+	except (InvalidOperation, ValueError, TypeError):
+		return None, f'{label} es inválido.'
+	if not parsed.is_finite() or parsed < 0:
+		return None, f'{label} no puede ser negativo ni no numérico.'
+	return parsed, None
+
+
+def _parse_nonnegative_int(value, label):
+	try:
+		parsed = int(str(value))
+		exact = Decimal(str(value))
+	except (InvalidOperation, ValueError, TypeError):
+		return None, f'{label} es inválido.'
+	if parsed < 0 or exact != parsed:
+		return None, f'{label} debe ser un entero no negativo.'
+	return parsed, None
 
 
 class ArticleController(BaseController):
@@ -43,6 +65,31 @@ class ArticleController(BaseController):
 			)
 			raise
 
+	@staticmethod
+	def _add_price_history(
+		session, tenant_id, user_id, variant, old_cost, old_price, new_cost, new_price, action
+	):
+		if old_cost == new_cost and old_price == new_price:
+			return
+		session.add(ArticleHistory(
+			tenant_id=tenant_id, user_id=user_id, action_type=action,
+			article_name=variant.article.name, variant_id=variant.id,
+			old_cost=old_cost, new_cost=new_cost, old_price=old_price, new_price=new_price,
+		))
+
+	@staticmethod
+	def _reference_belongs_to_tenant(session, model, record_id, tenant_id):
+		if not record_id:
+			return True
+		query = session.query(model).filter(model.id == record_id)
+		if model is Category:
+			query = query.filter(
+				(Category.tenant_id == tenant_id) | (Category.tenant_id.is_(None))
+			)
+		else:
+			query = query.filter_by(tenant_id=tenant_id, is_active=True)
+		return query.first() is not None
+
 	def get_suppliers_for_combo(self, tenant_id):
 		with self._Session() as session:
 			try:
@@ -50,13 +97,17 @@ class ArticleController(BaseController):
 					{'id': s.id, 'name': s.name}
 					for s in session.query(Supplier)
 					.filter_by(tenant_id=tenant_id, is_active=True)
+					.filter(Supplier.deleted_at.is_(None))
+					.order_by(Supplier.name)
 					.all()
 				]
 			except Exception as e:
 				logger.error(f'Error obteniendo proveedores: {e}', exc_info=True)
 				return []
 
-	def get_all_variants(self, tenant_id, include_inactive: bool = False):
+	def get_all_variants(
+		self, tenant_id, include_inactive: bool = False, include_packaging: bool = True
+	):
 		with self._Session() as session:
 			try:
 				q = (
@@ -75,12 +126,24 @@ class ArticleController(BaseController):
 				)
 				if not include_inactive:
 					q = q.filter(
+						Article.is_active.is_(True),
 						ArticleVariant.is_active == True,  # noqa: E712
 						ArticleVariant.deleted_at.is_(None),
 					)
+				if not include_packaging:
+					q = q.filter(ArticleVariant.base_variant_id.is_(None))
 
-				return [
-					{
+				variants = q.all()
+				variants_by_id = {v.id: v for v in variants}
+				result = []
+				for v in variants:
+					total_stock = sum(s.quantity for s in v.stocks) if v.stocks else 0
+					base_variant = variants_by_id.get(v.base_variant_id)
+					if base_variant:
+						base_stock = sum(s.quantity for s in base_variant.stocks)
+						total_stock = base_stock / (v.units_per_pack or 1)
+					result.append(
+						{
 						'variant_id': v.id,
 						'article_id': v.article_id,
 						'name': v.article.name,
@@ -90,9 +153,8 @@ class ArticleController(BaseController):
 						'selling_price_b': float(v.selling_price_b)
 						if v.selling_price_b
 						else None,
-						'total_stock': sum(s.quantity for s in v.stocks)
-						if v.stocks
-						else 0,
+						'total_stock': total_stock,
+						'min_stock': v.article.min_stock or 0,
 						'supplier_id': v.article.supplier_id,
 						'supplier_name': v.article.supplier.name
 						if v.article.supplier
@@ -112,9 +174,9 @@ class ArticleController(BaseController):
 						'btn_color': v.btn_color,
 						'show_on_touch': v.show_on_touch or False,
 						'is_active': v.is_active,
-					}
-					for v in q.all()
-				]
+						}
+					)
+				return result
 			except Exception as e:
 				logger.error(f'Error al obtener variantes: {e}', exc_info=True)
 				return []
@@ -132,24 +194,38 @@ class ArticleController(BaseController):
 		discount_pct=None,
 		discount_until=None,
 		selling_price_b=None,
+		category_id=None,
+		margin_pct=None,
+		min_stock=0,
 	):
 		if not name or not str(name).strip():
 			return False, 'El nombre es obligatorio.'
 		if not barcode or not str(barcode).strip():
 			return False, 'El código de barras es obligatorio.'
 
-		try:
-			cost_price = Decimal(str(cost_price))
-			selling_price = Decimal(str(selling_price))
-			initial_stock = Decimal(str(initial_stock))
-		except (InvalidOperation, ValueError):
-			return False, 'Valores numéricos inválidos.'
-
-		if initial_stock < 0 or cost_price < 0 or selling_price < 0:
-			return False, 'Los precios y el stock no pueden ser negativos.'
+		cost_price, error = _parse_nonnegative_decimal(cost_price, 'El precio de costo')
+		if error:
+			return False, error
+		selling_price, error = _parse_nonnegative_decimal(selling_price, 'El precio de venta')
+		if error:
+			return False, error
+		initial_stock, error = _parse_nonnegative_decimal(initial_stock, 'El stock inicial')
+		if error:
+			return False, error
+		min_stock, error = _parse_nonnegative_int(min_stock, 'El stock mínimo')
+		if error:
+			return False, error
 
 		with self._Session() as session:
 			try:
+				if not self._reference_belongs_to_tenant(
+					session, Supplier, supplier_id, tenant_id
+				):
+					return False, 'Proveedor inválido o inactivo.'
+				if not self._reference_belongs_to_tenant(
+					session, Category, category_id, tenant_id
+				):
+					return False, 'Categoría inválida.'
 				exists = (
 					session.query(ArticleVariant)
 					.join(Article)
@@ -170,6 +246,8 @@ class ArticleController(BaseController):
 					tenant_id=tenant_id,
 					has_variants=False,
 					supplier_id=supplier_id,
+					category_id=category_id,
+					min_stock=min_stock,
 				)
 				session.add(article)
 				session.flush()
@@ -178,9 +256,9 @@ class ArticleController(BaseController):
 				if selling_price_b is not None:
 					try:
 						spb = Decimal(str(selling_price_b))
-						if spb <= 0:
+						if not spb.is_finite() or spb <= 0:
 							spb = None
-					except Exception as e:
+					except (InvalidOperation, ValueError, TypeError) as e:
 						logger.warning('selling_price_b inválido %r en add_simple_article: %s', selling_price_b, e)
 						spb = None
 
@@ -192,6 +270,7 @@ class ArticleController(BaseController):
 					article_id=article.id,
 					discount_pct=_to_decimal_or_none(discount_pct),
 					discount_until=discount_until,
+					margin_pct=_to_decimal_or_none(margin_pct),
 				)
 				session.add(variant)
 				session.flush()
@@ -219,6 +298,9 @@ class ArticleController(BaseController):
 
 				session.commit()
 				return True, f"Artículo '{name}' creado."
+			except IntegrityError:
+				session.rollback()
+				return False, 'El código de barras ya está asignado a otro producto activo.'
 			except Exception as e:
 				session.rollback()
 				logger.error(f'Error al crear artículo: {e}', exc_info=True)
@@ -237,34 +319,47 @@ class ArticleController(BaseController):
 		discount_pct=None,
 		discount_until=None,
 		selling_price_b=None,
+		category_id=None,
+		margin_pct=None,
+		min_stock=0,
 	):
 		if not name or not str(name).strip():
 			return False, 'El nombre es obligatorio.'
 		if not barcode or not str(barcode).strip():
 			return False, 'El código de barras es obligatorio.'
 
-		try:
-			cost_price = Decimal(str(cost_price))
-			selling_price = Decimal(str(selling_price))
-		except (InvalidOperation, ValueError):
-			return False, 'Valores numéricos inválidos.'
-
-		if cost_price < 0 or selling_price < 0:
-			return False, 'Los precios no pueden ser negativos.'
+		cost_price, error = _parse_nonnegative_decimal(cost_price, 'El precio de costo')
+		if error:
+			return False, error
+		selling_price, error = _parse_nonnegative_decimal(selling_price, 'El precio de venta')
+		if error:
+			return False, error
+		min_stock, error = _parse_nonnegative_int(min_stock, 'El stock mínimo')
+		if error:
+			return False, error
 
 		with self._Session() as session:
 			try:
+				if not self._reference_belongs_to_tenant(
+					session, Supplier, supplier_id, tenant_id
+				):
+					return False, 'Proveedor inválido o inactivo.'
+				if not self._reference_belongs_to_tenant(
+					session, Category, category_id, tenant_id
+				):
+					return False, 'Categoría inválida.'
 				variant = (
 					session.query(ArticleVariant)
 					.join(Article)
 					.filter(
 						ArticleVariant.id == variant_id,
+						ArticleVariant.base_variant_id.is_(None),
 						Article.tenant_id == tenant_id,
 					)
 					.first()
 				)
 				if not variant:
-					return False, 'Artículo no encontrado.'
+					return False, 'Producto base no encontrado.'
 
 				if variant.barcode != str(barcode).strip():
 					conflict = (
@@ -292,14 +387,17 @@ class ArticleController(BaseController):
 				variant.selling_price = selling_price
 				variant.article.name = str(name).strip()
 				variant.article.supplier_id = supplier_id
+				variant.article.category_id = category_id
+				variant.article.min_stock = min_stock
+				variant.margin_pct = _to_decimal_or_none(margin_pct)
 
 				spb = None
 				if selling_price_b is not None:
 					try:
 						spb = Decimal(str(selling_price_b))
-						if spb <= 0:
+						if not spb.is_finite() or spb <= 0:
 							spb = None
-					except Exception as e:
+					except (InvalidOperation, ValueError, TypeError) as e:
 						logger.warning('selling_price_b inválido %r en update_article: %s', selling_price_b, e)
 						spb = None
 				variant.selling_price_b = spb
@@ -318,7 +416,13 @@ class ArticleController(BaseController):
 						.all()
 					)
 					for child in child_variants:
+						old_child_cost = child.cost_price
 						child.cost_price = cost_price * (child.units_per_pack or 1)
+						self._add_price_history(
+							session, tenant_id, user_id, child, old_child_cost,
+							child.selling_price, child.cost_price, child.selling_price,
+							'MODIFICACIÓN MANUAL',
+						)
 
 				if old_cost != cost_price or old_price != selling_price:
 					cost_up = cost_price > old_cost
@@ -333,22 +437,16 @@ class ArticleController(BaseController):
 					else:
 						action_type = 'MODIFICACIÓN MANUAL'
 
-					session.add(
-						ArticleHistory(
-							tenant_id=tenant_id,
-							user_id=user_id,
-							action_type=action_type,
-							article_name=variant.article.name,
-							variant_id=variant.id,
-							old_cost=old_cost,
-							new_cost=cost_price,
-							old_price=old_price,
-							new_price=selling_price,
-						)
+					self._add_price_history(
+						session, tenant_id, user_id, variant, old_cost, old_price,
+						cost_price, selling_price, action_type,
 					)
 
 				session.commit()
 				return True, f"Artículo '{name}' actualizado correctamente."
+			except IntegrityError:
+				session.rollback()
+				return False, 'El código de barras ya está asignado a otro producto activo.'
 			except Exception as e:
 				session.rollback()
 				logger.error(
@@ -364,12 +462,28 @@ class ArticleController(BaseController):
 					.join(Article)
 					.filter(
 						ArticleVariant.id == variant_id,
+						ArticleVariant.base_variant_id.is_(None),
 						Article.tenant_id == tenant_id,
 					)
 					.first()
 				)
 				if not variant:
-					return False, 'Artículo no encontrado.'
+					return False, 'Producto base no encontrado.'
+
+				active_packs = (
+					session.query(ArticleVariant.id)
+					.filter(
+						ArticleVariant.base_variant_id == variant.id,
+						ArticleVariant.is_active.is_(True),
+					)
+					.count()
+				)
+				if active_packs:
+					return (
+						False,
+						'No se puede desactivar un producto con presentaciones activas. '
+						'Desactívalas primero desde “Presentaciones”.',
+					)
 
 				total_stock = (
 					sum(s.quantity for s in variant.stocks) if variant.stocks else 0
@@ -390,13 +504,38 @@ class ArticleController(BaseController):
 				if all(not v.is_active for v in all_variants):
 					variant.article.is_active = False
 				session.commit()
-				return True, 'Artículo eliminado correctamente.'
+				return True, 'Producto desactivado correctamente.'
 			except Exception as e:
 				session.rollback()
 				logger.error(
 					f'Error al eliminar variante {variant_id}: {e}', exc_info=True
 				)
 				return False, 'Error interno al intentar eliminar.'
+
+	def reactivate_variant(self, tenant_id, variant_id):
+		"""Restores a base product without silently reactivating its packages."""
+		with self._Session() as session:
+			try:
+				variant = (
+					session.query(ArticleVariant)
+					.join(Article)
+					.filter(
+						ArticleVariant.id == variant_id,
+						ArticleVariant.base_variant_id.is_(None),
+						Article.tenant_id == tenant_id,
+					)
+					.first()
+				)
+				if not variant:
+					return False, 'Producto base no encontrado.'
+				variant.article.is_active = True
+				variant.is_active = True
+				session.commit()
+				return True, 'Producto reactivado. Las presentaciones permanecen inactivas hasta que las reactives.'
+			except Exception as e:
+				session.rollback()
+				logger.error('Error al reactivar variante %s: %s', variant_id, e, exc_info=True)
+				return False, 'Error interno al reactivar el producto.'
 
 	def get_categories_for_combo(self, tenant_id):
 		with self._Session() as session:
@@ -424,66 +563,106 @@ class ArticleController(BaseController):
 		if not variant_ids:
 			return False, 'No se seleccionaron artículos.'
 
+		for key, label in (('selling_price', 'El precio de venta'), ('cost_price', 'El precio de costo')):
+			if key in updates:
+				value, error = _parse_nonnegative_decimal(updates[key], label)
+				if error:
+					return False, error
+				updates[key] = value
+
 		with self._Session() as session:
 			try:
+				if 'supplier_id' in updates and not self._reference_belongs_to_tenant(
+					session, Supplier, updates['supplier_id'], tenant_id
+				):
+					return False, 'Proveedor inválido o inactivo.'
+				if 'category_id' in updates and not self._reference_belongs_to_tenant(
+					session, Category, updates['category_id'], tenant_id
+				):
+					return False, 'Categoría inválida.'
 				variants = (
 					session.query(ArticleVariant)
+					.options(joinedload(ArticleVariant.article))
 					.join(Article)
-					.filter(
-						ArticleVariant.id.in_(variant_ids),
-						Article.tenant_id == tenant_id,
-					)
+					.filter(ArticleVariant.id.in_(variant_ids), Article.tenant_id == tenant_id)
 					.all()
 				)
-
 				if not variants:
 					return False, 'No se encontraron los artículos seleccionados.'
+				if 'cost_price' in updates and any(v.base_variant_id for v in variants):
+					return False, 'El costo de una presentación se calcula desde su producto base.'
+				if updates.get('is_active') is False:
+					base_ids = [v.id for v in variants if not v.base_variant_id]
+					if base_ids and session.query(ArticleVariant.id).filter(
+						ArticleVariant.base_variant_id.in_(base_ids), ArticleVariant.is_active.is_(True)
+					).first():
+						return False, 'No podés desactivar un producto base con presentaciones activas.'
+				if updates.get('is_active') is True:
+					for pack in (v for v in variants if v.base_variant_id):
+						base = session.get(ArticleVariant, pack.base_variant_id)
+						if not base or not base.is_active or not base.article.is_active:
+							return False, 'Reactivá primero el producto base antes de activar una presentación.'
 
+				price_before = {}
 				updated_articles = set()
-
 				for v in variants:
-					# Campos de Variante
-					if 'is_active' in updates:
-						v.is_active = updates['is_active']
+					price_before[v.id] = (v, v.cost_price, v.selling_price)
 					if 'show_on_touch' in updates:
 						v.show_on_touch = updates['show_on_touch']
 					if 'discount_pct' in updates:
-						try:
-							v.discount_pct = Decimal(str(updates['discount_pct']))
-						except (InvalidOperation, ValueError):
-							pass
+						v.discount_pct = _to_decimal_or_none(updates['discount_pct'])
 					if 'selling_price' in updates:
-						try:
-							v.selling_price = Decimal(str(updates['selling_price']))
-						except (InvalidOperation, ValueError):
-							pass
+						v.selling_price = updates['selling_price']
 					if 'cost_price' in updates:
-						try:
-							v.cost_price = Decimal(str(updates['cost_price']))
-						except (InvalidOperation, ValueError):
-							pass
-
-					# Campos de Artículo (Padre)
+						v.cost_price = updates['cost_price']
+					if 'is_active' in updates:
+						v.is_active = updates['is_active']
 					art = v.article
 					if art.id not in updated_articles:
 						if 'category_id' in updates:
 							art.category_id = updates['category_id']
 						if 'supplier_id' in updates:
 							art.supplier_id = updates['supplier_id']
-						if 'is_active' in updates:
+						if 'is_active' in updates and not v.base_variant_id:
 							art.is_active = updates['is_active']
 						updated_articles.add(art.id)
 
+				# Package costs are derived data. Recalculate and audit them whenever
+				# their base cost changes, even if the packages were not selected.
+				if 'cost_price' in updates:
+					for base in variants:
+						if base.base_variant_id:
+							continue
+						for child in session.query(ArticleVariant).filter(
+							ArticleVariant.base_variant_id == base.id
+						).all():
+							if child.id not in price_before:
+								price_before[child.id] = (child, child.cost_price, child.selling_price)
+							child.cost_price = base.cost_price * (child.units_per_pack or 1)
+
+				for variant, old_cost, old_price in price_before.values():
+					self._add_price_history(
+						session, tenant_id, user_id, variant, old_cost, old_price,
+						variant.cost_price, variant.selling_price, 'MODIFICACIÓN MASIVA',
+					)
 				session.commit()
 				return True, f'Se actualizaron {len(variants)} ítems correctamente.'
 			except Exception as e:
 				session.rollback()
 				logger.error(f'Error en actualización masiva: {e}', exc_info=True)
-				return False, f'Error al procesar los cambios: {str(e)}'
+				return False, 'Error interno al procesar los cambios.'
 
 	def apply_bulk_price_changes(self, tenant_id, user_id, changes_list):
 		if not changes_list:
 			return False, 'No hay cambios para aplicar.'
+		for item in changes_list:
+			for key, label in (('new_cost', 'El precio de costo'), ('new_selling', 'El precio de venta')):
+				if key not in item:
+					continue
+				value, error = _parse_nonnegative_decimal(item[key], label)
+				if error:
+					return False, error
+				item[key] = value
 
 		variant_ids = [item['variant_id'] for item in changes_list]
 		changes_by_id = {item['variant_id']: item for item in changes_list}
@@ -509,16 +688,8 @@ class ArticleController(BaseController):
 					item = changes_by_id[variant.id]
 					old_cost = variant.cost_price
 					old_price = variant.selling_price
-					new_cost = (
-						Decimal(str(item['new_cost']))
-						if 'new_cost' in item
-						else old_cost
-					)
-					new_price = (
-						Decimal(str(item['new_selling']))
-						if 'new_selling' in item
-						else old_price
-					)
+					new_cost = item.get('new_cost', old_cost)
+					new_price = item.get('new_selling', old_price)
 
 					if new_price == old_price and new_cost == old_cost:
 						not_found += 1
@@ -539,18 +710,9 @@ class ArticleController(BaseController):
 					else:
 						action_type = 'MODIFICACIÓN MASIVA'
 
-					session.add(
-						ArticleHistory(
-							tenant_id=tenant_id,
-							user_id=user_id,
-							action_type=action_type,
-							article_name=variant.article.name,
-							variant_id=variant.id,
-							old_cost=old_cost,
-							new_cost=new_cost,
-							old_price=old_price,
-							new_price=new_price,
-						)
+					self._add_price_history(
+						session, tenant_id, user_id, variant, old_cost, old_price,
+						new_cost, new_price, action_type,
 					)
 					updated += 1
 
@@ -593,16 +755,22 @@ class ArticleController(BaseController):
 				)
 				return []
 
-	def get_packaging_variants(self, base_variant_id):
+	def get_packaging_variants(self, tenant_id, base_variant_id, include_inactive=False):
 		"""Retorna las presentaciones (cajon, pallet, etc.) de una variante base."""
 		with self._Session() as session:
 			try:
-				variants = (
+				query = (
 					session.query(ArticleVariant)
+					.join(Article)
 					.filter(
 						ArticleVariant.base_variant_id == base_variant_id,
-						ArticleVariant.is_active == True,  # noqa: E712
+						Article.tenant_id == tenant_id,
 					)
+				)
+				if not include_inactive:
+					query = query.filter(ArticleVariant.is_active.is_(True))
+				variants = (
+					query
 					.order_by(ArticleVariant.units_per_pack)
 					.all()
 				)
@@ -635,9 +803,11 @@ class ArticleController(BaseController):
 		"""
 		try:
 			units_per_pack = int(units_per_pack)
-			selling_price = Decimal(str(selling_price))
-		except (ValueError, InvalidOperation):
+		except (ValueError, TypeError):
 			return False, 'Datos numericos invalidos.'
+		selling_price, error = _parse_nonnegative_decimal(selling_price, 'El precio de venta')
+		if error:
+			return False, error
 
 		if units_per_pack < 2:
 			return False, 'La presentacion debe tener al menos 2 unidades por paquete.'
@@ -654,6 +824,9 @@ class ArticleController(BaseController):
 					.join(Article)
 					.filter(
 						ArticleVariant.id == base_variant_id,
+						ArticleVariant.base_variant_id.is_(None),
+						ArticleVariant.is_active.is_(True),
+						Article.is_active.is_(True),
 						Article.tenant_id == tenant_id,
 					)
 					.first()
@@ -689,6 +862,9 @@ class ArticleController(BaseController):
 				session.add(variant)
 				session.commit()
 				return True, f'Presentacion "{pack_label}" agregada.'
+			except IntegrityError:
+				session.rollback()
+				return False, 'El código de barras ya está asignado a otro producto activo.'
 			except Exception as e:
 				session.rollback()
 				logger.error(f'Error al agregar presentacion: {e}', exc_info=True)
@@ -706,9 +882,11 @@ class ArticleController(BaseController):
 		"""Edita los datos de una variante de presentacion existente."""
 		try:
 			units_per_pack = int(units_per_pack)
-			selling_price = Decimal(str(selling_price))
-		except (ValueError, InvalidOperation):
+		except (ValueError, TypeError):
 			return False, 'Datos numericos invalidos.'
+		selling_price, error = _parse_nonnegative_decimal(selling_price, 'El precio de venta')
+		if error:
+			return False, error
 
 		if units_per_pack < 2:
 			return False, 'La presentacion debe tener al menos 2 unidades por paquete.'
@@ -760,6 +938,9 @@ class ArticleController(BaseController):
 
 				session.commit()
 				return True, f'Presentacion "{pack_label}" actualizada.'
+			except IntegrityError:
+				session.rollback()
+				return False, 'El código de barras ya está asignado a otro producto activo.'
 			except Exception as e:
 				session.rollback()
 				logger.error(f'Error al editar presentacion: {e}', exc_info=True)

@@ -522,7 +522,7 @@ class UsersView(BaseView):
 						display_name=display_name,
 					)
 			except Exception as exc:
-				ok, result_msg = False, f'Error del sistema: {str(exc)}'
+				ok, result_msg = False, f'Error del sistema: {exc!s}'
 			if self.winfo_exists():
 				self.after(0, lambda: _done(ok, result_msg))
 

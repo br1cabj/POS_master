@@ -10,7 +10,8 @@ import logging
 import os
 import tempfile
 from datetime import date, datetime, timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from typing import ClassVar
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
@@ -30,6 +31,8 @@ from database.models import (
 	SaleDetail,
 	Stock,
 	StockMovement,
+	User,
+	Warehouse,
 )
 from utils.shared import get_or_create_default_warehouse
 from utils.quotation_pdf import QuotationPDF
@@ -43,20 +46,22 @@ from utils.styles import (
 logger = logging.getLogger(__name__)
 
 
-def _to_dec(value, default=Decimal('0')) -> Decimal:
-	"""Convierte de forma segura cualquier valor a un objeto Decimal."""
+def _to_dec(value) -> Decimal:
+	"""Convierte un valor finito a Decimal; el caller decide cómo informar el error."""
 	try:
 		if value is None:
-			return default
+			raise ValueError('Valor vacío.')
 		str_val = str(value).strip().replace(',', '.')
-		return Decimal(str_val)
-	except Exception as e:
-		logger.warning('_to_dec falló para %r: %s — usando default %s', value, e, default)
-		return default
+		parsed = Decimal(str_val)
+		if not parsed.is_finite():
+			raise ValueError('El valor debe ser finito.')
+		return parsed
+	except (InvalidOperation, ValueError, TypeError) as exc:
+		raise ValueError(f'Número inválido: {value!r}.') from exc
 
 
 class QuotationController(BaseController):
-	STATUS_LABELS = {
+	STATUS_LABELS: ClassVar[dict[str, str]] = {
 		'borrador': 'Borrador',
 		'enviada': 'Enviada',
 		'aceptada': 'Aceptada',
@@ -64,12 +69,20 @@ class QuotationController(BaseController):
 		'vencida': 'Vencida',
 	}
 
-	STATUS_COLORS = {
+	STATUS_COLORS: ClassVar[dict[str, str]] = {
 		'borrador': '#6b7280',
 		'enviada': ACCENT,
 		'aceptada': GREEN,
 		'rechazada': RED,
 		'vencida': ORANGE,
+	}
+	_ALLOWED_PAYMENTS: ClassVar[set[str]] = {'efectivo', 'transferencia', 'tarjeta', 'fiado'}
+	_ALLOWED_STATUS_TRANSITIONS: ClassVar[dict[str, set[str]]] = {
+		'borrador': {'enviada', 'rechazada', 'vencida'},
+		'enviada': {'rechazada', 'vencida'},
+		'rechazada': set(),
+		'vencida': set(),
+		'aceptada': set(),
 	}
 
 	def __init__(self, db_engine):
@@ -88,11 +101,110 @@ class QuotationController(BaseController):
 		]
 		max_n = 0
 		for num in all_numbers:
-			try:
-				max_n = max(max_n, int(num.split('-')[-1]))
-			except Exception:
-				pass
+			suffix = str(num).rpartition('-')[2]
+			if suffix.isdigit():
+				max_n = max(max_n, int(suffix))
 		return f'COT-{max_n + 1:04d}'
+
+	@staticmethod
+	def _get_owned(s: Session, quotation_id: str, tenant_id: str) -> Quotation | None:
+		return (
+			s.query(Quotation)
+			.filter(Quotation.id == quotation_id, Quotation.tenant_id == tenant_id)
+			.first()
+		)
+
+	@staticmethod
+	def _is_expired(q: Quotation) -> bool:
+		return bool(q.valid_until and q.valid_until < date.today())
+
+	def _expire_if_needed(self, q: Quotation) -> bool:
+		if q.status in {'borrador', 'enviada'} and self._is_expired(q):
+			q.status = 'vencida'
+			return True
+		return False
+
+	@staticmethod
+	def _validate_user(s: Session, tenant_id: str, user_id: str) -> bool:
+		return bool(
+			s.query(User.id)
+			.filter(
+				User.id == user_id,
+				User.tenant_id == tenant_id,
+				User.is_active.is_(True),
+				User.deleted_at.is_(None),
+			)
+			.first()
+		)
+
+	@staticmethod
+	def _validate_customer(s: Session, tenant_id: str, customer_id: str | None) -> bool:
+		if not customer_id:
+			return True
+		return bool(
+			s.query(Customer.id)
+			.filter(
+				Customer.id == customer_id,
+				Customer.tenant_id == tenant_id,
+				Customer.is_active.is_(True),
+				Customer.deleted_at.is_(None),
+			)
+			.first()
+		)
+
+	def _normalize_items(self, s: Session, tenant_id: str, items: list[dict]) -> tuple[list[dict], Decimal]:
+		if not items:
+			raise ValueError('Agregá al menos un ítem a la cotización.')
+		if len(items) > 500:
+			raise ValueError('Una cotización admite hasta 500 ítems.')
+		normalized = []
+		for index, item in enumerate(items, start=1):
+			description = str(item.get('description') or '').strip()
+			if not description:
+				raise ValueError(f'El ítem #{index} no tiene descripción.')
+			if len(description) > 500:
+				raise ValueError(f'La descripción del ítem #{index} es demasiado larga.')
+			quantity = _to_dec(item.get('quantity', item.get('qty')))
+			unit_price = _to_dec(item.get('unit_price'))
+			if quantity <= 0:
+				raise ValueError(f'La cantidad del ítem #{index} debe ser mayor a cero.')
+			if unit_price <= 0:
+				raise ValueError(f'El precio del ítem #{index} debe ser mayor a cero.')
+			variant_id = item.get('variant_id') or None
+			if variant_id:
+				variant = (
+					s.query(ArticleVariant.id)
+					.join(Article)
+					.filter(
+						ArticleVariant.id == variant_id,
+						Article.tenant_id == tenant_id,
+						Article.is_active.is_(True),
+						Article.deleted_at.is_(None),
+						ArticleVariant.is_active.is_(True),
+						ArticleVariant.deleted_at.is_(None),
+					)
+					.first()
+				)
+				if not variant:
+					raise ValueError(f'El producto del ítem #{index} no está disponible.')
+			subtotal = (quantity * unit_price).quantize(Decimal('0.01'), ROUND_HALF_UP)
+			normalized.append({
+				'description': description,
+				'quantity': quantity,
+				'unit_price': unit_price,
+				'subtotal': subtotal,
+				'variant_id': variant_id,
+			})
+		return normalized, sum((item['subtotal'] for item in normalized), Decimal('0'))
+
+	@staticmethod
+	def _validated_discount(value, subtotal: Decimal) -> Decimal:
+		discount = _to_dec(value if value not in (None, '') else 0)
+		if discount < 0:
+			raise ValueError('El descuento no puede ser negativo.')
+		if discount > subtotal:
+			raise ValueError('El descuento no puede superar el subtotal.')
+		return discount.quantize(Decimal('0.01'), ROUND_HALF_UP)
 
 	@staticmethod
 	def _load_full(s: Session, quotation_id) -> 'Quotation | None':
@@ -134,6 +246,7 @@ class QuotationController(BaseController):
 			'number': q.number,
 			'date': q.date.strftime('%d/%m/%Y %H:%M') if q.date else '',
 			'valid_until': q.valid_until.strftime('%d/%m/%Y') if q.valid_until else '',
+			'valid_until_iso': q.valid_until.isoformat() if q.valid_until else '',
 			'valid_until_raw': q.valid_until,
 			'status': q.status,
 			'status_label': self.STATUS_LABELS.get(q.status, q.status),
@@ -147,7 +260,7 @@ class QuotationController(BaseController):
 		}
 
 	def list_quotations(
-		self, tenant_id: int, status: str = None, limit: int = 100
+		self, tenant_id: str, status: str | None = None, limit: int = 100
 	) -> list[dict]:
 		"""Obtiene un listado paginado/limitado de cotizaciones asociadas a un tenant."""
 		with self._Session() as s:
@@ -164,13 +277,19 @@ class QuotationController(BaseController):
 			)
 			if status and status != 'todas':
 				q = q.filter_by(status=status)
-			rows = q.order_by(Quotation.date.desc()).limit(limit).all()
+			rows = q.order_by(Quotation.date.desc()).limit(min(max(limit, 1), 500)).all()
+			if any(self._expire_if_needed(row) for row in rows):
+				s.commit()
 			return [self._row_to_dict(r) for r in rows]
 
-	def get_quotation(self, quotation_id: int) -> dict | None:
+	def get_quotation(self, quotation_id: str, tenant_id: str) -> dict | None:
 		"""Recupera los datos completos de una cotización específica por su ID."""
 		with self._Session() as s:
 			q = self._load_full(s, quotation_id)
+			if not q or q.tenant_id != tenant_id:
+				return None
+			if self._expire_if_needed(q):
+				s.commit()
 			return self._row_to_dict(q) if q else None
 
 	def create_quotation(
@@ -184,18 +303,26 @@ class QuotationController(BaseController):
 		discount_amount: float = 0,
 	) -> tuple[bool, str | dict]:
 		"""Registra una nueva cotización en la base de datos."""
+		try:
+			valid_days = int(valid_days)
+			if not 0 <= valid_days <= 3650:
+				return False, 'Los días de validez deben estar entre 0 y 3650.'
+		except (TypeError, ValueError):
+			return False, 'Los días de validez son inválidos.'
+		notes = str(notes or '').strip()
+		if len(notes) > 1_000:
+			return False, 'Las notas no pueden superar los 1000 caracteres.'
 		with self._Session() as s:
 			for attempt in range(3):
 				try:
+					if not self._validate_user(s, tenant_id, user_id):
+						return False, 'Usuario no válido para esta empresa.'
+					if not self._validate_customer(s, tenant_id, customer_id):
+						return False, 'Cliente no válido para esta empresa.'
+					normalized_items, subtotal = self._normalize_items(s, tenant_id, items)
+					discount = self._validated_discount(discount_amount, subtotal)
 					number = self._next_number(s, tenant_id)
-					discount = _to_dec(discount_amount)
-
-					subtotal = sum(_to_dec(it.get('subtotal', 0)) for it in items)
-					total = (subtotal - discount).quantize(
-						Decimal('0.01'), ROUND_HALF_UP
-					)
-					if total < Decimal('0'):
-						total = Decimal('0')
+					total = (subtotal - discount).quantize(Decimal('0.01'), ROUND_HALF_UP)
 
 					valid_until = None
 					if valid_days and valid_days > 0:
@@ -217,7 +344,7 @@ class QuotationController(BaseController):
 					s.add(q)
 					s.flush()
 
-					for it in items:
+					for it in normalized_items:
 						qi = QuotationItem(
 							quotation_id=q.id,
 							description=it.get('description', ''),
@@ -230,6 +357,9 @@ class QuotationController(BaseController):
 
 					s.commit()
 					return True, self._row_to_dict(self._load_full(s, q.id))
+				except ValueError as exc:
+					s.rollback()
+					return False, str(exc)
 				except IntegrityError:
 					s.rollback()
 					if attempt == 2:
@@ -245,26 +375,40 @@ class QuotationController(BaseController):
 
 	def update_quotation(
 		self,
-		quotation_id: int,
+		quotation_id: str,
+		tenant_id: str,
 		items: list[dict],
-		customer_id: int = None,
-		valid_until: date = None,
+		customer_id: str | None = None,
+		valid_until: date | None = None,
 		notes: str = '',
 		discount_amount: float = 0,
-		status: str = None,
+		status: str | None = None,
 	) -> tuple[bool, str | dict]:
 		"""Modifica una cotización existente y actualiza sus ítems."""
 		with self._Session() as s:
 			try:
-				q = s.get(Quotation, quotation_id)
+				q = self._get_owned(s, quotation_id, tenant_id)
 				if not q:
 					return False, 'Cotización no encontrada.'
-
-				discount = _to_dec(discount_amount)
-				subtotal = sum(_to_dec(it.get('subtotal', 0)) for it in items)
+				if self._expire_if_needed(q):
+					s.commit()
+					return False, 'La cotización venció y ya no puede modificarse.'
+				if q.status != 'borrador':
+					return False, 'Solo se pueden editar cotizaciones en borrador.'
+				if status and status != q.status:
+					return False, 'El estado se cambia mediante la acción de estado correspondiente.'
+				if valid_until is not None and not isinstance(valid_until, date):
+					return False, 'La fecha de validez es inválida.'
+				if valid_until and valid_until < date.today():
+					return False, 'La fecha de validez no puede estar en el pasado.'
+				notes = str(notes or '').strip()
+				if len(notes) > 1_000:
+					return False, 'Las notas no pueden superar los 1000 caracteres.'
+				if not self._validate_customer(s, tenant_id, customer_id):
+					return False, 'Cliente no válido para esta empresa.'
+				normalized_items, subtotal = self._normalize_items(s, tenant_id, items)
+				discount = self._validated_discount(discount_amount, subtotal)
 				total = (subtotal - discount).quantize(Decimal('0.01'), ROUND_HALF_UP)
-				if total < Decimal('0'):
-					total = Decimal('0')
 
 				q.customer_id = customer_id or None
 				q.valid_until = valid_until
@@ -278,7 +422,7 @@ class QuotationController(BaseController):
 					s.delete(old)
 				s.flush()
 
-				for it in items:
+				for it in normalized_items:
 					qi = QuotationItem(
 						quotation_id=q.id,
 						description=it.get('description', ''),
@@ -291,6 +435,9 @@ class QuotationController(BaseController):
 
 				s.commit()
 				return True, self._row_to_dict(self._load_full(s, q.id))
+			except ValueError as exc:
+				s.rollback()
+				return False, str(exc)
 			except Exception as e:
 				s.rollback()
 				logger.error(
@@ -302,7 +449,7 @@ class QuotationController(BaseController):
 				return False, 'Error interno al actualizar la cotización.'
 
 	def set_status(
-		self, quotation_id: int, new_status: str, tenant_id: int = None
+		self, quotation_id: str, new_status: str, tenant_id: str
 	) -> tuple[bool, str]:
 		"""Actualiza el estado (borrador, aceptada, etc.) de una cotización."""
 		valid = set(self.STATUS_LABELS.keys())
@@ -311,11 +458,16 @@ class QuotationController(BaseController):
 
 		with self._Session() as s:
 			try:
-				q = s.get(Quotation, quotation_id)
+				q = self._get_owned(s, quotation_id, tenant_id)
 				if not q:
 					return False, 'Cotización no encontrada.'
-				if tenant_id is not None and q.tenant_id != tenant_id:
-					return False, 'Cotización no encontrada.'
+				if self._expire_if_needed(q):
+					s.commit()
+					return False, 'La cotización venció y no puede cambiar de estado.'
+				if new_status == 'aceptada':
+					return False, 'Una cotización se acepta únicamente al convertirla en venta.'
+				if new_status not in self._ALLOWED_STATUS_TRANSITIONS.get(q.status, set()):
+					return False, 'Transición de estado no permitida.'
 				q.status = new_status
 				s.commit()
 				return True, new_status
@@ -325,16 +477,16 @@ class QuotationController(BaseController):
 				return False, 'Error interno al modificar estado.'
 
 	def delete_quotation(
-		self, quotation_id: int, tenant_id: int = None
+		self, quotation_id: str, tenant_id: str
 	) -> tuple[bool, str]:
 		"""Elimina físicamente una cotización y todos sus ítems asociados."""
 		with self._Session() as s:
 			try:
-				q = s.get(Quotation, quotation_id)
+				q = self._get_owned(s, quotation_id, tenant_id)
 				if not q:
 					return False, 'Cotización no encontrada.'
-				if tenant_id is not None and q.tenant_id != tenant_id:
-					return False, 'Cotización no encontrada.'
+				if q.status != 'borrador':
+					return False, 'Solo se pueden eliminar cotizaciones en borrador.'
 				s.delete(q)
 				s.commit()
 				return True, 'Eliminada correctamente.'
@@ -346,14 +498,16 @@ class QuotationController(BaseController):
 				return False, 'Error interno al eliminar la cotización.'
 
 	def duplicate_quotation(
-		self, quotation_id: int, user_id: int
+		self, quotation_id: str, user_id: str, tenant_id: str
 	) -> tuple[bool, str | dict]:
 		"""Crea una copia idéntica de una cotización existente y la asigna como borrador."""
 		with self._Session() as s:
 			try:
-				orig = s.get(Quotation, quotation_id)
+				orig = self._get_owned(s, quotation_id, tenant_id)
 				if not orig:
 					return False, 'Cotización original no encontrada.'
+				if not self._validate_user(s, tenant_id, user_id):
+					return False, 'Usuario no válido para esta empresa.'
 
 				number = self._next_number(s, orig.tenant_id)
 
@@ -363,11 +517,15 @@ class QuotationController(BaseController):
 					diff = (orig.valid_until - datetime.now().date()).days
 					days_valid = diff if diff > 0 else 15
 
+				customer_id = orig.customer_id
+				if not self._validate_customer(s, tenant_id, customer_id):
+					customer_id = None
+
 				new_q = Quotation(
 					number=number,
 					tenant_id=orig.tenant_id,
 					user_id=user_id,
-					customer_id=orig.customer_id,
+					customer_id=customer_id,
 					valid_until=(datetime.now() + timedelta(days=days_valid)).date(),
 					total_amount=orig.total_amount,
 					discount_amount=orig.discount_amount,
@@ -400,11 +558,11 @@ class QuotationController(BaseController):
 
 	def convert_to_sale(
 		self,
-		quotation_id: int,
-		user_id: int,
+		quotation_id: str,
+		user_id: str,
 		payment_method: str = 'efectivo',
-		warehouse_id: int = None,
-		tenant_id: int = None,
+		warehouse_id: str | None = None,
+		tenant_id: str | None = None,
 	) -> tuple[bool, str]:
 		"""
 		Transforma una cotización en una venta firme.
@@ -414,7 +572,14 @@ class QuotationController(BaseController):
 		"""
 		with self._Session() as s:
 			try:
-				q = s.get(Quotation, quotation_id)
+				if not tenant_id:
+					return False, 'Se requiere la empresa para convertir una cotización.'
+				q = (
+					s.query(Quotation)
+					.filter(Quotation.id == quotation_id)
+					.with_for_update()
+					.first()
+				)
 				if not q:
 					return False, 'Cotización no encontrada.'
 				# Verificar que la cotización pertenece al tenant que ejecuta la acción
@@ -426,18 +591,43 @@ class QuotationController(BaseController):
 						q.tenant_id,
 					)
 					return False, 'Cotización no encontrada.'
-				_convertible = {'borrador', 'enviada'}
-				if q.status not in _convertible:
+				if self._expire_if_needed(q):
+					s.commit()
+					return False, 'La cotización está vencida y no puede convertirse.'
+				if q.status != 'enviada':
 					return (
 						False,
 						f'No se puede convertir una cotización en estado "{self.STATUS_LABELS.get(q.status, q.status)}". '
-						'Solo se pueden convertir cotizaciones en estado Borrador o Enviada.',
+						'Solo se pueden convertir cotizaciones enviadas.',
 					)
-				if q.status == 'borrador':
-					logger.warning(
-						'Cotización %s convertida desde estado borrador sin aprobación explícita del cliente.',
-						quotation_id,
-					)
+				if q.total_amount is None or Decimal(str(q.total_amount)) <= 0:
+					return False, 'El total de la cotización debe ser mayor a cero.'
+				if not q.items:
+					return False, 'La cotización no tiene ítems para convertir.'
+				for item in q.items:
+					if (
+						not item.description
+						or Decimal(str(item.quantity)) <= 0
+						or Decimal(str(item.unit_price)) <= 0
+						or Decimal(str(item.subtotal)) <= 0
+					):
+						return False, 'La cotización contiene ítems inválidos y no puede convertirse.'
+				expected_total = (
+					sum((Decimal(str(item.subtotal)) for item in q.items), Decimal('0'))
+					- Decimal(str(q.discount_amount or 0))
+				).quantize(Decimal('0.01'), ROUND_HALF_UP)
+				quoted_total = Decimal(str(q.total_amount)).quantize(
+					Decimal('0.01'), ROUND_HALF_UP
+				)
+				if expected_total != quoted_total:
+					return False, 'La cotización tiene totales inconsistentes y no puede convertirse.'
+				if not self._validate_user(s, q.tenant_id, user_id):
+					return False, 'Usuario no válido para esta empresa.'
+				payment_method = (payment_method or '').lower()
+				if payment_method not in self._ALLOWED_PAYMENTS:
+					return False, 'Método de pago inválido.'
+				if not self._validate_customer(s, q.tenant_id, q.customer_id):
+					return False, 'El cliente de la cotización ya no está disponible.'
 
 				# Resolver el inventario como una venta normal: las filas Stock son
 				# por lote, por lo que ``first()`` podía descontar un lote arbitrario.
@@ -447,6 +637,16 @@ class QuotationController(BaseController):
 				source_warehouse_id = warehouse_id
 				if stock_items and not source_warehouse_id:
 					source_warehouse_id = get_or_create_default_warehouse(s, q.tenant_id)
+				if stock_items and not (
+					s.query(Warehouse.id)
+					.filter(
+						Warehouse.id == source_warehouse_id,
+						Warehouse.tenant_id == q.tenant_id,
+						Warehouse.is_active.is_(True),
+					)
+					.first()
+				):
+					return False, 'El depósito seleccionado no es válido para esta empresa.'
 
 				variant_ids = [it.variant_id for it in stock_items]
 				variants = {
@@ -462,6 +662,10 @@ class QuotationController(BaseController):
 					.filter(
 						ArticleVariant.id.in_(variant_ids),
 						Article.tenant_id == q.tenant_id,
+						Article.is_active.is_(True),
+						Article.deleted_at.is_(None),
+						ArticleVariant.is_active.is_(True),
+						ArticleVariant.deleted_at.is_(None),
 					)
 					.all()
 				}
@@ -637,8 +841,10 @@ class QuotationController(BaseController):
 					.join(Article)
 					.filter(
 						Article.tenant_id == tenant_id,
-						Article.is_active,
-						ArticleVariant.is_active,
+						Article.is_active.is_(True),
+						Article.deleted_at.is_(None),
+						ArticleVariant.is_active.is_(True),
+						ArticleVariant.deleted_at.is_(None),
 					)
 					.filter(
 						(Article.name.ilike(q_str))
@@ -654,6 +860,8 @@ class QuotationController(BaseController):
 						label += f' – {v.attribute_1}'
 					if v.attribute_2:
 						label += f' / {v.attribute_2}'
+					if v.pack_label:
+						label += f' — {v.pack_label}'
 					result.append(
 						{
 							'variant_id': v.id,
@@ -669,10 +877,23 @@ class QuotationController(BaseController):
 				)
 				return []
 
-	def generate_pdf(self, quotation_id: int) -> tuple[bool, str]:
+	def get_active_warehouses(self, tenant_id: str) -> list[dict]:
+		"""Returns eligible warehouses for quote conversion without leaking tenants."""
+		with self._Session() as s:
+			return [
+				{'id': row.id, 'name': row.name}
+				for row in (
+					s.query(Warehouse)
+					.filter(Warehouse.tenant_id == tenant_id, Warehouse.is_active.is_(True))
+					.order_by(Warehouse.name)
+					.all()
+				)
+			]
+
+	def generate_pdf(self, quotation_id: str, tenant_id: str) -> tuple[bool, str]:
 		"""Delega la creación del archivo PDF al servicio de renderizado."""
 		try:
-			data = self.get_quotation(quotation_id)
+			data = self.get_quotation(quotation_id, tenant_id)
 			if not data:
 				return False, 'Cotización no encontrada.'
 

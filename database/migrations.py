@@ -137,6 +137,8 @@ def run_migrations(engine) -> None:
 	_v29_add_stock_unique_constraint(engine)
 	_v30_add_performance_indexes(engine)
 	_v31_add_updated_at_child_tables(engine)
+	_v32_add_active_barcode_unique_index(engine)
+	_v33_add_dashboard_sales_index(engine)
 
 
 def setup_cloud_schema(engine) -> None:
@@ -164,6 +166,8 @@ def setup_cloud_schema(engine) -> None:
 		raise
 
 	_cloud_missing_columns(engine)
+	_v32_add_active_barcode_unique_index(engine)
+	_v33_add_dashboard_sales_index(engine)
 	with engine.begin() as conn:
 		# El índice parcial es la garantía final ante dos aperturas concurrentes
 		# de caja. SQLite lo recibe mediante v30; la nube se crea por separado.
@@ -1299,3 +1303,60 @@ def _v31_add_updated_at_child_tables(engine) -> None:
 				logger.warning('v31: no se pudo crear índice en %s.updated_at: %s', table, e)
 		conn.commit()
 		logger.info('v31: updated_at en tablas hijas listo para sync incremental.')
+
+
+# ─── v32: código de barras único entre variantes activas ────────────────────
+
+
+def _v32_add_active_barcode_unique_index(engine) -> None:
+	"""Impide que el escáner encuentre dos productos activos para un código.
+
+	El índice es parcial para permitir borradores sin código e histórico de
+	variantes desactivadas.  No se altera ni elimina información existente: si
+	una instalación ya contiene duplicados, se deja el detalle en el log para
+	que se los resuelva desde el catálogo antes de reintentar la migración.
+	"""
+	if _is_sqlite(engine):
+		statement = (
+			'CREATE UNIQUE INDEX IF NOT EXISTS uq_article_variants_active_barcode '
+			"ON article_variants(barcode) WHERE barcode IS NOT NULL AND barcode <> '' "
+			'AND is_active = 1'
+		)
+	else:
+		statement = (
+			'CREATE UNIQUE INDEX IF NOT EXISTS uq_article_variants_active_barcode '
+			"ON public.article_variants(barcode) WHERE barcode IS NOT NULL AND barcode <> '' "
+			'AND is_active'
+		)
+	with engine.connect() as conn:
+		try:
+			conn.execute(text(statement))
+			conn.commit()
+			logger.info('v32: índice único de códigos de barras activo.')
+		except Exception as e:
+			# The application-level checks remain active, so an older database can
+			# keep working while the operator resolves its legacy duplicate rows.
+			logger.error(
+				'v32: no se pudo crear el índice único de códigos de barras; '
+				'revisa códigos activos duplicados: %s',
+				e,
+			)
+
+
+# ─── v33: consultas diarias del panel ───────────────────────────────────────
+
+
+def _v33_add_dashboard_sales_index(engine) -> None:
+	"""Acelera los totales por empresa, estado y rango de fecha del Inicio."""
+	with engine.connect() as conn:
+		try:
+			conn.execute(
+				text(
+					'CREATE INDEX IF NOT EXISTS ix_sale_tenant_status_date '
+					'ON sales(tenant_id, status, date)'
+				)
+			)
+			conn.commit()
+			logger.info('v33: índice de métricas del panel creado.')
+		except Exception as exc:
+			logger.warning('v33: no se pudo crear índice de métricas: %s', exc)

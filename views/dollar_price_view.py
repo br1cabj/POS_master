@@ -202,8 +202,8 @@ class DollarPriceView(BaseView):
 
 		# ── 1. Tipo de cotización
 		self._section_label(scroll, 'TIPO DE COTIZACIÓN')
-		self._type_var = ctk.StringVar(master=self, 
-			value=self._cfg.get('dollar_type', 'blue').capitalize()
+		self._type_var = ctk.StringVar(
+			master=self, value=self._cfg.get('dollar_type', 'blue').capitalize()
 		)
 		type_row = ctk.CTkFrame(scroll, fg_color='transparent')
 		type_row.pack(fill='x', padx=16, pady=(4, 16))
@@ -412,7 +412,9 @@ class DollarPriceView(BaseView):
 		toolbar.grid(row=0, column=0, sticky='ew', padx=14, pady=(14, 0))
 		toolbar.grid_columnconfigure(0, weight=1)
 
-		self._search_var = ctk.StringVar(master=self, )
+		self._search_var = ctk.StringVar(
+			master=self,
+		)
 		self._trace_search = self._search_var.trace_add('write', self._on_filter_change)
 		ctk.CTkEntry(
 			toolbar,
@@ -1105,7 +1107,7 @@ class DollarPriceView(BaseView):
 					self.ctx.tenant_id, self.ctx.user_id, rate, margin
 				)
 			except Exception as e:
-				success, msg = False, f'Error del sistema: {str(e)}'
+				success, msg = False, f'Error del sistema: {e!s}'
 			self.after(0, lambda: self._on_update_done(success, msg))
 
 		threading.Thread(target=worker, daemon=True).start()

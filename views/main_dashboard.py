@@ -1,9 +1,13 @@
 import importlib
 import logging
+import queue
+import threading
 import time
+from tkinter import TclError
 
 import customtkinter as ctk
 from CTkMessagebox import CTkMessagebox
+from sqlalchemy.exc import SQLAlchemyError
 
 from controllers.cash_controller import CashController
 from core.context import AppContext
@@ -132,6 +136,20 @@ NAV_ITEMS_ADMIN = [
 	(_SETTINGS, '⚙', 'Configuración', 'sistema'),
 ]
 
+ADMIN_VIEW_PATHS = frozenset(item[0] for item in NAV_ITEMS_ADMIN)
+# El respaldo del cajero se abre en SQLite de solo lectura. Estas pantallas no
+# escriben; Ventas conserva acceso únicamente para consultar el catálogo.
+OFFLINE_READ_ONLY_VIEW_PATHS = frozenset(
+	{
+		_HOME,
+		_SALES,
+		_SALES_HIS,
+		_REPORT,
+		_STOCK_HIS,
+		_ALERTS,
+	}
+)
+
 _SHORTCUTS = [
 	('F1', 'Ventas'),
 	('F2', 'Caja'),
@@ -161,16 +179,23 @@ class MainDashboard(ctk.CTkFrame):
 		self._nav_buttons: dict = {}
 		self._clock_job = None
 		self._cash_job = None
+		self._cash_trigger_job = None
+		self._cash_poll_job = None
+		self._cash_result_queue: queue.Queue = queue.Queue()
+		self._cash_request_in_flight = False
+		self._sync_job = None
+		self._setup_bind_job = None
 		self._active_toasts = []
+		self._teardown_done = False
 
 		# Instancia única para evitar fugas de conexión de DB
 		self._cash_ctrl = CashController(ctx.db_engine)
 
 		self.pack(fill='both', expand=True)
 
-		self.username = ctx.username
+		self.username = (ctx.username or 'Usuario').strip() or 'Usuario'
 		self.is_admin = ctx.is_admin
-		self.role_label = (ctx.role or 'Usuario').capitalize()
+		self.role_label = str(ctx.role or 'Usuario').strip().capitalize()
 
 		self._build_sidebar()
 		self._build_main_area()
@@ -258,14 +283,19 @@ class MainDashboard(ctk.CTkFrame):
 			'reportes': 'Reportes',
 			'sistema': 'Sistema',
 		}
-		tab_bar = ctk.CTkFrame(self.sidebar, fg_color='transparent', height=38)
+		columns = min(3, len(tabs))
+		rows = (len(tabs) + columns - 1) // columns
+		tab_bar = ctk.CTkFrame(self.sidebar, fg_color='transparent', height=38 * rows)
 		tab_bar.pack(fill='x')
 		tab_bar.pack_propagate(False)
 
-		for col, section in enumerate(tabs):
+		for col in range(columns):
 			tab_bar.grid_columnconfigure(col, weight=1)
+		for row in range(rows):
+			tab_bar.grid_rowconfigure(row, weight=1)
 
-		for col, section in enumerate(tabs):
+		for index, section in enumerate(tabs):
+			row, col = divmod(index, columns)
 			btn = ctk.CTkButton(
 				tab_bar,
 				text=_TAB_LABELS.get(section, section.capitalize()),
@@ -278,7 +308,7 @@ class MainDashboard(ctk.CTkFrame):
 				height=38,
 				command=lambda s=section: self._switch_tab(s),
 			)
-			btn.grid(row=0, column=col, sticky='nsew')
+			btn.grid(row=row, column=col, sticky='nsew')
 			self._tab_buttons[section] = btn
 
 	def _switch_tab(self, section: str):
@@ -318,6 +348,8 @@ class MainDashboard(ctk.CTkFrame):
 			active=False,
 			shortcut=shortcut_key,
 		)
+		if getattr(self.ctx, 'offline_mode', False) and view_path not in OFFLINE_READ_ONLY_VIEW_PATHS:
+			btn.configure(state='disabled')
 		self._nav_buttons[view_path] = btn
 		self._nav_by_section.setdefault(section, []).append((view_path, btn))
 
@@ -452,20 +484,14 @@ class MainDashboard(ctk.CTkFrame):
 		global_shortcuts = ctk.CTkFrame(bar, fg_color='transparent')
 		global_shortcuts.pack(side='left', padx=12, fill='y')
 
-		for key, desc in _SHORTCUTS:
-			chip = ctk.CTkFrame(global_shortcuts, fg_color=SURFACE2, corner_radius=5)
-			chip.pack(side='left', padx=(0, 6), pady=5)
-			ctk.CTkLabel(
-				chip,
-				text=f' {key} ',
-				font=('Arial', 9, 'bold'),
-				text_color=ACCENT_TEXT,
-				fg_color=ACCENT_DIM,
-				corner_radius=4,
-			).pack(side='left', padx=(3, 0), pady=2)
-			ctk.CTkLabel(
-				chip, text=f' {desc} ', font=('Arial', 9), text_color=TEXT_MUTED
-			).pack(side='left', pady=2)
+		shortcut_text = '  ·  '.join(f'{key} {desc}' for key, desc in _SHORTCUTS)
+		ctk.CTkLabel(
+			global_shortcuts,
+			text=shortcut_text,
+			font=('Arial', 9),
+			text_color=TEXT_MUTED,
+			anchor='w',
+		).pack(fill='y')
 
 		self.lbl_clock = ctk.CTkLabel(
 			bar, text='', font=FONT_LABEL_BOLD, text_color=TEXT_MUTED
@@ -480,22 +506,33 @@ class MainDashboard(ctk.CTkFrame):
 
 		# ── Indicador de sync ──────────────────────────────────────────────────
 		self.lbl_sync = ctk.CTkLabel(
-			bar, text='', font=('Arial', 9), text_color=TEXT_MUTED, cursor='hand2'
+			bar,
+			text='',
+			font=('Arial', 9),
+			text_color=TEXT_MUTED,
+			cursor='hand2' if self.is_admin else '',
 		)
 		self.lbl_sync.pack(side='right', padx=(0, 8))
-		self.lbl_sync.bind('<Button-1>', lambda e: self._handle_sync_click())
-		self.lbl_sync.bind('<Button-3>', lambda e: self._force_sync_now())
-		self._sync_job = None
+		if self.is_admin:
+			self.lbl_sync.bind('<Button-1>', lambda e: self._handle_sync_click())
+			self.lbl_sync.bind('<Button-3>', lambda e: self._force_sync_now())
 		self.after(5000, self._refresh_sync_indicator)
 
 	def _handle_sync_click(self):
 		"""Click izquierdo: si hay error muestra detalle, si no va a settings cloud."""
+		if not self.is_admin:
+			self.show_toast(
+				'El estado de sincronización está disponible para administradores.',
+				type_='info',
+			)
+			return
 		worker = getattr(self.ctx, 'sync_worker', None)
-		if worker and not worker.last_sync_ok and worker.last_sync_error:
+		ok, _last_time, error = worker.get_status() if worker else (None, None, '')
+		if worker and not ok and error:
 			CTkMessagebox(
 				master=self,
 				title='Sync Cloud',
-				message=f'Error de sincronización:\n{worker.last_sync_error}',
+				message=f'Error de sincronización:\n{error}',
 				icon='cancel',
 			)
 		else:
@@ -503,6 +540,8 @@ class MainDashboard(ctk.CTkFrame):
 
 	def _force_sync_now(self):
 		"""Click derecho: fuerza un sync manual inmediato."""
+		if not self.is_admin:
+			return
 		worker = getattr(self.ctx, 'sync_worker', None)
 		if worker and worker.is_running:
 			worker.force_sync()
@@ -529,8 +568,7 @@ class MainDashboard(ctk.CTkFrame):
 			if hasattr(self, 'lbl_sync'):
 				self.lbl_sync.configure(text='')
 		else:
-			ok = worker.last_sync_ok
-			t = worker.last_sync_time
+			ok, t, _error = worker.get_status()
 			time_str = t.strftime('%H:%M') if t else '–'
 			if ok is None:
 				dot, color = '● Sync pendiente', TEXT_MUTED
@@ -543,18 +581,39 @@ class MainDashboard(ctk.CTkFrame):
 		self._sync_job = self.after(30000, self._refresh_sync_indicator)
 
 	def _setup_global_binds(self):
-		self.master_app.bind('<F1>', lambda e: self.safe_switch_view(_SALES))
-		self.master_app.bind('<F2>', lambda e: self.safe_switch_view(_CASH))
+		self.master_app.bind('<F1>', lambda e: self._run_shortcut(_SALES))
+		self.master_app.bind('<F2>', lambda e: self._run_shortcut(_CASH))
 		self.master_app.bind(
-			'<F3>', lambda e: self.safe_switch_view(_ARTICLES, requires_admin=True)
+			'<F3>', lambda e: self._run_shortcut(_ARTICLES)
 		)
 		self.master_app.bind(
-			'<F4>', lambda e: self.safe_switch_view(_CUSTOMERS)
+			'<F4>', lambda e: self._run_shortcut(_CUSTOMERS)
 		)
 		self.master_app.bind('<Escape>', self._handle_escape)
-		self.after(
-			100, lambda: self.winfo_toplevel().bind('<F11>', self.toggle_fullscreen)
-		)
+		self._setup_bind_job = self.after(100, self._bind_fullscreen_shortcut)
+
+	def _bind_fullscreen_shortcut(self):
+		self._setup_bind_job = None
+		if self.winfo_exists():
+			self.master_app.bind('<F11>', self.toggle_fullscreen)
+
+	def _run_shortcut(self, view_path: str):
+		"""Evita reconstruir la vista actual y respeta diálogos modales activos."""
+		try:
+			grabbed = self.master_app.grab_current()
+		except TclError:
+			grabbed = None
+		if grabbed and grabbed is not self.master_app:
+			return None
+		self.safe_switch_view(view_path)
+		return 'break'
+
+	def _clear_global_binds(self):
+		for key in ('<F1>', '<F2>', '<F3>', '<F4>', '<Escape>', '<F11>'):
+			try:
+				self.master_app.unbind(key)
+			except TclError:
+				logger.debug('El binding %s ya no estaba disponible.', key)
 
 	def _reposition_toasts(self):
 		"""Calcula el offset dinámico para apilar toasts sin superponerlos."""
@@ -601,13 +660,25 @@ class MainDashboard(ctk.CTkFrame):
 
 		self.after(duration, lambda t=toast: self._remove_toast(t))
 
-	def _delayed_destroy(self, view_instance):
-		"""Destrucción asíncrona segura para vistas con hilos de fondo."""
+	def _dispose_view(self, view_instance):
+		"""Cancela recursos de una vista antes de destruirla sin dejarla en segundo plano."""
 		try:
 			if view_instance and view_instance.winfo_exists():
 				view_instance.destroy()
-		except Exception:
-			pass
+		except TclError:
+			logger.debug('La vista anterior ya estaba destruida.')
+
+	def _cleanup_view(self, view_instance):
+		if not view_instance:
+			return
+		try:
+			if hasattr(view_instance, 'destroy_custom'):
+				view_instance.destroy_custom()
+			elif hasattr(view_instance, 'cleanup'):
+				view_instance.cleanup()
+		except Exception as exc:
+			logger.error('La limpieza de una vista falló: %s', exc, exc_info=True)
+		self._dispose_view(view_instance)
 
 	def safe_switch_view(self, view, requires_admin=False, context_data=None):
 		if not self.winfo_exists():
@@ -618,15 +689,33 @@ class MainDashboard(ctk.CTkFrame):
 		if not view_path:
 			logger.error('Vista no registrada: %s', view)
 			return
-		view_class = _load_view_class(view_path)
 
-		if requires_admin and not self.is_admin:
+		if (requires_admin or view_path in ADMIN_VIEW_PATHS) and not self.is_admin:
 			CTkMessagebox(
 				master=self.winfo_toplevel(),
 				title='Acceso Restringido',
 				message='Necesitás permisos de administrador para acceder a esta sección.',
 				icon='cancel',
 			)
+			return
+		if (
+			getattr(self.ctx, 'offline_mode', False)
+			and view_path not in OFFLINE_READ_ONLY_VIEW_PATHS
+		):
+			self.show_toast(
+				'Esta sección no está disponible mientras la base está en solo lectura.',
+				type_='warning',
+			)
+			return
+		if self.current_view and self._active_view_path == view_path and context_data is None:
+			if hasattr(self.current_view, 'set_initial_focus'):
+				self.current_view.set_initial_focus()
+			return
+		try:
+			view_class = _load_view_class(view_path)
+		except (ImportError, AttributeError, ValueError) as exc:
+			logger.error('No se pudo importar la vista %s: %s', view_path, exc, exc_info=True)
+			self.show_toast('No se pudo abrir la sección. Revisá los registros.', type_='error')
 			return
 
 		if self.current_view and self._active_view_path != view_path:
@@ -647,32 +736,13 @@ class MainDashboard(ctk.CTkFrame):
 
 		if self.current_view:
 			old_view = self.current_view
-
-			if hasattr(old_view, 'destroy_custom'):
-				try:
-					old_view.destroy_custom()
-				except Exception:
-					pass
-			elif hasattr(old_view, 'cleanup'):
-				try:
-					old_view.cleanup()
-				except Exception:
-					pass
-
 			self.current_view = None
-			old_view.pack_forget()
-			self.after(1500, lambda v=old_view: self._delayed_destroy(v))
+			self._cleanup_view(old_view)
 
 		# Limpieza residual
 		if self.main_area.winfo_exists():
 			for widget in list(self.main_area.winfo_children()):
-				widget.pack_forget()
-				self.after(
-					1500, lambda w=widget: w.destroy() if w.winfo_exists() else None
-				)
-
-		self._active_view_path = view_path
-		self._update_nav_highlight(view_path)
+				self._dispose_view(widget)
 
 		# Indicador de carga mientras se instancia la vista
 		_loading = ctk.CTkFrame(self.main_area, fg_color=SURFACE1, corner_radius=0)
@@ -696,19 +766,21 @@ class MainDashboard(ctk.CTkFrame):
 			self.current_view.pack(fill='both', expand=True)
 		except Exception as e:
 			logger.error('Error al cargar vista: %s', e, exc_info=True)
-			try:
-				err_label = ctk.CTkLabel(
-					self.main_area,
-					text='Error al cargar la vista.\nRevisa los logs.',
-					text_color='#ef4444',
-				)
-				err_label.pack(expand=True)
-			except Exception:
-				pass
+			self.current_view = None
+			err_label = ctk.CTkLabel(
+				self.main_area,
+				text='Error al cargar la vista.\nRevisá los registros.',
+				text_color='#ef4444',
+			)
+			err_label.pack(expand=True)
 		finally:
-			self.after(0, _loading.destroy)
+			self._dispose_view(_loading)
 
-		if hasattr(self.current_view, 'set_initial_focus'):
+		if self.current_view:
+			self._active_view_path = view_path
+			self._update_nav_highlight(view_path)
+
+		if self.current_view and hasattr(self.current_view, 'set_initial_focus'):
 			self.after(50, self.current_view.set_initial_focus)
 
 		if (
@@ -722,59 +794,78 @@ class MainDashboard(ctk.CTkFrame):
 			else:
 				self.lbl_view_shortcuts.configure(text='')
 
-		self.after(200, self._refresh_cash_dot)
+		self._request_cash_dot_refresh(delay_ms=200)
 
 	def _go_to_cash(self):
 		self.safe_switch_view(_CASH)
 
-	def _refresh_cash_dot(self):
-		import threading
+	def _request_cash_dot_refresh(self, delay_ms: int = 0):
+		"""Concentra solicitudes repetidas de estado de caja en una sola consulta."""
+		if self._cash_trigger_job:
+			try:
+				self.after_cancel(self._cash_trigger_job)
+			except TclError:
+				pass
+		self._cash_trigger_job = self.after(delay_ms, self._refresh_cash_dot)
 
+	def _refresh_cash_dot(self):
+		self._cash_trigger_job = None
 		if not self.winfo_exists():
 			return
-
-		# Cancela el job pendiente para evitar duplicados si se llama manualmente
-		if self._cash_job:
-			try:
-				self.after_cancel(self._cash_job)
-			except Exception:
-				pass
+		if self._cash_request_in_flight:
+			return
+		self._cash_request_in_flight = True
 
 		def _run():
 			try:
 				session = self._cash_ctrl.get_active_session(
 					self.ctx.tenant_id, self.ctx.user_id
 				)
-			except Exception:
+			except (SQLAlchemyError, RuntimeError) as exc:
+				logger.warning('No se pudo actualizar el estado de caja: %s', exc)
 				session = None
-			if self.winfo_exists():
-				self.after(0, lambda s=session: _update(s))
+			# El worker no toca Tkinter: el hilo principal consume esta cola.
+			self._cash_result_queue.put(session)
 
-		def _update(session):
-			if not self.winfo_exists():
-				return
-			color = '#22c55e' if session else RED_TEXT
-			label = '● Abierta' if session else '● Cerrada'
-			if hasattr(self, 'lbl_dot') and self.lbl_dot.winfo_exists():
-				self.lbl_dot.configure(text_color=color, text=label)
+		threading.Thread(target=_run, daemon=True, name='CashStatusRefresh').start()
+		self._cash_poll_job = self.after(50, self._consume_cash_dot_result)
 
-		threading.Thread(target=_run, daemon=True).start()
+	def _consume_cash_dot_result(self):
+		self._cash_poll_job = None
+		if not self.winfo_exists():
+			return
+		try:
+			session = self._cash_result_queue.get_nowait()
+		except queue.Empty:
+			self._cash_poll_job = self.after(50, self._consume_cash_dot_result)
+			return
+		self._cash_request_in_flight = False
+		color = '#22c55e' if session else RED_TEXT
+		label = '● Abierta' if session else '● Cerrada'
+		if hasattr(self, 'lbl_dot') and self.lbl_dot.winfo_exists():
+			self.lbl_dot.configure(text_color=color, text=label)
 		self._cash_job = self.after(30_000, self._refresh_cash_dot)
 
-	def handle_logout(self):
-		for job_attr in ('_clock_job', '_cash_job', '_sync_job'):
+	def _cancel_dashboard_jobs(self):
+		for job_attr in (
+			'_clock_job',
+			'_cash_job',
+			'_cash_trigger_job',
+			'_cash_poll_job',
+			'_sync_job',
+			'_setup_bind_job',
+		):
 			job = getattr(self, job_attr, None)
 			if job:
 				try:
 					self.after_cancel(job)
-				except Exception:
+				except TclError:
 					pass
 				setattr(self, job_attr, None)
-		for key in ('<F1>', '<F2>', '<F3>', '<F4>', '<Escape>', '<F11>'):
-			try:
-				self.master_app.unbind(key)
-			except Exception:
-				pass
+
+	def handle_logout(self):
+		self._cancel_dashboard_jobs()
+		self._clear_global_binds()
 		self._external_logout_command()
 
 	def update_clock(self):
@@ -794,19 +885,27 @@ class MainDashboard(ctk.CTkFrame):
 		top.attributes('-fullscreen', self.is_fullscreen)
 
 	def _handle_escape(self, event=None):
+		try:
+			grabbed = self.master_app.grab_current()
+		except TclError:
+			grabbed = None
+		if grabbed and grabbed is not self.master_app:
+			return 'break'
 		if self.is_fullscreen:
 			self.is_fullscreen = False
 			self.winfo_toplevel().attributes('-fullscreen', False)
 		else:
 			self.safe_switch_view(_HOME)
+		return 'break'
 
 	def destroy(self):
-		for job_attr in ('_clock_job', '_cash_job', '_sync_job'):
-			job = getattr(self, job_attr, None)
-			if job:
-				try:
-					self.after_cancel(job)
-				except Exception:
-					pass
-				setattr(self, job_attr, None)
+		if self._teardown_done:
+			return
+		self._teardown_done = True
+		self._cancel_dashboard_jobs()
+		self._clear_global_binds()
+		if getattr(self.ctx, 'navigate', None) == self.safe_switch_view:
+			self.ctx.navigate = None
+		if getattr(self.ctx, 'show_toast', None) == self.show_toast:
+			self.ctx.show_toast = None
 		super().destroy()

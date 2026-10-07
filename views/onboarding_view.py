@@ -189,13 +189,17 @@ class OnboardingView(BaseView):
 		progress_bar.grid(row=3, column=0, padx=40, pady=(6, 26), sticky='ew')
 		progress_bar.set(completed / actionable_total if actionable_total else 1)
 
-		for row, (_, icon, title, description, done, section) in enumerate(self._items, start=1):
+		for row, (_, icon, title, description, done, section) in enumerate(
+			self._items, start=1
+		):
 			self._build_checklist_item(
 				parent, row, icon, title, description, done, section
 			)
 
 		footer = ctk.CTkFrame(parent, fg_color='transparent')
-		footer.grid(row=len(self._items) + 1, column=0, padx=60, pady=(28, 48), sticky='ew')
+		footer.grid(
+			row=len(self._items) + 1, column=0, padx=60, pady=(28, 48), sticky='ew'
+		)
 		footer.grid_columnconfigure(0, weight=1)
 		all_done = completed == actionable_total
 		primary_text = '✓  Terminar inicio rápido' if all_done else 'Ir al Dashboard  →'
@@ -235,7 +239,9 @@ class OnboardingView(BaseView):
 			text_color=TEXT_MUTED,
 		).grid(row=2, column=0, pady=(4, 0))
 
-	def _build_checklist_item(self, parent, row, icon, title, description, done, section):
+	def _build_checklist_item(
+		self, parent, row, icon, title, description, done, section
+	):
 		card = ctk.CTkFrame(
 			parent,
 			fg_color=SURFACE2,
@@ -245,13 +251,15 @@ class OnboardingView(BaseView):
 		)
 		card.grid(row=row, column=0, sticky='ew', padx=60, pady=(16, 0))
 		card.grid_columnconfigure(2, weight=1)
-		ctk.CTkFrame(card, fg_color=GREEN if done else SURFACE3, width=5, corner_radius=0).grid(
-			row=0, column=0, rowspan=2, sticky='ns'
-		)
+		ctk.CTkFrame(
+			card, fg_color=GREEN if done else SURFACE3, width=5, corner_radius=0
+		).grid(row=0, column=0, rowspan=2, sticky='ns')
 		icon_label = ctk.CTkLabel(card, text=icon, font=('Arial', 28))
 		icon_label.grid(row=0, column=1, rowspan=2, padx=(20, 8), pady=20, sticky='w')
 		text_frame = ctk.CTkFrame(card, fg_color='transparent')
-		text_frame.grid(row=0, column=2, rowspan=2, sticky='nsew', padx=(0, 16), pady=16)
+		text_frame.grid(
+			row=0, column=2, rowspan=2, sticky='nsew', padx=(0, 16), pady=16
+		)
 		text_frame.grid_columnconfigure(0, weight=1)
 		ctk.CTkLabel(
 			text_frame,

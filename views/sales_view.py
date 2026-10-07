@@ -805,7 +805,9 @@ class SalesView(BaseView):
 			except Exception as exc:
 				logger.exception('No se pudo cargar el catálogo de ventas')
 				payload, error = ([], [], []), str(exc)
-			self._catalog_results_queue.put((request_id, current_customer, payload, error))
+			self._catalog_results_queue.put(
+				(request_id, current_customer, payload, error)
+			)
 
 		threading.Thread(target=fetch_catalog, daemon=True, name='SalesCatalog').start()
 
@@ -826,23 +828,32 @@ class SalesView(BaseView):
 			pass
 		self._catalog_poll_job = self.after(75, self._poll_catalog_results)
 
-	def _apply_catalog_payload(self, current_customer, variants, promos, customers, error=None):
+	def _apply_catalog_payload(
+		self, current_customer, variants, promos, customers, error=None
+	):
 		try:
 			if error:
-				self._set_msg('No se pudo actualizar el catálogo. Se conservan los datos previos.', ORANGE_TEXT)
+				self._set_msg(
+					'No se pudo actualizar el catálogo. Se conservan los datos previos.',
+					ORANGE_TEXT,
+				)
 				return
 			if self._touch_batch_timer:
 				self.after_cancel(self._touch_batch_timer)
 				self._touch_batch_timer = None
 			self.db_variants = variants
 			self._active_promos = promos
-			self.customer_map = {customer.get('name'): customer for customer in customers}
+			self.customer_map = {
+				customer.get('name'): customer for customer in customers
+			}
 			customer_names = list(self.customer_map)
 			if 'Consumidor Final' not in customer_names:
 				customer_names.insert(0, 'Consumidor Final')
 			self.customers_combo.configure(values=customer_names)
 			self.customers_combo.set(
-				current_customer if current_customer in customer_names else 'Consumidor Final'
+				current_customer
+				if current_customer in customer_names
+				else 'Consumidor Final'
 			)
 			self._on_customer_changed(self.customers_combo.get())
 
@@ -1483,13 +1494,20 @@ class SalesView(BaseView):
 			return
 		try:
 			while True:
-				request_id, query, matches, error = self._search_results_queue.get_nowait()
+				request_id, query, matches, error = (
+					self._search_results_queue.get_nowait()
+				)
 				if request_id != self._search_request_id:
 					continue
-				if self._search_mode != 'search' or self.entry_barcode.get().strip() != query:
+				if (
+					self._search_mode != 'search'
+					or self.entry_barcode.get().strip() != query
+				):
 					continue
 				if error:
-					self._set_msg('No se pudo buscar el artículo. Intentá nuevamente.', RED_TEXT)
+					self._set_msg(
+						'No se pudo buscar el artículo. Intentá nuevamente.', RED_TEXT
+					)
 					self._close_dropdown()
 				elif matches:
 					self._open_dropdown(matches[:10])
@@ -2015,7 +2033,9 @@ class SalesView(BaseView):
 	# =========================================================
 	def process_sale(self):
 		if getattr(self.ctx, 'offline_mode', False):
-			self._set_msg('Las ventas están deshabilitadas en modo sin conexión.', ORANGE_TEXT)
+			self._set_msg(
+				'Las ventas están deshabilitadas en modo sin conexión.', ORANGE_TEXT
+			)
 			return
 		if not self._cash_ctrl.get_active_session(self.ctx.tenant_id, self.ctx.user_id):
 			self._check_cash_status()
@@ -2480,7 +2500,8 @@ class SalesView(BaseView):
 			else:
 				self.entry_amount_2.configure(border_color=BORDER)
 				self._lbl_amount_1_auto.configure(
-					text=f'{method1}: {_cfg_mgr.fmt_price(float(amt1))}', text_color=GREEN_TEXT
+					text=f'{method1}: {_cfg_mgr.fmt_price(float(amt1))}',
+					text_color=GREEN_TEXT,
 				)
 		except (ValueError, InvalidOperation):
 			self.entry_amount_2.configure(border_color=RED)
@@ -2704,7 +2725,9 @@ class SalesView(BaseView):
 				base_price = self._get_list_price(variant)
 				promo = self._find_promo_for_variant(variant)
 				if promo:
-					price, description = self._apply_promo_price(promo, base_price, new_qty)
+					price, description = self._apply_promo_price(
+						promo, base_price, new_qty
+					)
 					cart_item['product_disc_pct'] = Decimal(0)
 				else:
 					price, product_pct, _source = self._apply_product_discount(
@@ -2714,7 +2737,8 @@ class SalesView(BaseView):
 						f'🏷️ -{product_pct:.4g}% {variant.get("name", "Artículo")}'
 						if product_pct > Decimal(0)
 						else f'💼 {variant.get("name", "Artículo")}'
-						if self._active_price_list == 'B' and variant.get('selling_price_b')
+						if self._active_price_list == 'B'
+						and variant.get('selling_price_b')
 						else variant.get('name', 'Artículo')
 					)
 					cart_item['product_disc_pct'] = product_pct
@@ -2754,7 +2778,9 @@ class SalesView(BaseView):
 
 	def _open_venta_libre_popup(self):
 		if not self.ctx.is_admin:
-			self.show_toast('La venta libre requiere una cuenta administradora.', 'error')
+			self.show_toast(
+				'La venta libre requiere una cuenta administradora.', 'error'
+			)
 			return
 		popup = ctk.CTkToplevel(self)
 		popup.title('Venta Libre')

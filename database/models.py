@@ -13,6 +13,7 @@ from sqlalchemy import (
 	Numeric,
 	String,
 	UniqueConstraint,
+	text,
 )
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -229,6 +230,17 @@ class ArticleVariant(Base):
 	__table_args__ = (
 		CheckConstraint('cost_price >= 0', name='chk_cost_price_positive'),
 		CheckConstraint('selling_price >= 0', name='chk_selling_price_positive'),
+		# A barcode is the identifier consumed by scanners.  Keeping it unique
+		# across active variants avoids an ambiguous sale when two catalog entries
+		# are accidentally assigned the same code.  NULL/blank values remain valid
+		# while a product is being drafted.
+		Index(
+			'uq_article_variants_active_barcode',
+			'barcode',
+			unique=True,
+			sqlite_where=text("barcode IS NOT NULL AND barcode <> '' AND is_active = 1"),
+			postgresql_where=text("barcode IS NOT NULL AND barcode <> '' AND is_active"),
+		),
 	)
 
 
@@ -391,6 +403,7 @@ class Sale(Base):
 
 	__table_args__ = (
 		Index('ix_sale_tenant_status', 'tenant_id', 'status'),
+		Index('ix_sale_tenant_status_date', 'tenant_id', 'status', 'date'),
 		CheckConstraint('total_amount >= 0', name='chk_sale_total_positive'),
 		CheckConstraint('discount_amount >= 0', name='chk_sale_discount_positive'),
 		CheckConstraint('total_returned >= 0', name='chk_sale_total_returned_positive'),

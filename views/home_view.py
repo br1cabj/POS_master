@@ -1,4 +1,8 @@
 import importlib
+import logging
+import queue
+import threading
+from typing import ClassVar
 
 import customtkinter as ctk
 
@@ -36,6 +40,9 @@ from utils.styles import (
 	TEXT_PRIMARY,
 	TEXT_SECONDARY,
 )
+from utils.settings_manager import fmt_price
+
+logger = logging.getLogger(__name__)
 
 # ─── Paleta del gráfico ───────────────────────
 _CHART_BG = SURFACE0
@@ -54,6 +61,9 @@ class HomeView(BaseView):
 		self._navigate = navigate
 		self._fig = None
 		self.canvas_widget = None
+		self._dashboard_result_queue: queue.Queue = queue.Queue()
+		self._dashboard_poll_job = None
+		self._dashboard_request_id = 0
 
 		username = ctx.username
 
@@ -86,7 +96,7 @@ class HomeView(BaseView):
 			'cash': ('views.cash_view', 'CashView', False),
 			'articles': ('views.articles_view', 'ArticlesView', True),
 			'alerts': ('views.alerts_view', 'AlertsView', True),
-			'customers': ('views.customers_view', 'CustomersView', True),
+			'customers': ('views.customers_view', 'CustomersView', False),
 		}
 		if view_name not in lazy:
 			return
@@ -307,72 +317,78 @@ class HomeView(BaseView):
 	# CARGA DE DATOS
 	# =========================================================
 	def load_dashboard_data(self):
-		import threading
-
 		btn = getattr(self, 'btn_refresh', None)
 		if btn:
 			btn.configure(state='disabled', text='↻  Cargando...')
 
 		tenant_id = self.ctx.tenant_id
+		self._dashboard_request_id += 1
+		request_id = self._dashboard_request_id
 
 		def _run():
-			try:
-				revenue, profit, tickets = self.controller.get_today_stats(tenant_id)
-				stats = (revenue, profit, tickets)
-			except Exception:
-				stats = None
-
-			try:
-				promos = self.promo_ctrl.get_active_promos_now(tenant_id)
-			except Exception:
-				promos = []
-
-			try:
-				weekly = self.controller.get_weekly_sales(tenant_id)
-			except Exception:
-				weekly = None
-
-			try:
-				top_products = self.controller.get_top_products(tenant_id)
-			except Exception:
-				top_products = None
-
-			def _update(s=stats, p=promos, w=weekly, t=top_products):
-				if not self.winfo_exists():
-					return
-				if s is not None:
-					revenue, profit, tickets = s
-					rev_f = float(revenue)
-					pro_f = float(profit)
-					margin = (pro_f / rev_f * 100) if rev_f > 0 else 0.0
-
-					self.lbl_ventas.configure(text=f'${rev_f:,.0f}')
-					self.lbl_ventas_sub.configure(
-						text=f'{int(tickets)} tickets · ${rev_f / max(tickets, 1):,.0f} prom.'
-					)
-					self.lbl_ganancia.configure(text=f'${pro_f:,.0f}')
-					self.lbl_ganancia_sub.configure(text=f'Margen {margin:.1f}%')
-					self.lbl_tickets.configure(text=str(tickets))
-					self.lbl_tickets_sub.configure(text='ventas completadas hoy')
-
-					self.draw_weekly_chart(tenant_id, data=w)
-					self.draw_active_promos(p)
-					self.draw_top_products(tenant_id, data=t)
-
-				if btn:
-					try:
-						btn.configure(state='normal', text='↻  Actualizar')
-					except Exception:
-						pass
-
-			self.after(0, _update)
+			results, errors = {}, []
+			for key, loader, fallback in (
+				('stats', lambda: self.controller.get_today_stats(tenant_id), None),
+				('promos', lambda: self.promo_ctrl.get_active_promos_now(tenant_id), []),
+				('weekly', lambda: self.controller.get_weekly_sales(tenant_id), None),
+				('top_products', lambda: self.controller.get_top_products(tenant_id), None),
+			):
+				try:
+					results[key] = loader()
+				except Exception as exc:
+					results[key] = fallback
+					errors.append(key)
+					logger.warning('No se pudo cargar %s del panel: %s', key, exc)
+			self._dashboard_result_queue.put((request_id, results, errors))
 
 		threading.Thread(target=_run, daemon=True).start()
+		if self._dashboard_poll_job is None:
+			self._dashboard_poll_job = self.after(40, self._consume_dashboard_result)
+
+	def _consume_dashboard_result(self):
+		self._dashboard_poll_job = None
+		if not self.winfo_exists():
+			return
+		try:
+			request_id, results, errors = self._dashboard_result_queue.get_nowait()
+		except queue.Empty:
+			self._dashboard_poll_job = self.after(40, self._consume_dashboard_result)
+			return
+		if request_id != self._dashboard_request_id:
+			if not self._dashboard_result_queue.empty():
+				self._dashboard_poll_job = self.after(0, self._consume_dashboard_result)
+			return
+
+		stats = results['stats']
+		if stats is not None:
+			revenue, profit, tickets = stats
+			rev_f = float(revenue)
+			pro_f = float(profit)
+			margin = (pro_f / rev_f * 100) if rev_f > 0 else 0.0
+			self.lbl_ventas.configure(text=fmt_price(rev_f))
+			self.lbl_ventas_sub.configure(
+				text=f'{int(tickets)} tickets · {fmt_price(rev_f / max(tickets, 1))} prom.'
+			)
+			self.lbl_ganancia.configure(text=fmt_price(pro_f))
+			self.lbl_ganancia_sub.configure(text=f'Margen {margin:.1f}%')
+			self.lbl_tickets.configure(text=str(tickets))
+			self.lbl_tickets_sub.configure(text='ventas netas hoy')
+		if results['weekly'] is not None:
+			self.draw_weekly_chart(tenant_id=self.ctx.tenant_id, data=results['weekly'])
+		if results['promos'] is not None:
+			self.draw_active_promos(results['promos'])
+		if results['top_products'] is not None:
+			self.draw_top_products(tenant_id=self.ctx.tenant_id, data=results['top_products'])
+		if errors:
+			self.show_toast('Algunos datos del inicio no pudieron actualizarse.', type_='warning')
+		btn = getattr(self, 'btn_refresh', None)
+		if btn and btn.winfo_exists():
+			btn.configure(state='normal', text='↻  Actualizar')
 
 	# =========================================================
 	# PROMOCIONES ACTIVAS
 	# =========================================================
-	_PROMO_TYPE_STYLE = {
+	_PROMO_TYPE_STYLE: ClassVar[dict[str, tuple[str, str, str]]] = {
 		'pct': (ACCENT_DIM, ACCENT_TEXT, '%'),
 		'nxm': (GREEN_DIM, GREEN_TEXT, 'NxM'),
 		'fixed': (ORANGE_DIM, ORANGE_TEXT, '$'),
@@ -459,7 +475,7 @@ class HomeView(BaseView):
 			elif p['promo_type'] == 'nxm' and p.get('buy_qty') and p.get('pay_qty'):
 				sub_parts.append(f'{p["buy_qty"]}x{p["pay_qty"]}')
 			elif p['promo_type'] == 'fixed' and p.get('discount_value') is not None:
-				sub_parts.append(f'${p["discount_value"]:.2f} c/u')
+				sub_parts.append(f'{fmt_price(p["discount_value"])} c/u')
 			if sub_parts:
 				ctk.CTkLabel(
 					info,
@@ -560,7 +576,7 @@ class HomeView(BaseView):
 			ax.text(
 				len(dates) - 1,
 				last_val * 1.04,
-				f'${last_val:,.0f}',
+				fmt_price(last_val),
 				ha='center',
 				va='bottom',
 				color=ACCENT_TEXT,
@@ -599,7 +615,7 @@ class HomeView(BaseView):
 
 		ctk.CTkLabel(
 			hdr,
-			text='🏆 Top 5 Productos',
+			text='🏆 Top 5 Productos · Histórico',
 			font=FONT_HEADING,
 			text_color=TEXT_PRIMARY,
 			anchor='w',
@@ -679,6 +695,12 @@ class HomeView(BaseView):
 			).place(x=0, y=0)
 
 	def destroy(self):
+		if self._dashboard_poll_job:
+			try:
+				self.after_cancel(self._dashboard_poll_job)
+			except Exception:
+				pass
+			self._dashboard_poll_job = None
 		if getattr(self, 'canvas_widget', None):
 			try:
 				if self.canvas_widget.winfo_exists():
@@ -688,6 +710,7 @@ class HomeView(BaseView):
 			self.canvas_widget = None
 		if self._fig is not None:
 			import matplotlib.pyplot as plt
+
 			plt.close(self._fig)
 			self._fig = None
 		super().destroy()

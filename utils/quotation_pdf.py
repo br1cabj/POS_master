@@ -9,13 +9,33 @@ import os
 import platform
 import re
 import subprocess
+import textwrap
 import unicodedata
 
-from fpdf import FPDF
+from fpdf import FPDF, XPos, YPos
 
 from utils import settings_manager
 
 logger = logging.getLogger(__name__)
+
+
+class _QuotationDocument(FPDF):
+	"""Documento con un pie repetible para que todas las páginas sean autosuficientes."""
+
+	def footer(self):
+		self.set_y(-18)
+		self.set_draw_color(200, 200, 200)
+		self.line(18, self.get_y(), 192, self.get_y())
+		self.ln(3)
+		self.set_font('Helvetica', 'I', 8)
+		self.set_text_color(110, 110, 110)
+		self.cell(
+			174,
+			4,
+			'Presupuesto orientativo y sujeto a modificaciones.  Página '
+			f'{self.page_no()}/{{nb}}',
+			align='C',
+		)
 
 
 def _sanitize(text: str) -> str:
@@ -48,11 +68,12 @@ class QuotationPDF:
 					return f'{symbol}{float(v):,.0f}'
 				return f'{symbol}{float(v):,.{decimals}f}'
 
-			pdf = FPDF(orientation='P', unit='mm', format='A4')
-			# Aumentamos el margen inferior a 25 para dar respiro a los totales
+			pdf = _QuotationDocument(orientation='P', unit='mm', format='A4')
+			pdf.set_margins(left=18, top=18, right=18)
+			pdf.alias_nb_pages()
+			# Dejamos espacio para el pie, que se repite en cada página.
 			pdf.set_auto_page_break(auto=True, margin=25)
 			pdf.add_page()
-			pdf.set_margins(left=18, top=18, right=18)
 			W = 174
 
 			# ── COLORES HÍBRIDOS (Clásico + Moderno) ─────────────────────────
@@ -70,24 +91,29 @@ class QuotationPDF:
 
 			# ── BLOQUE DERECHO (Documento y Fechas) ──────────────────────────
 			pdf.set_y(18)
-			pdf.set_font('Arial', 'B', 22)
+			pdf.set_font('Helvetica', 'B', 22)
 			pdf.set_text_color(*ACCENT_RGB)
-			pdf.cell(0, 8, 'PRESUPUESTO', ln=True, align='R')
+			pdf.cell(0, 8, 'PRESUPUESTO', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='R')
 
-			pdf.set_font('Arial', 'B', 14)
+			pdf.set_font('Helvetica', 'B', 14)
 			pdf.set_text_color(*TEXT_DARK)
-			pdf.cell(0, 6, f'Nro: {_sanitize(self.data["number"])}', ln=True, align='R')
+			pdf.cell(
+				0, 6, f'Nro: {_sanitize(self.data["number"])}', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='R'
+			)
 			pdf.ln(2)
 
-			pdf.set_font('Arial', 'B', 10)
+			pdf.set_font('Helvetica', 'B', 10)
 			pdf.set_text_color(*TEXT_MUTED)
-			pdf.cell(0, 5, f'Fecha: {_sanitize(self.data["date"])}', ln=True, align='R')
+			pdf.cell(
+				0, 5, f'Fecha: {_sanitize(self.data["date"])}', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='R'
+			)
 			if self.data.get('valid_until'):
 				pdf.cell(
 					0,
 					5,
 					f'Válido hasta: {_sanitize(self.data["valid_until"])}',
-					ln=True,
+					new_x=XPos.LMARGIN,
+					new_y=YPos.NEXT,
 					align='R',
 				)
 
@@ -102,16 +128,16 @@ class QuotationPDF:
 				except Exception:
 					pdf.set_xy(18, 18)
 
-			pdf.set_font('Arial', 'B', 16)
+			pdf.set_font('Helvetica', 'B', 16)
 			pdf.set_text_color(*TEXT_DARK)
-			pdf.cell(90, 7, company, ln=True, align='L')
+			pdf.cell(90, 7, company, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='L')
 
-			pdf.set_font('Arial', '', 10)
+			pdf.set_font('Helvetica', '', 10)
 			pdf.set_text_color(*TEXT_MUTED)
 			if address:
-				pdf.cell(90, 5, address, ln=True, align='L')
+				pdf.cell(90, 5, address, new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='L')
 			if phone:
-				pdf.cell(90, 5, f'Teléfono: {phone}', ln=True, align='L')
+				pdf.cell(90, 5, f'Teléfono: {phone}', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='L')
 
 			left_block_y = pdf.get_y()
 
@@ -124,65 +150,70 @@ class QuotationPDF:
 			status_label = _sanitize(self.data.get('status_label', ''))
 
 			# Fila de etiquetas
-			pdf.set_font('Arial', 'B', 10)
+			pdf.set_font('Helvetica', 'B', 10)
 			pdf.set_text_color(*TEXT_MUTED)
-			pdf.cell(100, 5, 'CLIENTE:', ln=False)
-			pdf.cell(74, 5, 'ESTADO:', ln=True, align='R')
+			pdf.cell(100, 5, 'CLIENTE:', new_x=XPos.RIGHT, new_y=YPos.TOP)
+			pdf.cell(74, 5, 'ESTADO:', new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='R')
 
 			# Fila de datos
-			pdf.set_font('Arial', 'B', 12)
+			pdf.set_font('Helvetica', 'B', 12)
 			pdf.set_text_color(*TEXT_DARK)
 			pdf.cell(
 				100,
 				6,
 				_sanitize(self.data.get('customer_name') or 'Consumidor Final'),
-				ln=False,
+				new_x=XPos.RIGHT,
+				new_y=YPos.TOP,
 			)
 
-			pdf.set_font('Arial', 'B', 11)
+			pdf.set_font('Helvetica', 'B', 11)
 			pdf.set_text_color(*ACCENT_RGB)
-			pdf.cell(74, 6, status_label.upper(), ln=True, align='R')
+			pdf.cell(74, 6, status_label.upper(), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align='R')
 			pdf.ln(8)
 
-			# ── TABLA DE ÍTEMS (Grilla Tradicional) ──────────────────────────
+			# ── TABLA DE ÍTEMS (Grilla tradicional, paginada) ────────────────
 			col_desc = 94
 			col_qty = 20
 			col_price = 30
 			col_sub = 30
 
-			pdf.set_fill_color(*TABLE_HEADER)
-			pdf.set_text_color(*TEXT_DARK)
-			pdf.set_font('Arial', 'B', 9)
-			pdf.set_draw_color(*BORDER_COLOR)
-			pdf.set_line_width(0.3)
+			def draw_table_header():
+				pdf.set_fill_color(*TABLE_HEADER)
+				pdf.set_text_color(*TEXT_DARK)
+				pdf.set_font('Helvetica', 'B', 9)
+				pdf.set_draw_color(*BORDER_COLOR)
+				pdf.set_line_width(0.3)
+				pdf.cell(
+					col_desc, 8, ' DESCRIPCIÓN DEL ARTÍCULO', border=1, align='L', fill=True
+				)
+				pdf.cell(col_qty, 8, 'CANT.', border=1, align='C', fill=True)
+				pdf.cell(col_price, 8, 'PRECIO UNIT.', border=1, align='C', fill=True)
+				pdf.cell(col_sub, 8, 'SUBTOTAL', border=1, align='C', fill=True)
+				pdf.ln(8)
 
-			# Encabezado cerrado
-			pdf.cell(
-				col_desc, 8, ' DESCRIPCIÓN DEL ARTÍCULO', border=1, align='L', fill=True
-			)
-			pdf.cell(col_qty, 8, 'CANT.', border=1, align='C', fill=True)
-			pdf.cell(col_price, 8, 'PRECIO UNIT.', border=1, align='C', fill=True)
-			pdf.cell(col_sub, 8, 'SUBTOTAL', border=1, align='C', fill=True)
-			pdf.ln(8)
+			draw_table_header()
 
-			# Filas de productos
-			pdf.set_font('Arial', '', 10)  # Letra más grande para lectura fácil
+			# Las descripciones se envuelven sin truncarlas. Antes de cada fila se
+			# reserva espacio, por lo que no quedan partidas entre páginas.
 			for it in self.data['items']:
 				qty = float(it['quantity'])
 				qty_str = f'{int(qty)}' if qty == int(qty) else f'{qty:.3f}'
-
-				# Bordes L (Left), R (Right), B (Bottom) para efecto grilla
-				pdf.cell(
-					col_desc,
-					9,
-					f' {_sanitize(it["description"])[:52]}',
-					border='LRB',
-					align='L',
-				)
-				pdf.cell(col_qty, 9, qty_str, border='LRB', align='C')
-				pdf.cell(col_price, 9, fmt(it['unit_price']), border='LRB', align='R')
-				pdf.cell(col_sub, 9, f'{fmt(it["subtotal"])} ', border='LRB', align='R')
-				pdf.ln(9)
+				description = _sanitize(it['description']).strip()
+				lines = textwrap.wrap(description, width=57, break_long_words=True) or ['']
+				wrapped_description = ' \n '.join(lines)
+				row_height = max(8, len(lines) * 5)
+				if pdf.get_y() + row_height > 267:
+					pdf.add_page()
+					draw_table_header()
+				y = pdf.get_y()
+				pdf.set_font('Helvetica', '', 9)
+				pdf.set_xy(18, y)
+				pdf.multi_cell(col_desc, 5, f' {wrapped_description}', border=1, align='L')
+				pdf.set_xy(18 + col_desc, y)
+				pdf.cell(col_qty, row_height, qty_str, border=1, align='C')
+				pdf.cell(col_price, row_height, fmt(it['unit_price']), border=1, align='R')
+				pdf.cell(col_sub, row_height, f'{fmt(it["subtotal"])} ', border=1, align='R')
+				pdf.set_y(y + row_height)
 
 			pdf.ln(6)
 
@@ -197,7 +228,7 @@ class QuotationPDF:
 
 				if is_total:
 					# Caja de total clásico
-					pdf.set_font('Arial', 'B', 12)
+					pdf.set_font('Helvetica', 'B', 12)
 					pdf.set_text_color(*TEXT_DARK)
 					pdf.set_fill_color(*TABLE_HEADER)
 					pdf.cell(
@@ -212,7 +243,7 @@ class QuotationPDF:
 						col_sub, 10, f'{value} ', border='RTB', align='R', fill=True
 					)
 				else:
-					pdf.set_font('Arial', 'B', 10)
+					pdf.set_font('Helvetica', 'B', 10)
 					if color:
 						pdf.set_text_color(*color)
 					else:
@@ -234,35 +265,16 @@ class QuotationPDF:
 			# ── NOTAS Y CONDICIONES ──────────────────────────────────────────
 			if self.data.get('notes'):
 				pdf.set_y(pdf.get_y() + 10)
-				pdf.set_font('Arial', 'B', 10)
+				pdf.set_font('Helvetica', 'B', 10)
 				pdf.set_text_color(*TEXT_DARK)
-				pdf.cell(W, 6, 'Notas y Condiciones:', ln=True)
+				pdf.cell(W, 6, 'Notas y Condiciones:', new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-				pdf.set_font('Arial', '', 10)
+				pdf.set_font('Helvetica', '', 10)
 				pdf.set_text_color(*TEXT_MUTED)
 				pdf.multi_cell(W, 5, _sanitize(self.data['notes']))
 
-			# ── PIE DE PÁGINA (Solución a la hoja extra) ─────────────────────
-			# Desactivamos el salto automático momentáneamente para asegurar
-			# que el pie entre siempre al final sin empujar una página nueva.
-			pdf.set_auto_page_break(False)
-
-			pdf.set_y(-20)  # A 20mm del borde inferior
-			pdf.set_draw_color(*BORDER_COLOR)
-			pdf.line(18, pdf.get_y(), 192, pdf.get_y())
-			pdf.ln(4)
-
-			pdf.set_font('Arial', 'I', 9)
-			pdf.set_text_color(130, 130, 130)
-			pdf.cell(
-				W,
-				4,
-				'Gracias por su consulta. Este presupuesto es de carácter orientativo y sujeto a modificaciones.',
-				align='C',
-				ln=True,
-			)
-
 			# ── GUARDAR Y ABRIR ──────────────────────────────────────────────
+			os.makedirs(self.output_dir, exist_ok=True)
 			safe_number = re.sub(r'[^\w\-]', '', str(self.data.get('number', 'sin_numero')))
 			safe_number = safe_number.replace('-', '_')[:50]
 			filepath = os.path.join(

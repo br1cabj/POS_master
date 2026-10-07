@@ -880,7 +880,7 @@ class CashView(BaseView):
 			self._btn_blind_confirm.configure(state='disabled')
 		try:
 			total = Decimal(self.current_counted_total)
-			if total == Decimal('0'):
+			if total == Decimal(0):
 				if not self.confirm(
 					'⚠ Estás declarando $0.00 en caja.\n\n'
 					'Esto generará una diferencia negativa igual al total de ventas registradas.\n\n'

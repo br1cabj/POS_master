@@ -66,6 +66,8 @@ class ArticlesView(BaseView):
 		self.editing_variant_id = None
 		self.current_variants = []
 		self.suppliers_map = {}
+		self.categories_map = {}
+		self.show_inactive_var = ctk.BooleanVar(master=self, value=False)
 		self._search_timer = None
 		self._calc_lock = False
 
@@ -108,7 +110,7 @@ class ArticlesView(BaseView):
 			lambda e: self.save_article() if self.winfo_exists() else None,
 			add='+',
 		)
-		self.bind('<Escape>', lambda e: self.reset_form())
+		self.bind('<Escape>', lambda e: self.request_reset_form())
 
 		self.after(100, self.load_data)
 		self.entry_barcode.focus()
@@ -189,7 +191,7 @@ class ArticlesView(BaseView):
 			height=45,
 			corner_radius=8,
 			cursor='hand2',
-			command=self.reset_form,
+			command=self.request_reset_form,
 		)
 		self.btn_cancel.pack(side='right', expand=False, fill='x')
 
@@ -277,6 +279,17 @@ class ArticlesView(BaseView):
 		)
 		self._btn_supplier_discount.pack(fill='x', pady=(0, PAD_SM))
 
+		make_form_label(sec, 'CATEGORÍA', required=False)[0].pack(
+			anchor='w', pady=(PAD_SM, PAD_XS)
+		)
+		self.combo_category = ctk.CTkComboBox(
+			sec,
+			values=['Sin Categoría'],
+			height=40,
+			font=FONT_BODY,
+		)
+		self.combo_category.pack(fill='x', pady=(0, PAD_SM))
+
 	def _build_section_inventario(self, parent):
 		sec = ctk.CTkFrame(parent, fg_color='transparent')
 		sec.pack(fill='x', padx=PAD_SM)
@@ -291,6 +304,14 @@ class ArticlesView(BaseView):
 			sec, placeholder_text='0', height=40, font=FONT_BODY_BOLD
 		)
 		self.entry_stock.pack(fill='x', pady=(0, PAD_SM))
+
+		make_form_label(sec, 'STOCK MÍNIMO (alerta)', required=False)[0].pack(
+			anchor='w', pady=(PAD_XS, PAD_XS)
+		)
+		self.entry_min_stock = ctk.CTkEntry(
+			sec, placeholder_text='0', height=36, font=FONT_BODY
+		)
+		self.entry_min_stock.pack(fill='x', pady=(0, PAD_SM))
 
 	def _build_section_precio(self, parent):
 		sec = ctk.CTkFrame(parent, fg_color='transparent')
@@ -582,11 +603,16 @@ class ArticlesView(BaseView):
 
 		self.tree_scroll = ttk.Scrollbar(self.table_container, orient='vertical')
 
-		columns = ('ID', 'Código', 'Nombre', 'Proveedor', 'Costo', 'Venta', 'Stock')
+		columns = (
+			'ID', 'Código', 'Nombre', 'Categoría', 'Proveedor', 'Costo', 'Venta',
+			'Stock', 'Estado',
+		)
 		self.tree = ttk.Treeview(
 			self.table_container,
 			columns=columns,
-			displaycolumns=('Código', 'Nombre', 'Proveedor', 'Costo', 'Venta', 'Stock'),
+			displaycolumns=(
+				'Código', 'Nombre', 'Categoría', 'Proveedor', 'Costo', 'Venta', 'Stock', 'Estado'
+			),
 			show='headings',
 			height=15,
 			yscrollcommand=self.tree_scroll.set,
@@ -596,13 +622,14 @@ class ArticlesView(BaseView):
 
 		for col in columns:
 			self.tree.heading(col, text=col)
-			width = 150 if col == 'Nombre' else 80
-			anchor = 'w' if col == 'Nombre' else 'center'
+			width = 150 if col in ('Nombre', 'Categoría', 'Proveedor') else 80
+			anchor = 'w' if col in ('Nombre', 'Categoría', 'Proveedor') else 'center'
 			self.tree.column(col, anchor=anchor, width=width)
 
 		self.tree_scroll.pack(side='right', fill='y')
 		self.tree.pack(side='left', fill='both', expand=True)
 		self.tree.bind('<Double-1>', self.on_tree_double_click)
+		self.tree.bind('<<TreeviewSelect>>', self._update_state_action)
 
 		self.lbl_empty_tree = ctk.CTkLabel(
 			self.table_container,
@@ -632,7 +659,7 @@ class ArticlesView(BaseView):
 
 		self.btn_delete = ctk.CTkButton(
 			btns,
-			text='🗑 Eliminar',
+			text='⏸ Desactivar / Reactivar',
 			fg_color=RED_DIM,
 			hover_color=RED,
 			text_color=RED_TEXT,
@@ -674,6 +701,15 @@ class ArticlesView(BaseView):
 			command=self._open_adjust_popup,
 		)
 		self.btn_adjust_stock.pack(side='left', expand=True, fill='x')
+
+		ctk.CTkCheckBox(
+			self.right_panel,
+			text='Mostrar productos inactivos',
+			variable=self.show_inactive_var,
+			font=FONT_LABEL,
+			text_color=TEXT_SECONDARY,
+			command=self.load_data,
+		).pack(anchor='w', padx=PAD_SM, pady=(0, PAD_SM))
 
 	# ─────────────────────────────────────────────────────────────────────────
 	# AJUSTE DE STOCK
@@ -1137,17 +1173,27 @@ class ArticlesView(BaseView):
 		tenant_id = self.ctx.tenant_id
 		suppliers = self.controller.get_suppliers_for_combo(tenant_id)
 		self.suppliers_map = {s['name']: s['id'] for s in suppliers}
+		categories = self.controller.get_categories_for_combo(tenant_id)
+		self.categories_map = {c['name']: c['id'] for c in categories}
 
 		if self.suppliers_map:
 			combo_vals = ['Sin Proveedor'] + list(self.suppliers_map.keys())
 			self.combo_supplier.configure(values=combo_vals)
 		else:
 			self.combo_supplier.configure(values=['Sin Proveedor'])
+		self.combo_category.configure(
+			values=['Sin Categoría'] + list(self.categories_map.keys())
+		)
 		if not self.editing_variant_id:
 			self.combo_supplier.set('Sin Proveedor')
+			self.combo_category.set('Sin Categoría')
 			self._on_supplier_changed()
 
-		self.current_variants = self.controller.get_all_variants(tenant_id)
+		self.current_variants = self.controller.get_all_variants(
+			tenant_id,
+			include_inactive=self.show_inactive_var.get(),
+			include_packaging=False,
+		)
 		self._filter_tree()
 
 	def _debounced_search(self, event=None):
@@ -1183,6 +1229,8 @@ class ArticlesView(BaseView):
 				if float(stock_actual).is_integer()
 				else f'{float(stock_actual):.2f}'
 			)
+			if Decimal(str(stock_actual)) <= Decimal(str(variant.get('min_stock') or 0)):
+				stock_format = f'⚠ {stock_format}'
 			self.insert_tree_row(
 				tree=self.tree,
 				index=i,
@@ -1190,10 +1238,12 @@ class ArticlesView(BaseView):
 					variant.get('variant_id'),
 					variant.get('barcode') or 'N/A',
 					variant.get('name'),
+					variant.get('category_name') or '-',
 					variant.get('supplier_name') or '-',
 					f'${variant.get("cost_price", 0):.2f}',
 					f'${variant.get("selling_price", 0):.2f}',
 					stock_format,
+					'Activo' if variant.get('is_active', True) else 'Inactivo',
 				),
 			)
 
@@ -1257,6 +1307,11 @@ class ArticlesView(BaseView):
 			None,
 		)
 		if found:
+			if self.has_unsaved_changes() and not self.confirm(
+				'Hay cambios sin guardar. ¿Deseás descartarlos y editar otro producto?',
+				'Cambios sin guardar',
+			):
+				return
 			self.load_variant_into_form(found)
 
 	def load_variant_into_form(self, variant):
@@ -1279,10 +1334,16 @@ class ArticlesView(BaseView):
 			supplier_name if supplier_name in self.suppliers_map else 'Sin Proveedor'
 		)
 		self._on_supplier_changed()
+		category_name = variant.get('category_name', 'Sin Categoría')
+		self.combo_category.set(
+			category_name if category_name in self.categories_map else 'Sin Categoría'
+		)
 
-		self.lbl_stock.configure(text='STOCK ACTUAL')
-		self.entry_stock.insert(0, f'Stock actual: {variant.get("total_stock", 0)} u')
+		self.lbl_stock.configure(text='STOCK ACTUAL — ajustar desde el botón verde')
+		self.entry_stock.insert(0, f'{variant.get("total_stock", 0)} unidades')
 		self.entry_stock.configure(state='disabled')
+		self.entry_min_stock.delete(0, 'end')
+		self.entry_min_stock.insert(0, str(variant.get('min_stock', 0)))
 
 		# Descuento
 		disc_pct = variant.get('discount_pct', 0) or 0
@@ -1344,7 +1405,9 @@ class ArticlesView(BaseView):
 		self.lbl_stock.configure(text='STOCK INICIAL')
 		self.entry_stock.configure(state='normal')
 		self.entry_stock.delete(0, 'end')
+		self.entry_min_stock.delete(0, 'end')
 		self.combo_supplier.set('Sin Proveedor')
+		self.combo_category.set('Sin Categoría')
 
 		self.lbl_form_title.configure(text='📦 Nuevo Producto', text_color=TEXT_PRIMARY)
 		self.btn_add.configure(text='💾 Guardar Producto (Ctrl+G)')
@@ -1364,8 +1427,22 @@ class ArticlesView(BaseView):
 		if not keep_barcode:
 			self.entry_barcode.focus()
 
+	def request_reset_form(self):
+		if self.has_unsaved_changes() and not self.confirm(
+			'Hay cambios sin guardar. ¿Deseás limpiarlos?', 'Limpiar formulario'
+		):
+			return
+		self.reset_form()
+
 	def has_unsaved_changes(self) -> bool:
-		return bool(self.entry_name.get().strip())
+		return any((
+			self.entry_name.get().strip(),
+			self.entry_barcode.get().strip(),
+			self._var_cost_str.get().strip(),
+			self._var_price_str.get().strip(),
+			self.entry_stock.get().strip() if self.entry_stock.cget('state') == 'normal' else '',
+			self.entry_min_stock.get().strip(),
+		))
 
 	def destroy_custom(self):
 		if getattr(self, '_ctrl_g_funcid', None):
@@ -1421,6 +1498,7 @@ class ArticlesView(BaseView):
 
 		supplier_name = self.combo_supplier.get()
 		supplier_id = self.suppliers_map.get(supplier_name)
+		category_id = self.categories_map.get(self.combo_category.get())
 
 		if not self._var_cost_str.get() or not self._var_price_str.get():
 			self.show_warning('Completá el costo y el precio de venta.')
@@ -1433,8 +1511,8 @@ class ArticlesView(BaseView):
 			if cost_dec < 0 or price_dec < 0:
 				raise ValueError('No se admiten precios negativos.')
 
-			cost = float(cost_dec)
-			price = float(price_dec)
+			cost = cost_dec
+			price = price_dec
 
 			raw_price_b = self._var_price_b_str.get().strip().replace(',', '.')
 			price_b = None
@@ -1442,14 +1520,18 @@ class ArticlesView(BaseView):
 				price_b_dec = Decimal(raw_price_b)
 				if price_b_dec < 0:
 					raise ValueError('El precio de lista B no puede ser negativo.')
-				price_b = float(price_b_dec) if price_b_dec > 0 else None
+				price_b = price_b_dec if price_b_dec > 0 else None
 
 			initial_stock = 0.0
 			if not self.editing_variant_id:
 				stock_str = self.entry_stock.get().strip().replace(',', '.')
-				initial_stock = float(stock_str) if stock_str else 0.0
+				initial_stock = Decimal(stock_str) if stock_str else Decimal('0')
 				if initial_stock < 0:
 					raise ValueError('El stock no puede ser negativo.')
+			min_stock_raw = self.entry_min_stock.get().strip()
+			min_stock = int(min_stock_raw) if min_stock_raw else 0
+			if min_stock < 0:
+				raise ValueError('El stock mínimo no puede ser negativo.')
 
 		except (ValueError, InvalidOperation) as e:
 			msg = (
@@ -1520,6 +1602,9 @@ class ArticlesView(BaseView):
 					discount_pct=discount_pct,
 					discount_until=discount_until,
 					selling_price_b=price_b,
+					category_id=category_id,
+					margin_pct=self._var_margin.get().strip().replace(',', '.') or None,
+					min_stock=min_stock,
 				)
 			else:
 				success, msg = self.controller.add_simple_article(
@@ -1534,6 +1619,9 @@ class ArticlesView(BaseView):
 					discount_pct=discount_pct,
 					discount_until=discount_until,
 					selling_price_b=price_b,
+					category_id=category_id,
+					margin_pct=self._var_margin.get().strip().replace(',', '.') or None,
+					min_stock=min_stock,
 				)
 		finally:
 			self.set_loading(self.btn_add, False, original_text)
@@ -1556,19 +1644,41 @@ class ArticlesView(BaseView):
 	def delete_article(self):
 		selected_items = self.tree.selection()
 		if not selected_items:
+			self.show_warning('Seleccioná un producto de la tabla.')
 			return
 
+		selected_variants = [
+			next(
+				(v for v in self.current_variants if str(v['variant_id']) == str(self.tree.item(item, 'values')[0])),
+				None,
+			)
+			for item in selected_items
+		]
+		selected_variants = [v for v in selected_variants if v]
+		if not selected_variants:
+			return
+		active_values = {bool(v.get('is_active', True)) for v in selected_variants}
+		if len(active_values) > 1:
+			self.show_warning('Seleccioná solamente productos activos o solamente inactivos.')
+			return
+		is_reactivation = not active_values.pop()
 		count = len(selected_items)
 		item_text = 'este producto' if count == 1 else f'estos {count} productos'
+		action = 'reactivar' if is_reactivation else 'desactivar'
 
-		if self.confirm(f'¿Seguro que deseas eliminar {item_text}?', 'Confirmar'):
+		if self.confirm(f'¿Seguro que deseas {action} {item_text}?', 'Confirmar'):
 			success_count = 0
 			error_msg = ''
 			for item in selected_items:
 				variant_id = self.tree.item(item, 'values')[0]
-				success, msg_response = self.controller.delete_variant(
-					self.ctx.tenant_id, variant_id
-				)
+				if is_reactivation:
+					success, msg_response = self.controller.reactivate_variant(
+						self.ctx.tenant_id, variant_id
+					)
+				else:
+					success, msg_response = self.controller.delete_variant(
+						self.ctx.tenant_id, variant_id
+					)
 				if success:
 					success_count += 1
 				else:
@@ -1577,12 +1687,23 @@ class ArticlesView(BaseView):
 			if success_count > 0:
 				self.load_data()
 				self.reset_form()
-				msg = f'{success_count} producto(s) eliminado(s) correctamente.'
+				verb = 'reactivado(s)' if is_reactivation else 'desactivado(s)'
+				msg = f'{success_count} producto(s) {verb} correctamente.'
 				if error_msg:
 					msg += f' Hubo un error con al menos uno: {error_msg}'
 				self.show_success(msg)
 			else:
-				self.show_error(error_msg or 'Error al eliminar productos.')
+				self.show_error(error_msg or f'No se pudieron {action} los productos.')
+
+	def _update_state_action(self, _event=None):
+		selected = self.tree.selection()
+		if not selected:
+			return
+		values = self.tree.item(selected[0], 'values')
+		if len(values) > 8 and values[8] == 'Inactivo':
+			self.btn_delete.configure(text='▶ Reactivar seleccionado')
+		else:
+			self.btn_delete.configure(text='⏸ Desactivar seleccionado')
 
 	def print_labels(self):
 		selected_items = self.tree.selection()
@@ -1604,7 +1725,7 @@ class ArticlesView(BaseView):
 					self.show_error(f'No se pudo asignar código a «{values[2]}»: {error}')
 					return
 			try:
-				price = float(values[5].replace('$', '').replace(',', '').strip())
+				price = float(values[6].replace('$', '').replace(',', '').strip())
 			except (TypeError, ValueError):
 				self.show_error(f'El precio de «{values[2]}» es inválido.')
 				return
@@ -1632,7 +1753,9 @@ class ArticlesView(BaseView):
 		for w in self.frame_pack_list.winfo_children():
 			w.destroy()
 
-		packs = self.controller.get_packaging_variants(base_variant_id)
+		packs = self.controller.get_packaging_variants(
+			self.ctx.tenant_id, base_variant_id
+		)
 
 		if packs:
 			self.lbl_pack_hint.pack_forget()
@@ -1713,6 +1836,11 @@ class ArticlesView(BaseView):
 		).pack(side='left')
 
 	def _delete_pack(self, variant_id, base_variant_id):
+		if not self.confirm(
+			'¿Desactivar esta presentación? Dejará de aparecer en ventas.',
+			'Desactivar presentación',
+		):
+			return
 		success, msg = self.controller.delete_packaging_variant(
 			self.ctx.tenant_id, variant_id
 		)

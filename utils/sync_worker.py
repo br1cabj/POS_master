@@ -366,7 +366,8 @@ class SyncWorker:
 					logger.error('Upsert failed for %s: %s', table_name, e)
 					cloud.rollback()
 					had_error = True
-					self.last_sync_error = f'{table_name}: {e}'
+					with self._state_lock:
+						self.last_sync_error = f'{table_name}: {e}'
 					# Don't update state for this table so it retries next cycle.
 
 		if total_pushed:
@@ -486,6 +487,11 @@ class SyncWorker:
 	@property
 	def is_running(self) -> bool:
 		return self._thread.is_alive()
+
+	def get_status(self) -> tuple[bool | None, datetime | None, str]:
+		"""Devuelve una fotografía coherente del estado para la UI."""
+		with self._state_lock:
+			return self.last_sync_ok, self.last_sync_time, self.last_sync_error
 
 	def force_sync(self) -> None:
 		"""Trigger an immediate sync cycle in a background thread (non-blocking)."""

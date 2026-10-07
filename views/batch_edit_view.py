@@ -540,13 +540,16 @@ class BatchEditView(BaseView):
 			estado = '✔ Activo' if item.get('is_active', True) else '✕ Inactivo'
 			tactil = '✔' if item.get('show_on_touch') else '—'
 
+			display_name = item['name']
+			if item.get('pack_label'):
+				display_name += f" — {item['pack_label']}"
 			self.tree.insert(
 				'',
 				'end',
 				iid=str(vid),
 				values=(
 					sel,
-					item['name'],
+					display_name,
 					item.get('supplier_name', '—'),
 					item.get('category_name', '—'),
 					venta,
