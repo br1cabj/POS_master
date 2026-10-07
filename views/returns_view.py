@@ -124,7 +124,9 @@ class ReturnsView(BaseView):
 			command=self.load_sales,
 		).pack(side='right')
 
-		self._search_var = ctk.StringVar(master=self, )
+		self._search_var = ctk.StringVar(
+			master=self,
+		)
 		self._search_var.trace_add(
 			'write', lambda *args: self.debounce(300, self._filter_tree, 'search_sales')
 		)
@@ -1181,31 +1183,12 @@ class ReturnsView(BaseView):
 		if not self.confirm(msg, 'Modificar Ticket'):
 			return
 
-		original_text = self.btn_modify.cget('text')
-		self._set_processing_state(True, self.btn_modify)
+		from views.sales_view import SalesView
 
-		_tenant = self.ctx.tenant_id
-		_sale_id = sale['id']
-		_user = self.ctx.user_id
-
-		def _run():
-			try:
-				ok, msg = self.controller.cancel_sale(_tenant, _sale_id, _user)
-			except Exception as exc:
-				ok, msg = False, str(exc)
-			if self.winfo_exists():
-				self.after(0, lambda: _done(ok, msg))
-
-		def _done(ok, msg):
-			self._set_processing_state(False, self.btn_modify, original_text)
-			if not ok:
-				self.show_error(msg)
-				return
-			from views.sales_view import SalesView
-
-			self.navigate(SalesView, context_data={'restore_sale': sale})
-
-		threading.Thread(target=_run, daemon=True).start()
+		# Ventas valida y prepara el ticket completo antes de anular el original.
+		self.navigate(
+			SalesView, context_data={'restore_sale': sale, 'cancel_original_sale': True}
+		)
 
 	# =========================================================
 	# ACCIÓN: REIMPRIMIR TICKET

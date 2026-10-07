@@ -16,7 +16,6 @@ import queue
 import re
 import shutil
 import sqlite3
-import sys
 
 import bcrypt
 import customtkinter as ctk
@@ -25,7 +24,9 @@ from sqlalchemy.orm import sessionmaker
 
 from controllers.license_controller import LicenseController
 from controllers.user_controller import PASSWORD_MIN_LENGTH
-from database.models import Base, Branch, Tenant, User, Warehouse
+from database.migrations import run_migrations
+from database.models import Branch, Tenant, User, Warehouse
+from utils.app_paths import app_data_dir
 from utils.settings_manager import get_reports_path
 from utils.settings_manager import load as _cfg_load
 from utils.settings_manager import save as _cfg_save
@@ -1873,7 +1874,7 @@ class SetupWizard(ctk.CTkFrame):
 		from utils.config import get_engine
 
 		engine = get_engine()
-		Base.metadata.create_all(engine)
+		run_migrations(engine)
 		Session = sessionmaker(bind=engine)
 		with Session.begin() as session:
 			existing_tenant = session.query(Tenant).first()
@@ -1934,12 +1935,7 @@ class SetupWizard(ctk.CTkFrame):
 
 		logo_final_path = ''
 		if self._d_logo_path and os.path.exists(self._d_logo_path):
-			base = (
-				os.path.dirname(sys.executable)
-				if getattr(sys, 'frozen', False)
-				else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-			)
-			dest_dir = os.path.join(base, 'assets')
+			dest_dir = os.path.join(app_data_dir(), 'assets')
 			try:
 				os.makedirs(dest_dir, exist_ok=True)
 				for old in glob.glob(os.path.join(dest_dir, 'logo.*')):

@@ -1,10 +1,12 @@
 import os
-import sys
 import threading
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
+from sqlalchemy.engine.url import make_url
+
+from utils.app_paths import adopt_legacy_file, app_data_dir
 
 try:
 	from dotenv import load_dotenv
@@ -14,18 +16,51 @@ except ImportError:
 	pass
 
 
-def _app_dir() -> Path:
-	"""Project root in dev, executable directory when frozen."""
-	if getattr(sys, 'frozen', False):
-		return Path(sys.executable).parent
-	return Path(__file__).parent.parent
-
-
 SECRET_SALT = 'aantesbajocabeconcontradedesdeenentrehaciahastaparaporsegunsinsobretrasmediantedurante'
 
 # ── Local database ────────────────────────────────────────────────────────────
-_default_db = f'sqlite:///{_app_dir() / "pos_system.db"}'
-DB_URL = os.getenv('DATABASE_URL', _default_db)
+_default_db = f'sqlite:///{app_data_dir(create=False) / "pos_system.db"}'
+
+
+def _resolve_database_url(value: str) -> str:
+	# Earlier .env templates included this relative URL. Adopt that default too,
+	# otherwise upgrading those installations would still write to Program Files.
+	configured = value.strip()
+	if configured in (
+		'',
+		'sqlite:///pos_system.db',
+		'sqlite+pysqlite:///pos_system.db',
+	):
+		return _default_db
+	return configured
+
+
+DB_URL = _resolve_database_url(os.getenv('DATABASE_URL', ''))
+
+
+def get_local_database_path(url=None) -> Path:
+	"""Resolve the same SQLite file used by controllers, startup and backups."""
+	parsed = make_url(url or DB_URL)
+	if (
+		parsed.get_backend_name() != 'sqlite'
+		or not parsed.database
+		or parsed.database == ':memory:'
+		or parsed.database.startswith('file:')
+	):
+		raise ValueError(
+			'Esta operación requiere una base SQLite local guardada en un archivo.'
+		)
+	return Path(parsed.database).expanduser().resolve()
+
+
+def prepare_local_database() -> Path:
+	"""Adopt older default installations without replacing an existing database."""
+	path = get_local_database_path()
+	path.parent.mkdir(parents=True, exist_ok=True)
+	if DB_URL == _default_db:
+		adopt_legacy_file('pos_system.db', database=True)
+	return path
+
 
 # ── Optional Cloud add-on ───────────────────────────────────────────────────
 # The desktop never receives PostgreSQL credentials.  It publishes its local
@@ -69,7 +104,7 @@ def make_engine(url: str = None) -> Engine:
 	target = url or DB_URL
 	kwargs: dict = {}
 
-	if target.startswith('sqlite'):
+	if make_url(target).get_backend_name() == 'sqlite':
 		kwargs['connect_args'] = {'check_same_thread': False}
 	else:
 		kwargs['pool_size'] = 10
@@ -89,6 +124,8 @@ def get_engine(url: str = None) -> Engine:
 	global _shared_engine
 	with _engine_lock:
 		if _shared_engine is None:
+			if url is None:
+				prepare_local_database()
 			_shared_engine = make_engine(url)
 		return _shared_engine
 
@@ -96,4 +133,3 @@ def get_engine(url: str = None) -> Engine:
 def get_cloud_engine() -> None:
 	"""Removed by design: CloudPOS desktop never opens the VPS database."""
 	return None
-

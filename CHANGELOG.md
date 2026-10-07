@@ -4,6 +4,25 @@ All notable changes are documented here. This repository follows an unreleased-d
 
 ## Unreleased
 
+### Desktop storage and schema validation
+
+- Moved the default SQLite database, licences, logs and business assets to a writable per-user directory. Explicit custom database paths remain supported.
+- Adopt legacy databases through SQLite backup, including committed WAL data, without overwriting existing destinations or removing original files.
+- Validate schema versions, tables, column types/nullability, primary/foreign keys, unique/CHECK constraints and index definitions before startup, setup and backup restoration.
+- Keep backups aligned with the configured database and reject incompatible restores or restoring the live database over itself.
+
+### Sales checkout and usability
+
+- Fixed catalog stock resolution and stopped disguising database/catalog failures as successful empty loads.
+- Recalculate carts when changing price list or customer; preserve zero wholesale prices and consistent fractional-quantity rounding.
+- Share quantity handling across scanner, search and touch shortcuts. Validate scale barcodes and apply the same pricing policy as checkout.
+- Revalidate current prices and cumulative stock before payment; reject changed totals transactionally without changing stock or cash.
+- Run checkout in a worker with queued UI completion and prevent duplicate confirmation while saving.
+- Prepare and render every restored ticket line before cancelling the original sale; preserve the original on preparation/cancellation failure.
+- Add keyboard result selection, stale-query protection, safe Delete shortcuts, explicit scan focus, persistent errors, and free-sale forms that retain invalid input.
+- Normalize currency formatting and improve fractional stock labels and payment/editing dialogs. Implementation details and limitations are documented in [docs/sales-flow.md](docs/sales-flow.md).
+- Add desktop-path, schema/startup, sales-controller, handler and real-widget regression coverage. Full-suite verification: **144 passed**; 29 dependency deprecation warnings remain. Physical-device and final visual checks remain deployment responsibilities.
+
 ### Security
 
 - Removed the embedded, obfuscated cloud database URL from the desktop client. Cloud sync is enabled only when `DATABASE_CLOUD_URL` is supplied through the environment.

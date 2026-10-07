@@ -5,10 +5,10 @@ import json
 import logging
 import os
 import platform
-import sys
 import uuid
 from datetime import datetime, timedelta
 
+from utils.app_paths import adopt_legacy_file
 from utils.config import SECRET_SALT
 
 logger = logging.getLogger(__name__)
@@ -16,13 +16,6 @@ logger = logging.getLogger(__name__)
 _TRIAL_DAYS = 7
 _APPDATA_FOLDER = 'CloudPOS'
 _APPDATA_FILE = 'pref.dat'
-
-
-def _app_dir() -> str:
-	"""Directorio del ejecutable en producción, raíz del proyecto en desarrollo."""
-	if getattr(sys, 'frozen', False):
-		return os.path.dirname(sys.executable)
-	return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 # ─── Huella de máquina ────────────────────────────────────────────────────────
@@ -98,7 +91,7 @@ def _write_appdata_record(mid: str, ts: str) -> None:
 
 class LicenseController:
 	def __init__(self):
-		self.license_file = os.path.join(_app_dir(), 'license.dat')
+		self.license_file = str(adopt_legacy_file('license.dat'))
 
 	def _generate_signature(self, license_type, expiration_date):
 		raw = f'{license_type}|{expiration_date}|{SECRET_SALT}'

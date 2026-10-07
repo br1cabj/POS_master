@@ -3,20 +3,14 @@ import hashlib
 import json
 import logging
 import os
-import sys
 from datetime import datetime
 
+from utils.app_paths import adopt_legacy_file
 from utils.config import SECRET_SALT
 
 logger = logging.getLogger(__name__)
 
 _CLOUD_SALT = SECRET_SALT + '_cloud_v1'
-
-
-def _app_dir() -> str:
-	if getattr(sys, 'frozen', False):
-		return os.path.dirname(sys.executable)
-	return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class CloudLicenseController:
@@ -35,7 +29,7 @@ class CloudLicenseController:
 	"""
 
 	def __init__(self):
-		self._file = os.path.join(_app_dir(), 'cloud_license.dat')
+		self._file = str(adopt_legacy_file('cloud_license.dat'))
 
 	# ── helpers ───────────────────────────────────────────────────────────────
 

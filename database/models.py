@@ -107,7 +107,9 @@ class Warehouse(Base):
 	)
 
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
-	tenant = relationship('Tenant', foreign_keys=[tenant_id], overlaps='branch,warehouses')
+	tenant = relationship(
+		'Tenant', foreign_keys=[tenant_id], overlaps='branch,warehouses'
+	)
 
 	branch_id = Column(String(36), nullable=False, index=True)
 	branch = relationship('Branch', back_populates='warehouses', overlaps='tenant')
@@ -116,11 +118,14 @@ class Warehouse(Base):
 
 	__table_args__ = (
 		ForeignKeyConstraint(
-			['tenant_id', 'branch_id'], ['branches.tenant_id', 'branches.id'],
+			['tenant_id', 'branch_id'],
+			['branches.tenant_id', 'branches.id'],
 			name='fk_warehouse_branch_same_tenant',
 		),
 		UniqueConstraint('tenant_id', 'id', name='uq_warehouses_tenant_id'),
-		UniqueConstraint('tenant_id', 'branch_id', 'name', name='uq_warehouse_tenant_branch_name'),
+		UniqueConstraint(
+			'tenant_id', 'branch_id', 'name', name='uq_warehouse_tenant_branch_name'
+		),
 	)
 
 
@@ -132,7 +137,9 @@ class Category(Base):
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	name = Column(String(200), nullable=False, index=True)
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
-	updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False, index=True)
+	updated_at = Column(
+		DateTime, default=utcnow, onupdate=utcnow, nullable=False, index=True
+	)
 
 	__table_args__ = (
 		UniqueConstraint('tenant_id', 'id', name='uq_categories_tenant_id'),
@@ -206,12 +213,15 @@ class Article(Base):
 
 	__table_args__ = (
 		ForeignKeyConstraint(
-			['tenant_id', 'category_id'], ['categories.tenant_id', 'categories.id'],
+			['tenant_id', 'category_id'],
+			['categories.tenant_id', 'categories.id'],
 			name='fk_article_category_same_tenant',
 		),
 		ForeignKeyConstraint(
-			['tenant_id', 'supplier_id'], ['suppliers.tenant_id', 'suppliers.id'],
-			ondelete='SET NULL', name='fk_article_supplier_same_tenant',
+			['tenant_id', 'supplier_id'],
+			['suppliers.tenant_id', 'suppliers.id'],
+			ondelete='SET NULL',
+			name='fk_article_supplier_same_tenant',
 		),
 		UniqueConstraint('tenant_id', 'id', name='uq_articles_tenant_id'),
 	)
@@ -259,16 +269,22 @@ class ArticleVariant(Base):
 		primaryjoin='ArticleVariant.base_variant_id == ArticleVariant.id',
 	)
 
-	stocks = relationship('Stock', back_populates='variant', overlaps='warehouse,stocks')
-	sale_details = relationship('SaleDetail', back_populates='variant', overlaps='sale,items')
+	stocks = relationship(
+		'Stock', back_populates='variant', overlaps='warehouse,stocks'
+	)
+	sale_details = relationship(
+		'SaleDetail', back_populates='variant', overlaps='sale,items'
+	)
 
 	__table_args__ = (
 		ForeignKeyConstraint(
-			['tenant_id', 'article_id'], ['articles.tenant_id', 'articles.id'],
+			['tenant_id', 'article_id'],
+			['articles.tenant_id', 'articles.id'],
 			name='fk_variant_article_same_tenant',
 		),
 		ForeignKeyConstraint(
-			['tenant_id', 'base_variant_id'], ['article_variants.tenant_id', 'article_variants.id'],
+			['tenant_id', 'base_variant_id'],
+			['article_variants.tenant_id', 'article_variants.id'],
 			name='fk_variant_base_same_tenant',
 		),
 		UniqueConstraint('tenant_id', 'id', name='uq_article_variants_tenant_id'),
@@ -280,10 +296,15 @@ class ArticleVariant(Base):
 		# while a product is being drafted.
 		Index(
 			'uq_article_variants_active_barcode',
-			'tenant_id', 'barcode',
+			'tenant_id',
+			'barcode',
 			unique=True,
-			sqlite_where=text("barcode IS NOT NULL AND barcode <> '' AND is_active = 1"),
-			postgresql_where=text("barcode IS NOT NULL AND barcode <> '' AND is_active"),
+			sqlite_where=text(
+				"barcode IS NOT NULL AND barcode <> '' AND is_active = 1"
+			),
+			postgresql_where=text(
+				"barcode IS NOT NULL AND barcode <> '' AND is_active"
+			),
 		),
 	)
 
@@ -293,7 +314,9 @@ class ArticleHistory(Base):
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
 	date = Column(DateTime, default=utcnow, nullable=False, index=True)
-	updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False, index=True)
+	updated_at = Column(
+		DateTime, default=utcnow, onupdate=utcnow, nullable=False, index=True
+	)
 	user_id = Column(String(36), nullable=False)
 	tenant_id = Column(String(36), ForeignKey('tenants.id'), nullable=False, index=True)
 
@@ -309,8 +332,16 @@ class ArticleHistory(Base):
 	user = relationship('User')
 
 	__table_args__ = (
-		ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'], name='fk_history_user_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'variant_id'], ['article_variants.tenant_id', 'article_variants.id'], name='fk_history_variant_same_tenant'),
+		ForeignKeyConstraint(
+			['tenant_id', 'user_id'],
+			['users.tenant_id', 'users.id'],
+			name='fk_history_user_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'variant_id'],
+			['article_variants.tenant_id', 'article_variants.id'],
+			name='fk_history_variant_same_tenant',
+		),
 	)
 
 
@@ -333,18 +364,33 @@ class Stock(Base):
 	)
 
 	warehouse_id = Column(String(36), nullable=False, index=True)
-	warehouse = relationship('Warehouse', back_populates='stocks', overlaps='variant,stocks')
+	warehouse = relationship(
+		'Warehouse', back_populates='stocks', overlaps='variant,stocks'
+	)
 
 	variant_id = Column(String(36), nullable=False, index=True)
-	variant = relationship('ArticleVariant', back_populates='stocks', overlaps='warehouse,stocks')
+	variant = relationship(
+		'ArticleVariant', back_populates='stocks', overlaps='warehouse,stocks'
+	)
 
 	__table_args__ = (
 		CheckConstraint('quantity >= 0', name='chk_stock_quantity_positive'),
-		ForeignKeyConstraint(['tenant_id', 'warehouse_id'], ['warehouses.tenant_id', 'warehouses.id'], name='fk_stock_warehouse_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'variant_id'], ['article_variants.tenant_id', 'article_variants.id'], name='fk_stock_variant_same_tenant'),
+		ForeignKeyConstraint(
+			['tenant_id', 'warehouse_id'],
+			['warehouses.tenant_id', 'warehouses.id'],
+			name='fk_stock_warehouse_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'variant_id'],
+			['article_variants.tenant_id', 'article_variants.id'],
+			name='fk_stock_variant_same_tenant',
+		),
 		UniqueConstraint(
-			'tenant_id', 'variant_id', 'warehouse_id', 'batch_number',
-			name='uq_stock_variant_warehouse_batch'
+			'tenant_id',
+			'variant_id',
+			'warehouse_id',
+			'batch_number',
+			name='uq_stock_variant_warehouse_batch',
 		),
 		UniqueConstraint('tenant_id', 'serial_number', name='uq_stock_tenant_serial'),
 	)
@@ -354,7 +400,9 @@ class StockMovement(Base):
 	__tablename__ = 'stock_movements'
 	id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 	date = Column(DateTime, default=utcnow, nullable=False, index=True)
-	updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False, index=True)
+	updated_at = Column(
+		DateTime, default=utcnow, onupdate=utcnow, nullable=False, index=True
+	)
 
 	movement_type = Column(String(50), nullable=False)
 	quantity = Column(Numeric(12, 4), nullable=False)
@@ -372,11 +420,30 @@ class StockMovement(Base):
 
 	__table_args__ = (
 		CheckConstraint('quantity > 0', name='chk_movement_qty_positive'),
-		ForeignKeyConstraint(['tenant_id', 'variant_id'], ['article_variants.tenant_id', 'article_variants.id'], name='fk_movement_variant_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'], name='fk_movement_user_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'source_warehouse_id'], ['warehouses.tenant_id', 'warehouses.id'], name='fk_movement_source_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'dest_warehouse_id'], ['warehouses.tenant_id', 'warehouses.id'], name='fk_movement_dest_same_tenant'),
-		CheckConstraint("movement_type IN ('in', 'out', 'ajuste_entrada', 'ajuste_salida', 'transferencia')", name='chk_stock_movement_type'),
+		ForeignKeyConstraint(
+			['tenant_id', 'variant_id'],
+			['article_variants.tenant_id', 'article_variants.id'],
+			name='fk_movement_variant_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'user_id'],
+			['users.tenant_id', 'users.id'],
+			name='fk_movement_user_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'source_warehouse_id'],
+			['warehouses.tenant_id', 'warehouses.id'],
+			name='fk_movement_source_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'dest_warehouse_id'],
+			['warehouses.tenant_id', 'warehouses.id'],
+			name='fk_movement_dest_same_tenant',
+		),
+		CheckConstraint(
+			"movement_type IN ('in', 'out', 'ajuste_entrada', 'ajuste_salida', 'transferencia')",
+			name='chk_stock_movement_type',
+		),
 	)
 
 
@@ -441,7 +508,9 @@ class Sale(Base):
 	user = relationship('User', back_populates='sales', overlaps='customer,items,sales')
 
 	customer_id = Column(String(36), nullable=True, index=True)
-	customer = relationship('Customer', back_populates='sales', overlaps='user,items,sales')
+	customer = relationship(
+		'Customer', back_populates='sales', overlaps='user,items,sales'
+	)
 
 	# The warehouse is recorded on the document, not inferred later from the
 	# mutable stock rows.  It makes stock attribution and audits unambiguous.
@@ -449,22 +518,41 @@ class Sale(Base):
 	warehouse = relationship('Warehouse', overlaps='user,customer,items,sales')
 
 	items = relationship(
-		'SaleDetail', back_populates='sale', cascade='all, delete-orphan',
-		overlaps='customer,user,variant,sale_details'
+		'SaleDetail',
+		back_populates='sale',
+		cascade='all, delete-orphan',
+		overlaps='customer,user,variant,sale_details',
 	)
 
 	__table_args__ = (
-		ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'], name='fk_sale_user_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'customer_id'], ['customers.tenant_id', 'customers.id'], name='fk_sale_customer_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'warehouse_id'], ['warehouses.tenant_id', 'warehouses.id'], name='fk_sale_warehouse_same_tenant'),
+		ForeignKeyConstraint(
+			['tenant_id', 'user_id'],
+			['users.tenant_id', 'users.id'],
+			name='fk_sale_user_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'customer_id'],
+			['customers.tenant_id', 'customers.id'],
+			name='fk_sale_customer_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'warehouse_id'],
+			['warehouses.tenant_id', 'warehouses.id'],
+			name='fk_sale_warehouse_same_tenant',
+		),
 		UniqueConstraint('tenant_id', 'id', name='uq_sales_tenant_id'),
 		Index('ix_sale_tenant_status', 'tenant_id', 'status'),
 		Index('ix_sale_tenant_status_date', 'tenant_id', 'status', 'date'),
 		CheckConstraint('total_amount >= 0', name='chk_sale_total_positive'),
 		CheckConstraint('discount_amount >= 0', name='chk_sale_discount_positive'),
 		CheckConstraint('total_returned >= 0', name='chk_sale_total_returned_positive'),
-		CheckConstraint('total_returned <= total_amount', name='chk_sale_returned_lte_total'),
-		CheckConstraint("status IN ('pendiente', 'completada', 'cancelada', 'devuelta', 'parcial', 'parcialmente_devuelta')", name='chk_sale_status'),
+		CheckConstraint(
+			'total_returned <= total_amount', name='chk_sale_returned_lte_total'
+		),
+		CheckConstraint(
+			"status IN ('pendiente', 'completada', 'cancelada', 'devuelta', 'parcial', 'parcialmente_devuelta')",
+			name='chk_sale_status',
+		),
 	)
 
 
@@ -488,16 +576,29 @@ class SaleDetail(Base):
 	sale = relationship('Sale', back_populates='items', overlaps='variant,sale_details')
 
 	variant_id = Column(String(36), nullable=True, index=True)
-	variant = relationship('ArticleVariant', back_populates='sale_details', overlaps='sale')
+	variant = relationship(
+		'ArticleVariant', back_populates='sale_details', overlaps='sale'
+	)
 
 	__table_args__ = (
-		ForeignKeyConstraint(['tenant_id', 'sale_id'], ['sales.tenant_id', 'sales.id'], name='fk_sale_detail_sale_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'variant_id'], ['article_variants.tenant_id', 'article_variants.id'], name='fk_sale_detail_variant_same_tenant'),
+		ForeignKeyConstraint(
+			['tenant_id', 'sale_id'],
+			['sales.tenant_id', 'sales.id'],
+			name='fk_sale_detail_sale_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'variant_id'],
+			['article_variants.tenant_id', 'article_variants.id'],
+			name='fk_sale_detail_variant_same_tenant',
+		),
 		CheckConstraint('quantity > 0', name='chk_sale_detail_quantity_positive'),
 		CheckConstraint('unit_cost >= 0', name='chk_sale_detail_cost_positive'),
 		CheckConstraint('unit_price >= 0', name='chk_sale_detail_price_positive'),
 		CheckConstraint('subtotal >= 0', name='chk_sale_detail_subtotal_positive'),
-		CheckConstraint('returned_quantity >= 0 AND returned_quantity <= quantity', name='chk_sale_detail_returned_quantity'),
+		CheckConstraint(
+			'returned_quantity >= 0 AND returned_quantity <= quantity',
+			name='chk_sale_detail_returned_quantity',
+		),
 	)
 
 
@@ -518,7 +619,9 @@ class CashSession(Base):
 	declared_amount = Column(Numeric(10, 2), nullable=True)
 	difference = Column(Numeric(10, 2), nullable=True)
 
-	updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False, index=True)
+	updated_at = Column(
+		DateTime, default=utcnow, onupdate=utcnow, nullable=False, index=True
+	)
 
 	user = relationship('User', overlaps='movements')
 	movements = relationship(
@@ -526,10 +629,17 @@ class CashSession(Base):
 	)
 
 	__table_args__ = (
-		ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'], name='fk_cash_session_user_same_tenant'),
+		ForeignKeyConstraint(
+			['tenant_id', 'user_id'],
+			['users.tenant_id', 'users.id'],
+			name='fk_cash_session_user_same_tenant',
+		),
 		UniqueConstraint('tenant_id', 'id', name='uq_cash_sessions_tenant_id'),
 		Index(
-			'uq_cash_open_session', 'tenant_id', 'user_id', unique=True,
+			'uq_cash_open_session',
+			'tenant_id',
+			'user_id',
+			unique=True,
 			sqlite_where=text('is_open = 1'),
 			postgresql_where=text('is_open'),
 		),
@@ -544,20 +654,37 @@ class CashMovement(Base):
 	amount = Column(Numeric(10, 2), nullable=False)
 	description = Column(String(500), nullable=True)
 	time = Column(DateTime, default=utcnow, nullable=False)
-	updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False, index=True)
+	updated_at = Column(
+		DateTime, default=utcnow, onupdate=utcnow, nullable=False, index=True
+	)
 
 	session_id = Column(String(36), nullable=False, index=True)
-	session = relationship('CashSession', back_populates='movements', overlaps='customer')
+	session = relationship(
+		'CashSession', back_populates='movements', overlaps='customer'
+	)
 
 	# FK directa al cliente — evita búsquedas frágiles por texto en get_customer_ledger
 	customer_id = Column(String(36), nullable=True, index=True)
-	customer = relationship('Customer', foreign_keys=[customer_id], overlaps='session,movements')
+	customer = relationship(
+		'Customer', foreign_keys=[customer_id], overlaps='session,movements'
+	)
 
 	__table_args__ = (
 		CheckConstraint('amount > 0', name='chk_cash_amount_positive'),
-		CheckConstraint("movement_type IN ('ingreso', 'gasto', 'venta', 'venta_digital', 'gasto_digital', 'devolucion', 'cobro_cliente', 'pago_proveedor')", name='chk_cash_movement_type'),
-		ForeignKeyConstraint(['tenant_id', 'session_id'], ['cash_sessions.tenant_id', 'cash_sessions.id'], name='fk_cash_movement_session_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'customer_id'], ['customers.tenant_id', 'customers.id'], name='fk_cash_movement_customer_same_tenant'),
+		CheckConstraint(
+			"movement_type IN ('ingreso', 'gasto', 'venta', 'venta_digital', 'gasto_digital', 'devolucion', 'cobro_cliente', 'pago_proveedor')",
+			name='chk_cash_movement_type',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'session_id'],
+			['cash_sessions.tenant_id', 'cash_sessions.id'],
+			name='fk_cash_movement_session_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'customer_id'],
+			['customers.tenant_id', 'customers.id'],
+			name='fk_cash_movement_customer_same_tenant',
+		),
 		Index('ix_cash_mov_session_time', 'session_id', 'time'),
 	)
 
@@ -581,20 +708,34 @@ class Purchase(Base):
 	user_id = Column(String(36), nullable=False, index=True)
 
 	supplier_id = Column(String(36), nullable=True, index=True)
-	supplier = relationship('Supplier', back_populates='purchases', overlaps='items,returns')
+	supplier = relationship(
+		'Supplier', back_populates='purchases', overlaps='items,returns'
+	)
 
 	items = relationship(
-		'PurchaseDetail', back_populates='purchase', cascade='all, delete-orphan',
-		overlaps='supplier,returns,variant'
+		'PurchaseDetail',
+		back_populates='purchase',
+		cascade='all, delete-orphan',
+		overlaps='supplier,returns,variant',
 	)
 	returns = relationship(
-		'PurchaseReturn', back_populates='purchase', cascade='all, delete-orphan',
-		overlaps='supplier,items'
+		'PurchaseReturn',
+		back_populates='purchase',
+		cascade='all, delete-orphan',
+		overlaps='supplier,items',
 	)
 
 	__table_args__ = (
-		ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'], name='fk_purchase_user_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'supplier_id'], ['suppliers.tenant_id', 'suppliers.id'], name='fk_purchase_supplier_same_tenant'),
+		ForeignKeyConstraint(
+			['tenant_id', 'user_id'],
+			['users.tenant_id', 'users.id'],
+			name='fk_purchase_user_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'supplier_id'],
+			['suppliers.tenant_id', 'suppliers.id'],
+			name='fk_purchase_supplier_same_tenant',
+		),
 		UniqueConstraint('tenant_id', 'id', name='uq_purchases_tenant_id'),
 		CheckConstraint('total_amount >= 0', name='chk_purchase_total_positive'),
 	)
@@ -620,8 +761,16 @@ class PurchaseDetail(Base):
 	variant = relationship('ArticleVariant', overlaps='purchase,items')
 
 	__table_args__ = (
-		ForeignKeyConstraint(['tenant_id', 'purchase_id'], ['purchases.tenant_id', 'purchases.id'], name='fk_purchase_detail_purchase_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'variant_id'], ['article_variants.tenant_id', 'article_variants.id'], name='fk_purchase_detail_variant_same_tenant'),
+		ForeignKeyConstraint(
+			['tenant_id', 'purchase_id'],
+			['purchases.tenant_id', 'purchases.id'],
+			name='fk_purchase_detail_purchase_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'variant_id'],
+			['article_variants.tenant_id', 'article_variants.id'],
+			name='fk_purchase_detail_variant_same_tenant',
+		),
 		UniqueConstraint('tenant_id', 'id', name='uq_purchase_details_tenant_id'),
 		CheckConstraint('quantity > 0', name='chk_purchase_detail_quantity_positive'),
 		CheckConstraint('unit_cost >= 0', name='chk_purchase_detail_cost_positive'),
@@ -656,8 +805,16 @@ class PurchaseReturn(Base):
 	)
 
 	__table_args__ = (
-		ForeignKeyConstraint(['tenant_id', 'purchase_id'], ['purchases.tenant_id', 'purchases.id'], name='fk_purchase_return_purchase_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'], name='fk_purchase_return_user_same_tenant'),
+		ForeignKeyConstraint(
+			['tenant_id', 'purchase_id'],
+			['purchases.tenant_id', 'purchases.id'],
+			name='fk_purchase_return_purchase_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'user_id'],
+			['users.tenant_id', 'users.id'],
+			name='fk_purchase_return_user_same_tenant',
+		),
 		UniqueConstraint('tenant_id', 'id', name='uq_purchase_returns_tenant_id'),
 		CheckConstraint('total_refund >= 0', name='chk_purchase_return_total_positive'),
 	)
@@ -677,19 +834,39 @@ class PurchaseReturnItem(Base):
 	)
 
 	purchase_return_id = Column(String(36), nullable=False, index=True)
-	purchase_return = relationship('PurchaseReturn', back_populates='items', overlaps='variant')
+	purchase_return = relationship(
+		'PurchaseReturn', back_populates='items', overlaps='variant'
+	)
 
 	purchase_detail_id = Column(String(36), nullable=True, index=True)
 	variant_id = Column(String(36), nullable=True)
 	variant = relationship('ArticleVariant', overlaps='purchase_return,items')
 
 	__table_args__ = (
-		ForeignKeyConstraint(['tenant_id', 'purchase_return_id'], ['purchase_returns.tenant_id', 'purchase_returns.id'], name='fk_purchase_return_item_parent_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'purchase_detail_id'], ['purchase_details.tenant_id', 'purchase_details.id'], name='fk_purchase_return_item_detail_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'variant_id'], ['article_variants.tenant_id', 'article_variants.id'], name='fk_purchase_return_item_variant_same_tenant'),
-		CheckConstraint('quantity_returned > 0', name='chk_purchase_return_item_quantity_positive'),
-		CheckConstraint('unit_cost >= 0', name='chk_purchase_return_item_cost_positive'),
-		CheckConstraint('subtotal >= 0', name='chk_purchase_return_item_subtotal_positive'),
+		ForeignKeyConstraint(
+			['tenant_id', 'purchase_return_id'],
+			['purchase_returns.tenant_id', 'purchase_returns.id'],
+			name='fk_purchase_return_item_parent_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'purchase_detail_id'],
+			['purchase_details.tenant_id', 'purchase_details.id'],
+			name='fk_purchase_return_item_detail_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'variant_id'],
+			['article_variants.tenant_id', 'article_variants.id'],
+			name='fk_purchase_return_item_variant_same_tenant',
+		),
+		CheckConstraint(
+			'quantity_returned > 0', name='chk_purchase_return_item_quantity_positive'
+		),
+		CheckConstraint(
+			'unit_cost >= 0', name='chk_purchase_return_item_cost_positive'
+		),
+		CheckConstraint(
+			'subtotal >= 0', name='chk_purchase_return_item_subtotal_positive'
+		),
 	)
 
 
@@ -707,14 +884,29 @@ class ComboItem(Base):
 	)
 
 	combo = relationship(
-		'ArticleVariant', foreign_keys=[combo_id], backref='ingredients', overlaps='ingredient'
+		'ArticleVariant',
+		foreign_keys=[combo_id],
+		backref='ingredients',
+		overlaps='ingredient',
 	)
-	ingredient = relationship('ArticleVariant', foreign_keys=[ingredient_id], overlaps='combo,ingredients')
+	ingredient = relationship(
+		'ArticleVariant', foreign_keys=[ingredient_id], overlaps='combo,ingredients'
+	)
 
 	__table_args__ = (
-		ForeignKeyConstraint(['tenant_id', 'combo_id'], ['article_variants.tenant_id', 'article_variants.id'], name='fk_combo_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'ingredient_id'], ['article_variants.tenant_id', 'article_variants.id'], name='fk_combo_ingredient_same_tenant'),
-		UniqueConstraint('tenant_id', 'combo_id', 'ingredient_id', name='uq_combo_ingredient'),
+		ForeignKeyConstraint(
+			['tenant_id', 'combo_id'],
+			['article_variants.tenant_id', 'article_variants.id'],
+			name='fk_combo_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'ingredient_id'],
+			['article_variants.tenant_id', 'article_variants.id'],
+			name='fk_combo_ingredient_same_tenant',
+		),
+		UniqueConstraint(
+			'tenant_id', 'combo_id', 'ingredient_id', name='uq_combo_ingredient'
+		),
 		CheckConstraint('combo_id <> ingredient_id', name='chk_combo_not_self'),
 		CheckConstraint('quantity_required > 0', name='chk_combo_qty_positive'),
 	)
@@ -747,18 +939,34 @@ class Quotation(Base):
 	user = relationship('User', overlaps='customer,items')
 	customer = relationship('Customer', overlaps='user,items')
 	items = relationship(
-		'QuotationItem', back_populates='quotation', cascade='all, delete-orphan',
-		overlaps='user,customer,variant'
+		'QuotationItem',
+		back_populates='quotation',
+		cascade='all, delete-orphan',
+		overlaps='user,customer,variant',
 	)
 
 	__table_args__ = (
-		ForeignKeyConstraint(['tenant_id', 'user_id'], ['users.tenant_id', 'users.id'], name='fk_quotation_user_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'customer_id'], ['customers.tenant_id', 'customers.id'], name='fk_quotation_customer_same_tenant'),
+		ForeignKeyConstraint(
+			['tenant_id', 'user_id'],
+			['users.tenant_id', 'users.id'],
+			name='fk_quotation_user_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'customer_id'],
+			['customers.tenant_id', 'customers.id'],
+			name='fk_quotation_customer_same_tenant',
+		),
 		UniqueConstraint('tenant_id', 'id', name='uq_quotations_tenant_id'),
 		UniqueConstraint('tenant_id', 'number', name='uix_tenant_quotation_number'),
 		CheckConstraint('total_amount >= 0', name='chk_quotation_total_positive'),
-		CheckConstraint('discount_amount >= 0 AND discount_amount <= total_amount', name='chk_quotation_discount_valid'),
-		CheckConstraint("status IN ('borrador', 'enviada', 'aceptada', 'rechazada', 'vencida', 'convertida', 'cancelada')", name='chk_quotation_status'),
+		CheckConstraint(
+			'discount_amount >= 0 AND discount_amount <= total_amount',
+			name='chk_quotation_discount_valid',
+		),
+		CheckConstraint(
+			"status IN ('borrador', 'enviada', 'aceptada', 'rechazada', 'vencida', 'convertida', 'cancelada')",
+			name='chk_quotation_status',
+		),
 	)
 
 
@@ -783,8 +991,16 @@ class QuotationItem(Base):
 	variant = relationship('ArticleVariant', overlaps='quotation,items')
 
 	__table_args__ = (
-		ForeignKeyConstraint(['tenant_id', 'quotation_id'], ['quotations.tenant_id', 'quotations.id'], name='fk_quotation_item_quotation_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'variant_id'], ['article_variants.tenant_id', 'article_variants.id'], name='fk_quotation_item_variant_same_tenant'),
+		ForeignKeyConstraint(
+			['tenant_id', 'quotation_id'],
+			['quotations.tenant_id', 'quotations.id'],
+			name='fk_quotation_item_quotation_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'variant_id'],
+			['article_variants.tenant_id', 'article_variants.id'],
+			name='fk_quotation_item_variant_same_tenant',
+		),
 		CheckConstraint('quantity > 0', name='chk_quotation_item_quantity_positive'),
 		CheckConstraint('unit_price >= 0', name='chk_quotation_item_price_positive'),
 		CheckConstraint('subtotal >= 0', name='chk_quotation_item_subtotal_positive'),
@@ -828,11 +1044,30 @@ class Promotion(Base):
 	category = relationship('Category', foreign_keys=[category_id])
 
 	__table_args__ = (
-		ForeignKeyConstraint(['tenant_id', 'variant_id'], ['article_variants.tenant_id', 'article_variants.id'], name='fk_promotion_variant_same_tenant'),
-		ForeignKeyConstraint(['tenant_id', 'category_id'], ['categories.tenant_id', 'categories.id'], name='fk_promotion_category_same_tenant'),
-		CheckConstraint("promo_type IN ('pct', 'nxm', 'fixed')", name='chk_promotion_type'),
+		ForeignKeyConstraint(
+			['tenant_id', 'variant_id'],
+			['article_variants.tenant_id', 'article_variants.id'],
+			name='fk_promotion_variant_same_tenant',
+		),
+		ForeignKeyConstraint(
+			['tenant_id', 'category_id'],
+			['categories.tenant_id', 'categories.id'],
+			name='fk_promotion_category_same_tenant',
+		),
+		CheckConstraint(
+			"promo_type IN ('pct', 'nxm', 'fixed')", name='chk_promotion_type'
+		),
 		CheckConstraint('date_to >= date_from', name='chk_promotion_date_range'),
-		CheckConstraint("(promo_type <> 'nxm') OR (buy_qty > 0 AND pay_qty > 0 AND pay_qty <= buy_qty)", name='chk_promotion_nxm_values'),
-		CheckConstraint("(promo_type <> 'pct') OR (discount_value > 0 AND discount_value <= 100)", name='chk_promotion_pct_value'),
-		CheckConstraint("(promo_type <> 'fixed') OR discount_value >= 0", name='chk_promotion_fixed_value'),
+		CheckConstraint(
+			"(promo_type <> 'nxm') OR (buy_qty > 0 AND pay_qty > 0 AND pay_qty <= buy_qty)",
+			name='chk_promotion_nxm_values',
+		),
+		CheckConstraint(
+			"(promo_type <> 'pct') OR (discount_value > 0 AND discount_value <= 100)",
+			name='chk_promotion_pct_value',
+		),
+		CheckConstraint(
+			"(promo_type <> 'fixed') OR discount_value >= 0",
+			name='chk_promotion_fixed_value',
+		),
 	)

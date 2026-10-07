@@ -8,7 +8,8 @@ from CTkMessagebox import CTkMessagebox
 from controllers.license_controller import LicenseController
 from core.context import AppContext
 from database.migrations import run_migrations
-from utils.config import get_engine
+from utils.app_paths import app_data_dir
+from utils.config import get_engine, prepare_local_database
 from utils.settings_manager import SettingsManager
 from utils.settings_manager import get as settings_get
 from views.login_view import LoginView
@@ -18,20 +19,7 @@ from views.setup_wizard_view import SetupWizard
 
 
 def _setup_logging():
-	if getattr(sys, 'frozen', False):
-		_base = os.path.dirname(sys.executable)
-		log_path = os.path.join(_base, 'cloudpos.log')
-		try:
-			open(log_path, 'a').close()
-		except OSError:
-			_appdata = os.environ.get('APPDATA', os.path.expanduser('~'))
-			_base = os.path.join(_appdata, 'CloudPOS')
-			os.makedirs(_base, exist_ok=True)
-			log_path = os.path.join(_base, 'cloudpos.log')
-	else:
-		log_path = os.path.join(
-			os.path.dirname(os.path.abspath(__file__)), 'cloudpos.log'
-		)
+	log_path = app_data_dir() / 'cloudpos.log'
 	logging.basicConfig(
 		filename=log_path,
 		level=logging.WARNING,
@@ -71,6 +59,7 @@ class PosApp(ctk.CTk):
 		super().__init__()
 
 		from utils.styles import apply_treeview_style
+
 		apply_treeview_style()
 
 		self.title('CloudPOS - Sistema de Gestion')
@@ -168,8 +157,13 @@ class PosApp(ctk.CTk):
 			# SQLite is intentionally local to this installation. Opening a .db
 			# through an SMB/UNC share is not a multi-user database protocol and can
 			# corrupt WAL state or silently lose concurrent cashier operations.
-			self.db_engine = get_engine()
-			run_migrations(self.db_engine)
+			engine = get_engine()
+			try:
+				run_migrations(engine)
+			except Exception:
+				engine.dispose()
+				raise
+			self.db_engine = engine
 			from utils.sync_worker import SyncWorker
 
 			self._sync_worker = SyncWorker(self.db_engine)
@@ -191,18 +185,16 @@ class PosApp(ctk.CTk):
 			return
 
 		# ── Modo Principal (o cajero sin configurar) ─────────────────────
-		_dir = (
-			os.path.dirname(sys.executable)
-			if getattr(sys, 'frozen', False)
-			else os.path.dirname(os.path.abspath(__file__))
-		)
-		_db = os.path.join(_dir, 'pos_system.db')
-		_lic = os.path.join(_dir, 'license.dat')
-		if not os.path.exists(_db) or not os.path.exists(_lic):
-			self.show_wizard()
+		try:
+			_db = prepare_local_database()
+			if not _db.exists() or not os.path.exists(self.license_ctrl.license_file):
+				self.show_wizard()
+				return
+			self._get_or_create_engine()
+		except Exception as exc:
+			logger.exception('No se pudo inicializar la base local')
+			self._show_database_error(str(exc))
 			return
-
-		self._get_or_create_engine()
 
 		is_valid, status_msg = self.license_ctrl.check_license_status()
 		if is_valid:
@@ -210,13 +202,32 @@ class PosApp(ctk.CTk):
 		else:
 			self.show_license_lock(status_msg)
 
+	def _show_database_error(self, message):
+		frame = ctk.CTkFrame(self)
+		frame.pack(fill='both', expand=True, padx=40, pady=40)
+		ctk.CTkLabel(
+			frame, text='No se pudo abrir la base de datos', font=('Arial', 20, 'bold')
+		).pack(pady=(30, 15))
+		ctk.CTkLabel(
+			frame,
+			text=message
+			+ '\n\nTus datos se conservan. Contactá a soporte si el problema continúa.',
+			wraplength=800,
+			justify='left',
+		).pack(padx=20, pady=15)
+		ctk.CTkButton(frame, text='Reintentar', command=self.check_system_state).pack(
+			pady=15
+		)
+
 	def _show_shared_sqlite_disabled(self):
 		"""Explain why the retired network-SQLite cashier mode cannot be opened."""
 		frame = ctk.CTkFrame(self)
 		frame.pack(fill='both', expand=True, padx=60, pady=60)
 		ctk.CTkLabel(
-			frame, text='Configuración de terminal desactualizada',
-			font=('Arial', 20, 'bold'), text_color='#E67E22',
+			frame,
+			text='Configuración de terminal desactualizada',
+			font=('Arial', 20, 'bold'),
+			text_color='#E67E22',
 		).pack(pady=(40, 12))
 		ctk.CTkLabel(
 			frame,
@@ -226,9 +237,14 @@ class PosApp(ctk.CTk):
 				'Configurá esta instalación como independiente; los reportes remotos se '
 				'publican mediante el complemento Cloud, sin compartir el archivo local.'
 			),
-			font=('Arial', 12), text_color='#AAAAAA', justify='center', wraplength=620,
+			font=('Arial', 12),
+			text_color='#AAAAAA',
+			justify='center',
+			wraplength=620,
 		).pack(pady=12)
-		ctk.CTkButton(frame, text='Abrir configuración', command=self.show_wizard).pack(pady=(18, 8))
+		ctk.CTkButton(frame, text='Abrir configuración', command=self.show_wizard).pack(
+			pady=(18, 8)
+		)
 
 	def _on_cashier_path_checked(self, exists: bool, db_path: str):
 		self._clear_window()
@@ -324,11 +340,15 @@ class PosApp(ctk.CTk):
 		useful catalogue/history fallback without pretending those writes are safe.
 		"""
 		offline_path = self._offline_db_path()
-		from utils.config import make_engine
 		from urllib.parse import quote
 
-		offline_uri = 'sqlite+pysqlite:///file:' + quote(
-			offline_path.replace('\\', '/'), safe='/:') + '?mode=ro&uri=true'
+		from utils.config import make_engine
+
+		offline_uri = (
+			'sqlite+pysqlite:///file:'
+			+ quote(offline_path.replace('\\', '/'), safe='/:')
+			+ '?mode=ro&uri=true'
+		)
 		self.db_engine = make_engine(offline_uri)
 		# Guardamos en settings que estamos en modo offline para mostrar banner
 		from utils.settings_manager import set as settings_set

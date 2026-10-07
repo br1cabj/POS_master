@@ -11,8 +11,8 @@ Respaldo y restauración de la base de datos local (SQLite).
 
 import logging
 import sqlite3
-import sys
 import threading
+from contextlib import closing
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -37,13 +37,11 @@ class BackupController:
 	# ── rutas ─────────────────────────────────────────────────────────────────
 
 	def _db_path(self) -> Path:
-		if self._engine is not None and self._engine.dialect.name == 'sqlite':
-			database = self._engine.url.database
-			if database and database != ':memory:' and not database.startswith('file:'):
-				return Path(database).expanduser().resolve()
-		if getattr(sys, 'frozen', False):
-			return Path(sys.executable).parent / 'pos_system.db'
-		return Path(__file__).parent.parent / 'pos_system.db'
+		from utils.config import get_local_database_path
+
+		return get_local_database_path(
+			self._engine.url if self._engine is not None else None
+		)
 
 	@staticmethod
 	def backup_dir() -> Path:
@@ -72,19 +70,16 @@ class BackupController:
 		No requiere cerrar el engine — maneja WAL correctamente.
 		Retorna (ok, timestamp_legible | mensaje_error).
 		"""
-		db = self._db_path()
-		if not db.exists():
-			return False, 'No se encontró la base de datos local.'
-
 		try:
-			timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+			db = self._db_path()
+			if not db.exists():
+				return False, 'No se encontró la base de datos local.'
+			timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
 			dest = self.backup_dir() / f'backup_{timestamp}.db'
 
-			src = sqlite3.connect(str(db))
-			dst = sqlite3.connect(str(dest))
-			src.backup(dst)
-			dst.close()
-			src.close()
+			with closing(sqlite3.connect(db.as_uri() + '?mode=ro', uri=True)) as src:
+				with closing(sqlite3.connect(str(dest))) as dst:
+					src.backup(dst)
 
 			# Conservar solo los últimos _MAX_BACKUPS
 			all_backups = sorted(self.backup_dir().glob('backup_*.db'))
@@ -362,26 +357,45 @@ class BackupController:
 		if not src.exists():
 			return False, 'El archivo de respaldo no existe.'
 
-		db = self._db_path()
 		try:
+			db = self._db_path()
+			if src.resolve() == db:
+				return False, 'El respaldo elegido es la misma base que está en uso.'
+			from sqlalchemy.engine import URL
+
+			from database.migrations import validate_schema
+			from utils.config import make_engine
+
+			validation_engine = make_engine(
+				URL.create(
+					'sqlite+pysqlite',
+					database=src.resolve().as_uri(),
+					query={'mode': 'ro', 'uri': 'true'},
+				)
+			)
+			try:
+				validate_schema(validation_engine)
+			finally:
+				validation_engine.dispose()
 			# Copia de seguridad del estado actual antes de restaurar
 			safety = db.parent / '_pre_restore.db'
-			cur = sqlite3.connect(str(db))
-			saf = sqlite3.connect(str(safety))
-			cur.backup(saf)
-			saf.close()
-			cur.close()
+			if db.exists():
+				with closing(
+					sqlite3.connect(db.as_uri() + '?mode=ro', uri=True)
+				) as cur:
+					with closing(sqlite3.connect(str(safety))) as saf:
+						cur.backup(saf)
 
 			# Descartar el pool de SQLAlchemy antes de reemplazar el archivo
 			if self._engine:
 				self._engine.dispose()
 
 			# Restaurar
-			bk = sqlite3.connect(str(src))
-			dst = sqlite3.connect(str(db))
-			bk.backup(dst)
-			dst.close()
-			bk.close()
+			with closing(
+				sqlite3.connect(src.resolve().as_uri() + '?mode=ro', uri=True)
+			) as bk:
+				with closing(sqlite3.connect(str(db))) as dst:
+					bk.backup(dst)
 
 			logger.info('Base restaurada desde %s', src)
 			return True, 'OK'

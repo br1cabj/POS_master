@@ -8,11 +8,12 @@ Carga valores por defecto si el archivo no existe o está corrupto.
 import json
 import logging
 import os
-import sys
 import tempfile
 import threading
 from decimal import Decimal
 from pathlib import Path
+
+from utils.app_paths import app_data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -23,14 +24,7 @@ _settings_lock = threading.RLock()
 
 def _app_data_dir() -> Path:
 	"""Devuelve el directorio seguro para guardar datos (Appdata/Local o ~/.config)."""
-	if sys.platform == 'win32':
-		base_dir = Path(os.getenv('LOCALAPPDATA', os.path.expanduser('~')))
-	else:
-		base_dir = Path(os.path.expanduser('~')) / '.config'
-
-	app_folder = base_dir / 'CloudPOS'
-	app_folder.mkdir(parents=True, exist_ok=True)
-	return app_folder
+	return app_data_dir()
 
 
 def get_user_data_dir() -> str:

@@ -58,7 +58,7 @@ class PromoController(BaseController):
 				if now.weekday() not in allowed:
 					return False
 			except ValueError:
-				pass
+				return False
 		time_from = promo_dict.get('time_from')
 		time_to = promo_dict.get('time_to')
 		if time_from and time_to:
@@ -69,7 +69,7 @@ class PromoController(BaseController):
 				if not (tf <= now_time <= tt):
 					return False
 			except ValueError:
-				pass
+				return False
 		return True
 
 	def _status_label(self, promo_dict) -> str:
@@ -166,7 +166,7 @@ class PromoController(BaseController):
 				return result
 			except Exception as e:
 				logger.error('get_active_promos_now: %s', e, exc_info=True)
-				return []
+				raise
 
 	def create_promo(self, tenant_id, data: dict):
 		try:

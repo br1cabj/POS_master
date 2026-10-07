@@ -16,6 +16,8 @@ This release focuses on transaction integrity, cloud-dashboard hardening, and re
 - **Professional labels:** validated EAN/UPC and Code128 barcodes, persisted internal codes, driver-based printing, five redesigned templates, and a live preview rendered from the exact PDF page sent to the printer.
 - **Web administration:** refreshed session handling, authorization behavior, and dashboard/customer-ledger views.
 - **Database baseline:** new installations use a versioned, tenant-safe schema with composite foreign keys, constrained document states, per-warehouse sale attribution, and inventory uniqueness by batch/location. SQLite stays local to one installation; it is never opened through a shared network folder.
+- **Reliable desktop storage:** writable per-user data paths, non-destructive adoption of legacy installations, strict schema validation at startup, and validated backup restoration.
+- **Consistent checkout:** repricing across lists/customers, current-price and stock preflight, transactional total verification, non-blocking checkout, and complete ticket preparation before cancellation. See [the sales-flow documentation](docs/sales-flow.md).
 
 See [CHANGELOG.md](CHANGELOG.md) for implementation notes and upgrade considerations.
 
@@ -86,6 +88,12 @@ python main.py
 ```
 *On first launch, a Setup Wizard will guide you through creating the initial tenant, branch, and admin user.*
 
+Desktop data is stored in `%LOCALAPPDATA%\CloudPOS` on Windows (or `~/.config/CloudPOS` on other platforms). The database, licences, logs and business assets can be written without administrator privileges, even when the executable is installed in Program Files. Backups use the same configured database path.
+
+Older default installations are adopted once: the database is copied through SQLite's backup API, including committed WAL transactions, and licences are copied into the user-data folder. Existing destination files are never overwritten and the originals remain intact. The old `.env` default `sqlite:///pos_system.db` is also adopted; an explicit custom database location is respected.
+
+Startup and the setup wizard validate tables, column types/nullability, keys, CHECK constraints and index definitions before accepting an existing database. Incompatible versions or altered schemas stop startup with a recoverable error; they are not silently repaired. Backup restoration validates the selected schema before replacing data. Future model changes require a reviewed migration and schema-version update.
+
 ### 2. Web Dashboard (Remote Admin)
 
 ```bash
@@ -109,6 +117,8 @@ pytest tests/ -v
 ```
 
 The label flow is covered by controller tests. The in-app preview is intentionally generated from the same PDF page used for printing, so offers, pricing, logos, barcodes, and the Dual layout cannot drift apart.
+
+Sales regression coverage includes controller transactions, stock/cash rollback, pricing, scale barcodes, shortcuts, ticket restoration, and real Tk widgets built off-screen at 100%, 125%, and 150% scaling. Desktop-path and schema-bootstrap tests cover legacy data adoption and rejection of incompatible databases. The full suite passed **144 tests** for this delivery; physical peripherals and final visual layout still require validation on the target PC.
 
 For the web dashboard:
 
