@@ -57,6 +57,9 @@ Thumbs.db
 .ruff_cache/
 .pytest_cache/
 pytest-cache-files-*/
+/.db-pytest-*/
+/.db-test-data-*/
+/.test-db-*/
 *.bak
 *.tmp
 

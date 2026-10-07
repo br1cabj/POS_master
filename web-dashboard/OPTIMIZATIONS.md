@@ -15,14 +15,6 @@
   - Retry automático (2 intentos)
   - DevTools para debugging en desarrollo
 
-#### Zustand Store
-- **Archivo**: `src/store/uiStore.js`
-- **Beneficios**:
-  - Estado UI global ligero y eficiente
-  - Sin re-renders innecesarios (solo componentes suscritos a slices específicos)
-  - Manejo de expanded rows, sidebar state, global filters
-  - API simple y type-safe
-
 ### 2. Optimizaciones de Renderizado
 
 #### React.memo en Componentes
@@ -75,18 +67,7 @@
   - optimizeDeps para deps críticos
   - Chunk size warning limit aumentado
 
-### 6. Hooks de Performance Personalizados
-- **Archivo**: `src/hooks/usePerformance.js`
-- **Hooks disponibles**:
-  - `useDebounce` - Debounce de valores
-  - `useThrottle` - Throttle de callbacks
-  - `usePrevious` - Valor anterior de una variable
-  - `useIntersectionObserver` - Lazy loading trigger
-  - `useLocalStorage` - Persistencia ligera
-  - `useMediaQuery` - Responsive hooks
-  - `memoize` - Memoización de funciones puras
-
-### 7. Backward Compatibility
+### 6. Backward Compatibility
 - **Archivo**: `src/hooks/useApiQuery.js`
 - El hook consulta la API privada del VPS
 - Los componentes existentes usan la misma interfaz de consulta
@@ -123,22 +104,6 @@ const { data, loading, error, refetch } = useApiQuery('sales', {
   select: 'id, total_amount',
   refreshInterval: 120000, // auto-refresh cada 2 min
 });
-```
-
-### Zustand UI Store
-```jsx
-import { useUIStore } from '@/store/uiStore';
-
-const { expandedRows, toggleRow } = useUIStore();
-toggleRow('sales', saleId);
-```
-
-### Performance Hooks
-```jsx
-import { useDebounce } from '@/hooks/usePerformance';
-
-const [search, setSearch] = useState('');
-const debouncedSearch = useDebounce(search, 300);
 ```
 
 ### Skeleton Loaders
